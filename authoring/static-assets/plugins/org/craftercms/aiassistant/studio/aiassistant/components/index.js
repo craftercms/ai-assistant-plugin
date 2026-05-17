@@ -31214,6 +31214,15 @@ function AiAssistantChat(props) {
     }, []);
     const stopStreaming = useCallback(() => {
         userStopRequestedRef.current = true;
+        setSending(false);
+        setMessages((prev) => prev.map((m) => m.isStreaming
+            ? {
+                ...m,
+                isStreaming: false,
+                pipelineHeartbeat: undefined,
+                summarizingResults: false
+            }
+            : m));
         abortRef.current?.abort();
     }, []);
     /** Remove one bubble from history (demos / retakes). Aborts stream if removing the in-flight assistant or its paired user message. */
@@ -31411,6 +31420,9 @@ function AiAssistantChat(props) {
                     pushStreamLog(sessionStreamLogRef, `${new Date().toISOString()}\t${jsonLine}`);
                 },
                 onMessage: (evt) => {
+                    if (userStopRequestedRef.current) {
+                        return;
+                    }
                     const evtChatId = evt.metadata?.chatId;
                     if (evtChatId && !chatId)
                         setChatId(evtChatId);

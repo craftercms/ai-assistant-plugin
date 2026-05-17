@@ -1733,6 +1733,19 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
 
   const stopStreaming = useCallback(() => {
     userStopRequestedRef.current = true;
+    setSending(false);
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.isStreaming
+          ? {
+              ...m,
+              isStreaming: false,
+              pipelineHeartbeat: undefined,
+              summarizingResults: false
+            }
+          : m
+      )
+    );
     abortRef.current?.abort();
   }, []);
 
@@ -1966,6 +1979,9 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
           pushStreamLog(sessionStreamLogRef, `${new Date().toISOString()}\t${jsonLine}`);
         },
         onMessage: (evt) => {
+          if (userStopRequestedRef.current) {
+            return;
+          }
           const evtChatId = evt.metadata?.chatId;
           if (evtChatId && !chatId) setChatId(evtChatId);
 
