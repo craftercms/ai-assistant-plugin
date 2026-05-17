@@ -226,6 +226,80 @@ const initToolbarConfig = /*#__PURE__*/ createAction('INIT_TOOLBAR_CONFIG');
 const pushIcePanelPage = /*#__PURE__*/ createAction('PUSH_ICE_PANEL_PAGE');
 
 /**
+ * Server SSE pipeline timing on the terminal frame only ({@code metadata.completed} or {@code metadata.error}).
+ * Ignore heartbeats and tool-progress rows — those are not completion summaries.
+ */
+/** Coerces JSON numbers or numeric strings (Groovy / proxies sometimes stringify). */
+function parseNonNegativeNumber(value) {
+    if (value == null || value === '') {
+        return undefined;
+    }
+    const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value.trim()) : Number(value);
+    if (!Number.isFinite(n) || n < 0) {
+        return undefined;
+    }
+    return n;
+}
+/** True when the SSE row is a normal or error completion (not a mid-stream heartbeat/progress row). */
+function isTerminalMetadata(metadata) {
+    if (!metadata || typeof metadata !== 'object') {
+        return false;
+    }
+    return metadata.completed === true || metadata.error === true;
+}
+/**
+ * Mid-stream rows that must never contribute pipeline timing even if numeric keys are present.
+ * Terminal frames may still carry a stale {@code status} from the last flux chunk — do not reject those.
+ */
+function isNonTerminalProgressStatus(metadata) {
+    const status = metadata.status != null ? String(metadata.status).trim() : '';
+    if (!status) {
+        return false;
+    }
+    if (status === 'pipeline-heartbeat' || status === 'tool-progress' || status === 'tool-workflow-hint') {
+        return !isTerminalMetadata(metadata);
+    }
+    return false;
+}
+function extractTerminalPipelineTiming(metadata) {
+    if (!metadata || typeof metadata !== 'object') {
+        return null;
+    }
+    if (!isTerminalMetadata(metadata)) {
+        return null;
+    }
+    if (isNonTerminalProgressStatus(metadata)) {
+        return null;
+    }
+    const wallRaw = parseNonNegativeNumber(metadata.toolPipelineWallMs);
+    const wallMs = wallRaw != null ? Math.round(wallRaw) : undefined;
+    const totalSec = parseNonNegativeNumber(metadata.toolPipelineTotalSec);
+    const taskSec = parseNonNegativeNumber(metadata.toolPipelineTaskCompletionSec);
+    if (wallMs === undefined && totalSec === undefined && taskSec === undefined) {
+        return null;
+    }
+    return {
+        ...(wallMs !== undefined ? { toolPipelineWallMs: wallMs } : {}),
+        ...(totalSec !== undefined ? { toolPipelineTotalSec: totalSec } : {}),
+        ...(taskSec !== undefined ? { toolPipelineTaskCompletionSec: taskSec } : {})
+    };
+}
+/** Prefer newly extracted timing; keep existing message fields when the terminal frame has no timing keys. */
+function mergePipelineTimingFields(existing, incoming) {
+    const out = {};
+    const wall = incoming?.toolPipelineWallMs ?? existing?.toolPipelineWallMs;
+    const total = incoming?.toolPipelineTotalSec ?? existing?.toolPipelineTotalSec;
+    const task = incoming?.toolPipelineTaskCompletionSec ?? existing?.toolPipelineTaskCompletionSec;
+    if (wall !== undefined)
+        out.toolPipelineWallMs = wall;
+    if (total !== undefined)
+        out.toolPipelineTotalSec = total;
+    if (task !== undefined)
+        out.toolPipelineTaskCompletionSec = task;
+    return out;
+}
+
+/**
  * Thrown when the HTTP response body ends without an SSE frame carrying {@code metadata.completed} or
  * {@code metadata.error} — e.g. network drop, proxy reset, Studio thread died, or browser navigated away.
  */
@@ -351,16 +425,26 @@ async function streamChat(args) {
             throw new Error(`${failPrefix}: no response body reader available`);
         const decoder = new TextDecoder('utf-8');
         let buffer = '';
-        /** Server may keep the HTTP connection open after the last SSE event; resolve as soon as we see a terminal frame. */
+        /**
+         * Server may keep the HTTP connection open after the last SSE event. Do not cancel the reader on the
+         * first {@code completed} frame if it lacks pipeline timing — a follow-up terminal frame may carry
+         * {@code toolPipelineTotalSec} / {@code toolPipelineWallMs}.
+         */
         let sawTerminalEvent = false;
+        let sawTerminalPipelineTiming = false;
         const dispatchSseDataLine = (jsonLine) => {
             try {
                 onRawSseDataLine?.(jsonLine);
                 const evt = JSON.parse(jsonLine);
                 onMessage(evt);
-                const m = evt.metadata;
-                if (m && (m.completed === true || m.error === true)) {
+                const m = evt.metadata && typeof evt.metadata === 'object'
+                    ? evt.metadata
+                    : undefined;
+                if (isTerminalMetadata(m)) {
                     sawTerminalEvent = true;
+                    if (extractTerminalPipelineTiming(m)) {
+                        sawTerminalPipelineTiming = true;
+                    }
                 }
             }
             catch (e) {
@@ -392,7 +476,7 @@ async function streamChat(args) {
                 break;
             buffer += decoder.decode(value, { stream: true });
             processBufferFrames();
-            if (sawTerminalEvent) {
+            if (sawTerminalPipelineTiming) {
                 try {
                     await reader.cancel();
                 }
@@ -402,6 +486,7 @@ async function streamChat(args) {
                 return;
             }
         }
+        processBufferFrames();
         if (!sawTerminalEvent) {
             throw new AiAssistantIncompleteStreamError();
         }
@@ -659,10 +744,19 @@ function buildParsedTimeline(lines) {
         if (interesting) {
             flushDeltas();
             const bullets = [];
-            if (meta.completed === true)
+            if (meta.completed === true) {
                 bullets.push('Terminal: completed=true (normal end of SSE)');
+            }
             if (meta.error === true)
                 bullets.push(`Terminal: error=true — ${previewText(String(meta.message ?? '(no message)'), 240)}`);
+            if (terminal) {
+                const wall = meta.toolPipelineWallMs;
+                const total = meta.toolPipelineTotalSec;
+                const task = meta.toolPipelineTaskCompletionSec;
+                if (wall != null || total != null || task != null) {
+                    bullets.push(`Pipeline timing: wallMs=${wall ?? '—'} taskSec=${task ?? '—'} totalSec=${total ?? '—'}`);
+                }
+            }
             if (meta.planGateFailure === true)
                 bullets.push('planGateFailure=true — UI may replace assistant output');
             if (status === 'pipeline-heartbeat') {
@@ -30723,18 +30817,18 @@ function loadConversation(siteId, agentId) {
                 const assistantPreToolsText = typeof m.assistantPreToolsText === 'string'
                     ? m.assistantPreToolsText
                     : undefined;
-                const rawWall = m.toolPipelineWallMs;
-                const toolPipelineWallMs = typeof rawWall === 'number' && Number.isFinite(rawWall) && rawWall >= 0 ? Math.round(rawWall) : undefined;
-                const rawTotal = m.toolPipelineTotalSec;
-                const toolPipelineTotalSec = typeof rawTotal === 'number' && Number.isFinite(rawTotal) && rawTotal >= 0 ? rawTotal : undefined;
+                const wallMs = parseNonNegativeNumber(m.toolPipelineWallMs);
+                const totalSec = parseNonNegativeNumber(m.toolPipelineTotalSec);
+                const taskSec = parseNonNegativeNumber(m.toolPipelineTaskCompletionSec);
                 return {
                     id: m.id,
                     role: m.role === 'assistant' || m.role === 'system' ? m.role : 'user',
                     text: m.text,
                     ...(assistantPreToolsText !== undefined ? { assistantPreToolsText } : {}),
                     ...(toolProgressText !== undefined && toolProgressText !== '' ? { toolProgressText } : {}),
-                    ...(toolPipelineWallMs !== undefined ? { toolPipelineWallMs } : {}),
-                    ...(toolPipelineTotalSec !== undefined ? { toolPipelineTotalSec } : {}),
+                    ...(wallMs != null ? { toolPipelineWallMs: Math.round(wallMs) } : {}),
+                    ...(totalSec != null ? { toolPipelineTotalSec: totalSec } : {}),
+                    ...(taskSec != null ? { toolPipelineTaskCompletionSec: taskSec } : {}),
                     isStreaming: false
                 };
             })
@@ -31323,20 +31417,22 @@ function AiAssistantChat(props) {
                     const evtMsgId = evt.metadata?.messageId;
                     if (evtMsgId && !streamingMessageId)
                         streamingMessageId = evtMsgId;
-                    const isCompleted = Boolean(evt.metadata?.completed);
-                    const streamErr = Boolean(evt.metadata?.error);
-                    const streamErrMsg = evt.metadata?.message;
-                    const planGateFailure = Boolean(evt.metadata?.planGateFailure === true);
-                    const toolStatus = String(evt.metadata?.status || '');
-                    const toolPhase = String(evt.metadata?.phase || '');
-                    const toolName = String(evt.metadata?.tool || '');
+                    const md = evt.metadata && typeof evt.metadata === 'object'
+                        ? evt.metadata
+                        : undefined;
+                    const isTerminal = isTerminalMetadata(md);
+                    const isCompleted = md?.completed === true;
+                    const streamErr = md?.error === true;
+                    const streamErrMsg = md?.message;
+                    const planGateFailure = md?.planGateFailure === true;
+                    const toolStatus = String(md?.status || '');
+                    const toolPhase = String(md?.phase || '');
+                    const toolName = String(md?.tool || '');
                     /** Tool rows and the initial workflow hint share the 🛠️ strip (server uses `tool-progress` vs `tool-workflow-hint`). */
                     const isToolProgressChunk = toolStatus === 'tool-progress' || toolStatus === 'tool-workflow-hint';
                     const rawTextChunk = evt.text ?? '';
                     const textChunk = isToolProgressChunk ? rawTextChunk : stripForbiddenLazyPlanLines(rawTextChunk);
-                    const summarizingResultsHint = evt.metadata?.status === 'aiassistant-chat-phase' &&
-                        String(evt.metadata?.phase || '') === 'summarizing-results';
-                    const md = evt.metadata && typeof evt.metadata === 'object' ? evt.metadata : undefined;
+                    const summarizingResultsHint = md?.status === 'aiassistant-chat-phase' && String(md?.phase || '') === 'summarizing-results';
                     const incomingStudioAiInlineImgUrls = md?.studioAiInlineImageUrls;
                     const mdStatus = md && md.status != null ? String(md.status).trim() : '';
                     if (mdStatus === 'pipeline-heartbeat') {
@@ -31367,10 +31463,6 @@ function AiAssistantChat(props) {
                         return;
                     }
                     if (planGateFailure && streamErr && textChunk.trim()) {
-                        const rawPipePg = evt.metadata?.toolPipelineWallMs;
-                        const toolPipelineWallMsPg = typeof rawPipePg === 'number' && Number.isFinite(rawPipePg) && rawPipePg >= 0
-                            ? Math.round(rawPipePg)
-                            : undefined;
                         setMessages((prev) => prev.map((m) => m.id === assistantId
                             ? {
                                 ...m,
@@ -31381,7 +31473,7 @@ function AiAssistantChat(props) {
                                 pipelineHeartbeat: undefined,
                                 isStreaming: false,
                                 summarizingResults: false,
-                                ...(toolPipelineWallMsPg !== undefined ? { toolPipelineWallMs: toolPipelineWallMsPg } : {})
+                                ...mergePipelineTimingFields(m, extractTerminalPipelineTiming(md))
                             }
                             : m));
                         return;
@@ -31480,23 +31572,12 @@ function AiAssistantChat(props) {
                                 text: nextText,
                                 isStreaming: false,
                                 summarizingResults: false,
-                                pipelineHeartbeat: undefined
+                                pipelineHeartbeat: undefined,
+                                ...(isTerminal ? mergePipelineTimingFields(m, extractTerminalPipelineTiming(md)) : {})
                             };
                         }));
                     }
-                    if (isCompleted) {
-                        const rawPipe = evt.metadata?.toolPipelineWallMs;
-                        const toolPipelineWallMs = typeof rawPipe === 'number' && Number.isFinite(rawPipe) && rawPipe >= 0
-                            ? Math.round(rawPipe)
-                            : undefined;
-                        const rawTotalSec = evt.metadata?.toolPipelineTotalSec;
-                        const toolPipelineTotalSec = typeof rawTotalSec === 'number' && Number.isFinite(rawTotalSec) && rawTotalSec >= 0
-                            ? rawTotalSec
-                            : undefined;
-                        const rawTaskSec = evt.metadata?.toolPipelineTaskCompletionSec;
-                        const toolPipelineTaskSec = typeof rawTaskSec === 'number' && Number.isFinite(rawTaskSec) && rawTaskSec >= 0
-                            ? rawTaskSec
-                            : undefined;
+                    if (isTerminal) {
                         setMessages((prev) => prev.map((m) => {
                             if (m.id !== assistantId)
                                 return m;
@@ -31510,14 +31591,12 @@ function AiAssistantChat(props) {
                                 summarizingResults: false,
                                 pipelineHeartbeat: undefined,
                                 ...(foldReasoning ? { text: reasoningRest, reasoningStreamText: '' } : {}),
-                                ...(toolPipelineWallMs !== undefined ? { toolPipelineWallMs } : {}),
-                                ...(toolPipelineTotalSec !== undefined ? { toolPipelineTotalSec } : {}),
-                                ...(toolPipelineTaskSec !== undefined
-                                    ? { toolPipelineTaskCompletionSec: toolPipelineTaskSec }
-                                    : {})
+                                ...mergePipelineTimingFields(m, extractTerminalPipelineTiming(md))
                             };
                         }));
-                        if (formEngine &&
+                        if (isCompleted &&
+                            !streamErr &&
+                            formEngine &&
                             wantClientJsonApply &&
                             !formUpdatesApplied &&
                             typeof getAuthoringFormContext === 'function' &&
@@ -36611,6 +36690,7 @@ var recipeOrder = [
 	"revert_content_version",
 	"generate_image",
 	"template_display_change",
+	"publish_site",
 	"publish_item",
 	"new_content_item",
 	"translate_content_item"
@@ -37025,10 +37105,49 @@ var recipes = [
 		}
 	},
 	{
+		id: "publish_site",
+		title: "Publish entire site / first go-live",
+		chatEmoji: "🌐",
+		deterministicMatch: {
+			signal: "publish_site_bulk",
+			priority: 94,
+			routerReason: "deterministic_publish_site_bulk"
+		},
+		description: "Author wants to publish the whole site, everything, or first-time go-live — not a read-only page summary and not a single item unless they narrowed scope after first publish.",
+		matchHints: [
+			"publish entire site",
+			"publish everything",
+			"publish all",
+			"whole site",
+			"first publish",
+			"never published",
+			"go live on the site"
+		],
+		dontMatchHints: [
+			"what is this page",
+			"describe this page",
+			"summarize this page",
+			"translate",
+			"update",
+			"WriteContent"
+		],
+		phases: {
+			context: [
+				"Confirm siteId and publishingTarget (default live). If Studio metadata says the site has never been published, publishScope=all is required."
+			],
+			action: [
+				"Call publish_content with publishScope=all (PublishService.publishAll) for entire site / first publish. Use publishScope=bulk and bulkRootPath=/site only when publish all is unavailable and bulk go-live is appropriate. Do not pass only the open preview contentPath for entire-site requests."
+			],
+			confirmation: [
+				"Report publishScope, initialPublish flag, and path counts from the tool result — never claim entire site published if publishScope was item or only one path was deployed."
+			]
+		}
+	},
+	{
 		id: "publish_item",
 		title: "Publish or go live",
 		chatEmoji: "🚀",
-		description: "Author wants to publish the current item or a named path to live/staging.",
+		description: "Author wants to publish one item, a list of paths, or go live without sitewide / first-publish scope.",
 		matchHints: [
 			"publish",
 			"go live",
@@ -37038,13 +37157,13 @@ var recipes = [
 		],
 		phases: {
 			context: [
-				"Confirm siteId and target path from Studio context or author text."
+				"Confirm siteId, publishingTarget, and scope: single path, paths array, or bulk subtree — not entire site unless author asked."
 			],
 			action: [
-				"Use publish_content with path/contentPath; avoid unnecessary discovery reads when context already has the item path."
+				"publish_content: publishScope=item with path/contentPath for one item; publishScope=paths with paths/contentPaths array for a list (one deploy); publishScope=bulk with bulkRootPath for subtree. Avoid discovery reads when context already has paths."
 			],
 			confirmation: [
-				"Summarize publish package outcome from tool result."
+				"Summarize publishScope, path(s), and tool outcome — do not claim entire site if only one path or a short list was published."
 			]
 		}
 	},

@@ -40,6 +40,12 @@ import {
   streamChat
 } from './aiAssistantApi';
 import { formatSessionLogForDebugCopy } from './aiAssistantSessionDebugLog';
+import {
+  extractTerminalPipelineTiming,
+  isTerminalMetadata,
+  mergePipelineTimingFields,
+  parseNonNegativeNumber
+} from './pipelineTiming';
 import type { ExpertSkillConfig, PromptConfig } from './agentConfig';
 import type { AuthoringFormContextSnapshot } from './aiAssistantFormAuthoringTypes';
 import MarkdownMessage, { normalizeLlmLiteralEscapes } from './MarkdownMessage';
@@ -1244,20 +1250,20 @@ function loadConversation(siteId: string, agentId: string): StoredConversation |
             typeof (m as { assistantPreToolsText?: unknown }).assistantPreToolsText === 'string'
               ? (m as { assistantPreToolsText: string }).assistantPreToolsText
               : undefined;
-          const rawWall = (m as { toolPipelineWallMs?: unknown }).toolPipelineWallMs;
-          const toolPipelineWallMs =
-            typeof rawWall === 'number' && Number.isFinite(rawWall) && rawWall >= 0 ? Math.round(rawWall) : undefined;
-          const rawTotal = (m as { toolPipelineTotalSec?: unknown }).toolPipelineTotalSec;
-          const toolPipelineTotalSec =
-            typeof rawTotal === 'number' && Number.isFinite(rawTotal) && rawTotal >= 0 ? rawTotal : undefined;
+          const wallMs = parseNonNegativeNumber((m as { toolPipelineWallMs?: unknown }).toolPipelineWallMs);
+          const totalSec = parseNonNegativeNumber((m as { toolPipelineTotalSec?: unknown }).toolPipelineTotalSec);
+          const taskSec = parseNonNegativeNumber(
+            (m as { toolPipelineTaskCompletionSec?: unknown }).toolPipelineTaskCompletionSec
+          );
           return {
             id: m.id,
             role: m.role === 'assistant' || m.role === 'system' ? m.role : 'user',
             text: m.text,
             ...(assistantPreToolsText !== undefined ? { assistantPreToolsText } : {}),
             ...(toolProgressText !== undefined && toolProgressText !== '' ? { toolProgressText } : {}),
-            ...(toolPipelineWallMs !== undefined ? { toolPipelineWallMs } : {}),
-            ...(toolPipelineTotalSec !== undefined ? { toolPipelineTotalSec } : {}),
+            ...(wallMs != null ? { toolPipelineWallMs: Math.round(wallMs) } : {}),
+            ...(totalSec != null ? { toolPipelineTotalSec: totalSec } : {}),
+            ...(taskSec != null ? { toolPipelineTaskCompletionSec: taskSec } : {}),
             isStreaming: false
           };
         })
@@ -1966,23 +1972,25 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
           const evtMsgId = evt.metadata?.messageId;
           if (evtMsgId && !streamingMessageId) streamingMessageId = evtMsgId;
 
-          const isCompleted = Boolean(evt.metadata?.completed);
-          const streamErr = Boolean(evt.metadata?.error);
-          const streamErrMsg = evt.metadata?.message;
-          const planGateFailure = Boolean(evt.metadata?.planGateFailure === true);
-          const toolStatus = String(evt.metadata?.status || '');
-          const toolPhase = String(evt.metadata?.phase || '');
-          const toolName = String(evt.metadata?.tool || '');
+          const md =
+            evt.metadata && typeof evt.metadata === 'object'
+              ? (evt.metadata as Record<string, unknown>)
+              : undefined;
+          const isTerminal = isTerminalMetadata(md);
+          const isCompleted = md?.completed === true;
+          const streamErr = md?.error === true;
+          const streamErrMsg = md?.message;
+          const planGateFailure = md?.planGateFailure === true;
+          const toolStatus = String(md?.status || '');
+          const toolPhase = String(md?.phase || '');
+          const toolName = String(md?.tool || '');
           /** Tool rows and the initial workflow hint share the 🛠️ strip (server uses `tool-progress` vs `tool-workflow-hint`). */
           const isToolProgressChunk =
             toolStatus === 'tool-progress' || toolStatus === 'tool-workflow-hint';
           const rawTextChunk = evt.text ?? '';
           const textChunk = isToolProgressChunk ? rawTextChunk : stripForbiddenLazyPlanLines(rawTextChunk);
           const summarizingResultsHint =
-            evt.metadata?.status === 'aiassistant-chat-phase' &&
-            String(evt.metadata?.phase || '') === 'summarizing-results';
-
-          const md = evt.metadata && typeof evt.metadata === 'object' ? (evt.metadata as Record<string, unknown>) : undefined;
+            md?.status === 'aiassistant-chat-phase' && String(md?.phase || '') === 'summarizing-results';
           const incomingStudioAiInlineImgUrls = md?.studioAiInlineImageUrls;
           const mdStatus = md && md.status != null ? String(md.status).trim() : '';
           if (mdStatus === 'pipeline-heartbeat') {
@@ -2026,11 +2034,6 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
           }
 
           if (planGateFailure && streamErr && textChunk.trim()) {
-            const rawPipePg = evt.metadata?.toolPipelineWallMs;
-            const toolPipelineWallMsPg =
-              typeof rawPipePg === 'number' && Number.isFinite(rawPipePg) && rawPipePg >= 0
-                ? Math.round(rawPipePg)
-                : undefined;
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId
@@ -2043,7 +2046,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                       pipelineHeartbeat: undefined,
                       isStreaming: false,
                       summarizingResults: false,
-                      ...(toolPipelineWallMsPg !== undefined ? { toolPipelineWallMs: toolPipelineWallMsPg } : {})
+                      ...mergePipelineTimingFields(m, extractTerminalPipelineTiming(md))
                     }
                   : m
               )
@@ -2161,28 +2164,14 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                   text: nextText,
                   isStreaming: false,
                   summarizingResults: false,
-                  pipelineHeartbeat: undefined
+                  pipelineHeartbeat: undefined,
+                  ...(isTerminal ? mergePipelineTimingFields(m, extractTerminalPipelineTiming(md)) : {})
                 };
               })
             );
           }
 
-          if (isCompleted) {
-            const rawPipe = evt.metadata?.toolPipelineWallMs;
-            const toolPipelineWallMs =
-              typeof rawPipe === 'number' && Number.isFinite(rawPipe) && rawPipe >= 0
-                ? Math.round(rawPipe)
-                : undefined;
-            const rawTotalSec = evt.metadata?.toolPipelineTotalSec;
-            const toolPipelineTotalSec =
-              typeof rawTotalSec === 'number' && Number.isFinite(rawTotalSec) && rawTotalSec >= 0
-                ? rawTotalSec
-                : undefined;
-            const rawTaskSec = evt.metadata?.toolPipelineTaskCompletionSec;
-            const toolPipelineTaskSec =
-              typeof rawTaskSec === 'number' && Number.isFinite(rawTaskSec) && rawTaskSec >= 0
-                ? rawTaskSec
-                : undefined;
+          if (isTerminal) {
             setMessages((prev) =>
               prev.map((m) => {
                 if (m.id !== assistantId) return m;
@@ -2196,16 +2185,14 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                   summarizingResults: false,
                   pipelineHeartbeat: undefined,
                   ...(foldReasoning ? { text: reasoningRest, reasoningStreamText: '' } : {}),
-                  ...(toolPipelineWallMs !== undefined ? { toolPipelineWallMs } : {}),
-                  ...(toolPipelineTotalSec !== undefined ? { toolPipelineTotalSec } : {}),
-                  ...(toolPipelineTaskSec !== undefined
-                    ? { toolPipelineTaskCompletionSec: toolPipelineTaskSec }
-                    : {})
+                  ...mergePipelineTimingFields(m, extractTerminalPipelineTiming(md))
                 };
               })
             );
 
             if (
+              isCompleted &&
+              !streamErr &&
               formEngine &&
               wantClientJsonApply &&
               !formUpdatesApplied &&

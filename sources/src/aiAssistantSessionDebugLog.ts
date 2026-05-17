@@ -283,9 +283,21 @@ function buildParsedTimeline(lines: string[]): string {
     if (interesting) {
       flushDeltas();
       const bullets: string[] = [];
-      if (meta.completed === true) bullets.push('Terminal: completed=true (normal end of SSE)');
+      if (meta.completed === true) {
+        bullets.push('Terminal: completed=true (normal end of SSE)');
+      }
       if (meta.error === true)
         bullets.push(`Terminal: error=true — ${previewText(String(meta.message ?? '(no message)'), 240)}`);
+      if (terminal) {
+        const wall = meta.toolPipelineWallMs;
+        const total = meta.toolPipelineTotalSec;
+        const task = meta.toolPipelineTaskCompletionSec;
+        if (wall != null || total != null || task != null) {
+          bullets.push(
+            `Pipeline timing: wallMs=${wall ?? '—'} taskSec=${task ?? '—'} totalSec=${total ?? '—'}`
+          );
+        }
+      }
       if (meta.planGateFailure === true) bullets.push('planGateFailure=true — UI may replace assistant output');
       if (status === 'pipeline-heartbeat') {
         bullets.push(

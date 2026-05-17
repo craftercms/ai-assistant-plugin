@@ -1,4 +1,5 @@
 import type { ExpertSkillConfig } from './agentConfig';
+import { extractTerminalPipelineTiming, isTerminalMetadata } from './pipelineTiming';
 import { getGlobalHeaders } from '@craftercms/studio-ui/utils/ajax';
 import {
   getXSRFToken,
@@ -257,17 +258,28 @@ export async function streamChat(args: StreamChatArgs): Promise<void> {
 
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
-    /** Server may keep the HTTP connection open after the last SSE event; resolve as soon as we see a terminal frame. */
+    /**
+     * Server may keep the HTTP connection open after the last SSE event. Do not cancel the reader on the
+     * first {@code completed} frame if it lacks pipeline timing — a follow-up terminal frame may carry
+     * {@code toolPipelineTotalSec} / {@code toolPipelineWallMs}.
+     */
     let sawTerminalEvent = false;
+    let sawTerminalPipelineTiming = false;
 
     const dispatchSseDataLine = (jsonLine: string) => {
       try {
         onRawSseDataLine?.(jsonLine);
         const evt = JSON.parse(jsonLine) as AiAssistantChatMessage;
         onMessage(evt);
-        const m = evt.metadata;
-        if (m && (m.completed === true || m.error === true)) {
+        const m =
+          evt.metadata && typeof evt.metadata === 'object'
+            ? (evt.metadata as Record<string, unknown>)
+            : undefined;
+        if (isTerminalMetadata(m)) {
           sawTerminalEvent = true;
+          if (extractTerminalPipelineTiming(m)) {
+            sawTerminalPipelineTiming = true;
+          }
         }
       } catch (e) {
         if (jsonLine.length > 80_000) {
@@ -302,7 +314,7 @@ export async function streamChat(args: StreamChatArgs): Promise<void> {
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       processBufferFrames();
-      if (sawTerminalEvent) {
+      if (sawTerminalPipelineTiming) {
         try {
           await reader.cancel();
         } catch {
@@ -311,6 +323,7 @@ export async function streamChat(args: StreamChatArgs): Promise<void> {
         return;
       }
     }
+    processBufferFrames();
     if (!sawTerminalEvent) {
       throw new AiAssistantIncompleteStreamError();
     }
