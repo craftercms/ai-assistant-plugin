@@ -6,7 +6,6 @@ import groovy.json.JsonOutput
 import org.slf4j.LoggerFactory
 import plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext
 import plugins.org.craftercms.aiassistant.http.AiHttpProxy
-import plugins.org.craftercms.aiassistant.http.AiAssistantBearerUiXmlMerge
 import plugins.org.craftercms.aiassistant.http.AiAssistantCentralAgentsMerge
 import plugins.org.craftercms.aiassistant.orchestration.AiOrchestration
 import plugins.org.craftercms.aiassistant.prompt.ToolPromptsSiteContext
@@ -129,13 +128,6 @@ try {
         applicationContext, (Map) body, siteForBearer, agentId)
     } catch (Throwable mergeEx) {
       log.debug('Central agents.json merge skipped: {}', mergeEx.message ?: mergeEx.toString())
-    }
-    if (agentId) {
-      try {
-        AiAssistantBearerUiXmlMerge.mergeStreamAgentFieldsFromSiteUiXmlIfMissing(applicationContext, (Map) body, siteForBearer, agentId)
-      } catch (Throwable mergeEx) {
-        log.debug('Agent ui.xml merge skipped: {}', mergeEx.message ?: mergeEx.toString())
-      }
     }
   }
   def llm = body?.llm?.toString()

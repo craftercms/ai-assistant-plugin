@@ -43,33 +43,6 @@ function cqAgentPropName(agent) {
   return 'cqShow_' + s;
 }
 
-function cqSyncFetchConfigurationXml(siteId) {
-  var qs =
-    '?siteId=' +
-    encodeURIComponent(siteId) +
-    '&module=' +
-    encodeURIComponent('studio') +
-    '&path=' +
-    encodeURIComponent('/ui.xml');
-  var xhr = new XMLHttpRequest();
-  xhr.open('GET', '/studio/api/2/configuration/get_configuration' + qs, false);
-  xhr.withCredentials = true;
-  xhr.setRequestHeader('Accept', 'application/json');
-  try {
-    xhr.send(null);
-  } catch (e) {
-    return '';
-  }
-  if (xhr.status < 200 || xhr.status >= 300) return '';
-  try {
-    var j = JSON.parse(xhr.responseText);
-    var c = j.response && j.response.content;
-    return typeof c === 'string' ? c : '';
-  } catch (e2) {
-    return '';
-  }
-}
-
 /** Sandbox repo path — use content APIs so missing file does not hit `get_configuration` (Studio ERROR 7000). */
 var CRAFTERQ_CENTRAL_AGENTS_SANDBOX_PATH = '/config/studio/ai-assistant/agents.json';
 
@@ -192,227 +165,15 @@ function cqCentralCatalogExclusiveChatAgents(siteId) {
   return chat.length ? chat : null;
 }
 
-function cqGetUiXmlFromStore() {
-  try {
-    if (!craftercms || typeof craftercms.getStore !== 'function') return '';
-    var state = craftercms.getStore().getState();
-    var xml = state && state.uiConfig && state.uiConfig.xml;
-    return typeof xml === 'string' ? xml : '';
-  } catch (e) {
-    return '';
-  }
-}
-
-function cqChildTextDirect(parent, tag) {
-  var t = tag.toLowerCase();
-  var ch = parent.children;
-  for (var i = 0; i < ch.length; i++) {
-    var el = ch[i];
-    var name = el.localName || String(el.tagName || '').replace(/^.*:/, '');
-    if (String(name).toLowerCase() === t) return (el.textContent || '').trim() || undefined;
-  }
-  return undefined;
-}
-
-function cqParseAgentElement(agentEl) {
-  var id = cqChildTextDirect(agentEl, 'crafterQAgentId') || '';
-  var label = cqChildTextDirect(agentEl, 'label') || '';
-  if (!String(label).trim()) return null;
-  var icon;
-  var ch = agentEl.children;
-  for (var i = 0; i < ch.length; i++) {
-    var el = ch[i];
-    var nm = String(el.localName || '').toLowerCase();
-    if (nm === 'icon') {
-      icon = el.getAttribute('id') || (el.textContent || '').trim() || undefined;
-      break;
-    }
-  }
-  var llmText = String(cqChildTextDirect(agentEl, 'llm') || '').trim();
-  var llmRaw = llmText.toLowerCase();
-  var llm;
-  if (llmRaw === 'openai' || llmRaw === 'open-ai') llm = 'openAI';
-  else if (llmText) llm = llmText;
-  var llmModel = cqChildTextDirect(agentEl, 'llmModel');
-  var imageModel = cqChildTextDirect(agentEl, 'imageModel');
-  var imageGenerator = cqChildTextDirect(agentEl, 'imageGenerator');
-  var llmApiKey =
-    cqChildTextDirect(agentEl, 'llmApiKey') ||
-    cqChildTextDirect(agentEl, 'open-ai-api-key') ||
-    cqChildTextDirect(agentEl, 'open_ai_api_key');
-  var out = { id: String(id).trim(), label: String(label).trim(), icon: icon, prompts: [] };
-  if (llm) out.llm = llm;
-  if (llmModel) out.llmModel = llmModel;
-  if (imageModel) out.imageModel = imageModel;
-  if (imageGenerator) out.imageGenerator = imageGenerator;
-  if (llmApiKey && String(llmApiKey).trim()) out.llmApiKey = String(llmApiKey).trim();
-  var enableToolsRaw = cqChildTextDirect(agentEl, 'enableTools') || cqChildTextDirect(agentEl, 'enable_tools');
-  if (enableToolsRaw != null && String(enableToolsRaw).trim() !== '') {
-    var es = String(enableToolsRaw).trim().toLowerCase();
-    if (es === 'false' || es === '0' || es === 'no') out.enableTools = false;
-    else if (es === 'true' || es === '1' || es === 'yes') out.enableTools = true;
-  }
-  var expertSkills = [];
-  for (var j = 0; j < ch.length; j++) {
-    var cel = ch[j];
-    var cnm = String(cel.localName || '').toLowerCase();
-    if (cnm !== 'expertskill') continue;
-    var esUrl =
-      cel.getAttribute('url') ||
-      cel.getAttribute('href') ||
-      cqChildTextDirect(cel, 'url') ||
-      cqChildTextDirect(cel, 'href');
-    if (!String(esUrl || '').trim()) continue;
-    var esName =
-      cel.getAttribute('name') ||
-      cqChildTextDirect(cel, 'name') ||
-      'Expert guidance';
-    var esDesc =
-      cel.getAttribute('description') ||
-      cqChildTextDirect(cel, 'description') ||
-      '';
-    expertSkills.push({
-      name: String(esName).trim(),
-      url: String(esUrl).trim(),
-      description: String(esDesc).trim()
-    });
-  }
-  if (expertSkills.length) out.expertSkills = expertSkills;
-  var tbcRaw =
-    cqChildTextDirect(agentEl, 'translateBatchConcurrency') ||
-    cqChildTextDirect(agentEl, 'translate_batch_concurrency');
-  if (tbcRaw != null && String(tbcRaw).trim() !== '') {
-    var tbcN = parseInt(String(tbcRaw).trim(), 10);
-    if (Number.isFinite(tbcN) && tbcN >= 1) {
-      out.translateBatchConcurrency = Math.min(64, tbcN);
-    }
-  }
-  return out;
-}
-
-/**
- * Nearest ancestor named `agents` for this <agent>. Do not use Element.closest('agents') — tag selectors are
- * unreliable on XML documents from DOMParser, which can skip every agent and empty the accordion list.
- */
-function cqNearestAgentsAncestorForAgent(ag) {
-  var el = ag && ag.parentElement;
-  while (el) {
-    var nm = String(el.localName || String(el.tagName || '').replace(/^.*:/, '')).toLowerCase();
-    if (nm === 'agents') return el;
-    el = el.parentElement;
-  }
-  return null;
-}
-
-/** Parse every <agent> whose nearest <agents> ancestor is exactly `agentsContainer`. */
-function cqCollectAgentsInContainer(agentsContainer) {
-  if (!agentsContainer) return [];
-  var out = [];
-  var agentEls = agentsContainer.getElementsByTagName('agent');
-  for (var i = 0; i < agentEls.length; i++) {
-    var ag = agentEls[i];
-    if (cqNearestAgentsAncestorForAgent(ag) !== agentsContainer) continue;
-    var parsed = cqParseAgentElement(ag);
-    if (parsed) out.push(parsed);
-  }
-  return out;
-}
-
-function cqCollectAgentsUnderConfiguration(configurationEl) {
-  var agentsContainer = configurationEl.getElementsByTagName('agents')[0];
-  if (!agentsContainer) return [];
-  return cqCollectAgentsInContainer(agentsContainer);
-}
-
-/** Merge agents from every <configuration> under a <widget> (Tools Panel, Preview Toolbar, etc.). */
-function cqMergeAgentsFromWidget(widgetEl, byKey) {
-  var configs = widgetEl.getElementsByTagName('configuration');
-  for (var c = 0; c < configs.length; c++) {
-    var cfg = configs[c];
-    if (!widgetEl.contains(cfg)) continue;
-    var list = cqCollectAgentsUnderConfiguration(cfg);
-    for (var j = 0; j < list.length; j++) {
-      var a = list[j];
-      byKey[cqStableKey(a.id, a.label)] = a;
-    }
-  }
-  var wch = widgetEl.children;
-  for (var k = 0; k < wch.length; k++) {
-    var cel = wch[k];
-    var cname = String(cel.localName || cel.tagName || '').replace(/^.*:/, '').toLowerCase();
-    if (cname !== 'agents') continue;
-    var direct = cqCollectAgentsInContainer(cel);
-    for (var d = 0; d < direct.length; d++) {
-      var ad = direct[d];
-      byKey[cqStableKey(ad.id, ad.label)] = ad;
-    }
-  }
-}
-
-function cqParseAgentsFromUiXml(xmlString) {
-  if (!xmlString || !String(xmlString).trim()) return [];
-  var doc = new DOMParser().parseFromString(xmlString, 'text/xml');
-  if (doc.querySelector('parsererror')) return [];
-
-  var byKey = {};
-
-  var widgets = doc.getElementsByTagName('widget');
-  for (var i = 0; i < widgets.length; i++) {
-    var w = widgets[i];
-    var wid = w.getAttribute('id');
-    if (wid === CRAFTERQ_HELPER_WIDGET_ID || wid === CRAFTERQ_FORM_CONTROL_WIDGET_ID) {
-      cqMergeAgentsFromWidget(w, byKey);
-    }
-  }
-
-  // Any widget that hosts this plugin (Preview Toolbar, Tools, etc.) — same idea as Studio merging plugin XML.
-  var plugins = doc.getElementsByTagName('plugin');
-  for (var p = 0; p < plugins.length; p++) {
-    var pl = plugins[p];
-    var pid = pl.getAttribute('id') || pl.getAttribute('pluginId');
-    if (pid !== CRAFTERQ_PLUGIN_ID) continue;
-    var el = pl;
-    while (el && el.nodeType === 1) {
-      var local = String(el.localName || el.tagName || '').replace(/^.*:/, '').toLowerCase();
-      if (local === 'widget') {
-        cqMergeAgentsFromWidget(el, byKey);
-        break;
-      }
-      el = el.parentElement;
-    }
-  }
-
-  return Object.keys(byKey).map(function (k) {
-    return byKey[k];
-  });
-}
-
-/**
- * Studio Redux `uiConfig.xml` can lag or omit Helper `<agent>` entries that exist in the repo `ui.xml`.
- * Previously we returned as soon as the store parsed any agents — often one default — and never merged the API
- * copy, so the form accordion showed a single row. Union both sources (by stable key) when we have a site id.
- */
+/** Chat agents from `config/studio/ai-assistant/agents.json` only (not ui.xml). */
 var cqAgentsListCache = { siteId: '', mergedAt: 0, agents: null };
 var CQ_AGENTS_LIST_TTL_MS = 4000;
 
-/** True when string looks like merged Studio ui.xml (not an empty/error body). */
-function cqUiXmlStringLooksReady(xml) {
-  if (!xml || typeof xml !== 'string') return false;
-  var s = xml.trim();
-  if (s.length < 80) return false;
-  var lower = s.toLowerCase();
-  return lower.indexOf('<widget') >= 0 || lower.indexOf('<plugin') >= 0 || lower.indexOf('<studio') >= 0;
-}
-
-/**
- * Merge agents from Redux + get_configuration. Use forceRefresh to bypass TTL (e.g. after waiting for ui.xml).
- */
 function cqLoadAgentsForSite(siteId, options) {
   options = options || {};
   var forceRefresh = options.forceRefresh === true;
   var now = Date.now();
   var cacheKey = siteId || '';
-  // `[]` is truthy in JS — never reuse a cached empty list (would hide all accordion rows for TTL ms).
   if (
     !forceRefresh &&
     Array.isArray(cqAgentsListCache.agents) &&
@@ -423,56 +184,28 @@ function cqLoadAgentsForSite(siteId, options) {
     return cqAgentsListCache.agents.slice();
   }
 
-  var byKey = {};
-  function addParsedXml(xml) {
-    try {
-      var list = cqParseAgentsFromUiXml(xml);
-      for (var i = 0; i < list.length; i++) {
-        var a = list[i];
-        byKey[cqStableKey(a.id, a.label)] = a;
-      }
-    } catch (ignore) {}
-  }
-
+  var out = [];
   try {
     var centralChat = siteId ? cqCentralCatalogExclusiveChatAgents(siteId) : null;
-    if (centralChat) {
-      for (var ci = 0; ci < centralChat.length; ci++) {
-        var ca = centralChat[ci];
-        byKey[cqStableKey(ca.id, ca.label)] = ca;
-      }
-    } else {
-      addParsedXml(cqGetUiXmlFromStore());
-      if (siteId) {
-        addParsedXml(cqSyncFetchConfigurationXml(siteId));
-      }
+    if (centralChat && centralChat.length) {
+      out = centralChat.slice();
     }
-  } catch (ignore2) {}
+  } catch (ignore) {}
 
-  var merged = Object.keys(byKey).map(function (k) {
-    return byKey[k];
-  });
-  var out = merged.length ? merged : AIASSISTANT_FALLBACK_AGENTS.slice();
+  if (!out.length) {
+    out = AIASSISTANT_FALLBACK_AGENTS.slice();
+  }
   cqAgentsListCache = { siteId: cacheKey, mergedAt: now, agents: out };
   return out.slice();
 }
 
-/**
- * After importPlugin resolves, Redux and get_configuration often still return empty ui.xml on a cold reload.
- * Poll briefly (async) until we see real XML or cap out, then merge once with forceRefresh.
- */
-function cqWhenUiXmlReadyForAgents(siteId, done) {
+function cqWhenAgentsCatalogReady(siteId, done) {
   var maxAttempts = 12;
   var delayMs = 50;
   var attempt = 0;
   function tick() {
-    var storeXml = cqGetUiXmlFromStore();
-    var apiXml = siteId ? cqSyncFetchConfigurationXml(siteId) : '';
     var centralChatEarly = siteId ? cqCentralCatalogExclusiveChatAgents(siteId) : null;
-    var ready =
-      (centralChatEarly && centralChatEarly.length > 0) ||
-      cqUiXmlStringLooksReady(storeXml) ||
-      cqUiXmlStringLooksReady(apiXml);
+    var ready = centralChatEarly && centralChatEarly.length > 0;
     if (ready || attempt >= maxAttempts - 1) {
       done(cqLoadAgentsForSite(siteId, { forceRefresh: true }));
       return;
@@ -482,6 +215,7 @@ function cqWhenUiXmlReadyForAgents(siteId, done) {
   }
   tick();
 }
+
 
 /**
  * Studio often sends boolean field values as strings, empty, or undefined until the properties sheet hydrates.
@@ -1243,8 +977,8 @@ YAHOO.extend(CStudioForms.Controls.CrafterqAssistant, CStudioForms.CStudioFormFi
         }
         var root = ReactDOMClient.createRoot(mount);
         self._reactRoot = root;
-        // Wait for ui.xml (Redux +/or API) — cold reload often races; rendering immediately yields empty/wrong agents.
-        cqWhenUiXmlReadyForAgents(site, function (agents) {
+        // Wait for agents.json — cold reload often races; rendering immediately yields fallback-only agents.
+        cqWhenAgentsCatalogReady(site, function (agents) {
           if (!self._reactRoot || self._reactRoot !== root) return;
           var fieldProps = cqFormFieldPropertiesFromRender(config, self);
           var visibleAgents = cqVisibleAgentsFromProperties(fieldProps, agents);

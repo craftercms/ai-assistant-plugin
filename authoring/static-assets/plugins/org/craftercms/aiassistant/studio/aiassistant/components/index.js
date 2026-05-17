@@ -31926,88 +31926,6 @@ const AI_ASSISTANT_LEGACY_SHIPPED_AGENT_ID = '019c7237-478b-7f98-9a5c-87144c3fb0
  * installs; {@link dropPlaceholderAgentsWhenRicherMatchesExist} drops this duplicate when authors add real agents.
  */
 const AI_ASSISTANT_LEGACY_SHIPPED_SAMPLE_LABEL = 'C\u0072after\u0051 content';
-function shouldOverlayLabelFromSite(agent, ui) {
-    const u = (ui.label || '').trim();
-    if (!u)
-        return false;
-    const a = (agent.label || '').trim();
-    if (!a)
-        return true;
-    if (a === AI_ASSISTANT_AGENT_LABEL_FALLBACK && u !== a)
-        return true;
-    if (a === LEGACY_OMITTED_AGENT_LABEL && u !== a)
-        return true;
-    return false;
-}
-function shouldOverlayIconFromSite(agent, ui) {
-    return Boolean((ui.icon || '').trim() && !(agent.icon || '').trim());
-}
-function shouldOverlayPromptsFromSite(agent, ui) {
-    return Boolean(Array.isArray(ui.prompts) && ui.prompts.length > 0 && (!agent.prompts || agent.prompts.length === 0));
-}
-/**
- * Merge site `ui.xml` agents onto widget JSON agents.
- * When the widget row has no **{@code <crafterQAgentId>}**, Studio often omits label/icon/prompts so {@link normalizeAgent}
- * fills a placeholder label — stable keys then diverge from `/ui.xml` and the Helper menu shows duplicates.
- * Match: stable key, then id; when id is empty and site lists exactly one agent, treat that row as the overlay.
- */
-function mergeAgentsWithSiteUiXmlOverlay(fromWidget, fromUiXml) {
-    if (!fromUiXml.length || !fromWidget.length)
-        return fromWidget;
-    return fromWidget.map((agent) => {
-        const key = agentStableKey(agent);
-        const byKey = fromUiXml.find((u) => agentStableKey(u) === key);
-        const idTrim = (agent.id || '').trim();
-        let ui = byKey;
-        if (!ui && idTrim) {
-            ui = fromUiXml.find((u) => (u.id || '').trim() === idTrim);
-        }
-        if (!ui && !idTrim && fromUiXml.length === 1) {
-            ui = fromUiXml[0];
-        }
-        if (!ui)
-            return agent;
-        return {
-            ...agent,
-            ...(shouldOverlayLabelFromSite(agent, ui) ? { label: (ui.label || '').trim() } : {}),
-            ...(shouldOverlayIconFromSite(agent, ui) ? { icon: ui.icon } : {}),
-            ...(shouldOverlayPromptsFromSite(agent, ui) ? { prompts: ui.prompts } : {}),
-            ...(ui.id?.trim() && !(agent.id || '').trim() ? { id: ui.id.trim() } : {}),
-            ...(ui.enableTools !== undefined ? { enableTools: ui.enableTools } : {}),
-            ...(ui.llm !== undefined && agent.llm === undefined ? { llm: ui.llm } : {}),
-            ...(typeof ui.llmModel === 'string' &&
-                ui.llmModel.trim() &&
-                !(agent.llmModel || '').trim()
-                ? { llmModel: ui.llmModel.trim() }
-                : {}),
-            ...(typeof ui.imageModel === 'string' &&
-                ui.imageModel.trim() &&
-                !(agent.imageModel || '').trim()
-                ? { imageModel: ui.imageModel.trim() }
-                : {}),
-            ...(typeof ui.imageGenerator === 'string' &&
-                ui.imageGenerator.trim() &&
-                !(agent.imageGenerator || '').trim()
-                ? { imageGenerator: ui.imageGenerator.trim() }
-                : {}),
-            ...(ui.llmApiKey !== undefined && agent.llmApiKey === undefined ? { llmApiKey: ui.llmApiKey } : {}),
-            ...(ui.openAsPopup !== undefined && agent.openAsPopup === undefined ? { openAsPopup: ui.openAsPopup } : {}),
-            ...(Array.isArray(ui.expertSkills) &&
-                ui.expertSkills.length > 0 &&
-                (!agent.expertSkills || agent.expertSkills.length === 0)
-                ? { expertSkills: ui.expertSkills }
-                : {}),
-            ...(ui.translateBatchConcurrency != null && Number.isFinite(ui.translateBatchConcurrency)
-                ? { translateBatchConcurrency: ui.translateBatchConcurrency }
-                : {}),
-            ...(Array.isArray(ui.enabledBuiltInTools) &&
-                ui.enabledBuiltInTools.length > 0 &&
-                (!agent.enabledBuiltInTools || agent.enabledBuiltInTools.length === 0)
-                ? { enabledBuiltInTools: [...ui.enabledBuiltInTools] }
-                : {})
-        };
-    });
-}
 /** Keep first occurrence per {@link agentStableKey} (order preserved). */
 function dedupeAgentsByStableKey(agents) {
     const m = new Map();
@@ -33151,7 +33069,7 @@ function catalogAutonomousAgents(file) {
 /**
  * When the catalog file exists and has at least one agent row, chat agents are sourced **only** from
  * `mode: chat` entries (including omitted mode). If the file has only autonomous rows, returns `null` so
- * callers fall back to `ui.xml` for interactive chat agents.
+ * callers get no chat agents from this file (Helper/form use built-in fallbacks until the catalog is saved).
  */
 function exclusiveCentralChatAgentsFromFile(file) {
     if (!file.agents.length)
@@ -33267,192 +33185,9 @@ function defaultCentralAgentsFile() {
     };
 }
 
-/** Prefer direct child elements named `tag` (matches typical ui.xml serialization). */
-function childTextDirect(parent, tag) {
-    const t = tag.toLowerCase();
-    for (let i = 0; i < parent.children.length; i++) {
-        const ch = parent.children[i];
-        const name = ch.localName || ch.tagName.replace(/^.*:/, '');
-        if (name.toLowerCase() === t)
-            return ch.textContent?.trim() || undefined;
-    }
-    return undefined;
-}
-function parseAgentElement(agentEl) {
-    const id = childTextDirect(agentEl, 'crafterQAgentId') ?? '';
-    const label = childTextDirect(agentEl, 'label') ?? '';
-    if (!label.trim())
-        return null;
-    let icon;
-    for (let i = 0; i < agentEl.children.length; i++) {
-        const ch = agentEl.children[i];
-        const name = (ch.localName || '').toLowerCase();
-        if (name === 'icon') {
-            const idAttr = ch.getAttribute('id')?.trim();
-            const body = (ch.textContent || '').trim();
-            icon = idAttr || body || undefined;
-            break;
-        }
-    }
-    const llmText = String(childTextDirect(agentEl, 'llm') ?? '').trim();
-    const llmRaw = llmText.toLowerCase();
-    let llm;
-    if (llmRaw === 'openai' || llmRaw === 'open-ai')
-        llm = 'openAI';
-    else if (llmText)
-        llm = llmText;
-    const llmModel = childTextDirect(agentEl, 'llmModel');
-    const imageModel = childTextDirect(agentEl, 'imageModel');
-    const imageGenerator = childTextDirect(agentEl, 'imageGenerator');
-    const llmApiKey = childTextDirect(agentEl, 'llmApiKey') ??
-        childTextDirect(agentEl, 'open-ai-api-key') ??
-        childTextDirect(agentEl, 'open_ai_api_key');
-    const out = { id: id.trim(), label: label.trim(), icon, prompts: [] };
-    if (llm)
-        out.llm = llm;
-    if (llmModel)
-        out.llmModel = llmModel;
-    if (imageModel)
-        out.imageModel = imageModel;
-    if (imageGenerator)
-        out.imageGenerator = imageGenerator;
-    if (llmApiKey?.trim())
-        out.llmApiKey = llmApiKey.trim();
-    const enableToolsRaw = childTextDirect(agentEl, 'enableTools') ?? childTextDirect(agentEl, 'enable_tools');
-    if (enableToolsRaw !== undefined && String(enableToolsRaw).trim() !== '') {
-        const s = String(enableToolsRaw).trim().toLowerCase();
-        if (s === 'false' || s === '0' || s === 'no')
-            out.enableTools = false;
-        else if (s === 'true' || s === '1' || s === 'yes')
-            out.enableTools = true;
-    }
-    const expertSkills = [];
-    for (let j = 0; j < agentEl.children.length; j++) {
-        const cel = agentEl.children[j];
-        const cnm = (cel.localName || '').toLowerCase();
-        if (cnm !== 'expertskill')
-            continue;
-        const esUrl = cel.getAttribute('url')?.trim() ||
-            cel.getAttribute('href')?.trim() ||
-            childTextDirect(cel, 'url') ||
-            childTextDirect(cel, 'href');
-        if (!esUrl?.trim())
-            continue;
-        const esName = cel.getAttribute('name')?.trim() ||
-            childTextDirect(cel, 'name') ||
-            'Expert guidance';
-        const esDesc = cel.getAttribute('description')?.trim() || childTextDirect(cel, 'description') || '';
-        expertSkills.push({
-            name: esName.trim(),
-            url: esUrl.trim(),
-            description: esDesc.trim()
-        });
-    }
-    if (expertSkills.length)
-        out.expertSkills = expertSkills;
-    const tbcRaw = childTextDirect(agentEl, 'translateBatchConcurrency') ?? childTextDirect(agentEl, 'translate_batch_concurrency');
-    if (tbcRaw != null && String(tbcRaw).trim() !== '') {
-        const tbcN = parseInt(String(tbcRaw).trim(), 10);
-        if (Number.isFinite(tbcN) && tbcN >= 1) {
-            out.translateBatchConcurrency = Math.min(64, tbcN);
-        }
-    }
-    return out;
-}
-/** Walk parents — avoid closest('agents') on XML DOMParser documents (can skip all agents). */
-function nearestAgentsAncestorForAgent(ag) {
-    let el = ag.parentElement;
-    while (el) {
-        const nm = (el.localName || el.tagName.replace(/^.*:/, '')).toLowerCase();
-        if (nm === 'agents')
-            return el;
-        el = el.parentElement;
-    }
-    return null;
-}
-function collectAgentsInContainer(agentsContainer) {
-    const out = [];
-    const agentEls = agentsContainer.getElementsByTagName('agent');
-    for (let i = 0; i < agentEls.length; i++) {
-        const ag = agentEls[i];
-        if (nearestAgentsAncestorForAgent(ag) !== agentsContainer)
-            continue;
-        const parsed = parseAgentElement(ag);
-        if (parsed)
-            out.push(parsed);
-    }
-    return out;
-}
-function collectAgentsUnderConfiguration(configurationEl) {
-    const agentsContainer = configurationEl.getElementsByTagName('agents')[0];
-    if (!agentsContainer)
-        return [];
-    return collectAgentsInContainer(agentsContainer);
-}
-function mergeAgentsFromWidget(widgetEl, byId) {
-    const configs = widgetEl.getElementsByTagName('configuration');
-    for (let c = 0; c < configs.length; c++) {
-        const cfg = configs[c];
-        if (!widgetEl.contains(cfg))
-            continue;
-        const list = collectAgentsUnderConfiguration(cfg);
-        for (const a of list) {
-            byId.set(agentStableKey(a), a);
-        }
-    }
-    const wch = widgetEl.children;
-    for (let k = 0; k < wch.length; k++) {
-        const cel = wch[k];
-        const cname = (cel.localName || cel.tagName.replace(/^.*:/, '')).toLowerCase();
-        if (cname !== 'agents')
-            continue;
-        for (const a of collectAgentsInContainer(cel)) {
-            byId.set(agentStableKey(a), a);
-        }
-    }
-}
 /**
- * Walk site `ui.xml`: Helper widget and any widget that hosts `<plugin id="org.craftercms.aiassistant.studio">`.
- * Merges agents by stable key (same logic as form engine `control/ai-assistant/main.js`).
- */
-function parseAgentsFromStudioUiXml(xmlString) {
-    if (!xmlString || !xmlString.trim())
-        return [];
-    const doc = new DOMParser().parseFromString(xmlString, 'text/xml');
-    const parseError = doc.querySelector('parsererror');
-    if (parseError)
-        return [];
-    const byId = new Map();
-    const widgets = doc.getElementsByTagName('widget');
-    for (let i = 0; i < widgets.length; i++) {
-        const w = widgets[i];
-        const wid = w.getAttribute('id');
-        if (wid === helperWidgetId || wid === formControlWidgetId) {
-            mergeAgentsFromWidget(w, byId);
-        }
-    }
-    const plugins = doc.getElementsByTagName('plugin');
-    for (let p = 0; p < plugins.length; p++) {
-        const pl = plugins[p];
-        const pid = pl.getAttribute('id') || pl.getAttribute('pluginId');
-        if (pid !== aiAssistantStudioPluginId)
-            continue;
-        let el = pl;
-        while (el) {
-            const local = String(el.localName || el.tagName.replace(/^.*:/, '')).toLowerCase();
-            if (local === 'widget') {
-                mergeAgentsFromWidget(el, byId);
-                break;
-            }
-            el = el.parentElement;
-        }
-    }
-    return Array.from(byId.values());
-}
-/**
- * Load chat-oriented agents for merging into the Helper / toolbar: prefers `config/studio/ai-assistant/agents.json`
- * when that file exists with at least one row **and** at least one `mode: chat` (or omitted mode) agent.
- * Otherwise parses `config/studio/ui.xml` like before.
+ * Load chat agents from site `config/studio/ai-assistant/agents.json` (Project Tools → Agents).
+ * When the file is missing or has no chat rows, returns an empty list — agent settings are not read from `ui.xml`.
  */
 async function fetchSiteChatAgentsForOverlay(siteId) {
     if (!siteId)
@@ -33463,8 +33198,7 @@ async function fetchSiteChatAgentsForOverlay(siteId) {
         if (ex)
             return { agents: ex, exclusive: true };
     }
-    const xml = await firstValueFrom(fetchConfigurationXML(siteId, '/ui.xml', 'studio'));
-    return { agents: parseAgentsFromStudioUiXml(xml ?? ''), exclusive: false };
+    return { agents: [], exclusive: false };
 }
 
 const ICON_MAP = {
@@ -33991,13 +33725,7 @@ function AiAssistantHelper(props) {
             else
                 base = DEFAULT_AGENTS;
         }
-        let merged;
-        if (siteChatOverlay?.exclusive) {
-            merged = siteChatOverlay.agents.length ? siteChatOverlay.agents : DEFAULT_AGENTS;
-        }
-        else {
-            merged = siteChatOverlay?.agents?.length ? mergeAgentsWithSiteUiXmlOverlay(base, siteChatOverlay.agents) : base;
-        }
+        let merged = siteChatOverlay?.agents?.length ? siteChatOverlay.agents : base;
         merged = dedupeAgentsByStableKey(merged);
         merged = dropPlaceholderAgentsWhenRicherMatchesExist(merged);
         return merged;

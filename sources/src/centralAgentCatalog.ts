@@ -2,7 +2,7 @@
  * Central AI Assistant agent catalog: `config/studio/ai-assistant/agents.json`
  * When this file exists and contains at least one `agents[]` entry, chat agents are taken only from
  * entries with `mode: "chat"` (or omitted mode, treated as chat). Autonomous agents are taken from
- * `mode: "autonomous"`. Otherwise the plugin keeps merging agents from `ui.xml` as before.
+ * `mode: "autonomous"`. Chat agents are not loaded from `ui.xml`.
  */
 import type { AgentConfig, AgentLlm, PromptConfig } from './agentConfig';
 import { AI_ASSISTANT_DEFAULT_AGENT_ID, normalizeEnabledBuiltInToolsRaw } from './agentConfig';
@@ -233,7 +233,7 @@ export function catalogAutonomousAgents(file: CentralAgentsFile): AutonomousAgen
 /**
  * When the catalog file exists and has at least one agent row, chat agents are sourced **only** from
  * `mode: chat` entries (including omitted mode). If the file has only autonomous rows, returns `null` so
- * callers fall back to `ui.xml` for interactive chat agents.
+ * callers get no chat agents from this file (Helper/form use built-in fallbacks until the catalog is saved).
  */
 export function exclusiveCentralChatAgentsFromFile(file: CentralAgentsFile): AgentConfig[] | null {
   if (!file.agents.length) return null;

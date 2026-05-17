@@ -32,7 +32,6 @@ import {
   dropPlaceholderAgentsWhenRicherMatchesExist,
   getAgentsFromConfiguration,
   extractPositiveInt,
-  mergeAgentsWithSiteUiXmlOverlay,
   normalizeEnabledBuiltInToolsRaw,
   readOptionalBooleanFromConfiguration,
   type AgentConfig,
@@ -185,12 +184,7 @@ export function AiAssistantHelper(props: Readonly<AiAssistantHelperProps>) {
         base = fromConfig.length > 0 ? fromConfig : DEFAULT_AGENTS;
       } else base = DEFAULT_AGENTS;
     }
-    let merged: AgentConfig[];
-    if (siteChatOverlay?.exclusive) {
-      merged = siteChatOverlay.agents.length ? siteChatOverlay.agents : DEFAULT_AGENTS;
-    } else {
-      merged = siteChatOverlay?.agents?.length ? mergeAgentsWithSiteUiXmlOverlay(base, siteChatOverlay.agents) : base;
-    }
+    let merged: AgentConfig[] = siteChatOverlay?.agents?.length ? siteChatOverlay.agents : base;
     merged = dedupeAgentsByStableKey(merged);
     merged = dropPlaceholderAgentsWhenRicherMatchesExist(merged);
     return merged;

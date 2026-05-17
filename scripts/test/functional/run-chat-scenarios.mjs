@@ -6,8 +6,8 @@
  * LLM backend (OpenAI, proxy, mock gateway, etc.) is whatever Studio/JVM is configured for — this script only drives HTTP.
  *
  * Requires: Node 18+, live Studio, CRAFTER_STUDIO_TOKEN.
- * **agentId:** `CHAT_AGENT_ID`, scenario `defaults.agentId`, first `<crafterQAgentId>` under `<agents>` in site **ui.xml**
- * (via `get_configuration`), else the default UUID matching `AI_ASSISTANT_DEFAULT_AGENT_ID` in `sources/src/agentConfig.ts`.
+ * **agentId:** `CHAT_AGENT_ID`, scenario `defaults.agentId`, first chat row `crafterQAgentId` in
+ * `config/studio/ai-assistant/agents.json` (sandbox content API), else default UUID (`AI_ASSISTANT_DEFAULT_AGENT_ID`).
  *
  * Does not assert exact LLM wording; asserts HTTP 200 and stream completion (`metadata.completed`), or fails on
  * `metadata.error` / incomplete stream.
@@ -20,7 +20,7 @@
  *
  * Env:
  *   CHAT_SITE_ID          Override defaults.siteId
- *   CHAT_AGENT_ID         Force agent id (optional if discoverable from ui.xml or default UUID works)
+ *   CHAT_AGENT_ID         Force agent id (optional if discoverable from agents.json or default UUID works)
  *   CHAT_PREVIEW_TOKEN    crafterPreview cookie (recommended for translate / GetPreviewHtml tools)
  *   CHAT_TURN_TIMEOUT_MS  Per-turn wall clock (default 180000)
  */
@@ -44,7 +44,7 @@ Env (required unless in JSON defaults):
 Agent id (first match wins):
   CHAT_AGENT_ID          Optional explicit id
   (else defaults.agentId in the scenario JSON if set and not a placeholder)
-  (else first <crafterQAgentId> under <agents> in site ui.xml from get_configuration)
+  (else first crafterQAgentId from config/studio/ai-assistant/agents.json)
   (else default UUID — same as AI_ASSISTANT_DEFAULT_AGENT_ID in agentConfig.ts)
 
 Optional:
@@ -103,51 +103,63 @@ function configurationXmlFromGetConfigurationBody(j) {
   return null;
 }
 
-/** First non-empty crafterQAgentId inside <agents>…</agents>, else first in file. */
-function firstCrafterQAgentIdFromUiXml(xml) {
-  if (!xml || typeof xml !== 'string') return null;
-  const agentsBlock = xml.match(/<agents\b[^>]*>([\s\S]*?)<\/agents>/i);
-  const scope = agentsBlock ? agentsBlock[1] : xml;
-  const re = /<(?:[\w.-]+:)?crafterQAgentId\b[^>]*>\s*([^<]*?)\s*<\/(?:[\w.-]+:)?crafterQAgentId>/gi;
-  let m;
-  while ((m = re.exec(scope)) !== null) {
-    const id = m[1].replace(/\s+/g, ' ').trim();
-    if (id && !/^placeholder$/i.test(id)) return id;
+const CENTRAL_AGENTS_SANDBOX_PATH = '/config/studio/ai-assistant/agents.json';
+
+function firstChatAgentIdFromCatalog(file) {
+  if (!file || !Array.isArray(file.agents)) return null;
+  for (const row of file.agents) {
+    if (!row || typeof row !== 'object') continue;
+    const mode = String(row.mode ?? '').trim().toLowerCase();
+    if (mode === 'autonomous') continue;
+    const id = String(row.crafterQAgentId ?? row.id ?? '').trim();
+    if (id) return id;
   }
   return null;
 }
 
-async function fetchFirstAgentIdFromUiXml(baseUrl, siteId, token) {
-  const q = new URLSearchParams({
-    siteId: String(siteId),
-    module: 'studio',
-    path: 'ui.xml',
-  });
-  const url = `${baseUrl.replace(/\/$/, '')}/studio/api/2/configuration/get_configuration?${q}`;
+async function fetchFirstAgentIdFromAgentsJson(baseUrl, siteId, token) {
+  const url = `${baseUrl.replace(/\/$/, '')}/studio/api/2/content/sandbox_items_by_path`;
   const res = await fetch(url, {
+    method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: 'application/json',
+      'Content-Type': 'application/json',
     },
+    body: JSON.stringify({
+      siteId: String(siteId),
+      paths: [CENTRAL_AGENTS_SANDBOX_PATH],
+      preferContent: true,
+    }),
   });
   const text = await res.text();
   if (!res.ok) {
-    console.error(`get_configuration ui.xml: HTTP ${res.status} ${text.slice(0, 400)}`);
+    console.error(`sandbox_items_by_path agents.json: HTTP ${res.status} ${text.slice(0, 400)}`);
     return null;
   }
   let j;
   try {
     j = JSON.parse(text);
   } catch {
-    console.error('get_configuration ui.xml: response was not JSON');
+    console.error('sandbox_items_by_path agents.json: response was not JSON');
     return null;
   }
-  const xml = configurationXmlFromGetConfigurationBody(j);
-  if (!xml || typeof xml !== 'string') {
-    console.error('get_configuration ui.xml: could not find XML content in JSON envelope');
+  const resp = j.response ?? j;
+  const items = resp?.items;
+  if (!Array.isArray(items) || !items.length) return null;
+  const item = items[0];
+  const blob =
+    item?.contentAsString ??
+    item?.content ??
+    (typeof item?.contentAsString === 'string' ? item.contentAsString : null);
+  if (!blob || typeof blob !== 'string') return null;
+  try {
+    const file = JSON.parse(blob);
+    return firstChatAgentIdFromCatalog(file);
+  } catch {
+    console.error('agents.json: could not parse JSON body');
     return null;
   }
-  return firstCrafterQAgentIdFromUiXml(xml);
 }
 
 async function resolveAgentId({ baseUrl, siteId, token, defaults }) {
@@ -155,13 +167,13 @@ async function resolveAgentId({ baseUrl, siteId, token, defaults }) {
   if (fromEnv) return fromEnv;
   const fromJson = String(defaults.agentId || '').trim();
   if (fromJson && !fromJson.includes('REPLACE')) return fromJson;
-  const fromXml = await fetchFirstAgentIdFromUiXml(baseUrl, siteId, token);
-  if (fromXml) {
-    console.log(`Resolved agentId from site ui.xml: ${fromXml}`);
-    return fromXml;
+  const fromCatalog = await fetchFirstAgentIdFromAgentsJson(baseUrl, siteId, token);
+  if (fromCatalog) {
+    console.log(`Resolved agentId from agents.json: ${fromCatalog}`);
+    return fromCatalog;
   }
   console.log(
-    `No crafterQAgentId in ui.xml; using default agent id (${DEFAULT_AGENT_ID}) — same as AI_ASSISTANT_DEFAULT_AGENT_ID in agentConfig.ts.`,
+    `No chat agent id in agents.json; using default agent id (${DEFAULT_AGENT_ID}) — same as AI_ASSISTANT_DEFAULT_AGENT_ID in agentConfig.ts.`,
   );
   return DEFAULT_AGENT_ID;
 }

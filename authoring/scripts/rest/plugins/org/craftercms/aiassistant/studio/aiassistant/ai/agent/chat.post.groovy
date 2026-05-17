@@ -2,7 +2,6 @@ import jakarta.servlet.http.HttpServletResponse
 import org.slf4j.LoggerFactory
 import plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext
 import plugins.org.craftercms.aiassistant.http.AiHttpProxy
-import plugins.org.craftercms.aiassistant.http.AiAssistantBearerUiXmlMerge
 import plugins.org.craftercms.aiassistant.http.AiAssistantCentralAgentsMerge
 import plugins.org.craftercms.aiassistant.orchestration.AiOrchestration
 import plugins.org.craftercms.aiassistant.prompt.ToolPromptsSiteContext
@@ -17,7 +16,7 @@ import plugins.org.craftercms.aiassistant.rag.ExpertSkillVectorRegistry
  * {
  *   "agentId": "...",
  *   "prompt": "...",
- *   "llm": "required on the wire (POST body or copied from matching <agent> in /ui.xml when siteId+agentId); missing/blank/unknown → 400",
+   *   "llm": "required on the wire (POST body or merged from agents.json when siteId is set); missing/blank/unknown → 400",
  *   "chatId": "optional",
  *   "contentPath": "optional Studio preview repo path",
  *   "contentTypeId": "optional",
@@ -100,13 +99,6 @@ if (body instanceof Map && siteForBearer) {
       applicationContext, (Map) body, siteForBearer, agentId)
   } catch (Throwable mergeEx) {
     log.debug('Central agents.json merge skipped: {}', mergeEx.message ?: mergeEx.toString())
-  }
-  if (agentId) {
-    try {
-      AiAssistantBearerUiXmlMerge.mergeStreamAgentFieldsFromSiteUiXmlIfMissing(applicationContext, (Map) body, siteForBearer, agentId)
-    } catch (Throwable mergeEx) {
-      log.debug('Agent ui.xml merge skipped: {}', mergeEx.message ?: mergeEx.toString())
-    }
   }
 }
 def llm = body.llm?.toString()
