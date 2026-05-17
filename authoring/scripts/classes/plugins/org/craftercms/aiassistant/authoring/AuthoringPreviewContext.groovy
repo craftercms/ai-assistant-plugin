@@ -1,6 +1,10 @@
 package plugins.org.craftercms.aiassistant.authoring
 
 import java.net.URLEncoder
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.regex.Pattern
 
@@ -61,6 +65,11 @@ class AuthoringPreviewContext {
     if (raw instanceof Boolean) return ((Boolean) raw).booleanValue()
     def s = raw.toString().trim().toLowerCase()
     return s == 'true' || s == '1' || s == 'yes'
+  }
+
+  /** Request body / ui.xml {@code authoringIntentExpansion} flag. */
+  static boolean parseAuthoringIntentExpansion(Object raw) {
+    return isTruthy(raw)
   }
 
   /**
@@ -129,20 +138,63 @@ class AuthoringPreviewContext {
       // Trailing preview bundle (appendEnginePreviewHintIfPossible)
       out = out.replaceAll('(?ms)\\n\\n--- Studio preview URL[\\s\\S]*', '')
       out = out.replaceAll('(?ms)\\n\\n--- Engine preview URL[\\s\\S]*', '')
+      out = out.replaceAll('(?ms)\\n\\n--- Studio agent clock[\\s\\S]*?\\n---\\s*', '')
     } catch (Throwable ignored) {
     }
     return out.trim()
   }
 
+  /**
+   * Per-request wall clock for the agent (UTC + JVM default zone). Not author text.
+   */
+  static String studioAgentDateTimeContextBlock() {
+    Instant instant = Instant.now()
+    ZonedDateTime utc = instant.atZone(ZoneId.of('UTC'))
+    ZonedDateTime local = instant.atZone(ZoneId.systemDefault())
+    DateTimeFormatter utcFmt = DateTimeFormatter.ISO_OFFSET_DATE_TIME.withLocale(Locale.ROOT)
+    DateTimeFormatter localFmt = DateTimeFormatter.ofPattern('EEEE, MMMM d, yyyy · HH:mm:ss z', Locale.ENGLISH)
+    return """--- Studio agent clock (metadata; not the author's request) ---
+Current time (UTC): ${utc.format(utcFmt)}
+Current time (server): ${local.format(localFmt)}
+Use these when the author asks about "today", "now", freshness, or dated content — do not invent a calendar date.
+---"""
+  }
+
+  /** Appends {@link #studioAgentDateTimeContextBlock()} once per prompt assembly. */
+  static String appendAgentDateTimeContext(String prompt) {
+    def base = (prompt ?: '').toString()
+    if (base.contains('--- Studio agent clock')) {
+      return base
+    }
+    return base + '\n\n' + studioAgentDateTimeContextBlock()
+  }
+
   private static final Pattern CMS_TASK_SIGNAL = Pattern.compile(
-    '(?i)(\\b(translat|localiz|publish|deploy|go\\s+live|revert|update|edit|change|rewrite|rephrase|delete|create|write|draft|put|add|place|insert|set|generate\\s+image|draw|fix|content|templates?|template|css|scss|less|stylesheet|styling|branding|mockup|theme|layout|ftl|freemarker|component|sections?_o|writecontent|listpages|getcontent|static-assets|update_template|analyze_template|hero|headline|subtitle|lyrics?)\\b|https?://|\\blook\\s+like\\b|\\bsimilar\\s+to\\b|\\bmatch(es)?\\b|\\bsite\\b|\\bwebsite\\b)'
+    '(?i)(\\b(translat|localiz|publish|deploy|go\\s+live|revert|update|edit|change|rewrite|rephrase|delete|create|write|draft|put|add|place|insert|set|generate\\s+image|generate\\s+an?\\s+image|draw|fix|content|templates?|template|css|scss|less|stylesheet|styling|branding|mockup|theme|layout|ftl|freemarker|component|sections?_o|writecontent|listpages|getcontent|static-assets|update_template|analyze_template|headline|subtitle|lyrics?|summarize|summary)\\b|https?://|\\blook\\s+like\\b|\\bsimilar\\s+to\\b|\\bmatch(es)?\\b|\\bsite\\b|\\bwebsite\\b)'
   )
 
-  /** Preview/form anchor + author names a repository field target (e.g. “put … in the hero title”). */
+  /** Preview/form anchor + author names a repository field target (e.g. “add tips to my hero text”). */
   private static final Pattern ANCHORED_FIELD_PLACEMENT = Pattern.compile(
-    '(?i)(\\b(put|place|add|insert|set)\\b.+\\b(in|into)\\b.+\\b(hero|title|headline|subtitle|body|copy|text|field|excerpt|nav|label)\\b|' +
+    '(?i)(\\b(put|place|add|insert|set)\\b.+\\b(in|into|to)\\b.+\\b(hero|title|headline|subtitle|body|copy|text|field|excerpt|nav|label)\\b|' +
       '\\b(hero|title|headline|subtitle)\\b.+\\b(with|to)\\b|' +
-      '\\bupdate\\b.+\\b(hero|title|headline|subtitle)\\b)'
+      '\\bupdate\\b.+\\b(hero|title|headline|subtitle|body|copy|text)\\b)'
+  )
+
+  private static final Pattern REVERT_VERSION_INTENT = Pattern.compile(
+    '(?i)\\b(undo|revert|roll\\s*back|restore|go\\s+back|put\\s+back|switch\\s+back)\\b'
+  )
+
+  /** Oldest / first-created Studio version — not the immediate prior save. */
+  private static final Pattern REVERT_TO_INITIAL_VERSION_SIGNAL = Pattern.compile(
+    '(?i)\\b(initial\\s+commit|first\\s+version|original\\s+version|oldest\\s+version|earliest\\s+version|' +
+      'when\\s+(?:it\\s+was\\s+)?first\\s+created|as\\s+first\\s+created|back\\s+to\\s+the\\s+beginning|' +
+      'very\\s+first|first\\s+check(?:-|)in)\\b'
+  )
+
+  private static final Pattern PRIOR_TURN_CONTENT_REFERENCE = Pattern.compile(
+    '(?i)\\b(these|those|generated|previous|prior|earlier)\\s+(tips?|list|text|copy|content|results?)\\b|' +
+      '\\buse\\s+(these|those|the)\\s+(tips?|list|text|copy)\\b|' +
+      '\\bno[,\\s]+use\\s+these\\b'
   )
 
   private static final Pattern REPOSITORY_PATH_IN_PROMPT = Pattern.compile(
@@ -152,6 +204,58 @@ class AuthoringPreviewContext {
   private static final Pattern CURRENT_REQUEST_SECTION = Pattern.compile(
     '(?is)Current request:\\s*\\n(.*)\\z'
   )
+
+  /**
+   * Author text for this turn only (after {@code Current request:}), not abbreviated prior conversation.
+   */
+  static String extractAuthorCurrentRequestVisible(String fullPrompt) {
+    def s = (fullPrompt ?: '').toString()
+    def cm = CURRENT_REQUEST_SECTION.matcher(s)
+    if (cm.find()) {
+      def tail = stripStudioInjectedPromptBlocks(cm.group(1) ?: '')
+      return (tail ?: '').trim()
+    }
+    return stripStudioInjectedPromptBlocks(s)?.trim() ?: ''
+  }
+
+  /**
+   * Image-only turn: author asked for a new bitmap without a CMS write in the same message.
+   * Evaluates {@linkplain #extractAuthorCurrentRequestVisible current request} when present.
+   */
+  static boolean authorCurrentRequestLooksLikeImageOnlyGenerate(String fullPrompt) {
+    String u = extractAuthorCurrentRequestVisible(fullPrompt)
+    if (!u) {
+      u = stripStudioInjectedPromptBlocks((fullPrompt ?: '').toString())?.trim() ?: ''
+    }
+    if (!u || u.length() > 2400) {
+      return false
+    }
+    String low = u.toLowerCase(Locale.ROOT)
+    if (low.contains('writecontent') || low.contains('write content')) {
+      return false
+    }
+    if (u.matches(/(?is).*\b(save|apply|insert|replace|upload|commit|publish)\b.{0,48}\b(to|into|on|in)\b.{0,48}\b(page|component|field|xml|content|repo)\b.*/)) {
+      return false
+    }
+    boolean verb =
+      u.matches(/(?is).*\b(generate|creating|create|draw|drawing|sketch|paint|making|make|render|illustrate)\b.*/) ||
+        u.matches(/(?is).*\b(show me|give me|i want|i need|can you)\b.{0,48}\b(an?\s+)?(image|picture|illustration|drawing|photo|render)\b.*/)
+    if (!verb) {
+      return false
+    }
+    boolean noun =
+      u.matches(/(?is).*\b(image|images|picture|pictures|illustration|illustrations|drawing|drawings|photo|photos|render|cover|banner|logo|artwork|graphic|icon|bitmap)\b.*/) ||
+        u.matches(/(?is).*\b(image|picture|illustration|drawing|photo)\s+of\b.*/)
+    if (!noun) {
+      noun = u.matches(/(?is).*\b(draw|sketch|paint)\b.{0,100}\b(an?\s+|the\s+)?[a-z][a-z0-9\\-]{2,}\b.*/)
+    }
+    return noun
+  }
+
+  /** Alias for intent-router deterministic {@code generate_image} matching. */
+  static boolean authorVisibleSuggestsIntentRecipeGenerateImage(String fullPrompt) {
+    return authorCurrentRequestLooksLikeImageOnlyGenerate(fullPrompt)
+  }
 
   private static final Pattern SHORT_CMS_CONTINUATION_AFFIRMATION = Pattern.compile(
     '(?is)^(yes|yeah|yep|ok|okay|let\'?s\\s+do\\s+it|do\\s+it|go\\s+ahead|please\\s+do|sure|confirm|sounds\\s+good|proceed)[\\s!.?]*$'
@@ -176,6 +280,45 @@ class AuthoringPreviewContext {
   /** Author-visible text (after stripping Studio blocks) this long or shorter is treated as likely underspecified. */
   private static final int AUTHORING_INTENT_EXPANSION_SHORT_VISIBLE_MAX_CHARS = 320
 
+  /** Live / current-events lookup — route to {@code web_research} + {@code WebSearch}, not CMS tools. */
+  private static final Pattern WEB_RESEARCH_SIGNAL = Pattern.compile(
+    '(?i)(\\b(latest|recent|current|today\'?s|breaking)\\s+news\\b|\\bnews\\s+(on|about|for)\\b|\\bheadlines?\\b|' +
+      '\\bcurrent\\s+events?\\b|\\bsearch\\s+the\\s+web\\b|\\bweb\\s+search\\b|\\blook\\s+up\\s+(?:the\\s+)?latest\\b|' +
+      '\\bwhat\\s+happened\\s+(today|this\\s+week)\\b|\\bwhat\'?s\\s+new\\s+with\\b|' +
+      '\\bresearch\\b(?:\\s+\\d+)?\\s+(?:tips?|ideas|guides?|steps?|best\\s+practices|facts?)\\b|' +
+      '\\bresearch\\s+\\d+\\s+\\w+)'
+  )
+
+  /** General knowledge / explanation — route to {@code llm_research} with CMS tools off. */
+  private static final Pattern LLM_RESEARCH_SIGNAL = Pattern.compile(
+    '(?i)(\\bexplain\\s+(?:what|how|why)|\\bwhat\\s+is\\b|\\bwhat\\s+are\\b|\\btell\\s+me\\s+about\\b|' +
+      '\\bcompare\\s+|\\bdifference\\s+between\\b|\\bpros\\s+and\\s+cons\\b|\\bhow\\s+does\\s+.+\\s+work\\b)'
+  )
+
+  /** Find / summarize existing repository content — route to {@code site_content_research} + {@code ResearchSiteContent}. */
+  private static final Pattern SITE_CONTENT_RESEARCH_SIGNAL = Pattern.compile(
+    '(?i)(\\bsearch\\s+(?:the\\s+|our\\s+|this\\s+)?site\\b|\\bsite\\s+search\\b|\\bfind\\s+(?:pages?|content|items?)\\s+(?:about|on|for|in)\\b|' +
+      '\\bwhat\\s+(?:pages?|content)\\s+(?:do\\s+we\\s+have|exists?)\\s+(?:about|on|for)\\b|\\bwhere\\s+(?:in\\s+the\\s+site|on\\s+the\\s+site)\\b|' +
+      '\\bpages?\\s+(?:about|mentioning|on)\\b|\\bcontent\\s+about\\b|\\bin\\s+(?:our|the)\\s+(?:site|cms|repository)\\b)'
+  )
+
+  private static final Pattern PAGE_SUMMARIZE_SIGNAL = Pattern.compile(
+    '(?i)\\b(summarize|summary|sum\\s+up)\\b'
+  )
+
+  /**
+   * Author asks what the **open** preview item is about (read/interpret), not open-web news or translate.
+   * Requires anchored {@code /site/.../*.xml} (see {@link #authorVisibleSuggestsOpenPageInquiry}).
+   */
+  private static final Pattern OPEN_PAGE_INQUIRY = Pattern.compile(
+    '(?is)\\b(?:what\\s+(?:is|are|(?:do|would)\\s+you\\s+(?:think|say))\\b.{0,96}\\b(?:this|the)\\s+page\\b|' +
+      'how\\s+would\\s+you\\s+(?:describe|characterize|summarize)\\s+(?:this|the)\\s+page\\b|' +
+      'tell\\s+me\\s+about\\s+(?:this|the)\\s+page\\b|' +
+      'describe\\s+(?:this|the)\\s+page\\b|' +
+      '(?:this|the)\\s+page\\b.{0,96}\\b(?:about|for|mean|purpose|topic|describe|explain|overview)\\b|' +
+      'page\\s+is\\s+about\\b)'
+  )
+
   /**
    * After stripping Studio-injected blocks, true when the author-visible text suggests CMS / repo / fetch work
    * (used server-side to avoid false “trivial greeting” tool suppression and to recover missing {@code tool_calls}).
@@ -183,6 +326,92 @@ class AuthoringPreviewContext {
   static boolean authorVisibleSuggestsCmsTooling(String fullOrUserPrompt) {
     def v = stripStudioInjectedPromptBlocks((fullOrUserPrompt ?: '').toString())
     return v && CMS_TASK_SIGNAL.matcher(v).find()
+  }
+
+  /**
+   * “What is this page about?” / “what do you think this page is about” with Studio anchor — needs
+   * {@code GetContent} on the open item, not LLM-only or web search.
+   */
+  static boolean authorVisibleSuggestsOpenPageInquiry(String fullOrUserPrompt) {
+    def anchor = extractAnchoredRepositoryPath(fullOrUserPrompt)
+    if (!anchor?.trim()) {
+      return false
+    }
+    def low = anchor.toLowerCase(Locale.ROOT)
+    if (!low.startsWith('/site/') || !low.endsWith('.xml')) {
+      return false
+    }
+    def v = stripStudioInjectedPromptBlocks((fullOrUserPrompt ?: '').toString())?.trim()
+    if (!v) {
+      return false
+    }
+    if (OPEN_PAGE_INQUIRY.matcher(v).find()) {
+      return true
+    }
+    return (v =~ /(?is)\b(this|the)\s+page\b/).find() &&
+      (v =~ /(?i)\b(about|think|purpose|mean|describe|explain|overview|topic)\b/).find()
+  }
+
+  /** Author asks for open-page / in-Studio summary (not open-web news). */
+  static boolean authorVisibleSuggestsPageSummarize(String fullOrUserPrompt) {
+    def v = stripStudioInjectedPromptBlocks((fullOrUserPrompt ?: '').toString())?.trim()
+    if (!v) {
+      return false
+    }
+    return PAGE_SUMMARIZE_SIGNAL.matcher(v).find() &&
+      (FULL_PAGE_OR_SITE_COPY_INTENT.matcher(v).find() || v.matches('(?is).*(this|the)\\s+page.*'))
+  }
+
+  /** Freshness / headlines — use {@code WebSearch}, not {@code GenerateImage} or repo writes. */
+  static boolean authorVisibleSuggestsWebResearch(String fullOrUserPrompt) {
+    def v = stripStudioInjectedPromptBlocks((fullOrUserPrompt ?: '').toString())?.trim()
+    if (!v) {
+      return false
+    }
+    if (authorVisibleSuggestsPageSummarize(fullOrUserPrompt)) {
+      return false
+    }
+    return WEB_RESEARCH_SIGNAL.matcher(v).find()
+  }
+
+  /** Timeless Q&A — answer from model knowledge with CMS tools disabled for the turn. */
+  static boolean authorVisibleSuggestsLlmResearch(String fullOrUserPrompt) {
+    def v = stripStudioInjectedPromptBlocks((fullOrUserPrompt ?: '').toString())?.trim()
+    if (!v) {
+      return false
+    }
+    if (authorVisibleSuggestsWebResearch(fullOrUserPrompt) ||
+      authorVisibleSuggestsPageSummarize(fullOrUserPrompt) ||
+      authorVisibleSuggestsOpenPageInquiry(fullOrUserPrompt)) {
+      return false
+    }
+    return LLM_RESEARCH_SIGNAL.matcher(v).find()
+  }
+
+  /** Search indexed site copy (OpenSearch) — {@code ResearchSiteContent}, not open web or generic LLM-only. */
+  static boolean authorVisibleSuggestsSiteContentResearch(String fullOrUserPrompt) {
+    def v = stripStudioInjectedPromptBlocks((fullOrUserPrompt ?: '').toString())?.trim()
+    if (!v) {
+      return false
+    }
+    if (authorVisibleSuggestsWebResearch(fullOrUserPrompt) ||
+      authorVisibleSuggestsPageSummarize(fullOrUserPrompt) ||
+      authorVisibleSuggestsOpenPageInquiry(fullOrUserPrompt)) {
+      return false
+    }
+    if (SITE_CONTENT_RESEARCH_SIGNAL.matcher(v).find()) {
+      return true
+    }
+    return (v =~ /(?i)\bsearch\b/).find() &&
+      (v =~ /(?i)\b(site|cms|repository|pages?|content)\b/).find() &&
+      !(v =~ /(?i)\b(web|internet|google|news|headlines)\b/).find()
+  }
+
+  /** Non-CMS research prompts still run intent recipe routing (web / site / llm recipes). */
+  static boolean authorVisibleSuggestsIntentRecipeResearch(String fullOrUserPrompt) {
+    return authorVisibleSuggestsWebResearch(fullOrUserPrompt) ||
+      authorVisibleSuggestsSiteContentResearch(fullOrUserPrompt) ||
+      authorVisibleSuggestsLlmResearch(fullOrUserPrompt)
   }
 
   /** {@code Repository path: /site/...} from a Studio request anchor block, when present. */
@@ -207,6 +436,24 @@ class AuthoringPreviewContext {
     }
     def v = stripStudioInjectedPromptBlocks((fullPrompt ?: '').toString())?.trim()
     return v && ANCHORED_FIELD_PLACEMENT.matcher(v).find()
+  }
+
+  /** Undo / revert / restore a prior repository version (not a generative rewrite). */
+  static boolean authorVisibleSuggestsRevertIntent(String visible) {
+    def v = (visible ?: '').toString().trim()
+    return v && REVERT_VERSION_INTENT.matcher(v).find()
+  }
+
+  /** Author wants the oldest revertible history entry (e.g. “initial commit”), not one step back. */
+  static boolean authorVisibleSuggestsRevertToInitialVersion(String visible) {
+    def v = (visible ?: '').toString().trim()
+    return v && REVERT_TO_INITIAL_VERSION_SIGNAL.matcher(v).find()
+  }
+
+  /** Author refers to assistant-generated copy from an earlier turn (“these tips”, “use these tips”). */
+  static boolean authorVisibleSuggestsPriorTurnContent(String visible) {
+    def v = (visible ?: '').toString().trim()
+    return v && PRIOR_TURN_CONTENT_REFERENCE.matcher(v).find()
   }
 
   /**
@@ -257,6 +504,13 @@ class AuthoringPreviewContext {
    * See {@link #isAuthoringIntentExpansionCandidate}.
    */
   static String intentRecipeRouterEligibilitySkipReason(String fullPrompt) {
+    String currentReq = extractAuthorCurrentRequestVisible(fullPrompt)
+    if (currentReq && authorVisibleSuggestsPageSummarize(currentReq)) {
+      return 'author_summarize_no_intent_recipe'
+    }
+    if (authorCurrentRequestLooksLikeImageOnlyGenerate(fullPrompt)) {
+      return null
+    }
     if (isTrivialNonAuthoringTurn(fullPrompt)) {
       if (isShortAffirmationContinuingPriorCmsWork(fullPrompt)) {
         return null
@@ -267,16 +521,36 @@ class AuthoringPreviewContext {
     if (!v) {
       return 'empty_visible_after_strip'
     }
-    if (v.length() > 1600) {
+    if (v.length() > 1600 && !authorCurrentRequestLooksLikeImageOnlyGenerate(fullPrompt)) {
       return 'visible_exceeds_1600_chars'
     }
     if (!authorVisibleSuggestsCmsTooling(fullPrompt)) {
       if (anchoredSiteXmlFieldPlacementIntent(fullPrompt)) {
         return null
       }
+      if (authorVisibleSuggestsOpenPageInquiry(fullPrompt)) {
+        return null
+      }
+      if (authorVisibleSuggestsIntentRecipeResearch(fullPrompt)) {
+        return null
+      }
+      if (authorCurrentRequestLooksLikeImageOnlyGenerate(fullPrompt)) {
+        return null
+      }
+      String currentOnly = extractAuthorCurrentRequestVisible(fullPrompt)
+      if (currentOnly && authorVisibleSuggestsIntentRecipeResearch(currentOnly)) {
+        return null
+      }
+      if (authorVisibleSuggestsRevertIntent(v) &&
+        extractAnchoredRepositoryPath(fullPrompt)?.trim()) {
+        return null
+      }
       return 'no_cms_task_signal'
     }
     if (v.length() <= AUTHORING_INTENT_EXPANSION_SHORT_VISIBLE_MAX_CHARS) {
+      return null
+    }
+    if (authorCurrentRequestLooksLikeImageOnlyGenerate(fullPrompt)) {
       return null
     }
     if (!authorVisibleContainsHttpOrLikelyExternalHost(v)) {
@@ -308,7 +582,9 @@ class AuthoringPreviewContext {
       return true
     }
     // Any CMS / site / template signal — never force tools off (check before length heuristics).
-    if (authorVisibleSuggestsCmsTooling(fullPrompt) || anchoredSiteXmlFieldPlacementIntent(fullPrompt)) {
+    if (authorVisibleSuggestsCmsTooling(fullPrompt) ||
+      anchoredSiteXmlFieldPlacementIntent(fullPrompt) ||
+      authorVisibleSuggestsOpenPageInquiry(fullPrompt)) {
       return false
     }
     if (isShortAffirmationContinuingPriorCmsWork(fullPrompt)) {
@@ -366,14 +642,32 @@ class AuthoringPreviewContext {
     def fastTemplate = fastPathTemplateDisplayHint(base, path)
     def fastEdit = fastPathSingleItemEditHint(base, path)
     def fastNewContent = fastPathNewContentItemHint(base, path)
+    def fastOpenPageInquiry = fastPathOpenPageInquiryHint(base, path)
     return """${base}
 
 --- Studio authoring context (when the user does not name a repository path) ---
 **This block is Studio metadata, not the author’s request.** Quoted example phrases below explain how to **resolve paths** when the author’s **own words** use relative references — **do not** treat those examples as the author having said “this page”, “update my content”, etc., unless the same words appear **above** this block in the author’s message. **Greeting-only turns** (“hello”, “thanks”, tiny chitchat with **no** ask to change the site): **do not** open with **ListContentTranslationScope**, **TranslateContentItem**, **TranslateContentBatch**, or broad **GetContent** “discovery” just because this path exists — answer in prose. **That narrow rule applies only to pure greetings.** When the author **does** ask to change the site — including **CSS**, **SCSS/LESS**, **templates / FTL**, **static-assets**, **themes**, **layout**, **“make it look like”** a **URL**, or **reference-site** styling — that **is** an authoring task: use the normal **GetContent** / **update_template** / **WriteContent** / **FetchHttpUrl** (read-only reference) / **analyze_template** flow per system policy; **do not** refuse because the work is “not content XML.”
 Current content item repository path: ${path}${ctLine}${labelLine}
 **Content-type id vs. Studio label:** Authors often name a type by its **Studio list label** while items use a repository **content-type id** (`/page/...`, `/component/...`). **Resolve** with **siteId** + **ListStudioContentTypes**, then system **Exact catalog match beats guessing** (**string equality** after the same normalization on **`label`**, **`name`**, and **`name`** tail — **no** fuzzy “closest” pick). If **exactly one** row matches, use its **`name`** as **`contentTypeId`**; if **zero** or **many**, ask the author. **Do not** invent a **content-type id** from keywords alone.
-When the author says "this page", "my page", "the current page", "this item", "update my content", or similar without specifying which file, treat that as **this** repository path. Use it as **contentPath** for update_content, GetContent, ListContentTranslationScope, WriteContent, GetContentTypeFormDefinition (when reading **that** item’s form), publish_content, revert_change, and for update_template / analyze_template when resolving the item's display-template. For **ListStudioContentTypes**, **do not** default to passing this path: call with **siteId** only first (full type catalog); pass **contentPath** only when you deliberately need folder-scoped allowed types. **Do not** call ListPagesAndComponents to guess a target when this block is present unless the user clearly refers to a different item or asks to browse or list the site.${fastPublish}${fastTranslate}${fastTemplate}${fastEdit}${fastNewContent}
+When the author says "this page", "my page", "the current page", "this item", "update my content", or similar without specifying which file, treat that as **this** repository path. Use it as **contentPath** for update_content, GetContent, ListContentTranslationScope, WriteContent, GetContentTypeFormDefinition (when reading **that** item’s form), publish_content, revert_change, and for update_template / analyze_template when resolving the item's display-template. For **ListStudioContentTypes**, **do not** default to passing this path: call with **siteId** only first (full type catalog); pass **contentPath** only when you deliberately need folder-scoped allowed types. **Do not** call ListPagesAndComponents to guess a target when this block is present unless the user clearly refers to a different item or asks to browse or list the site.${fastPublish}${fastTranslate}${fastTemplate}${fastEdit}${fastNewContent}${fastOpenPageInquiry}
 ---"""
+  }
+
+  /**
+   * Read / interpret the open page (“what is this about?”) — must load repository XML, not answer from memory alone.
+   */
+  static String fastPathOpenPageInquiryHint(String userPrompt, String repoPath) {
+    def p = (userPrompt ?: '').toString()
+    def path = normalizeRepoPath(repoPath?.toString())
+    if (!path || !authorVisibleSuggestsOpenPageInquiry(p + "\nRepository path: ${path}")) {
+      return ''
+    }
+    if (PUBLISH_NOW_INTENT.matcher(p).find() || CROSS_LANGUAGE_TRANSLATE_INTENT.matcher(p).find()) {
+      return ''
+    }
+    return '''
+
+**Fast path — understand / describe this page:** The author wants an interpretation of **this** open item. Call **GetContent** on **this** **contentPath** in the **first** tool round (plus **GetContentTypeFormDefinition** when field labels help). Optional **GetPreviewHtml** when a preview URL exists. Answer from the XML and preview — **do not** say you lack access to the page. **2–3** 📋 lines; no **WriteContent** unless they ask to change copy.'''
   }
 
   /**

@@ -158,6 +158,15 @@ export default function AiAssistantStudioUiSettings() {
         `Unchanged: ${stats.unchanged}`
       ];
       if (stats.errors.length) parts.push(`Errors: ${stats.errors.join('; ')}`);
+      if (stats.ok > 0) {
+        parts.push(
+          'Open a content item in Form Engine (not only the Content Types builder) to use the AI Assistant panel. Commit or publish form-definition changes if your site requires it.'
+        );
+      } else if (stats.missing > 0 && stats.ok === 0 && stats.errors.length === 0) {
+        parts.push(
+          'No form-definition.xml was loaded for the selected types. Confirm the plugin bundle is rebuilt and reinstalled, then try again.'
+        );
+      }
       setBulkMsg(parts.join('. '));
     } catch (e) {
       setBulkMsg(e instanceof Error ? e.message : String(e));
@@ -257,7 +266,19 @@ export default function AiAssistantStudioUiSettings() {
           type. Review in Git before publishing. Backup recommended.
         </Typography>
         {catalogError ? <Alert severity="warning">{catalogError}</Alert> : null}
-        {bulkMsg ? <Alert severity="info">{bulkMsg}</Alert> : null}
+        {bulkMsg ? (
+          <Alert
+            severity={
+              bulkMsg.startsWith('Updated: 0') && bulkMsg.includes('Errors:')
+                ? 'error'
+                : bulkMsg.startsWith('Updated: 0')
+                  ? 'warning'
+                  : 'info'
+            }
+          >
+            {bulkMsg}
+          </Alert>
+        ) : null}
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} flexWrap="wrap" useFlexGap>
           <Button

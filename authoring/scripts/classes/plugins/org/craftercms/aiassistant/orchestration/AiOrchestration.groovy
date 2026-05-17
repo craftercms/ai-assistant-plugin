@@ -10,6 +10,7 @@ import plugins.org.craftercms.aiassistant.llm.StudioAiRuntimeBuildRequest
 import plugins.org.craftercms.aiassistant.plan.PlanOrchestration
 import plugins.org.craftercms.aiassistant.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.rag.PluginRagVectorRegistry
+import plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeBindings
 import plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeCatalog
 import plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeEngine
 import plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeRouter
@@ -1159,6 +1160,21 @@ For **content XML** (pages/components): do not invent a new element tree — pre
   }
 
   /**
+   * After pass-1 recipe routing fails: allow LLM intent expansion + rematch when the turn is an expansion
+   * candidate (unless the request explicitly disables {@code authoringIntentExpansion}).
+   */
+  private boolean effectiveAuthoringIntentExpansionRematchEnabled(String bodyPrompt) {
+    try {
+      def v = request?.getAttribute('aiassistant.authoringIntentExpansion')
+      if (v != null) {
+        return AuthoringPreviewContext.parseAuthoringIntentExpansion(v)
+      }
+    } catch (Throwable ignored) {
+    }
+    return AuthoringPreviewContext.isAuthoringIntentExpansionCandidate((bodyPrompt ?: '').toString())
+  }
+
+  /**
    * OpenAI authoring <strong>system</strong> text only — same assembly as {@link #authoringPrompt} uses for
    * {@link SystemMessage}, without servlet {@code request}. Used by the autonomous worker (and keeps stream + headless aligned).
    *
@@ -1568,6 +1584,21 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     return namedWireTool || planBulletsWithTemplateOrCss
   }
 
+  /** Model printed a fake {@code GenerateImage} JSON/code block without {@code tool_calls}. */
+  private static boolean assistantProseFakedGenerateImageWithoutCalls(String assistFlat) {
+    if (!assistFlat?.trim()) {
+      return false
+    }
+    boolean mentionsTool =
+      assistFlat.contains('GenerateImage') ||
+        (assistFlat.contains('generate') && assistFlat.toLowerCase(Locale.ROOT).contains('image'))
+  boolean fencedPayload =
+      assistFlat.contains('```json') ||
+        assistFlat.contains('```\n{') ||
+        assistFlat.contains('```\n{"prompt"')
+    return mentionsTool && fencedPayload
+  }
+
   /**
    * Assistant claimed wrap-up (### Execution / ✅ / successfully updated) without ❌ — used to avoid a
    * tools-required nudge when repository work already ran but 📋 lines still mention optional FTL/CSS.
@@ -1596,6 +1627,10 @@ For **content XML** (pages/components): do not invent a new element tree — pre
   }
 
   private static String authorVisibleFromPromptText(String promptText) {
+    String current = AuthoringPreviewContext.extractAuthorCurrentRequestVisible(promptText ?: '')
+    if (current?.trim()) {
+      return current.trim()
+    }
     String flat = (promptText ?: '').toString()
     try {
       flat = AuthoringPreviewContext.stripStudioInjectedPromptBlocks(flat)
@@ -1638,7 +1673,22 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     }
     List filtered = filterToolCallbacksAllowlist(tools, allowNames)
     if (filtered == null || filtered.isEmpty()) {
-      return tools
+      String ridEmpty = intentTel.get('recipeId')?.toString()?.trim() ?: ''
+      if ('generate_image'.equals(ridEmpty) && allowNames.contains('GenerateImage')) {
+        intentTel.put('generateImageToolUnavailable', Boolean.TRUE)
+        log.warn(
+          'Tools-loop: generate_image recipe but GenerateImage is not registered (set imageModel on agent or request) agentId={}',
+          agentId
+        )
+      } else {
+        log.warn(
+          'Tools-loop: recipe {} toolsLoopAllowlist matched no registered tools ({} requested) — using empty tool list agentId={}',
+          ridEmpty ?: '(unknown)',
+          allowNames.size(),
+          agentId
+        )
+      }
+      return []
     }
     String rid = intentTel.get('recipeId')?.toString()?.trim() ?: ''
     log.info(
@@ -1649,6 +1699,84 @@ For **content XML** (pages/components): do not invent a new element tree — pre
       agentId
     )
     filtered
+  }
+
+  private static List filterToolCallbacksExcludeNames(List tools, Set<String> excludeNames) {
+    if (!tools || !excludeNames) {
+      return tools ?: []
+    }
+    List out = []
+    tools.each { t ->
+      if (t instanceof FunctionToolCallback) {
+        String n = t.getToolDefinition()?.name()
+        if (n && !excludeNames.contains(n)) {
+          out << t
+        }
+      }
+    }
+    out
+  }
+
+  /** Image bitmap turn — never offer {@code GenerateTextNoTools} as a substitute for {@code GenerateImage}. */
+  private static List applyGenerateImageTurnToolPolicy(List tools, Map intentTel, String fullWireUserPrompt, String agentId) {
+    String rid = (intentTel instanceof Map) ? intentTel.get('recipeId')?.toString()?.trim() : ''
+    boolean imageTurn =
+      'generate_image'.equals(rid) ||
+      AuthoringPreviewContext.authorCurrentRequestLooksLikeImageOnlyGenerate(fullWireUserPrompt ?: '')
+    if (!imageTurn) {
+      return tools
+    }
+    List out = filterToolCallbacksExcludeNames(tools, ['GenerateTextNoTools'] as Set)
+    if (!wireToolsIncludeNamedTool(buildWireToolsFromCallbacks(out), 'GenerateImage')) {
+      if (intentTel instanceof Map) {
+        intentTel.put('generateImageToolUnavailable', Boolean.TRUE)
+      }
+      log.warn(
+        'Tools-loop: image-only turn but GenerateImage tool missing (imageModel / imageGenerator not configured) agentId={} recipeId={}',
+        agentId,
+        rid ?: '(signal)'
+      )
+    }
+    return out
+  }
+
+  private static String synthesizeGenerateImageUnavailableMarkdown() {
+    return '''## Image generation unavailable
+
+Studio matched **Generate image (bitmap)** for this turn, but the **GenerateImage** tool is not available in this session.
+
+**Check:**
+- **Project Tools → AI Assistant → Agents** — save the chat agent with an **Image model** (stored in `config/studio/ai-assistant/agents.json`), or
+- **OpenAI API key** — set `OPENAI_API_KEY` (or the site LLM key your Studio uses for `openAI`).
+
+OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when generation is enabled. Retry the same prompt after keys/catalog are in place.'''
+  }
+
+  /**
+   * When a matched recipe sets {@code toolsLoopDisable}, turn off CMS tools for this turn (e.g. {@code llm_research}).
+   */
+  private static void applyIntentRecipeRouteEffects(Map springAi, Map route) {
+    if (!(springAi instanceof Map)) {
+      return
+    }
+    Map tel =
+      (route?.intentRecipeRoutingTelemetry instanceof Map) ?
+        (Map) route.intentRecipeRoutingTelemetry :
+        ((springAi.intentRecipeRoutingTelemetry instanceof Map) ?
+          (Map) springAi.intentRecipeRoutingTelemetry :
+          null)
+    if (!(tel instanceof Map) || !'matched'.equals(tel.get('outcome')?.toString())) {
+      return
+    }
+    if (Boolean.TRUE.equals(tel.get('toolsLoopDisable'))) {
+      springAi.useTools = false
+      log.info(
+        'Tools-loop: recipe {} toolsLoopDisable — CMS tools off for this turn agentId={}',
+        tel.get('recipeId')?.toString()?.trim() ?: '(unknown)',
+        springAi.agentId ?: ''
+      )
+      return
+    }
   }
 
   private static List filterToolCallbacksAllowlist(List tools, Set<String> allowNames) {
@@ -1830,6 +1958,31 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     return AuthoringPreviewContext.anchoredSiteXmlFieldPlacementIntent(authorVisible ?: '')
   }
 
+  /** “Add … to my &lt;field label&gt;” — {@code to} names the field, not publishable copy. */
+  private static boolean authorPlacementRequestsFieldTargetNotLiteralContent(String authorVisible) {
+    String tail = authorVisibleTailForOutcomePhrase(authorVisible)
+    String scan = [tail, (authorVisible ?: '').toString()].findAll { it?.trim() }.join('\n')
+    if (!scan?.trim()) {
+      return false
+    }
+    return (scan =~ /(?is)\b(add|put|place|insert|set|update)\b.+\bto\b.+\b(my\s+)?(hero|title|headline|subtitle|body|copy|text|field)\b/).find()
+  }
+
+  private static boolean authorRequestNeedsPriorTurnContentResolution(String authorVisible) {
+    String tail = authorVisibleTailForOutcomePhrase(authorVisible)
+    String scan = [tail, (authorVisible ?: '').toString()].findAll { it?.trim() }.join('\n')
+    return AuthoringPreviewContext.authorVisibleSuggestsPriorTurnContent(scan)
+  }
+
+  private static boolean outcomePhraseEqualsResolvedFieldLabel(String outcomePhrase, String fieldLabel) {
+    if (!outcomePhrase?.trim() || !fieldLabel?.trim()) {
+      return false
+    }
+    String a = outcomePhrase.trim().toLowerCase(Locale.ROOT)
+    String b = fieldLabel.trim().toLowerCase(Locale.ROOT)
+    return a == b || a.contains(b) || b.contains(a)
+  }
+
   /**
    * Author needs externally resolved copy (lyrics lookup, fetch text) before a field write — not a literal hotpath value.
    */
@@ -1926,6 +2079,10 @@ For **content XML** (pages/components): do not invent a new element tree — pre
       return false
     }
     if ((authorFieldLabelEarly ?: '').trim() && concreteField) {
+      if (authorRequestNeedsPriorTurnContentResolution(cand) || authorRequestNeedsPriorTurnContentResolution(visible)) {
+        // Match the recipe even when abbreviated chat history omits tip bodies — tools loop can resolve copy.
+        return true
+      }
       return true
     }
     if (!authorRequestNeedsExternalContentResolution(cand) && !authorRequestNeedsExternalContentResolution(visible)) {
@@ -1934,9 +2091,6 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     String label = (authorFieldLabelEarly ?: '').trim()
     if (!label) {
       label = extractAuthorFieldLabelPhrase(cand) ?: extractAuthorFieldLabelPhrase(visible)
-    }
-    if (!label && ((cand ?: '') + '\n' + (visible ?: '')) =~ /(?is)\bhero\s+title\b/) {
-      label = 'hero title'
     }
     return (label ?: '').length() > 0
   }
@@ -1967,7 +2121,7 @@ For **content XML** (pages/components): do not invent a new element tree — pre
             return cap
           }
         }
-        if (v.length() <= 400) {
+        if (!authorPlacementRequestsFieldTargetNotLiteralContent(authorVisible) && v.length() <= 400) {
           def m3 = (v =~ /(?is)\b(?:to|with)\s+(.+)$/)
           if (m3.find()) {
             String cap = normalizeOutcomePhrase(m3.group(1))
@@ -1977,6 +2131,10 @@ For **content XML** (pages/components): do not invent a new element tree — pre
           }
         }
       }
+    }
+    String fromPriorTurn = extractPriorTurnAssistantContentForOutcome(authorVisible)
+    if (isUsableHotpathOutcomePhrase(fromPriorTurn, authorVisible)) {
+      return fromPriorTurn
     }
     String fromPrior = extractOutcomeFromPriorAssistantContentBlock(authorVisible)
     if (isUsableHotpathOutcomePhrase(fromPrior, authorVisible)) {
@@ -2015,6 +2173,37 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     }
     String block = assistBody.substring(contentStart, fenceEnd).trim()
     return block.length() > 12_000 ? block.substring(0, 12_000).trim() : block
+  }
+
+  /**
+   * Reuse assistant-generated copy from the prior turn (numbered tips, research blocks) when the author says
+   * “use these tips” — not limited to short affirmations + fenced blocks.
+   */
+  private static String extractPriorTurnAssistantContentForOutcome(String fullPrompt) {
+    String s = (fullPrompt ?: '').toString()
+    if (!s.contains('[Prior conversation')) {
+      return ''
+    }
+    int curIdx = s.indexOf('Current request:')
+    String prior = curIdx > 0 ? s.substring(0, curIdx) : s
+    int lastAssist = prior.toLowerCase(Locale.ROOT).lastIndexOf('assistant:')
+    if (lastAssist < 0) {
+      return ''
+    }
+    String assistBody = prior.substring(lastAssist + 'assistant:'.length()).trim()
+    List<String> numbered = []
+    assistBody.eachLine { String line ->
+      def m = (line =~ /^\s*\d+\.\s+\*\*([^*]+)\*\*:?\s*(.*)$/)
+      if (m.find()) {
+        String tip = m.group(1).trim()
+        String rest = m.group(2).trim()
+        numbered << (rest ? "${tip}: ${rest}" : tip)
+      }
+    }
+    if (numbered.size() >= 3) {
+      return numbered.join('\n')
+    }
+    return ''
   }
 
   private static String normalizeOutcomePhrase(String s) {
@@ -3161,60 +3350,44 @@ For **content XML** (pages/components): do not invent a new element tree — pre
   private static final String AUTHORING_INTENT_EXPANSION_BLOCK_HEADER =
     '[Studio — expanded authoring intent (model-generated for this turn; execute with tools)]'
 
+  private static final String AUTHORING_INTENT_EXPANSION_RECIPE_REMATCH_BLOCK_HEADER =
+    '[Studio — expanded intent aligned to recipe catalog (pass-2 routing)]'
+
   /**
-   * Optional **pre-tools** completion: expands **short** or **reference-vague** author messages into concrete
-   * preview-checkable goals, prepended to the tools-loop user message (via tools-loop simple completion HTTP).
-   * <p>On failure or ineligibility, returns {@code userMessageAfterGuard} unchanged.</p>
+   * LLM intent-expansion bullets only (no wire prefix). Empty when expansion should not run or failed.
    */
-  static String maybePrependAuthoringIntentExpansionBlock(
+  static String generateAuthoringIntentExpansionText(
     String bodyPromptForCandidate,
-    String userMessageAfterGuard,
     String apiKey,
     String model,
     String wireBaseUrl,
-    Map toolsLoopSessionBundle,
-    boolean authoringIntentExpansionEnabled = false
+    Map toolsLoopSessionBundle
   ) {
-    def guard = (userMessageAfterGuard ?: '').toString()
     def cand = (bodyPromptForCandidate ?: '').toString()
-    if (!authoringIntentExpansionEnabled) {
-      return guard
-    }
-    if (!guard.trim() || !cand.trim()) {
-      return guard
+    if (!cand.trim()) {
+      return ''
     }
     if (!AuthoringPreviewContext.isAuthoringIntentExpansionCandidate(cand)) {
-      return guard
+      return ''
     }
-    boolean needsExternal =
-      authorRequestNeedsExternalContentResolution(cand) || authorRequestNeedsExternalContentResolution(guard)
+    boolean needsExternal = authorRequestNeedsExternalContentResolution(cand)
     if (!needsExternal &&
       authorRequestIsConcreteFieldEdit(cand) &&
       isUsableHotpathOutcomePhrase(extractAuthoringOutcomePhrase(cand), cand)) {
-      log.debug('maybePrependAuthoringIntentExpansionBlock: skip — concrete field-level edit with explicit outcome text')
-      return guard
-    }
-    if (needsExternal &&
-      (guard.contains('[Studio — recipe engine prefetch]') || guard.contains('[Studio — matched authoring intent recipe]'))) {
-      log.debug('maybePrependAuthoringIntentExpansionBlock: skip — external content will use server prefetch hotpath')
-      return guard
-    }
-    if (!needsExternal &&
-      (guard.contains('[Studio — recipe engine prefetch]') || guard.contains('[Studio — matched authoring intent recipe]'))) {
-      log.debug('maybePrependAuthoringIntentExpansionBlock: skip — intent recipe prefetch already on wire')
-      return guard
+      log.debug('generateAuthoringIntentExpansionText: skip — concrete field-level edit with explicit outcome text')
+      return ''
     }
     def key = (apiKey ?: '').toString().trim()
     if (!key) {
-      return guard
+      return ''
     }
     if (aiAssistantPipelineCancelEffective()) {
-      return guard
+      return ''
     }
     def mdl = (model ?: '').toString().trim()
     if (!mdl) {
-      log.warn('maybePrependAuthoringIntentExpansionBlock: missing model id, skipping expansion')
-      return guard
+      log.warn('generateAuthoringIntentExpansionText: missing model id, skipping expansion')
+      return ''
     }
     try {
       String expanded = toolsLoopSimpleCompletionAssistantText(
@@ -3230,16 +3403,235 @@ For **content XML** (pages/components): do not invent a new element tree — pre
       )
       expanded = (expanded ?: '').toString().trim()
       if (!expanded || expanded.length() > 6_000) {
-        return guard
+        return ''
       }
-      return AUTHORING_INTENT_EXPANSION_BLOCK_HEADER + '\n' + expanded + '\n\n---\n\n' + guard
+      return expanded
     } catch (InterruptedException ie) {
       Thread.currentThread().interrupt()
-      return guard
+      return ''
     } catch (Throwable t) {
-      log.warn('maybePrependAuthoringIntentExpansionBlock skipped: {}', t.message)
+      log.warn('generateAuthoringIntentExpansionText skipped: {}', t.message)
+      return ''
+    }
+  }
+
+  /**
+   * Pass-2 expansion when pass-1 recipe routing missed: restate author goal toward a catalog {@code recipeId}
+   * (see {@link ToolPrompts#getLlm_AUTHORING_INTENT_EXPANSION_RECIPE_REMATCH_SYSTEM}).
+   */
+  static String generateAuthoringIntentExpansionTextForRecipeRematch(
+    String bodyPromptForCandidate,
+    String recipeCatalogMarkdown,
+    String apiKey,
+    String model,
+    String wireBaseUrl,
+    Map toolsLoopSessionBundle
+  ) {
+    def cand = (bodyPromptForCandidate ?: '').toString()
+    if (!cand.trim()) {
+      return ''
+    }
+    if (!AuthoringPreviewContext.isAuthoringIntentExpansionCandidate(cand)) {
+      return ''
+    }
+    def key = (apiKey ?: '').toString().trim()
+    if (!key) {
+      return ''
+    }
+    if (aiAssistantPipelineCancelEffective()) {
+      return ''
+    }
+    def mdl = (model ?: '').toString().trim()
+    if (!mdl) {
+      log.warn('generateAuthoringIntentExpansionTextForRecipeRematch: missing model id, skipping')
+      return ''
+    }
+    String catalogMd = (recipeCatalogMarkdown ?: '').toString().trim()
+    if (!catalogMd) {
+      catalogMd = '(no recipes configured)'
+    }
+    String userRematch =
+      '## Recipe catalog\n\n' +
+        catalogMd +
+        '\n\n## Author message (pass-1 intent router did not match)\n\n' +
+        cand
+    try {
+      String expanded = toolsLoopSimpleCompletionAssistantText(
+        key,
+        mdl,
+        ToolPrompts.getLlm_AUTHORING_INTENT_EXPANSION_RECIPE_REMATCH_SYSTEM(),
+        userRematch,
+        768,
+        120_000,
+        'AuthoringIntentExpansionRecipeRematch',
+        wireBaseUrl,
+        toolsLoopSessionBundle
+      )
+      expanded = (expanded ?: '').toString().trim()
+      if (!expanded || expanded.length() > 6_000) {
+        return ''
+      }
+      if (!expanded.toLowerCase(Locale.ROOT).contains('recipe match hint:')) {
+        log.info(
+          'AuthoringIntentExpansionRecipeRematch: output missing Recipe match hint line — still using for pass-2 router'
+        )
+      }
+      return expanded
+    } catch (InterruptedException ie) {
+      Thread.currentThread().interrupt()
+      return ''
+    } catch (Throwable t) {
+      log.warn('generateAuthoringIntentExpansionTextForRecipeRematch skipped: {}', t.message)
+      return ''
+    }
+  }
+
+  static String formatAuthoringIntentExpansionWirePrefix(String expansionText) {
+    return formatAuthoringIntentExpansionWirePrefix(expansionText, false)
+  }
+
+  static String formatAuthoringIntentExpansionWirePrefix(String expansionText, boolean recipeRematch) {
+    String exp = (expansionText ?: '').toString().trim()
+    if (!exp) {
+      return ''
+    }
+    String header = Boolean.TRUE.equals(recipeRematch) ?
+      AUTHORING_INTENT_EXPANSION_RECIPE_REMATCH_BLOCK_HEADER :
+      AUTHORING_INTENT_EXPANSION_BLOCK_HEADER
+    return header + '\n' + exp + '\n\n---\n\n'
+  }
+
+  /**
+   * Optional **pre-tools** expansion prefix (legacy callers). Prefer {@link #intentRecipeRoutingPrelude} rematch path.
+   */
+  static String maybePrependAuthoringIntentExpansionBlock(
+    String bodyPromptForCandidate,
+    String userMessageAfterGuard,
+    String apiKey,
+    String model,
+    String wireBaseUrl,
+    Map toolsLoopSessionBundle,
+    boolean authoringIntentExpansionEnabled = false
+  ) {
+    def guard = (userMessageAfterGuard ?: '').toString()
+    if (!authoringIntentExpansionEnabled || !guard.trim()) {
       return guard
     }
+    String expanded = generateAuthoringIntentExpansionText(bodyPromptForCandidate, apiKey, model, wireBaseUrl, toolsLoopSessionBundle)
+    if (!expanded) {
+      return guard
+    }
+    if (guard.contains('[Studio — recipe engine prefetch]') || guard.contains('[Studio — matched authoring intent recipe]')) {
+      return guard
+    }
+    return formatAuthoringIntentExpansionWirePrefix(expanded) + guard
+  }
+
+  private static String intentRecipeRematchRouterVisible(String expansionText, String originalRouterVisible) {
+    String exp = (expansionText ?: '').toString().trim()
+    String orig = (originalRouterVisible ?: '').toString().trim()
+    if (!exp) {
+      return orig
+    }
+    if (!orig) {
+      return exp
+    }
+    return exp + '\n\n' + orig
+  }
+
+  /**
+   * One routing pass: deterministic signals, JSON router, deterministic fallback after router miss.
+   * @return map with {@code matched} (boolean) and match fields when true
+   */
+  private static Map intentRecipeRoutingMatchPass(
+    List recipes,
+    Map cfg,
+    Map detCtx,
+    String routerVisible,
+    String apiKey,
+    String model,
+    String wireBaseUrl,
+    Map toolsLoopSessionBundle,
+    String authorFieldLabelEarly
+  ) {
+    Map out = [matched: false]
+    Map detMatch = AuthoringIntentRecipeCatalog.findDeterministicRecipeMatch(recipes, detCtx)
+    if (detMatch != null) {
+      out.matched = true
+      out.recipe = detMatch.recipe
+      out.recipeId = detMatch.recipeId?.toString()?.trim()
+      out.confidence = 1.0d
+      out.routerReason = detMatch.routerReason?.toString()
+      out.skipRecipePrefetch = Boolean.TRUE.equals(detMatch.skipPrefetch)
+      out.matchPass = 'deterministic'
+      return out
+    }
+    List routerRecipes = AuthoringIntentRecipeCatalog.filterRecipesEligibleForRouter(recipes, routerVisible)
+    String catalogMd = AuthoringIntentRecipeCatalog.toRouterCatalogMarkdown(routerRecipes)
+    String userRouter = '## Recipe catalog\n\n' + catalogMd + '\n\n## Author message\n\n' + routerVisible
+    String rawJson = toolsLoopSimpleCompletionAssistantText(
+      apiKey,
+      model,
+      ToolPrompts.getLlm_AUTHORING_INTENT_RECIPE_ROUTER_SYSTEM(),
+      userRouter,
+      256,
+      120_000,
+      'IntentRecipeRouter',
+      wireBaseUrl,
+      toolsLoopSessionBundle
+    )
+    Map decision = AuthoringIntentRecipeRouter.parseRouterJson(rawJson)
+    double minC = StudioAiAssistantProjectConfig.intentRecipeMinConfidence(cfg)
+    double conf = 0.0d
+    try {
+      def c = decision.get('confidence')
+      if (c instanceof Number) {
+        conf = ((Number) c).doubleValue()
+      }
+    } catch (Throwable ignoredConf) {
+      conf = 0.0d
+    }
+    String rid = decision.recipeId?.toString()?.trim()
+    Map recipe = rid ? AuthoringIntentRecipeCatalog.findRecipeById(recipes, rid) : null
+    if (recipe != null && AuthoringIntentRecipeCatalog.recipeExcludedByDontMatchHints(recipe, routerVisible)) {
+      recipe = null
+      rid = null
+    }
+    if (recipe != null && conf >= minC) {
+      out.matched = true
+      out.recipe = recipe
+      out.recipeId = rid
+      out.confidence = conf
+      out.minConfidence = minC
+      out.routerReason = decision.reason?.toString()
+      out.skipRecipePrefetch = false
+      out.matchPass = 'router'
+      out.catalogMd = catalogMd
+      return out
+    }
+    Map fbDet = AuthoringIntentRecipeCatalog.findDeterministicRecipeMatch(recipes, detCtx)
+    if (fbDet != null) {
+      out.matched = true
+      out.recipe = fbDet.recipe
+      out.recipeId = fbDet.recipeId?.toString()?.trim()
+      out.confidence = 1.0d
+      out.minConfidence = minC
+      out.routerReason = fbDet.routerReason?.toString()
+      out.skipRecipePrefetch = Boolean.TRUE.equals(fbDet.skipPrefetch)
+      out.matchPass = 'deterministic_after_router'
+      out.catalogMd = catalogMd
+      out.routerDecision = decision
+      out.routerConfidence = conf
+      return out
+    }
+    out.minConfidence = minC
+    out.catalogMd = catalogMd
+    out.routerDecision = decision
+    out.routerConfidence = conf
+    out.routerRecipeId = rid
+    out.routerRecipeFound = recipe != null
+    out.matchPass = 'no_match'
+    return out
   }
 
   /**
@@ -3279,10 +3671,11 @@ For **content XML** (pages/components): do not invent a new element tree — pre
   }
 
   /**
-   * Optional pre-tools **intent recipe** routing: one small JSON classifier completion, then either a **prelude** block
-   * for the main tools loop, a **clarification-only** handoff (caller runs tools-off), or a one-line fallthrough hint.
-   * <p>Eligibility matches {@link AuthoringPreviewContext#isAuthoringIntentExpansionCandidate} — same short / visual
-   * prompts as the expanded-intent pass.</p>
+   * Optional pre-tools **intent recipe** routing: **pass 1** match only (deterministic → JSON router → deterministic
+   * fallback). When pass 1 misses and {@code allowExpansionRematch}, run LLM intent expansion then **pass 2** rematch on
+   * expanded author-visible text. Matched or unmatched outcomes may prepend the expansion wire block once (no separate
+   * post-routing expansion prepend).
+   * <p>Eligibility matches {@link AuthoringPreviewContext#intentRecipeRouterEligibilitySkipReason}.</p>
    *
    * @return keys: {@code clarificationOnly} (Boolean), {@code userTextForToolsLoop} (String), {@code clarificationUserText} (String body for tools-off clarification when clarificationOnly), {@code intentRecipeRoutingTelemetry} (Map with at least {@code outcome})
    */
@@ -3297,9 +3690,18 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     double minC,
     String routerReason,
     String visible,
-    String authorFieldLabelOverride = null
+    String authorFieldLabelOverride = null,
+    boolean skipRecipePrefetch = false,
+    String expansionWirePrefix = ''
   ) {
-    Map pfb = AuthoringIntentRecipeEngine.runPrefetchBlock(ops, recipe, cfg)
+    Map pfb = skipRecipePrefetch ?
+      [
+        markdown                : '',
+        prefetchSteps           : [],
+        prefetchEnvelopeTruncated: false,
+        initialBindings         : [:]
+      ] :
+      AuthoringIntentRecipeEngine.runPrefetchBlock(ops, recipe, cfg)
     String prefetch = (pfb.markdown ?: '').toString()
     List pfbSteps = pfb.prefetchSteps instanceof List ? (List) pfb.prefetchSteps : []
     boolean prefetchEnvTrunc = Boolean.TRUE.equals(pfb.prefetchEnvelopeTruncated)
@@ -3308,16 +3710,33 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     String hotpathDirective = (hotpathMeta?.directive ?: '').toString()
     boolean prefetchSkipRedundantGetForListedPath = Boolean.TRUE.equals(hotpathMeta?.duplicateGetContentBanned)
     String authorFieldLabel = (authorFieldLabelOverride ?: extractAuthorFieldLabelPhrase(visible ?: '')).toString()
-    Map fieldHot = AuthoringIntentRecipeEngine.buildSimpleFieldEditHotpathExtras(prefetch, authorFieldLabel)
+    Map fieldHot = 'open_page_inquiry'.equals(rid) ?
+      [directive: '', resolvedFieldId: '', resolvedFieldLabel: ''] :
+      AuthoringIntentRecipeEngine.buildSimpleFieldEditHotpathExtras(prefetch, authorFieldLabel)
     hotpathDirective = hotpathDirective + (fieldHot?.directive ?: '').toString()
+    if ('open_page_inquiry'.equals(rid)) {
+      if (prefetchSkipRedundantGetForListedPath) {
+        hotpathDirective =
+          '[Studio — read-only page inquiry: Recipe-engine prefetch already includes successful **GetContent** with full **contentXml** for the anchored path. ' +
+          'Answer in prose from that XML. Do **not** call **GetContent** again on this path. Do **not** WriteContent unless the author explicitly asks to edit.\n\n'
+      } else {
+        hotpathDirective = ''
+      }
+    }
     String prefetchResolvedFieldId = (fieldHot?.resolvedFieldId ?: '').toString().trim()
     String prefetchResolvedFieldLabel = (fieldHot?.resolvedFieldLabel ?: '').toString().trim()
+    Map<String, Map> recipeInitialBindings = pfb.initialBindings instanceof Map ?
+      (Map<String, Map>) pfb.initialBindings :
+      [:]
+    Map<String, Map> recipeCurrentBindings = AuthoringIntentRecipeBindings.deepCopyBindingMap(recipeInitialBindings)
     String prelude =
       AuthoringIntentRecipeCatalog.formatMatchedRecipePrelude(
         recipe,
         rid,
         conf,
-        routerReason
+        routerReason,
+        recipeInitialBindings,
+        recipeCurrentBindings
       )
     String orchPrelude = AuthoringIntentRecipeCatalog.matchedUserPrelude(recipe)
     if (orchPrelude) {
@@ -3327,6 +3746,7 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     matchedTelExtra.putAll(AuthoringIntentRecipeCatalog.orchestrationTelemetryExtras(recipe))
     matchedTelExtra.putAll([
       recipeId                                     : rid,
+      recipeTitle                                  : (recipe?.title?.toString()?.trim() ?: rid),
       confidence                                   : conf,
       minConfidence                                : minC,
       recipeFoundInCatalog                         : true,
@@ -3336,10 +3756,20 @@ For **content XML** (pages/components): do not invent a new element tree — pre
       prefetchSkipRedundantGetContentForListedPath : prefetchSkipRedundantGetForListedPath,
       prefetchResolvedFieldId                      : prefetchResolvedFieldId,
       prefetchResolvedFieldLabel                   : prefetchResolvedFieldLabel,
-      routerReason                                 : (routerReason ?: '').toString().trim()
+      routerReason                                 : (routerReason ?: '').toString().trim(),
+      recipeChatLine                               : AuthoringIntentRecipeCatalog.formatIntentRecipeChatLine(recipe)
     ])
-    String externalHint = ''
+    if ('open_page_inquiry'.equals(rid) && prefetchSkipRedundantGetForListedPath && !prefetchEnvTrunc) {
+      matchedTelExtra.toolsLoopDisable = Boolean.TRUE
+    }
+    String inquiryHint = ''
     String rr = (routerReason ?: '').toString()
+    if ('open_page_inquiry'.equals(rid) || rr.contains('open_page_inquiry')) {
+      inquiryHint =
+        '[Studio — open page inquiry (read-only): Answer what this anchored page is about using prefetch/GetContent XML. ' +
+        'Summarize for the author in plain prose. Do **not** WriteContent, update_template, or read CSS/FTL unless they ask to change something.]\n\n'
+    }
+    String externalHint = ''
     if (rr.contains('external_content') ||
       authorRequestNeedsExternalContentResolution(userTextAfterGuard ?: '') ||
       authorRequestNeedsExternalContentResolution(visible ?: '')) {
@@ -3349,7 +3779,11 @@ For **content XML** (pages/components): do not invent a new element tree — pre
         'Do **not** write the instruction sentence, song title alone, or “lyrics of …” meta-text as the field value. ' +
         'Then GetContent → WriteContent the full resolved HTML/text on the anchored path.]\n\n'
     }
-    result.userTextForToolsLoop = prefetch + hotpathDirective + externalHint + prelude + (userTextAfterGuard ?: '')
+    String expPrefix = (expansionWirePrefix ?: '').toString()
+    result.userTextForToolsLoop = expPrefix + inquiryHint + prefetch + hotpathDirective + externalHint + prelude + (userTextAfterGuard ?: '')
+    if (expPrefix.trim()) {
+      matchedTelExtra.intentExpansionRematch = Boolean.TRUE
+    }
     return intentRecipeAttachTelemetry(ops, cfg, result, 'matched', matchedTelExtra)
   }
 
@@ -3360,7 +3794,8 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     String model,
     String wireBaseUrl,
     Map toolsLoopSessionBundle,
-    StudioToolOperations ops
+    StudioToolOperations ops,
+    boolean allowExpansionRematch = false
   ) {
     Map result = [
       clarificationOnly     : false,
@@ -3407,6 +3842,10 @@ For **content XML** (pages/components): do not invent a new element tree — pre
         return intentRecipeAttachTelemetry(ops, cfg, result, 'skipped_no_model')
       }
       List recipes = AuthoringIntentRecipeCatalog.loadRecipes(ops, cfg)
+      int recipeCatalogSize = recipes != null ? recipes.size() : 0
+      boolean catalogHasOpenPageInquiry =
+        AuthoringIntentRecipeCatalog.findRecipeById(recipes, 'open_page_inquiry') != null
+      Map catalogTel = [recipeCatalogSize: recipeCatalogSize, catalogHasOpenPageInquiry: catalogHasOpenPageInquiry]
       if (recipes == null || recipes.isEmpty()) {
         log.warn('Intent recipe routing skipped: recipe catalog is empty after bundled + site custom merge.')
         result.userTextForToolsLoop =
@@ -3420,7 +3859,7 @@ For **content XML** (pages/components): do not invent a new element tree — pre
           cfg,
           result,
           'skipped_no_recipes',
-          [recipeCatalogEmpty: true, recipeCatalogSize: 0]
+          [recipeCatalogEmpty: true] + catalogTel
         )
       }
       String visible = cand
@@ -3434,187 +3873,162 @@ For **content XML** (pages/components): do not invent a new element tree — pre
         log.warn('Intent recipe routing skipped: author-visible text empty after strip (unexpected after eligibility pass).')
         return intentRecipeAttachTelemetry(ops, cfg, result, 'skipped_visible_empty')
       }
+      String currentAuthorVisible = AuthoringPreviewContext.extractAuthorCurrentRequestVisible(cand)?.trim()
+      if (!currentAuthorVisible) {
+        currentAuthorVisible = visible
+      }
+      String routerVisible = currentAuthorVisible
       String authorFieldLabelEarly = extractAuthorFieldLabelPhrase(cand)
       if (!authorFieldLabelEarly) {
-        authorFieldLabelEarly = extractAuthorFieldLabelPhrase(visible)
+        authorFieldLabelEarly = extractAuthorFieldLabelPhrase(routerVisible)
       }
       boolean concreteField =
-        authorRequestIsConcreteFieldEdit(cand) || authorRequestIsConcreteFieldEdit(visible)
-      if (plainTextLooksLikeImageOnlyGenerateRequest(visible)) {
-        Map recipeImg = AuthoringIntentRecipeCatalog.findRecipeById(recipes, 'generate_image')
-        if (recipeImg != null) {
-          log.info('Intent recipe routing: deterministic match generate_image (image-only author request)')
-          return intentRecipeRoutingAttachMatchedRecipe(
-            ops,
-            cfg,
-            result,
-            userTextAfterGuard,
-            recipeImg,
-            'generate_image',
-            1.0d,
-            StudioAiAssistantProjectConfig.intentRecipeMinConfidence(cfg),
-            'deterministic_image_only',
-            visible,
-            null
-          )
-        }
-      }
-      if (authorRequestLooksLikeTranslateIntent(cand, visible)) {
-        Map recipeTr = AuthoringIntentRecipeCatalog.findRecipeById(recipes, 'translate_content_item')
-        if (recipeTr != null) {
-          log.info('Intent recipe routing: deterministic match translate_content_item')
-          return intentRecipeRoutingAttachMatchedRecipe(
-            ops,
-            cfg,
-            result,
-            userTextAfterGuard,
-            recipeTr,
-            'translate_content_item',
-            1.0d,
-            StudioAiAssistantProjectConfig.intentRecipeMinConfidence(cfg),
-            'deterministic_translate_intent',
-            visible,
-            null
-          )
-        }
-      }
-      if (intentRecipeDeterministicMatchForFieldEdit(cand, visible, authorFieldLabelEarly, concreteField)) {
+        authorRequestIsConcreteFieldEdit(cand) || authorRequestIsConcreteFieldEdit(routerVisible)
+      Closure<Boolean> anchoredSiteXml = {
         Map bindEarly = ops.recipeEngineAuthoringBindings()
         String anchorEarly = (bindEarly?.contentPath ?: '').toString().trim()
         if (!anchorEarly) {
           anchorEarly = AuthoringPreviewContext.extractAnchoredRepositoryPath(cand)
         }
-        if (anchorEarly && anchorEarly.toLowerCase(Locale.ROOT).startsWith('/site/') &&
-          anchorEarly.toLowerCase(Locale.ROOT).endsWith('.xml')) {
-          Map recipeDet = AuthoringIntentRecipeCatalog.findRecipeById(recipes, 'modify_page_content')
-          if (recipeDet != null) {
-            boolean externalLookup =
-              authorRequestNeedsExternalContentResolution(cand) || authorRequestNeedsExternalContentResolution(visible)
-            String detReason = externalLookup ?
-              'deterministic_external_content_field_edit' :
-              'deterministic_concrete_field_edit'
-            log.info(
-              'Intent recipe routing: deterministic match modify_page_content ({}, anchor path={})',
-              detReason,
-              anchorEarly
-            )
-            return intentRecipeRoutingAttachMatchedRecipe(
-              ops,
-              cfg,
-              result,
-              userTextAfterGuard,
-              recipeDet,
-              'modify_page_content',
-              1.0d,
-              StudioAiAssistantProjectConfig.intentRecipeMinConfidence(cfg),
-              detReason,
-              visible,
-              authorFieldLabelEarly
-            )
+        if (!anchorEarly) {
+          anchorEarly = AuthoringPreviewContext.extractAnchoredRepositoryPath(routerVisible)
+        }
+        return anchorEarly &&
+          anchorEarly.toLowerCase(Locale.ROOT).startsWith('/site/') &&
+          anchorEarly.toLowerCase(Locale.ROOT).endsWith('.xml')
+      }
+      Map detCtx = [
+        cand                          : cand,
+        routerVisible                 : routerVisible,
+        ops                           : ops,
+        evaluateTranslateIntent       : { -> authorRequestLooksLikeTranslateIntent(cand, routerVisible) },
+        evaluateConcreteFieldEdit     : {
+          anchoredSiteXml.call() &&
+            intentRecipeDeterministicMatchForFieldEdit(cand, routerVisible, authorFieldLabelEarly, concreteField)
+        },
+        evaluateExternalContentFieldEdit: {
+          if (!anchoredSiteXml.call()) {
+            return false
+          }
+          if (!(authorRequestNeedsExternalContentResolution(cand) ||
+            authorRequestNeedsExternalContentResolution(routerVisible))) {
+            return false
+          }
+          String label = authorFieldLabelEarly ?: extractAuthorFieldLabelPhrase(cand) ?: extractAuthorFieldLabelPhrase(routerVisible)
+          return (label ?: '').trim().length() > 0
+        }
+      ]
+      Map pass1 = intentRecipeRoutingMatchPass(
+        recipes,
+        cfg,
+        detCtx,
+        routerVisible,
+        key,
+        mdl,
+        wireBaseUrl,
+        toolsLoopSessionBundle,
+        authorFieldLabelEarly
+      )
+      String expansionWirePrefix = ''
+      Map activePass = pass1
+      if (!Boolean.TRUE.equals(pass1.matched) && allowExpansionRematch) {
+        List routerRecipesForExpansion =
+          AuthoringIntentRecipeCatalog.filterRecipesEligibleForRouter(recipes, routerVisible)
+        String catalogMdForExpansion =
+          AuthoringIntentRecipeCatalog.toRouterCatalogMarkdown(routerRecipesForExpansion)
+        String expansionText = generateAuthoringIntentExpansionTextForRecipeRematch(
+          cand,
+          catalogMdForExpansion,
+          key,
+          mdl,
+          wireBaseUrl,
+          toolsLoopSessionBundle
+        )
+        if (!expansionText?.trim()) {
+          expansionText = generateAuthoringIntentExpansionText(cand, key, mdl, wireBaseUrl, toolsLoopSessionBundle)
+        }
+        if (expansionText?.trim()) {
+          expansionWirePrefix = formatAuthoringIntentExpansionWirePrefix(expansionText, true)
+          String rematchVisible = intentRecipeRematchRouterVisible(expansionText, routerVisible)
+          log.info(
+            'Intent recipe routing: pass-1 no match — running intent expansion + pass-2 rematch (rematchVisibleChars={})',
+            rematchVisible.length()
+          )
+          Map pass2 = intentRecipeRoutingMatchPass(
+            recipes,
+            cfg,
+            detCtx,
+            rematchVisible,
+            key,
+            mdl,
+            wireBaseUrl,
+            toolsLoopSessionBundle,
+            authorFieldLabelEarly
+          )
+          if (Boolean.TRUE.equals(pass2.matched)) {
+            log.info('Intent recipe routing: pass-2 matched after expansion (matchPass={})', pass2.matchPass)
+            activePass = pass2
+          } else {
+            log.info('Intent recipe routing: pass-2 still no match after expansion')
+            activePass = pass2
           }
         }
       }
-      String catalogMd = AuthoringIntentRecipeCatalog.toRouterCatalogMarkdown(recipes)
-      String userRouter = '## Recipe catalog\n\n' + catalogMd + '\n\n## Author message\n\n' + visible
-      String rawJson = toolsLoopSimpleCompletionAssistantText(
-        key,
-        mdl,
-        ToolPrompts.getLlm_AUTHORING_INTENT_RECIPE_ROUTER_SYSTEM(),
-        userRouter,
-        256,
-        120_000,
-        'IntentRecipeRouter',
-        wireBaseUrl,
-        toolsLoopSessionBundle
-      )
-      Map decision = AuthoringIntentRecipeRouter.parseRouterJson(rawJson)
-      double minC = StudioAiAssistantProjectConfig.intentRecipeMinConfidence(cfg)
-      double conf = 0.0d
-      try {
-        def c = decision.get('confidence')
-        if (c instanceof Number) {
-          conf = ((Number) c).doubleValue()
-        }
-      } catch (Throwable ignoredConf) {
-        conf = 0.0d
-      }
-      String rid = decision.recipeId?.toString()?.trim()
-      Map recipe = rid ? AuthoringIntentRecipeCatalog.findRecipeById(recipes, rid) : null
-      boolean recipeFound = recipe != null
-      boolean matched = recipe != null && conf >= minC
-      if (!matched) {
-        String rawHead = (rawJson ?: '').toString().trim().replace('\r', ' ')
-        if (rawHead.length() > 240) {
-          rawHead = rawHead.substring(0, 240) + '…'
-        }
+      if (Boolean.TRUE.equals(activePass.matched)) {
+        double minC = activePass.minConfidence instanceof Number ?
+          ((Number) activePass.minConfidence).doubleValue() :
+          StudioAiAssistantProjectConfig.intentRecipeMinConfidence(cfg)
         log.info(
-          'Intent recipe routing: no confident match — recipeId={}, confidence={}, minConfidence={}, recipeFoundInCatalog={}, routerReason={}, parseNote=check tools.json minConfidence vs router JSON; routerReplyHead={}',
-          rid ?: '(null)',
-          conf,
-          minC,
-          recipeFound,
-          (decision.reason?.toString()?.trim() ?: '(none)'),
-          rawHead
+          'Intent recipe routing matched recipeId={} confidence={} matchPass={} expansionRematch={}',
+          activePass.recipeId,
+          activePass.confidence,
+          activePass.matchPass,
+          expansionWirePrefix ? 'yes' : 'no'
         )
-      }
-      if (matched) {
-        log.info('Intent recipe routing matched recipeId={} confidence={} (minConfidence={})', rid, conf, minC)
-        return intentRecipeRoutingAttachMatchedRecipe(
+        Map matchedRoute = intentRecipeRoutingAttachMatchedRecipe(
           ops,
           cfg,
           result,
           userTextAfterGuard,
-          recipe,
-          rid,
-          conf,
+          activePass.recipe as Map,
+          activePass.recipeId?.toString()?.trim(),
+          activePass.confidence instanceof Number ? ((Number) activePass.confidence).doubleValue() : 1.0d,
           minC,
-          decision.reason?.toString(),
-          visible,
-          null
+          activePass.routerReason?.toString(),
+          routerVisible,
+          authorFieldLabelEarly,
+          Boolean.TRUE.equals(activePass.skipRecipePrefetch),
+          expansionWirePrefix
         )
-      }
-      if (!matched) {
-        boolean externalLookup =
-          authorRequestNeedsExternalContentResolution(cand) || authorRequestNeedsExternalContentResolution(visible)
-        String anchorFallback = AuthoringPreviewContext.extractAnchoredRepositoryPath(cand)
-        if (externalLookup && anchorFallback &&
-          anchorFallback.toLowerCase(Locale.ROOT).startsWith('/site/') &&
-          anchorFallback.toLowerCase(Locale.ROOT).endsWith('.xml')) {
-          String labelFb = extractAuthorFieldLabelPhrase(cand) ?: extractAuthorFieldLabelPhrase(visible)
-          if (!labelFb && ((cand ?: '') + (visible ?: '')) =~ /(?is)\bhero\s+title\b/) {
-            labelFb = 'hero title'
-          }
-          if (labelFb) {
-            Map recipeFb = AuthoringIntentRecipeCatalog.findRecipeById(recipes, 'modify_page_content')
-            if (recipeFb != null) {
-              log.info(
-                'Intent recipe routing: deterministic fallback modify_page_content after router no_match (external content + anchor path={})',
-                anchorFallback
-              )
-              return intentRecipeRoutingAttachMatchedRecipe(
-                ops,
-                cfg,
-                result,
-                userTextAfterGuard,
-                recipeFb,
-                'modify_page_content',
-                1.0d,
-                minC,
-                'deterministic_external_content_after_router_miss',
-                visible,
-                labelFb
-              )
-            }
-          }
+        if (matchedRoute.intentRecipeRoutingTelemetry instanceof Map) {
+          ((Map) matchedRoute.intentRecipeRoutingTelemetry).putAll(catalogTel)
         }
+        return matchedRoute
       }
+      Map decision = activePass.routerDecision instanceof Map ? (Map) activePass.routerDecision : [:]
+      double minC = activePass.minConfidence instanceof Number ?
+        ((Number) activePass.minConfidence).doubleValue() :
+        StudioAiAssistantProjectConfig.intentRecipeMinConfidence(cfg)
+      double conf = activePass.routerConfidence instanceof Number ? ((Number) activePass.routerConfidence).doubleValue() : 0.0d
+      String rid = activePass.routerRecipeId?.toString()?.trim() ?: ''
+      boolean recipeFound = Boolean.TRUE.equals(activePass.routerRecipeFound)
+      String catalogMd = activePass.catalogMd?.toString() ?: ''
+      log.info(
+        'Intent recipe routing: no confident match after pass-1{} — recipeId={}, confidence={}, minConfidence={}, expansionRematch={}',
+        expansionWirePrefix ? ' + pass-2' : '',
+        rid ?: '(null)',
+        conf,
+        minC,
+        expansionWirePrefix ? 'attempted' : 'no'
+      )
       if (StudioAiAssistantProjectConfig.intentRecipeRequestClarificationOnUnmatched(cfg)) {
         result.clarificationOnly = true
         result.clarificationUserText =
-          '## Recipe catalog (titles for disambiguation)\n\n' +
+          expansionWirePrefix +
+            '## Recipe catalog (titles for disambiguation)\n\n' +
             catalogMd +
             '\n\n## Author message\n\n' +
-            visible +
+            routerVisible +
             '\n\n---\n\n[Studio — intent recipe router: no confident match. reason: ' +
             (decision.reason?.toString()?.trim() ?: 'n/a') +
             ']\n'
@@ -3624,30 +4038,30 @@ For **content XML** (pages/components): do not invent a new element tree — pre
           result,
           'clarification_only',
           [
-            recipeId            : (rid ?: ''),
-            confidence          : conf,
-            minConfidence       : minC,
-            recipeFoundInCatalog: recipeFound,
-            routerReason        : (decision.reason?.toString()?.trim() ?: '')
+            recipeId                 : rid,
+            confidence               : conf,
+            minConfidence            : minC,
+            recipeFoundInCatalog     : recipeFound,
+            routerReason             : (decision.reason?.toString()?.trim() ?: ''),
+            intentExpansionRematch   : expansionWirePrefix ? Boolean.TRUE : Boolean.FALSE
           ]
         )
       }
-      result.userTextForToolsLoop =
-        '[Studio — recipe intent router: no confident recipe match; proceed with normal CMS judgement. For **/site/.../*.xml** copy or field-only asks (no explicit FTL/CSS/template wording), use **GetContent**/**WriteContent** on **those XML paths** — not **update_template**, not **WriteContent** on **`.ftl`** with XML bodies, and not guessed **`/static-assets/styles.css`** unless the author asked for stylesheet work.]\n\n' +
-          (userTextAfterGuard ?: '')
-      return intentRecipeAttachTelemetry(
-        ops,
-        cfg,
-        result,
-        'no_match',
-        [
-          recipeId            : (rid ?: ''),
-          confidence          : conf,
-          minConfidence       : minC,
-          recipeFoundInCatalog: recipeFound,
-          routerReason        : (decision.reason?.toString()?.trim() ?: '')
-        ]
-      )
+      String noMatchHint =
+        AuthoringPreviewContext.authorVisibleSuggestsOpenPageInquiry(cand) ?
+          '[Studio — open page inquiry (read-only): The author asked what **this page** is about. Call **GetContent** on the anchored **`/site/.../*.xml`** path first, then answer from that XML. Do **not** ResearchSiteContent, WriteContent, update_template, or guess CSS/FTL paths.]\n\n' :
+          '[Studio — recipe intent router: no confident recipe match; proceed with normal CMS judgement. For **/site/.../*.xml** copy or field-only asks (no explicit FTL/CSS/template wording), use **GetContent**/**WriteContent** on **those XML paths** — not **update_template**, not **WriteContent** on **`.ftl`** with XML bodies, and not guessed **`/static-assets/styles.css`** unless the author asked for stylesheet work.]\n\n'
+      result.userTextForToolsLoop = expansionWirePrefix + noMatchHint + (userTextAfterGuard ?: '')
+      Map noMatchTel = [
+        recipeId               : rid,
+        confidence             : conf,
+        minConfidence          : minC,
+        recipeFoundInCatalog   : recipeFound,
+        routerReason           : (decision.reason?.toString()?.trim() ?: ''),
+        intentExpansionRematch : expansionWirePrefix ? Boolean.TRUE : Boolean.FALSE
+      ]
+      noMatchTel.putAll(catalogTel)
+      return intentRecipeAttachTelemetry(ops, cfg, result, 'no_match', noMatchTel)
     } catch (InterruptedException ie) {
       Thread.currentThread().interrupt()
       return intentRecipeAttachTelemetry(ops, cfg, result, 'skipped_interrupted')
@@ -3773,6 +4187,18 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     return wireToolsIncludeNamedTool(wireTools, 'GenerateImage')
   }
 
+  /** Read-only anchored page summary — must never take the modify-page write hotpath. */
+  private static boolean intentRecipeIsOpenPageInquiry(Map intentTel) {
+    if (!(intentTel instanceof Map)) {
+      return false
+    }
+    String rid = intentTel.recipeId?.toString()?.trim() ?: ''
+    if ('open_page_inquiry'.equals(rid)) {
+      return true
+    }
+    return (intentTel.routerReason?.toString() ?: '').contains('open_page_inquiry')
+  }
+
   /**
    * When intent routing matched {@code modify_page_content} and prefetch already embedded full GetContent for the
    * anchor path, round 0 can call {@code WriteContent} directly. Concrete field edits require a resolved
@@ -3789,7 +4215,7 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     if (!'matched'.equalsIgnoreCase(intentTel.outcome?.toString())) {
       return false
     }
-    if (!'modify_page_content'.equalsIgnoreCase(intentTel.recipeId?.toString())) {
+    if (!Boolean.TRUE.equals(intentTel.prefetchHotpathForceWrite)) {
       return false
     }
     if (!Boolean.TRUE.equals(intentTel.prefetchSkipRedundantGetContentForListedPath)) {
@@ -3893,7 +4319,7 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     if (!'matched'.equalsIgnoreCase(intentTel.outcome?.toString())) {
       return false
     }
-    if (!'modify_page_content'.equalsIgnoreCase(intentTel.recipeId?.toString())) {
+    if (!Boolean.TRUE.equals(intentTel.serverHotpathExternalContent)) {
       return false
     }
     if (!Boolean.TRUE.equals(intentTel.prefetchSkipRedundantGetContentForListedPath)) {
@@ -3959,6 +4385,14 @@ For **content XML** (pages/components): do not invent a new element tree — pre
       )
       markPrefetchHotpathAborted(toolsLoopSessionBundle, (writeRes?.message ?: writeRes?.error)?.toString(), false)
       return null
+    }
+    try {
+      AuthoringIntentRecipeBindings.updateCurrentFromWrite(
+        ops,
+        normPath,
+        [content: patched, contentXml: patched, path: normPath, contentPath: normPath]
+      )
+    } catch (Throwable ignoredHotpathBinding) {
     }
     markTaskCompletionWallMsIfUnset(toolTimingCtx)
     if (sseOut != null) {
@@ -4164,6 +4598,161 @@ For **content XML** (pages/components): do not invent a new element tree — pre
   }
 
   /**
+   * Revert anchored {@code /site/...} item via {@code revert_change} (initial/oldest or one step back only).
+   * Content-aware version pick uses tool args from the model after {@code GetContentVersionHistory}, not site-specific snippets here.
+   */
+  private static String tryServerPrefetchContentAwareRevertHotpath(
+    String origUser,
+    String authorVisible,
+    Map intentTel,
+    Map toolsLoopSessionBundle,
+    Map<String, FunctionToolCallback> byName,
+    String agentId,
+    OutputStream sseOut,
+    AtomicBoolean cancelRequested,
+    Map toolTimingCtx = null
+  ) {
+    if (cancelRequested != null && cancelRequested.get()) {
+      return null
+    }
+    String visible = (authorVisible ?: '').trim()
+    if (!AuthoringPreviewContext.authorVisibleSuggestsRevertIntent(visible)) {
+      return null
+    }
+    String anchor = AuthoringPreviewContext.extractAnchoredRepositoryPath(origUser ?: authorVisible)
+    if (!anchor?.trim()) {
+      anchor = AuthoringPreviewContext.extractAnchoredRepositoryPath(authorVisible)
+    }
+    if (!anchor || !anchor.toLowerCase(Locale.ROOT).startsWith('/site/') ||
+      !anchor.toLowerCase(Locale.ROOT).endsWith('.xml')) {
+      return null
+    }
+    StudioToolOperations ops = (toolsLoopSessionBundle?.studioOps instanceof StudioToolOperations) ?
+      (StudioToolOperations) toolsLoopSessionBundle.studioOps :
+      null
+    if (ops == null) {
+      return null
+    }
+    boolean revertToInitial = AuthoringPreviewContext.authorVisibleSuggestsRevertToInitialVersion(visible)
+    String siteId = ''
+    try {
+      siteId = ops.resolveEffectiveSiteId('')
+    } catch (Throwable ignoredSite) {
+    }
+    FunctionToolCallback revertCb = byName?.get('revert_change')
+    if (revertCb == null) {
+      return null
+    }
+    Map revertArgs = [
+      siteId           : siteId,
+      path             : anchor,
+      revertToInitial  : revertToInitial,
+      revertToPrevious : !revertToInitial
+    ]
+    Map revertRes = coerceFunctionToolCallbackResultMap(revertCb.call(JsonOutput.toJson(revertArgs)))
+    if (!Boolean.TRUE.equals(revertRes?.ok)) {
+      return null
+    }
+    String selection = (revertRes?.versionSelection ?: '').toString().trim()
+    String phrase = 'the selected Studio version'
+    if ('initial'.equals(selection)) {
+      phrase = 'the oldest revertible version in history (initial / first-created state)'
+    } else if ('content_match'.equals(selection)) {
+      phrase = 'the newest history version matching the content you described'
+    } else if ('previous'.equals(selection)) {
+      phrase = 'the immediate prior revertible version'
+    }
+    String checkedLine = 'initial'.equals(selection) ?
+      '- Oldest revertible version resolved from GetContentVersionHistory' :
+      ('content_match'.equals(selection) ?
+        '- Version history scanned for matching field copy' :
+        '- Immediate prior revertible version resolved from history')
+    return """## Done
+
+Reverted **${anchor}** to ${phrase}.
+
+### What we checked
+${checkedLine}
+- Repository revert completed
+
+[View preview](http://localhost:8080/?crafterSite=${siteId})"""
+  }
+
+  /**
+   * Image-only author request: call {@code GenerateImage} on the server before the tools-loop LLM
+   * so the turn cannot complete with prose-only fake tool JSON.
+   */
+  private static String tryServerPrefetchGenerateImageHotpath(
+    String origUser,
+    String authorVisible,
+    Map toolsLoopSessionBundle,
+    Map<String, FunctionToolCallback> byName,
+    String agentId,
+    OutputStream sseOut,
+    AtomicBoolean cancelRequested,
+    Map toolTimingCtx = null
+  ) {
+    if (cancelRequested != null && cancelRequested.get()) {
+      return null
+    }
+    if (!AuthoringPreviewContext.authorCurrentRequestLooksLikeImageOnlyGenerate(origUser ?: authorVisible)) {
+      return null
+    }
+    FunctionToolCallback genCb = byName?.get('GenerateImage')
+    if (genCb == null) {
+      return null
+    }
+    String prompt = AuthoringPreviewContext.extractAuthorCurrentRequestVisible(origUser ?: authorVisible)
+    if (!prompt?.trim()) {
+      prompt = (authorVisible ?: '').trim()
+    }
+    String imagePrompt = (prompt ?: '').replaceFirst(
+      /(?is)^\s*(?:please\s+)?(?:generate|create|draw|make|render|illustrate)\s+(?:an?\s+)?(?:image|picture|illustration|art|photo)\s+(?:of\s+)?/,
+      ''
+    ).trim()
+    if (!imagePrompt) {
+      imagePrompt = prompt
+    }
+    Map args = [prompt: imagePrompt]
+    String tcId = 'hotpath_gen_' + Long.toHexString(System.nanoTime())
+    long genStartMs = System.currentTimeMillis()
+    writeToolProgressSse(sseOut, 'GenerateImage', 'start', args, null, null, null)
+    Map res
+    try {
+      ChatCompletionsToolWire.nativeToolCallIdBindingSet(tcId)
+      res = coerceFunctionToolCallbackResultMap(genCb.call(JsonOutput.toJson(args)))
+    } catch (Throwable genEx) {
+      long genDurMs = Math.max(0L, System.currentTimeMillis() - genStartMs)
+      writeToolProgressSse(sseOut, 'GenerateImage', 'error', args, genEx, null, genDurMs)
+      log.warn('Tools-loop: GenerateImage hotpath failed agentId={}', agentId, genEx)
+      return null
+    } finally {
+      ChatCompletionsToolWire.nativeToolCallIdBindingClear()
+    }
+    long genDurMs = Math.max(0L, System.currentTimeMillis() - genStartMs)
+    if (!Boolean.TRUE.equals(res?.ok)) {
+      writeToolProgressSse(sseOut, 'GenerateImage', 'warn', args, null, res, genDurMs)
+      return null
+    }
+    String url = ChatCompletionsToolWire.generateImageResultUrlString(res)
+    if (!url?.trim()) {
+      writeToolProgressSse(sseOut, 'GenerateImage', 'warn', args, null, res, genDurMs)
+      return null
+    }
+    writeToolProgressSse(sseOut, 'GenerateImage', 'done', args, null, res, genDurMs)
+    markTaskCompletionWallMsIfUnset(toolTimingCtx)
+    Map<String, String> imgById = [(tcId): url]
+    String ref = ChatCompletionsToolWire.STUDIO_AI_INLINE_IMAGE_REF_PREFIX + tcId
+    String prose = """## Plan Execution
+- Generated image from your prompt
+- Preview appears in the chat image strip below
+
+![Generated illustration](${ref})"""
+    log.info('Tools-loop: GenerateImage hotpath completed agentId={} toolCallId={}', agentId, tcId)
+    return ChatCompletionsToolWire.expandInlineImageRefs(prose, imgById, null)
+  }
+
+  /**
    * Deterministic single-field edit when intent prefetch already loaded content + resolved field id.
    * Skips the first tools-loop {@code /v1/chat/completions} call (large prompt + tool schemas).
    *
@@ -4183,7 +4772,15 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     if (cancelRequested != null && cancelRequested.get()) {
       return null
     }
-    String outcomePhrase = extractAuthoringOutcomePhrase(origUser ?: authorVisible)?.trim()
+    String promptForOutcome = (origUser ?: authorVisible)
+    String visibleForOutcome = authorVisibleFromPromptText(promptForOutcome) ?: (authorVisible ?: '').trim()
+    String outcomePhrase = ''
+    if (authorRequestNeedsPriorTurnContentResolution(visibleForOutcome)) {
+      outcomePhrase = extractPriorTurnAssistantContentForOutcome(promptForOutcome)?.trim()
+    }
+    if (!outcomePhrase) {
+      outcomePhrase = extractAuthoringOutcomePhrase(visibleForOutcome)?.trim()
+    }
     if (!outcomePhrase) {
       outcomePhrase = extractAuthoringOutcomePhrase(authorVisible)?.trim()
     }
@@ -4226,14 +4823,27 @@ For **content XML** (pages/components): do not invent a new element tree — pre
           if (!intentTel.prefetchSkipRedundantGetContentForListedPath) {
             intentTel.put('prefetchSkipRedundantGetContentForListedPath', Boolean.TRUE.equals(boot.duplicateGetContentBanned))
           }
-          if (!intentTel.recipeId) {
+          String bootLabel = (boot.resolvedFieldLabel ?: label).toString().trim()
+          boolean canMarkMatched = isUsableHotpathOutcomePhrase(outcomePhrase, promptForOutcome) &&
+            !outcomePhraseEqualsResolvedFieldLabel(outcomePhrase, bootLabel)
+          if (!intentTel.recipeId && canMarkMatched) {
             intentTel.put('recipeId', 'modify_page_content')
             intentTel.put('outcome', 'matched')
           }
         }
       }
     }
-    String promptForIntent = (origUser ?: authorVisible)
+    String fieldLabelForGuard = extractAuthorFieldLabelPhrase(origUser ?: authorVisible)
+    if (!fieldLabelForGuard) {
+      fieldLabelForGuard = extractAuthorFieldLabelPhrase(authorVisible)
+    }
+    if (outcomePhraseEqualsResolvedFieldLabel(outcomePhrase, fieldLabelForGuard)) {
+      log.info(
+        'Tools-loop: server prefetch field hotpath skipped — outcome phrase equals field label (placement request, not literal copy)'
+      )
+      return null
+    }
+    String promptForIntent = promptForOutcome
     boolean eligible =
       prefetchHotpathAllowsForcedWriteContent(intentTel, outcomePhrase, promptForIntent) ||
         serverConcreteFieldEditHotpathEligible(promptForIntent, outcomePhrase, fieldId, contentXml, path)
@@ -4345,33 +4955,7 @@ For **content XML** (pages/components): do not invent a new element tree — pre
    * {@code GenerateImage} on tools-loop round 0 so hosts cannot return prose-only “here is the image” hallucinations.
    */
   private static boolean plainTextLooksLikeImageOnlyGenerateRequest(String visibleUserText) {
-    String u = (visibleUserText ?: '').trim()
-    if (!u) {
-      return false
-    }
-    if (u.length() > 2400) {
-      return false
-    }
-    String low = u.toLowerCase(Locale.ROOT)
-    if (low.contains('writecontent') || low.contains('write content')) {
-      return false
-    }
-    if (u.matches(/(?is).*\b(save|apply|insert|replace|upload|commit|publish)\b.{0,48}\b(to|into|on|in)\b.{0,48}\b(page|component|field|xml|content|repo)\b.*/)) {
-      return false
-    }
-    boolean verb =
-      u.matches(/(?is).*\b(generate|creating|create|draw|drawing|sketch|paint|making|make|render|illustrate)\b.*/) ||
-        u.matches(/(?is).*\b(show me|give me|i want|i need|can you)\b.{0,48}\b(an?\s+)?(image|picture|illustration|drawing|photo|render)\b.*/)
-    if (!verb) {
-      return false
-    }
-    boolean noun =
-      u.matches(/(?is).*\b(image|images|picture|pictures|illustration|illustrations|drawing|drawings|photo|photos|render|hero|cover|banner|logo|artwork|graphic|icon|bitmap)\b.*/) ||
-        u.matches(/(?is).*\b(image|picture|illustration|drawing|photo)\s+of\b.*/)
-    if (!noun) {
-      noun = u.matches(/(?is).*\b(draw|sketch|paint)\b.{0,100}\b(an?\s+|the\s+)?[a-z][a-z0-9\\-]{2,}\b.*/)
-    }
-    return noun
+    return AuthoringPreviewContext.authorCurrentRequestLooksLikeImageOnlyGenerate(visibleUserText ?: '')
   }
 
   /**
@@ -4927,6 +5511,9 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
     String lastPreviewContentGoalPhrase = frozenAuthorOutcomePhrase ?: ''
     int writeContentInvalidDocumentFailures = 0
     String lastInvalidWriteContentPath = ''
+    StudioToolOperations ops = (toolsLoopSessionBundle?.studioOps instanceof StudioToolOperations) ?
+      (StudioToolOperations) toolsLoopSessionBundle.studioOps :
+      null
     for (int round = 0; round < maxRounds; round++) {
       if (cancelRequested != null && cancelRequested.get()) {
         Thread.currentThread().interrupt()
@@ -4935,28 +5522,126 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
       aiAssistantToolWorkerDiagPhase("native_tool_loop_round_${round}_build_request wireMsgCount=${wireMessages.size()}")
       Object toolChoice = 'auto'
       if (round == 0) {
-        if (wireToolsIncludeGenerateImage(wireTools)) {
+        Map intentTelForce =
+          (toolsLoopSessionBundle instanceof Map) ?
+            (Map) toolsLoopSessionBundle.get('intentRecipeRoutingTelemetry') :
+            null
+        String forceTool = intentTelForce?.get('toolsLoopForceTool')?.toString()?.trim() ?: ''
+        if (forceTool && wireToolsIncludeNamedTool(wireTools, forceTool)) {
+          toolChoice = [type: 'function', function: [name: forceTool]]
+          log.info(
+            'Tools-loop tools-on: tool_choice forced to {} (intent recipe catalog, round 0) agentId={} recipeId={}',
+            forceTool,
+            agentId,
+            intentTelForce?.get('recipeId') ?: ''
+          )
+        }
+        if (toolChoice == 'auto' && wireToolsIncludeGenerateImage(wireTools)) {
           Map lastUserRound0 = lastUserWireMessage(wireMessages)
           String lastPlain = lastUserRound0 ? ((flattenWireUserContent(lastUserRound0.get('content')) ?: '').trim()) : ''
-          String visible = lastPlain
-          try {
-            visible = (AuthoringPreviewContext.stripStudioInjectedPromptBlocks(lastPlain) ?: '').trim() ?: lastPlain
-          } catch (Throwable ignoredStrip) {
+          String visible = AuthoringPreviewContext.extractAuthorCurrentRequestVisible(lastPlain)
+          if (!visible?.trim()) {
+            visible = lastPlain
+            try {
+              visible = (AuthoringPreviewContext.stripStudioInjectedPromptBlocks(lastPlain) ?: '').trim() ?: lastPlain
+            } catch (Throwable ignoredStrip) {
+            }
           }
-          if (plainTextLooksLikeImageOnlyGenerateRequest(visible)) {
+          boolean researchTurn =
+            AuthoringPreviewContext.authorVisibleSuggestsWebResearch(visible) ||
+            AuthoringPreviewContext.authorVisibleSuggestsSiteContentResearch(visible) ||
+            AuthoringPreviewContext.authorVisibleSuggestsLlmResearch(visible)
+          boolean revertTurn = AuthoringPreviewContext.authorVisibleSuggestsRevertIntent(visible)
+          if (revertTurn && wireToolsIncludeNamedTool(wireTools, 'revert_change')) {
+            toolChoice = [type: 'function', function: [name: 'revert_change']]
+            log.info(
+              'Tools-loop tools-on: tool_choice forced to revert_change (revert intent, round 0) agentId={}',
+              agentId
+            )
+          } else if (!researchTurn && plainTextLooksLikeImageOnlyGenerateRequest(visible)) {
             toolChoice = [type: 'function', function: [name: 'GenerateImage']]
             log.info(
               'Tools-loop tools-on: tool_choice forced to GenerateImage (image-only author request, round 0) agentId={}',
               agentId
             )
           }
-        } else if (wireToolsIncludeNamedTool(wireTools, 'WriteContent')) {
+        }
+        if (toolChoice == 'auto' && wireToolsIncludeNamedTool(wireTools, 'WebSearch')) {
+          Map intentTelWeb =
+            (toolsLoopSessionBundle instanceof Map) ?
+              (Map) toolsLoopSessionBundle.get('intentRecipeRoutingTelemetry') :
+              null
+          String ridWeb = intentTelWeb?.get('recipeId')?.toString()?.trim() ?: ''
+          Map lastUserWeb = lastUserWireMessage(wireMessages)
+          String lastPlainWeb = lastUserWeb ? ((flattenWireUserContent(lastUserWeb.get('content')) ?: '').trim()) : ''
+          String visibleWeb = lastPlainWeb
+          try {
+            visibleWeb = (AuthoringPreviewContext.stripStudioInjectedPromptBlocks(lastPlainWeb) ?: '').trim() ?: lastPlainWeb
+          } catch (Throwable ignoredStripWeb) {
+          }
+          if ('web_research'.equals(ridWeb) || AuthoringPreviewContext.authorVisibleSuggestsWebResearch(visibleWeb)) {
+            toolChoice = [type: 'function', function: [name: 'WebSearch']]
+            log.info(
+              'Tools-loop tools-on: tool_choice forced to WebSearch (web research, round 0) agentId={} recipeId={}',
+              agentId,
+              ridWeb ?: '(signal)'
+            )
+          }
+        }
+        if (toolChoice == 'auto' && wireToolsIncludeNamedTool(wireTools, 'ResearchSiteContent')) {
+          Map intentTelSite =
+            (toolsLoopSessionBundle instanceof Map) ?
+              (Map) toolsLoopSessionBundle.get('intentRecipeRoutingTelemetry') :
+              null
+          String ridSite = intentTelSite?.get('recipeId')?.toString()?.trim() ?: ''
+          Map lastUserSite = lastUserWireMessage(wireMessages)
+          String lastPlainSite = lastUserSite ? ((flattenWireUserContent(lastUserSite.get('content')) ?: '').trim()) : ''
+          String visibleSite = lastPlainSite
+          try {
+            visibleSite = (AuthoringPreviewContext.stripStudioInjectedPromptBlocks(lastPlainSite) ?: '').trim() ?: lastPlainSite
+          } catch (Throwable ignoredStripSite) {
+          }
+          if ('site_content_research'.equals(ridSite) ||
+            AuthoringPreviewContext.authorVisibleSuggestsSiteContentResearch(visibleSite)) {
+            toolChoice = [type: 'function', function: [name: 'ResearchSiteContent']]
+            log.info(
+              'Tools-loop tools-on: tool_choice forced to ResearchSiteContent (site content research, round 0) agentId={} recipeId={}',
+              agentId,
+              ridSite ?: '(signal)'
+            )
+          }
+        }
+        if (toolChoice == 'auto' && wireToolsIncludeNamedTool(wireTools, 'GetContent')) {
+          Map intentTelInq =
+            (toolsLoopSessionBundle instanceof Map) ?
+              (Map) toolsLoopSessionBundle.get('intentRecipeRoutingTelemetry') :
+              null
+          String ridInq = intentTelInq?.get('recipeId')?.toString()?.trim() ?: ''
+          String rrInq = intentTelInq?.get('routerReason')?.toString()?.trim() ?: ''
+          boolean openPageInquiry =
+            'open_page_inquiry'.equals(ridInq) ||
+            rrInq.contains('open_page_inquiry') ||
+            AuthoringPreviewContext.authorVisibleSuggestsOpenPageInquiry(authorVisibleForToolsLoop)
+          boolean prefetchHasAnchorContent =
+            Boolean.TRUE.equals(intentTelInq?.prefetchSkipRedundantGetContentForListedPath) &&
+            !Boolean.TRUE.equals(intentTelInq?.prefetchEnvelopeTruncated)
+          if (openPageInquiry && !prefetchHasAnchorContent) {
+            toolChoice = [type: 'function', function: [name: 'GetContent']]
+            log.info(
+              'Tools-loop tools-on: tool_choice forced to GetContent (open page inquiry, round 0) agentId={} recipeId={}',
+              agentId,
+              ridInq ?: '(signal)'
+            )
+          }
+        }
+        if (toolChoice == 'auto' && wireToolsIncludeNamedTool(wireTools, 'WriteContent')) {
           Map intentTel =
             (toolsLoopSessionBundle instanceof Map) ?
               (Map) toolsLoopSessionBundle.get('intentRecipeRoutingTelemetry') :
               null
           boolean hotpathAborted = Boolean.TRUE.equals(toolsLoopSessionBundle?.prefetchHotpathWriteAborted)
           if (!hotpathAborted &&
+            !intentRecipeIsOpenPageInquiry(intentTel) &&
             prefetchHotpathAllowsForcedWriteContent(intentTel, frozenAuthorOutcomePhrase, authorVisibleForToolsLoop)) {
             toolChoice = [type: 'function', function: [name: 'WriteContent']]
             log.info(
@@ -5114,19 +5799,8 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
                 )
               }
             }
-          } else if (assistantPreTool?.trim()) {
-            String cleanedTextOnly = stripForbiddenMetaPlanFromAssistantText(assistantPreTool.trim())
-            if (cleanedTextOnly) {
-              synchronized (ssePreToolAssistantText) {
-                ssePreToolAssistantText.write(
-                  ("data: ${JsonOutput.toJson([text: cleanedTextOnly + '\n\n', metadata: [:]])}\n\n").getBytes(
-                    StandardCharsets.UTF_8
-                  )
-                )
-                ssePreToolAssistantText.flush()
-              }
-            }
           }
+          // Prose-only final answers (no tool_calls): stream once at end via writeSseFinalAssistantTextChunks — not here.
         } catch (Throwable te) {
           if (isSseClientDisconnected(te)) {
             log.debug('Tools-loop tools-on: pre-tool SSE skip (response unusable / client gone): {}', te.message)
@@ -5267,9 +5941,16 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
                   markTaskCompletionWallMsIfUnset(toolTimingCtx)
                   Object argsParsed = slurper.parseText(argsStr ?: '{}')
                   if (argsParsed instanceof Map) {
-                    String wpath = repoPathFromToolArgsMap((Map) argsParsed)
+                    Map wArgs = (Map) argsParsed
+                    String wpath = repoPathFromToolArgsMap(wArgs)
                     if (wpath) {
                       writeContentPathsThisTurn.add(wpath.toLowerCase(Locale.ROOT))
+                      if (ops != null) {
+                        try {
+                          AuthoringIntentRecipeBindings.updateCurrentFromWrite(ops, wpath, wArgs)
+                        } catch (Throwable ignoredBindingWrite) {
+                        }
+                      }
                     }
                   }
                 } else {
@@ -5406,13 +6087,18 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
       String assistNoToolCalls = assistantTextFromChoiceMessageMap(msgCopy) ?: ''
       boolean assistLooksLikePlanWithoutTools = assistantProsePromisedToolsButOmittedCalls(assistNoToolCalls)
       boolean userNeedsCmsTools = false
+      boolean userNeedsImageGenerate = false
       try {
         userNeedsCmsTools =
           AuthoringPreviewContext.authorVisibleSuggestsCmsTooling(userWireSnapshotForRecovery) ||
             AuthoringPreviewContext.anchoredSiteXmlFieldPlacementIntent(userWireSnapshotForRecovery) ||
+            AuthoringPreviewContext.authorVisibleSuggestsOpenPageInquiry(userWireSnapshotForRecovery) ||
             AuthoringPreviewContext.isShortAffirmationContinuingPriorCmsWork(userWireSnapshotForRecovery)
+        userNeedsImageGenerate =
+          AuthoringPreviewContext.authorCurrentRequestLooksLikeImageOnlyGenerate(userWireSnapshotForRecovery)
       } catch (Throwable ignoredRec) {
       }
+      boolean assistFakedImageTool = assistantProseFakedGenerateImageWithoutCalls(assistNoToolCalls)
       boolean assistClaimsTurnComplete = assistantProseClaimsTurnCompleteDespitePlanBullets(assistNoToolCalls)
       if (previousRoundHadRepoMutation &&
         assistClaimsTurnComplete &&
@@ -5427,10 +6113,14 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
         finished = true
         break
       }
+      boolean openPageInquiryNoTools =
+        AuthoringPreviewContext.authorVisibleSuggestsOpenPageInquiry(userWireSnapshotForRecovery) &&
+          assistNoToolCalls?.trim()
       if (prosePlanMissingToolNudges < 2 &&
         round < maxRounds - 1 &&
-        userNeedsCmsTools &&
-        assistLooksLikePlanWithoutTools) {
+        ((userNeedsCmsTools && assistLooksLikePlanWithoutTools) ||
+          openPageInquiryNoTools ||
+          (userNeedsImageGenerate && (assistLooksLikePlanWithoutTools || assistFakedImageTool)))) {
         if (previousRoundHadRepoMutation && assistClaimsTurnComplete) {
           if (lastPreviewContentGoalFound == Boolean.FALSE && lastPreviewContentGoalPhrase?.trim()) {
             if (previewVerificationFailedNudges >= 1) {
@@ -5481,12 +6171,15 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
             agentId
           )
           aiAssistantToolWorkerDiagPhase("native_tool_loop_round_${round}_missing_tool_calls_nudge")
-          wireMessages << [
-            role   : 'user',
-            content:
-              '''[aiassistant: tools-required recovery — internal]
+          String recoveryBody = userNeedsImageGenerate ?
+            '''[aiassistant: tools-required recovery — internal]
+Your last assistant message described **GenerateImage** (plan and/or fenced JSON) but the chat completion had **no `tool_calls`**, so **no image was generated**. **Reply again** for the same author request: emit a **non-empty `tool_calls`** array with **GenerateImage** as the first tool (concrete **prompt** from the author's words). **Do not** print fake `🛠️ GenerateImage` lines or ```json tool payloads in prose — only real **tool_calls**. After the tool returns, a short **## Plan Execution** wrap-up is enough; the bitmap appears in the Studio chat image strip.''' :
+            openPageInquiryNoTools ?
+            '''[aiassistant: tools-required recovery — internal]
+The author asked what **this page** is about; Studio already anchored **contentPath** in the user message. Your last completion had **no `tool_calls`**, so you did not read repository XML. **Reply again**: emit **GetContent** on the anchored **`/site/.../*.xml`** path as the **first** tool (optional **GetPreviewHtml**), then answer from that XML — **do not** claim you lack access to the page.''' :
+            '''[aiassistant: tools-required recovery — internal]
 Your last assistant message had a **plan-style heading** (## Plan, ## Revised Plan, ## Next Steps, …) and described concrete CMS work, but the chat completion had **no `tool_calls`**, so the server ran **no** tools on that turn. **Reply again** for the same author request: keep or tighten the plan, then emit a **non-empty `tool_calls`** array and execute the next real step. **Match tools to the ask:** for **content** on **`/site/.../*.xml`** (field values, copy, tone) use **GetContent** + **WriteContent** (or **update_content** + **WriteContent**) on **those XML paths** — **not** **update_template** or **WriteContent** on **`.ftl`** unless the author explicitly asked for **template/FreeMarker** changes. **Template/CSS/schema** work: discover paths from **GetContent** on the page/component XML (**display-template**, linked assets) or prior tool results — **never** guess **`/static-assets/styles.css`**. **FetchHttpUrl** only for **http(s)** references the author gave. **Do not** end with prose-only, rhetorical questions, or “would you like a draft” while repository work remains; either call tools or state a **single** blocking error (e.g. missing path) with the exact tool result you saw.'''
-          ]
+          wireMessages << [role: 'user', content: recoveryBody]
           continue
         }
       }
@@ -5549,18 +6242,28 @@ Your last assistant message had a **plan-style heading** (## Plan, ## Revised Pl
     def origUser = lastUserTemplate.get('content')?.toString() ?: ''
     Map intentTel =
       (toolsLoopSessionBundle instanceof Map) ? (Map) toolsLoopSessionBundle.get('intentRecipeRoutingTelemetry') : null
+    if (intentTel == null && toolsLoopSessionBundle instanceof Map && toolsLoopSessionBundle.intentRecipeRoutingTelemetry instanceof Map) {
+      intentTel = (Map) toolsLoopSessionBundle.intentRecipeRoutingTelemetry
+    }
     String authorVisible = authorVisibleFromPromptText(origUser)
     List effectiveTools = tools
     effectiveTools = effectiveToolsForIntentRecipe(tools, intentTel, authorVisible, agentId)
+    effectiveTools = applyGenerateImageTurnToolPolicy(effectiveTools, intentTel, origUser, agentId)
+    if (intentTel instanceof Map && Boolean.TRUE.equals(intentTel.get('generateImageToolUnavailable'))) {
+      log.info('Tools-loop: returning imageModel configuration message (GenerateImage not registered) agentId={}', agentId)
+      return synthesizeGenerateImageUnavailableMarkdown()
+    }
     def wireTools = buildWireToolsFromCallbacks(effectiveTools)
     if (!wireTools) {
+      if (intentTel instanceof Map && Boolean.TRUE.equals(intentTel.get('generateImageToolUnavailable'))) {
+        return synthesizeGenerateImageUnavailableMarkdown()
+      }
       throw new IllegalStateException('CMS tools: empty tool list')
     }
     Map<String, FunctionToolCallback> byName = toolCallbacksByName(effectiveTools)
-    String serverHotpathText = tryServerPrefetchSimpleFieldEditHotpath(
+    String serverHotpathText = tryServerPrefetchGenerateImageHotpath(
       origUser,
       authorVisible,
-      intentTel,
       toolsLoopSessionBundle,
       byName,
       agentId,
@@ -5568,6 +6271,32 @@ Your last assistant message had a **plan-style heading** (## Plan, ## Revised Pl
       cancelRequested,
       toolTimingCtx
     )
+    if (serverHotpathText == null) {
+      serverHotpathText = tryServerPrefetchContentAwareRevertHotpath(
+        origUser,
+        authorVisible,
+        intentTel,
+        toolsLoopSessionBundle,
+        byName,
+        agentId,
+        sseOut,
+        cancelRequested,
+        toolTimingCtx
+      )
+    }
+    if (serverHotpathText == null) {
+      serverHotpathText = tryServerPrefetchSimpleFieldEditHotpath(
+        origUser,
+        authorVisible,
+        intentTel,
+        toolsLoopSessionBundle,
+        byName,
+        agentId,
+        sseOut,
+        cancelRequested,
+        toolTimingCtx
+      )
+    }
     if (serverHotpathText == null) {
       serverHotpathText = tryServerPrefetchExternalContentFieldEditHotpath(
         origUser,
@@ -6060,7 +6789,7 @@ Your last assistant message had a **plan-style heading** (## Plan, ## Revised Pl
       }
       def bodyPrompt = formEngineClientForward ? prependFormEngineClientApplyEnforcement(prompt) : (prompt ?: '').toString()
       def userText = springAi.useTools ? addToolRequiredGuard(bodyPrompt, fullSuppress, protNorm) : bodyPrompt
-      if (springAi.useTools && !formEngineClientForward && StudioAiLlmKind.useToolsLoopChatRestClient(springAi.llm, springAi)) {
+      if (!formEngineClientForward && StudioAiLlmKind.useToolsLoopChatRestClient(springAi.llm, springAi)) {
         def route = intentRecipeRoutingPrelude(
           bodyPrompt,
           userText,
@@ -6068,11 +6797,13 @@ Your last assistant message had a **plan-style heading** (## Plan, ## Revised Pl
           (springAi.resolvedChatModel ?: resolveChatModel(chatModel)),
           StudioAiLlmKind.toolsLoopChatBaseUrlFromBundle(springAi),
           springAi,
-          springAi.studioOps
+          springAi.studioOps,
+          effectiveAuthoringIntentExpansionRematchEnabled(bodyPrompt)
         )
         if (route?.intentRecipeRoutingTelemetry instanceof Map) {
           springAi.intentRecipeRoutingTelemetry = route.intentRecipeRoutingTelemetry
         }
+        applyIntentRecipeRouteEffects(springAi, route)
         if (route.clarificationOnly) {
           String clar = toolsLoopSimpleCompletionAssistantText(
             StudioAiLlmKind.toolsLoopChatApiKeyFromBundle(springAi),
@@ -6087,16 +6818,7 @@ Your last assistant message had a **plan-style heading** (## Plan, ## Revised Pl
           )
           return [ok: true, response: [content: clar, message: clar]]
         }
-        userText = route.userTextForToolsLoop?.toString() ?: userText
-        userText = maybePrependAuthoringIntentExpansionBlock(
-          bodyPrompt,
-          userText,
-          StudioAiLlmKind.toolsLoopChatApiKeyFromBundle(springAi),
-          (springAi.resolvedChatModel ?: resolveChatModel(chatModel)),
-          StudioAiLlmKind.toolsLoopChatBaseUrlFromBundle(springAi),
-          springAi,
-          requestAuthoringIntentExpansionEnabled()
-        )
+        userText = route.userTextForToolsLoop?.toString() ?: (springAi.useTools ? userText : bodyPrompt)
       }
       Prompt authoringChatPrompt = null
       def callSpec
@@ -6178,6 +6900,8 @@ Your last assistant message had a **plan-style heading** (## Plan, ## Revised Pl
       case 'FetchHttpUrl':
       case 'QueryExpertGuidance':
       case 'ListPagesAndComponents':
+      case 'ResearchSiteContent':
+      case 'WebSearch':
       case 'GetCrafterizingPlaybook':
         return '🔍'
       case 'Tools-loop chat':
@@ -6342,16 +7066,26 @@ Your last assistant message had a **plan-style heading** (## Plan, ## Revised Pl
   }
 
   /**
-   * One SSE row (empty text) so clients / session debug logs can show intent-router outcome without parsing the full user prompt.
+   * SSE row for intent-router outcome. When a recipe matched, {@code text} carries a short emoji + title line for the chat UI.
    */
   private void emitIntentRecipeRoutingTelemetrySse(OutputStream o, Map telemetry) {
     if (o == null || telemetry == null || telemetry.isEmpty()) {
       return
     }
     try {
+      String outcome = telemetry.outcome?.toString() ?: ''
+      String rid = telemetry.recipeId?.toString()?.trim() ?: ''
+      String chatLine = ''
+      if ('matched'.equals(outcome) && rid) {
+        chatLine = telemetry.recipeChatLine?.toString()?.trim() ?: ''
+        if (!chatLine) {
+          String title = telemetry.recipeTitle?.toString()?.trim() ?: rid
+          chatLine = AuthoringIntentRecipeCatalog.formatIntentRecipeChatLine([id: rid, title: title])
+        }
+      }
       synchronized (o) {
         def ev = [
-          text    : '',
+          text    : chatLine,
           metadata: [
             status               : 'intent-recipe-routing',
             intentRecipeRouting: telemetry
@@ -6828,7 +7562,7 @@ Your last assistant message had a **plan-style heading** (## Plan, ## Revised Pl
       }
       def bodyPrompt = formEngineClientForward ? prependFormEngineClientApplyEnforcement(prompt) : (prompt ?: '').toString()
       def userText = springAi.useTools ? addToolRequiredGuard(bodyPrompt, fullSuppress, protNorm) : bodyPrompt
-      if (springAi.useTools && !formEngineClientForward && StudioAiLlmKind.useToolsLoopChatRestClient(springAi.llm, springAi)) {
+      if (!formEngineClientForward && StudioAiLlmKind.useToolsLoopChatRestClient(springAi.llm, springAi)) {
         def route = intentRecipeRoutingPrelude(
           bodyPrompt,
           userText,
@@ -6836,12 +7570,14 @@ Your last assistant message had a **plan-style heading** (## Plan, ## Revised Pl
           (springAi.resolvedChatModel ?: resolveChatModel(chatModel)),
           StudioAiLlmKind.toolsLoopChatBaseUrlFromBundle(springAi),
           springAi,
-          springAi.studioOps
+          springAi.studioOps,
+          effectiveAuthoringIntentExpansionRematchEnabled(bodyPrompt)
         )
         if (route?.intentRecipeRoutingTelemetry instanceof Map) {
           springAi.intentRecipeRoutingTelemetry = route.intentRecipeRoutingTelemetry
           emitIntentRecipeRoutingTelemetrySse(out, (Map) route.intentRecipeRoutingTelemetry)
         }
+        applyIntentRecipeRouteEffects(springAi, route)
         if (route.clarificationOnly) {
           Prompt clarifyPrompt = new Prompt([
             new SystemMessage(ToolPrompts.getLlm_INTENT_CLARIFICATION_ONLY_SYSTEM()),
@@ -6862,16 +7598,7 @@ Your last assistant message had a **plan-style heading** (## Plan, ## Revised Pl
           }
           return null
         }
-        userText = route.userTextForToolsLoop?.toString() ?: userText
-        userText = maybePrependAuthoringIntentExpansionBlock(
-          bodyPrompt,
-          userText,
-          StudioAiLlmKind.toolsLoopChatApiKeyFromBundle(springAi),
-          (springAi.resolvedChatModel ?: resolveChatModel(chatModel)),
-          StudioAiLlmKind.toolsLoopChatBaseUrlFromBundle(springAi),
-          springAi,
-          requestAuthoringIntentExpansionEnabled()
-        )
+        userText = route.userTextForToolsLoop?.toString() ?: (springAi.useTools ? userText : bodyPrompt)
       }
       def toolRequiredIntent = springAi.useTools && isToolRequiredIntent(bodyPrompt)
       log.debug("chatStreamWithSpringAi start: llm={} agentId={} promptLen={} toolRequiredIntent={} chatIdPresent={} useTools={} enableTools={} formEngineClientForward={} fullSuppressWrites={} protectedFormItemPath={}",

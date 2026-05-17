@@ -1,29 +1,294 @@
 {
   "version": 1,
+  "chatDefaults": {
+    "prefixEmoji": "🥗",
+    "fallbackEmoji": "📋",
+    "lineSuffix": "workflow"
+  },
+  "recipeOrder": [
+    "web_research",
+    "site_content_research",
+    "llm_research",
+    "open_page_inquiry",
+    "modify_page_content",
+    "revert_content_version",
+    "generate_image",
+    "template_display_change",
+    "publish_item",
+    "new_content_item",
+    "translate_content_item"
+  ],
   "recipes": [
     {
-      "id": "modify_page_content",
-      "title": "Modify page or component content",
-      "description": "Change copy, tone, grammar, or field values on a page or component XML item in the same language; author does not ask to translate/localize, generate a new bitmap, change FreeMarker/templates, or run site-wide discovery only.",
-      "matchHints": ["update", "change", "rewrite", "proofread", "grammar", "tone", "rephrase", "look up", "fetch", "lyrics", "hero title"],
+      "id": "web_research",
+      "title": "Web search (news & current events)",
+      "chatEmoji": "🔎",
+      "toolsLoopForceTool": "WebSearch",
+      "deterministicMatch": {
+        "signal": "web_research",
+        "priority": 90,
+        "routerReason": "deterministic_web_research"
+      },
+      "description": "Author wants fresh information from the public web: latest news, headlines, what happened today, or current facts that need citations. Not CMS repository work.",
+      "matchHints": [
+        "latest news",
+        "recent news",
+        "news on",
+        "news about",
+        "headlines",
+        "breaking news",
+        "current events",
+        "search the web",
+        "web search",
+        "look up the latest",
+        "what happened today",
+        "what's new with"
+      ],
+      "dontMatchHints": [
+        "generate image",
+        "draw",
+        "WriteContent",
+        "update",
+        "rewrite",
+        "translate",
+        "publish",
+        "this page",
+        "summarize this page"
+      ],
+      "toolsLoopAllowlist": ["WebSearch"],
+      "phases": {
+        "context": [
+          "Call WebSearch in the first tool round with a focused query built from the author's exact words.",
+          "If the author pasted a specific http(s) URL, you may use FetchHttpUrl for that URL only — not instead of WebSearch for open-ended news."
+        ],
+        "action": [
+          "Summarize findings in clear prose with source titles and URLs from the tool result. Do not invent links."
+        ],
+        "confirmation": [
+          "Note knowledge cutoff vs search date when relevant. Offer to help apply insights to CMS content only if the author asks."
+        ]
+      }
+    },
+    {
+      "id": "site_content_research",
+      "title": "Site content search",
+      "chatEmoji": "📚",
+      "toolsLoopForceTool": "ResearchSiteContent",
+      "deterministicMatch": {
+        "signal": "site_content_research",
+        "priority": 89,
+        "routerReason": "deterministic_site_content_research"
+      },
+      "description": "Author wants to find or summarize existing pages and components in this Crafter site (indexed authoring search + content lookup), not the open web and not a write.",
+      "matchHints": [
+        "search the site",
+        "site search",
+        "find pages",
+        "find content",
+        "pages about",
+        "content about",
+        "what pages",
+        "what content",
+        "where in the site",
+        "in our site",
+        "in the repository"
+      ],
+      "dontMatchHints": [
+        "latest news",
+        "headlines",
+        "breaking",
+        "search the web",
+        "web search",
+        "look up the latest",
+        "generate image",
+        "WriteContent",
+        "update",
+        "rewrite",
+        "translate",
+        "publish",
+        "summarize this page",
+        "what is this page",
+        "this page about",
+        "page is about"
+      ],
+      "toolsLoopAllowlist": ["ResearchSiteContent"],
+      "phases": {
+        "context": [
+          "Call ResearchSiteContent in the first tool round with siteId and a focused query from the author's words."
+        ],
+        "action": [
+          "Answer from hits: cite repository paths and titles; use contentExcerpt and indexSnippet — do not invent paths."
+        ],
+        "confirmation": [
+          "Offer GetContent on specific paths if the author wants to edit; do not WriteContent unless they ask to change content."
+        ]
+      }
+    },
+    {
+      "id": "llm_research",
+      "title": "General knowledge (LLM)",
+      "chatEmoji": "💡",
+      "deterministicMatch": {
+        "signal": "llm_research",
+        "priority": 88,
+        "routerReason": "deterministic_llm_research"
+      },
+      "description": "Author wants explanation, comparison, or background from model knowledge — not live web headlines and not editing the repository.",
+      "matchHints": [
+        "explain",
+        "what is",
+        "what are",
+        "tell me about",
+        "compare",
+        "difference between",
+        "pros and cons",
+        "how does",
+        "work"
+      ],
+      "dontMatchHints": [
+        "latest news",
+        "headlines",
+        "breaking",
+        "search the web",
+        "search the site",
+        "find pages",
+        "look up the latest",
+        "generate image",
+        "WriteContent",
+        "update",
+        "translate",
+        "publish",
+        "summarize this page",
+        "this page"
+      ],
+      "toolsLoopDisable": true,
+      "phases": {
+        "action": [
+          "Answer from general knowledge in clear prose (bullets ok). Do not call CMS repository tools on this turn.",
+          "If the question needs live/current data, say so and suggest the author ask for a web search instead."
+        ],
+        "confirmation": [
+          "Keep the reply self-contained; mention training cutoff when dates matter."
+        ]
+      }
+    },
+    {
+      "id": "open_page_inquiry",
+      "title": "Describe this page (read-only)",
+      "chatEmoji": "📖",
+      "toolsLoopForceTool": "GetContent",
+      "deterministicMatch": {
+        "signal": "open_page_inquiry",
+        "priority": 93,
+        "routerReason": "deterministic_open_page_inquiry"
+      },
+      "description": "Author wants a summary or explanation of the page or component currently open in Studio (anchored /site/.../*.xml). Read repository XML and answer in prose. Not a write, not site-wide search, not open web.",
+      "matchHints": [
+        "tell me about this page",
+        "what is this page",
+        "what would you say",
+        "how would you describe",
+        "describe this page",
+        "page is about",
+        "explain this page",
+        "what do you think"
+      ],
+      "dontMatchHints": [
+        "update",
+        "change",
+        "rewrite",
+        "WriteContent",
+        "translate",
+        "publish",
+        "generate image",
+        "search the site",
+        "search the web",
+        "latest news"
+      ],
+      "toolsLoopAllowlist": ["GetContent", "GetPreviewHtml"],
+      "matchedUserPrelude": "[Studio — read-only page inquiry] Summarize what this anchored page is about using prefetch or GetContent XML. Answer in clear prose only. Do not WriteContent, update_template, or chase CSS/FTL paths unless the author asks to change something.",
       "phases": {
         "context": {
           "hints": [
+            "Prefetch loads pageItem (XML) for the anchored path when available.",
+            "If prefetch already includes full contentXml for the anchored path, do not call GetContent again on that path."
+          ],
+          "engineSteps": [
+            {
+              "as": "pageItem",
+              "tool": "GetContent",
+              "args": { "siteId": "$siteId", "path": "$contentPath" }
+            }
+          ]
+        },
+        "action": [
+          "Answer what the page is about from the XML fields (title, hero, features, sections). Plain prose for the author."
+        ],
+        "confirmation": [
+          "Do not call WriteContent. Optional GetPreviewHtml only if it helps describe what visitors see."
+        ]
+      }
+    },
+    {
+      "id": "modify_page_content",
+      "title": "Modify page or component content",
+      "chatEmoji": "✏️",
+      "prefetchHotpathForceWrite": true,
+      "serverHotpathExternalContent": true,
+      "deterministicMatch": [
+        {
+          "signal": "concrete_field_edit",
+          "priority": 60,
+          "routerReason": "deterministic_concrete_field_edit"
+        },
+        {
+          "signal": "external_content_field_edit",
+          "priority": 55,
+          "routerReason": "deterministic_external_content_field_edit"
+        }
+      ],
+      "description": "Change copy, tone, grammar, or field values on a page or component XML item. If the user provides the page URL, Title or Internal name then they may not be talking about the current page - resolve the page path first.",
+      "matchHints": [
+        "update",
+        "change",
+        "rewrite",
+        "proofread",
+        "grammar",
+        "tone",
+        "rephrase"
+      ],
+      "dontMatchHints": [
+        "summarize",
+        "summary",
+        "summarize this page",
+        "latest news",
+        "headlines",
+        "breaking news",
+        "search the web",
+        "look up the latest"
+      ],
+      "phases": {
+        "context": {
+          "hints": [
+            "Prefetch binds pageItem (item XML) and pageForm (form definition) for this turn.",
+            "If the author gives a page URL, title, or internal name, resolve the correct repository path before GetContent — they may not mean the item currently open in Studio.",
             "Load the target item with GetContent (and GetContentTypeFormDefinition with contentPath when the form model matters)."
           ],
           "engineSteps": [
             {
+              "as": "pageItem",
               "tool": "GetContent",
               "args": { "siteId": "$siteId", "path": "$contentPath" }
             },
             {
+              "as": "pageForm",
               "tool": "GetContentTypeFormDefinition",
               "args": { "siteId": "$siteId", "contentPath": "$contentPath" }
             }
           ]
         },
         "action": [
-          "Use update_content or GetContent → revise XML → WriteContent; preserve <page>/<component> structure and node-selector shapes."
+          "Use update_content or GetContent → revise XML → WriteContent; preserve <page>/<component> structure and node-selector shapes. After a write, prefer {{current.pageItem}} over {{initial.pageItem}} for the edited XML snapshot."
         ],
         "confirmation": [
           "When an Engine preview URL exists, use GetPreviewHtml after substantive writes affecting rendered output."
@@ -31,10 +296,165 @@
       }
     },
     {
+      "id": "revert_content_version",
+      "title": "Revert to previous version",
+      "chatEmoji": "↩️",
+      "deterministicMatch": {
+        "signal": "revert_content_version",
+        "priority": 70,
+        "routerReason": "deterministic_revert_content_version",
+        "skipPrefetch": true
+      },
+      "matchHints": ["revert", "undo", "rollback", "restore version", "previous version"],
+      "phases": {
+        "context": ["Confirm siteId and anchored repository path from Studio context."],
+        "action": ["Use revert_change on the anchored /site/.../*.xml item when the author wants to roll back."],
+        "confirmation": ["Summarize the reverted version from the tool result."]
+      }
+    },
+    {
+      "id": "generate_image",
+      "title": "Generate image (bitmap)",
+      "chatEmoji": "🖼️",
+      "toolsLoopForceTool": "GenerateImage",
+      "deterministicMatch": {
+        "signal": "image_only_generate",
+        "priority": 100,
+        "routerReason": "deterministic_image_only"
+      },
+      "description": "Author wants a new AI-generated image, illustration, art, logo, or picture",
+      "matchHints": [
+        "generate",
+        "draw",
+        "image",
+        "picture",
+        "illustration",
+        "hero",
+        "cover",
+        "banner",
+        "logo",
+        "artwork",
+        "graphic",
+        "bitmap",
+        "sketch",
+        "paint"
+      ],
+      "dontMatchHints": [
+        "latest news",
+        "headlines",
+        "breaking news",
+        "search the web",
+        "look up the latest",
+        "news on",
+        "current events"
+      ],
+      "toolsLoopAllowlist": ["GenerateImage"],
+      "toolsLoopAllowlistBypassIfAuthorMentions": [
+        "WriteContent",
+        "write content",
+        "save to",
+        "update_content",
+        "image-picker",
+        "static-assets",
+        "upload to repo"
+      ],
+      "phases": {
+        "context": [
+          "Build the GenerateImage prompt from the author's exact words plus any page/topic context already in the message; do not run GetContent unless subject detail for the prompt is still missing."
+        ],
+        "action": [
+          "Call GenerateImage in the first tool round with a concrete prompt; optional size/quality only when the author specified them."
+        ],
+        "confirmation": [
+          "Wrap up in short prose only — the bitmap appears in the Studio chat image strip, not markdown image syntax."
+        ]
+      }
+    },
+    {
+      "id": "template_display_change",
+      "title": "Template / display (FTL) change",
+      "chatEmoji": "🧩",
+      "description": "Author explicitly wants layout, FreeMarker, listing markup, dates formatting in code, or how the page renders.",
+      "matchHints": ["template", "ftl", "freemarker", "render", "layout", "listing", "cards", "display"],
+      "phases": {
+        "context": [
+          "GetContent on page/component XML; read display-template; follow sections_o keys to component templates when the shell is not the listing."
+        ],
+        "action": [
+          "Read templates with GetContent or analyze_template (read-only) before update_template; persist with WriteContent on .ftl paths."
+        ],
+        "confirmation": ["GetPreviewHtml when preview URL is available."]
+      }
+    },
+    {
+      "id": "publish_item",
+      "title": "Publish or go live",
+      "chatEmoji": "🚀",
+      "description": "Author wants to publish the current item or a named path to live/staging.",
+      "matchHints": ["publish", "go live", "deploy", "push to live", "release"],
+      "phases": {
+        "context": ["Confirm siteId and target path from Studio context or author text."],
+        "action": [
+          "Use publish_content with path/contentPath; avoid unnecessary discovery reads when context already has the item path."
+        ],
+        "confirmation": ["Summarize publish package outcome from tool result."]
+      }
+    },
+    {
+      "id": "new_content_item",
+      "title": "Create new page or component",
+      "chatEmoji": "📄",
+      "description": "Author asks to create, draft, or write a new item (new URL or new component), not only edit the open file.",
+      "matchHints": ["create", "new page", "new article", "draft", "write a", "add a page"],
+      "phases": {
+        "context": {
+          "hints": [
+            "ListStudioContentTypes (siteId only) then exact catalog match; GetContentTypeFormDefinition for resolved contentTypeId; GetContent on one sibling of the same type when siblings exist."
+          ],
+          "engineSteps": [
+            {
+              "tool": "ListStudioContentTypes",
+              "args": { "siteId": "$siteId", "searchable": false }
+            }
+          ]
+        },
+        "action": [
+          "WriteContent the new item with correct conventions (objectId, dates, file-name, sections)."
+        ],
+        "confirmation": ["Tell the author how to preview the new route; optional GetPreviewHtml."]
+      }
+    },
+    {
       "id": "translate_content_item",
       "title": "Translate or localize content",
+      "chatEmoji": "🌐",
+      "deterministicMatch": {
+        "signal": "translate_intent",
+        "priority": 65,
+        "routerReason": "deterministic_translate_intent"
+      },
       "description": "Author explicitly asks to translate or localize page/component copy into another language. Use TranslateContentItem or TranslateContentBatch (with ListContentTranslationScope for full-page scope) — not update_content or same-language rewrite via GetContent→WriteContent.",
-      "matchHints": ["translate", "translation", "localize", "localise", "localization", "localisation", "language", "Spanish", "French", "German", "Italian", "Portuguese", "Japanese", "Chinese", "Korean", "Arabic", "Dutch", "Polish", "Russian"],
+      "matchHints": [
+        "translate",
+        "translation",
+        "localize",
+        "localise",
+        "localization",
+        "localisation",
+        "language",
+        "Spanish",
+        "French",
+        "German",
+        "Italian",
+        "Portuguese",
+        "Japanese",
+        "Chinese",
+        "Korean",
+        "Arabic",
+        "Dutch",
+        "Polish",
+        "Russian"
+      ],
       "phases": {
         "context": {
           "hints": [
@@ -58,84 +478,6 @@
         ],
         "confirmation": [
           "Optional GetPreviewHtml when preview URL exists after substantive translation writes."
-        ]
-      }
-    },
-    {
-      "id": "generate_image",
-      "title": "Generate image (bitmap)",
-      "description": "Author wants a new AI-generated image, illustration, hero art, cover, logo, or picture — not a CMS XML field edit, translation, or template change. Use GenerateImage in the first tool round unless they explicitly ask to save into a repository field in the same turn.",
-      "matchHints": ["generate", "draw", "image", "picture", "illustration", "hero", "cover", "banner", "logo", "artwork", "graphic", "bitmap", "sketch", "paint"],
-      "toolsLoopAllowlist": ["GenerateImage"],
-      "toolsLoopAllowlistBypassIfAuthorMentions": ["WriteContent", "write content", "save to", "update_content", "image-picker", "static-assets", "upload to repo"],
-      "phases": {
-        "context": [
-          "Build the GenerateImage prompt from the author's exact words plus any page/topic context already in the message; do not run GetContent unless subject detail for the prompt is still missing."
-        ],
-        "action": [
-          "Call GenerateImage in the first tool round with a concrete prompt; optional size/quality only when the author specified them."
-        ],
-        "confirmation": [
-          "Wrap up in short prose only — the bitmap appears in the Studio chat image strip, not markdown image syntax."
-        ]
-      }
-    },
-    {
-      "id": "template_display_change",
-      "title": "Template / display (FTL) change",
-      "description": "Author explicitly wants layout, FreeMarker, listing markup, dates formatting in code, or how the page renders.",
-      "matchHints": ["template", "ftl", "freemarker", "render", "layout", "listing", "cards", "display"],
-      "phases": {
-        "context": [
-          "GetContent on page/component XML; read display-template; follow sections_o keys to component templates when the shell is not the listing."
-        ],
-        "action": [
-          "Read templates with GetContent or analyze_template (read-only) before update_template; persist with WriteContent on .ftl paths."
-        ],
-        "confirmation": [
-          "GetPreviewHtml when preview URL is available."
-        ]
-      }
-    },
-    {
-      "id": "publish_item",
-      "title": "Publish or go live",
-      "description": "Author wants to publish the current item or a named path to live/staging.",
-      "matchHints": ["publish", "go live", "deploy", "push to live", "release"],
-      "phases": {
-        "context": [
-          "Confirm siteId and target path from Studio context or author text."
-        ],
-        "action": [
-          "Use publish_content with path/contentPath; avoid unnecessary discovery reads when context already has the item path."
-        ],
-        "confirmation": [
-          "Summarize publish package outcome from tool result."
-        ]
-      }
-    },
-    {
-      "id": "new_content_item",
-      "title": "Create new page or component",
-      "description": "Author asks to create, draft, or write a new item (new URL or new component), not only edit the open file.",
-      "matchHints": ["create", "new page", "new article", "draft", "write a", "add a page"],
-      "phases": {
-        "context": {
-          "hints": [
-            "ListStudioContentTypes (siteId only) then exact catalog match; GetContentTypeFormDefinition for resolved contentTypeId; GetContent on one sibling of the same type when siblings exist."
-          ],
-          "engineSteps": [
-            {
-              "tool": "ListStudioContentTypes",
-              "args": { "siteId": "$siteId", "searchable": false }
-            }
-          ]
-        },
-        "action": [
-          "WriteContent the new item with correct conventions (objectId, dates, file-name, sections)."
-        ],
-        "confirmation": [
-          "Tell the author how to preview the new route; optional GetPreviewHtml."
         ]
       }
     }

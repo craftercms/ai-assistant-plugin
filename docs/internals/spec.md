@@ -242,7 +242,7 @@ Defined in `sources/src/consts.ts`:
 | **`contentTypeImageAugmentationScope`** | **`all`** \| **`none`** \| **`selected`** — controls the preview **content-types** bus patch that sets **`allowImagesFromRepo`** on **image-picker** fields using the AI URL datasource (Experience Builder drag targets). |
 | **`contentTypeIdsForImageAugmentation`** | Used when scope is **`selected`**: array of content-type ids (normalized with leading **`/`**). |
 
-**Bulk form field:** **Project Tools → AI Assistant** → **UI** tab may insert/remove a marked **`org.craftercms.aiassistant.studio/ai-assistant`** field in **`form-definition.xml`** (implementation: `sources/src/aiAssistantFormControlBulk.ts`).
+**Bulk form field:** **Project Tools → AI Assistant** → **UI** tab may insert/remove a marked **`ai-assistant`** field (`<type>` must match form-control **`getName()`**, not `pluginId/name`) in **`form-definition.xml`** (implementation: `sources/src/aiAssistantFormControlBulk.ts`). **Add** also repairs legacy bulk rows that used **`org.craftercms.aiassistant.studio/ai-assistant`** (Studio shows “Control not available” for that type).
 
 **Catalog REST:** `GET /studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/content-types/list?siteId=<site>` — Groovy delegates to **`StudioToolOperations.listStudioContentTypes`**.
 

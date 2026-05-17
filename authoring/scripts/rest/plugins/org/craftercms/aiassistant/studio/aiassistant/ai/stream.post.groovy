@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory
 import plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext
 import plugins.org.craftercms.aiassistant.http.AiHttpProxy
 import plugins.org.craftercms.aiassistant.http.AiAssistantBearerUiXmlMerge
+import plugins.org.craftercms.aiassistant.http.AiAssistantCentralAgentsMerge
 import plugins.org.craftercms.aiassistant.orchestration.AiOrchestration
 import plugins.org.craftercms.aiassistant.prompt.ToolPromptsSiteContext
 import plugins.org.craftercms.aiassistant.rag.ExpertSkillVectorRegistry
@@ -69,6 +70,7 @@ try {
     promptForOrchestration = AuthoringPreviewContext.appendEnginePreviewHintIfPossible(
       promptForOrchestration, request, siteIdBody ?: params?.siteId, contentPathBody, body?.studioPreviewPageUrl)
   }
+  promptForOrchestration = AuthoringPreviewContext.appendAgentDateTimeContext(promptForOrchestration)
   def chatId = body?.chatId?.toString()
   if (siteIdBody) {
     try {
@@ -121,16 +123,25 @@ try {
     }
   }
   def siteForBearer = siteIdBody ?: params?.siteId?.toString()?.trim()
-  if (body instanceof Map && siteForBearer && agentId) {
+  if (body instanceof Map && siteForBearer) {
     try {
-      AiAssistantBearerUiXmlMerge.mergeStreamAgentFieldsFromSiteUiXmlIfMissing(applicationContext, (Map) body, siteForBearer, agentId)
+      AiAssistantCentralAgentsMerge.mergeStreamAgentFieldsFromSiteAgentsFileIfMissing(
+        applicationContext, (Map) body, siteForBearer, agentId)
     } catch (Throwable mergeEx) {
-      log.debug('Agent ui.xml merge skipped: {}', mergeEx.message ?: mergeEx.toString())
+      log.debug('Central agents.json merge skipped: {}', mergeEx.message ?: mergeEx.toString())
+    }
+    if (agentId) {
+      try {
+        AiAssistantBearerUiXmlMerge.mergeStreamAgentFieldsFromSiteUiXmlIfMissing(applicationContext, (Map) body, siteForBearer, agentId)
+      } catch (Throwable mergeEx) {
+        log.debug('Agent ui.xml merge skipped: {}', mergeEx.message ?: mergeEx.toString())
+      }
     }
   }
   def llm = body?.llm?.toString()
+  def llmNormalized
   try {
-    AiOrchestration.normalizeLlmProvider(llm)
+    llmNormalized = AiOrchestration.normalizeLlmProvider(llm)
   } catch (IllegalArgumentException iae) {
     response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
     response.setContentType('application/json')
@@ -138,6 +149,13 @@ try {
       it.write(JsonOutput.toJson([ok: false, message: (iae.message ?: 'Invalid llm').toString()]))
     }
     return null
+  }
+  if (body instanceof Map && siteForBearer) {
+    try {
+      AiAssistantCentralAgentsMerge.applyOpenAiDefaultImageModelIfMissing((Map) body, llmNormalized)
+    } catch (Throwable defIm) {
+      log.debug('OpenAI default imageModel skipped: {}', defIm.message ?: defIm.toString())
+    }
   }
   def llmApiKey = (body?.llmApiKey ?: body?.openAiApiKey)?.toString()
   def openAiModel = body?.llmModel?.toString()

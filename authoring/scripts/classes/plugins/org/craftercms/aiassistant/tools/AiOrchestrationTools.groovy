@@ -13,6 +13,7 @@ import plugins.org.craftercms.aiassistant.orchestration.AiOrchestration
 import plugins.org.craftercms.aiassistant.orchestration.chatcompletions.ChatCompletionsToolWire
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolContext
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolProgress
+import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSchemas
 import plugins.org.craftercms.aiassistant.playbook.CrafterizingPlaybookLoader
 import plugins.org.craftercms.aiassistant.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.rag.ExpertSkillVectorRegistry
@@ -379,6 +380,8 @@ class AiOrchestrationTools {
     '{"type":"object","properties":{"url":{"type":"string","description":"Absolute http(s) URL of the preview page to fetch (e.g. current preview URL from authoring context)."},"previewUrl":{"type":"string","description":"Alias for url."},"previewToken":{"type":"string","description":"Value of the Studio crafterPreview cookie (often starts with CCE-V1). Omit if the chat request already sent previewToken from the UI."},"siteId":{"type":"string","description":"Optional — when the URL has no crafterSite= query param, it is appended from this value or the active site."}},"required":[]}'
   private static final String SCHEMA_FETCH_HTTP_URL =
     '{"type":"object","properties":{"url":{"type":"string","description":"Absolute http(s) URL to GET (reference HTML/CSS/JSON/text). Private IPs, loopback, and metadata endpoints are blocked; each redirect target is re-validated."},"maxChars":{"type":"integer","description":"Optional cap on returned body size; still bounded by Studio JVM aiassistant.httpFetch.maxChars (default 400000)."}},"required":["url"]}'
+  private static final String SCHEMA_WEB_SEARCH = StudioAiToolSchemas.WEB_SEARCH
+  private static final String SCHEMA_RESEARCH_SITE_CONTENT = StudioAiToolSchemas.RESEARCH_SITE_CONTENT
   private static final String SCHEMA_QUERY_EXPERT_GUIDANCE =
     '{"type":"object","properties":{"skillId":{"type":"string","description":"Expert skill id from the system message expert skills table (es_ prefix)."},"query":{"type":"string","description":"Question to retrieve relevant markdown chunks for."},"topK":{"type":"integer","description":"Max chunks (1–20, default 8)."}},"required":["skillId","query"]}'
   private static final String SCHEMA_WRITE_CONTENT =
@@ -391,9 +394,9 @@ class AiOrchestrationTools {
     '{"type":"object","properties":{"topic":{"type":"string","description":"Optional focus keyword for future use; full playbook is returned regardless."}}}'
   /** Shared shape for authoring helpers (update_*, analyze, publish, revert). */
   private static final String SCHEMA_CMS_LOOSE =
-    '{"type":"object","properties":{"siteId":{"type":"string"},"site_id":{"type":"string"},"path":{"type":"string"},"contentPath":{"type":"string"},"templatePath":{"type":"string"},"contentType":{"type":"string"},"contentTypeId":{"type":"string"},"instructions":{"type":"string"},"date":{"type":"string"},"publishingTarget":{"type":"string"},"revertType":{"type":"string"},"version":{"type":"string","description":"Studio ItemVersion versionNumber from GetContentVersionHistory"},"revertToPrevious":{"type":"boolean","description":"If true, revert to the immediate prior revertible version (no version string needed)"}}}'
+    StudioAiToolSchemas.CMS_LOOSE
   private static final String SCHEMA_GENERATE_IMAGE =
-    '{"type":"object","additionalProperties":false,"properties":{"prompt":{"type":"string","description":"Description of the image to generate"},"size":{"type":"string","description":"Optional size or aspect preset; see OpenAI Images API (GPT image: 1024x1024, 1536x1024, 1024x1536, auto, etc.)"},"quality":{"type":"string","description":"Optional quality for GPT image models: low, medium, high, auto"},"model":{"type":"string","description":"Optional override of the configured OpenAI image model. Do not pass response_format (rejected by the GPT image Images API)."}},"required":["prompt"]}'
+    '{"type":"object","additionalProperties":false,"properties":{"prompt":{"type":"string","description":"Description of the image to generate"},"size":{"type":"string","enum":["auto","1024x1024","1024x1536","1536x1024"],"description":"Optional GPT Image size only — omit unless the author asked for aspect ratio. Server coerces invalid values (e.g. 1024x768 → nearest supported)."},"quality":{"type":"string","description":"Optional quality for GPT image models: low, medium, high, auto"},"model":{"type":"string","description":"Optional override of the configured OpenAI image model. Do not pass response_format (rejected by the GPT image Images API)."}},"required":["prompt"]}'
   /** One-shot chat completion (no further function tools on that inner request). Invoked only when the main agent calls this tool. */
   private static final String SCHEMA_GENERATE_TEXT_NO_TOOLS =
     '{"type":"object","properties":{"userPrompt":{"type":"string","description":"Full user/task text for the inner model (what to write, format, constraints)."},"prompt":{"type":"string","description":"Alias for userPrompt."},"systemInstructions":{"type":"string","description":"Optional system message for this inner call only (role, output shape, tone)."},"system":{"type":"string","description":"Alias for systemInstructions."},"maxOutTokens":{"type":"integer","description":"Max completion tokens for this inner call (256–8192; server may clamp per model)."},"model":{"type":"string","description":"Optional OpenAI chat model id for this inner call only; default matches the agent chat model family."},"llmModel":{"type":"string","description":"Alias for model."},"readTimeoutMs":{"type":"integer","description":"HTTP read timeout ms (60000–600000)."}},"required":[]}'
@@ -2115,6 +2118,81 @@ class AiOrchestrationTools {
       .invokeMethod('toolCallResultConverter', converter)
       .build()
 
+    def webSearchTool = FunctionToolCallback.builder('WebSearch', new Function<Map, Map>() {
+        @Override Map apply(Map input) {
+          runWithToolProgress('WebSearch', input, toolProgressListener, {
+            logToolInvocation('WebSearch', (Map) (input ?: [:]))
+            def m = (Map) (input ?: [:])
+            String q = m.query?.toString()?.trim() ?: m.q?.toString()?.trim()
+            if (!q) {
+              throw new IllegalArgumentException('Missing required field: query')
+            }
+            Integer maxR = null
+            try {
+              if (m.maxResults != null) {
+                maxR =
+                  (m.maxResults instanceof Number) ?
+                    ((Number) m.maxResults).intValue() :
+                    Integer.parseInt(m.maxResults.toString().trim())
+              }
+            } catch (Throwable ignored) {
+              maxR = null
+            }
+            ops.webSearch(q, maxR)
+          })
+        }
+      })
+        .description(ToolPrompts.getDESC_WEB_SEARCH())
+        .inputSchema(SCHEMA_WEB_SEARCH)
+        .inputType(Map.class)
+        .invokeMethod('toolCallResultConverter', converter)
+        .build()
+
+    def researchSiteContentTool = null
+    if (ops.siteContentResearchGloballyEnabled()) {
+      researchSiteContentTool = FunctionToolCallback.builder('ResearchSiteContent', new Function<Map, Map>() {
+        @Override Map apply(Map input) {
+          runWithToolProgress('ResearchSiteContent', input, toolProgressListener, {
+            logToolInvocation('ResearchSiteContent', (Map) (input ?: [:]))
+            def m = (Map) (input ?: [:])
+            String q = m.query?.toString()?.trim() ?: m.q?.toString()?.trim()
+            if (!q) {
+              throw new IllegalArgumentException('Missing required field: query')
+            }
+            Integer maxSearch = null
+            Integer maxFetch = null
+            try {
+              if (m.maxSearchHits != null) {
+                maxSearch =
+                  (m.maxSearchHits instanceof Number) ?
+                    ((Number) m.maxSearchHits).intValue() :
+                    Integer.parseInt(m.maxSearchHits.toString().trim())
+              }
+            } catch (Throwable ignored) {
+              maxSearch = null
+            }
+            try {
+              if (m.maxFetchItems != null) {
+                maxFetch =
+                  (m.maxFetchItems instanceof Number) ?
+                    ((Number) m.maxFetchItems).intValue() :
+                    Integer.parseInt(m.maxFetchItems.toString().trim())
+              }
+            } catch (Throwable ignored) {
+              maxFetch = null
+            }
+            String prefix = m.pathPrefix?.toString()?.trim()
+            ops.researchSiteContent(m.siteId as String, q, maxSearch, maxFetch, prefix)
+          })
+        }
+      })
+        .description(ToolPrompts.getDESC_RESEARCH_SITE_CONTENT())
+        .inputSchema(SCHEMA_RESEARCH_SITE_CONTENT)
+        .inputType(Map.class)
+        .invokeMethod('toolCallResultConverter', converter)
+        .build()
+    }
+
     def queryExpertGuidanceTool = null
     if (expertEmbedModel != null && !expertUrlBySkillId.isEmpty()) {
       final def exEmbedFinal = expertEmbedModel
@@ -2454,27 +2532,11 @@ class AiOrchestrationTools {
             ]
           }
           boolean revertToPrevious = AuthoringPreviewContext.isTruthy(input?.revertToPrevious)
-          def versionArg = input?.version?.toString()?.trim()
-          if (!versionArg) versionArg = input?.itemVersion?.toString()?.trim()
-          def revertType = input?.revertType?.toString()?.trim()
-          def semanticRt = revertType && ['content', 'template', 'contenttype'].contains(revertType.toLowerCase())
-          if (!versionArg && revertType && !semanticRt) {
-            versionArg = revertType
-          }
-          String versionToUse = versionArg
-          if (!versionToUse) {
-            if (revertToPrevious) {
-              versionToUse = ops.resolvePreviousRevertibleVersionNumber(siteId, path)
-            } else if (semanticRt) {
-              throw new IllegalArgumentException(
-                'revertType content/template/contentType is not a Studio version id. Call GetContentVersionHistory and pass version=<versionNumber>, or set revertToPrevious:true to go back one revertible step.'
-              )
-            } else {
-              throw new IllegalArgumentException(
-                'Missing version: pass version (versionNumber from GetContentVersionHistory) or revertToPrevious:true.'
-              )
-            }
-          }
+          boolean revertToInitial = AuthoringPreviewContext.isTruthy(input?.revertToInitial) ||
+            AuthoringPreviewContext.isTruthy(input?.revertToOldest) ||
+            AuthoringPreviewContext.isTruthy(input?.revertToFirst)
+          Map sel = ops.resolveRevertChangeVersionSelection(siteId, path, (Map) (input ?: [:]))
+          String versionToUse = sel.version?.toString()?.trim()
           String err = null
           try {
             ops.revertContentItem(siteId, path, versionToUse, false, 'revert_change tool')
@@ -2488,6 +2550,8 @@ class AiOrchestrationTools {
             path             : path,
             version          : versionToUse,
             revertToPrevious : revertToPrevious,
+            revertToInitial  : revertToInitial,
+            versionSelection : sel.selection?.toString() ?: '',
             ok               : err == null,
             message          : err ?: 'Reverted to selected Studio version.',
             result           : err == null ? 'ok' : null
@@ -2524,6 +2588,10 @@ class AiOrchestrationTools {
       getPreviewHtmlTool,
       fetchHttpUrlTool
     ])
+    tools.add(webSearchTool)
+    if (researchSiteContentTool != null) {
+      tools.add(researchSiteContentTool)
+    }
     if (queryExpertGuidanceTool != null) {
       tools.add(queryExpertGuidanceTool)
     }

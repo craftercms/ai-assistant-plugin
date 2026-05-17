@@ -15,7 +15,9 @@ import plugins.org.craftercms.aiassistant.tools.cms.WriteContentTool
 import plugins.org.craftercms.aiassistant.tools.development.AnalyzeTemplateTool
 import plugins.org.craftercms.aiassistant.tools.development.GetCrafterizingPlaybookTool
 import plugins.org.craftercms.aiassistant.tools.development.UpdateTemplateTool
+import plugins.org.craftercms.aiassistant.tools.cms.ResearchSiteContentTool
 import plugins.org.craftercms.aiassistant.tools.general.FetchHttpUrlTool
+import plugins.org.craftercms.aiassistant.tools.general.WebSearchTool
 import plugins.org.craftercms.aiassistant.tools.spi.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolContext
 
@@ -32,6 +34,8 @@ final class StudioAiToolRegistry {
     GetContentVersionHistoryTool,
     GetPreviewHtmlTool,
     FetchHttpUrlTool,
+    WebSearchTool,
+    ResearchSiteContentTool,
     WriteContentTool,
     ListPagesAndComponentsTool,
     UpdateTemplateTool,

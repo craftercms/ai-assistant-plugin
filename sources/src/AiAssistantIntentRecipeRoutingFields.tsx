@@ -6,7 +6,10 @@ import {
   TextField,
   Typography
 } from '@mui/material';
-import type { IntentRecipeRoutingFormState } from './aiAssistantToolsMcpUiModel';
+import {
+  defaultIntentRecipeRoutingFormState,
+  type IntentRecipeRoutingFormState
+} from './aiAssistantToolsMcpUiModel';
 
 export interface AiAssistantIntentRecipeRoutingFieldsProps {
   value: IntentRecipeRoutingFormState;
@@ -14,7 +17,8 @@ export interface AiAssistantIntentRecipeRoutingFieldsProps {
 }
 
 export default function AiAssistantIntentRecipeRoutingFields(props: AiAssistantIntentRecipeRoutingFieldsProps) {
-  const { value, onChange } = props;
+  const { value: valueProp, onChange } = props;
+  const value = valueProp ?? defaultIntentRecipeRoutingFormState();
   const patch = (partial: Partial<IntentRecipeRoutingFormState>) => onChange({ ...value, ...partial });
 
   return (

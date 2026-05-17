@@ -9,9 +9,112 @@ const TEXT_PREVIEW_CHARS = 320;
 const SENSITIVE_URL_QUERY_PARAM_RE =
   /([?&])(token|previewToken|access_token|accessToken|api_key|apikey|authorization|bearer|crafterPreview|sessionId|sessionToken)=([^&\s"'<>]+)/gi;
 
+const DATA_IMAGE_BASE64_PREFIX_RE = /data:image\/[a-z0-9.+-]+;base64,/gi;
+
+const INLINE_IMAGE_OMITTED_NOTE =
+  '[inline image omitted from debug log';
+
+/**
+ * Replace {@code data:image/...;base64,...} payloads with a short note (keeps analyst signal, drops ciphertext).
+ */
+function elideDataImageBase64ForSessionLog(raw: string): string {
+  if (!raw || raw.indexOf('data:image') < 0) {
+    return raw;
+  }
+  const re = new RegExp(DATA_IMAGE_BASE64_PREFIX_RE.source, 'gi');
+  let out = '';
+  let pos = 0;
+  const len = raw.length;
+  let m: RegExpExecArray | null;
+  re.lastIndex = 0;
+  while (pos < len) {
+    re.lastIndex = pos;
+    m = re.exec(raw);
+    if (!m || m.index == null) {
+      out += raw.slice(pos);
+      break;
+    }
+    out += raw.slice(pos, m.index);
+    const payloadStart = m.index + m[0].length;
+    let i = payloadStart;
+    while (i < len) {
+      const c = raw.charAt(i);
+      if (
+        (c >= 'A' && c <= 'Z') ||
+        (c >= 'a' && c <= 'z') ||
+        (c >= '0' && c <= '9') ||
+        c === '+' ||
+        c === '/' ||
+        c === '=' ||
+        c === '\n' ||
+        c === '\r' ||
+        c === ' ' ||
+        c === '\t'
+      ) {
+        i++;
+        continue;
+      }
+      break;
+    }
+    const b64Chars = i - payloadStart;
+    out += `${INLINE_IMAGE_OMITTED_NOTE} (${b64Chars} base64 chars)]`;
+    pos = i;
+  }
+  return out;
+}
+
+/** Tool JSON may carry raw {@code b64_json} — elide the value only. */
+function elideLongB64JsonFieldsForSessionLog(raw: string): string {
+  if (!raw || raw.indexOf('b64_json') < 0) {
+    return raw;
+  }
+  return raw.replace(
+    /("b64_json"\s*:\s*")([A-Za-z0-9+/=\s]{200,})(")/g,
+    (_match, prefix: string, payload: string, suffix: string) =>
+      `${prefix}${INLINE_IMAGE_OMITTED_NOTE} (${payload.length} b64_json chars)]${suffix}`
+  );
+}
+
+/**
+ * Final assistant SSE is chunked (~48k); middle frames are often base64 continuations without a {@code data:image} prefix.
+ */
+function elideLikelyBase64ImageSseTextChunk(line: string): string {
+  const isoRow = /^(\d{4}-\d{2}-\d{2}T[^\t]+\t)([\s\S]+)$/.exec(line);
+  if (!isoRow) {
+    return line;
+  }
+  let json: Record<string, unknown>;
+  try {
+    json = JSON.parse(isoRow[2].trim()) as Record<string, unknown>;
+  } catch {
+    return line;
+  }
+  const text = typeof json.text === 'string' ? json.text : '';
+  if (text.length < 800) {
+    return line;
+  }
+  const compact = text.replace(/\s/g, '');
+  if (compact.length < 800) {
+    return line;
+  }
+  const b64ish = (compact.match(/[A-Za-z0-9+/=]/g) || []).length;
+  if (b64ish / compact.length < 0.92) {
+    return line;
+  }
+  const next = {
+    ...json,
+    text: `${INLINE_IMAGE_OMITTED_NOTE} (likely image SSE chunk; ${text.length} chars)]`
+  };
+  return `${isoRow[1]}${JSON.stringify(next)}`;
+}
+
 /** Best-effort redaction before copying the raw SSE debug log to the clipboard. */
 export function redactSessionLogLineForCopy(s: string): string {
-  return s
+  let out = s;
+  out = elideDataImageBase64ForSessionLog(out);
+  out = elideLongB64JsonFieldsForSessionLog(out);
+  out = elideLikelyBase64ImageSseTextChunk(out);
+  return out
     .replace(/("?(authorization|bearer|token|previewToken)"?\s*:\s*)"[^"]+"/gi, '$1"***"')
     .replace(/("?(?:\w*[Bb]earer\w*|[Tt]oken\w*|previewToken)"?\s*:\s*)"[^"]+"/g, '$1"***"')
     .replace(SENSITIVE_URL_QUERY_PARAM_RE, '$1$2=***')
@@ -165,6 +268,7 @@ function buildParsedTimeline(lines: string[]): string {
       meta.planGateFailure === true ||
       status === 'tool-progress' ||
       status === 'tool-workflow-hint' ||
+      status === 'intent-recipe-routing' ||
       status === 'pipeline-heartbeat' ||
       phaseInteresting;
 
@@ -193,6 +297,17 @@ function buildParsedTimeline(lines: string[]): string {
         const oneLine = text.replace(/\s+/g, ' ').trim();
         if (oneLine) bullets.push(`  strip preview: ${previewText(oneLine, 220)}`);
       }
+      if (status === 'intent-recipe-routing') {
+        const tel =
+          meta.intentRecipeRouting && typeof meta.intentRecipeRouting === 'object'
+            ? (meta.intentRecipeRouting as Record<string, unknown>)
+            : null;
+        bullets.push(
+          `Intent recipe: outcome=${tel?.outcome ?? '—'} recipeId=${tel?.recipeId ?? '—'} title=${previewText(String(tel?.recipeTitle ?? ''), 80)}`
+        );
+        const oneLine = text.replace(/\s+/g, ' ').trim();
+        if (oneLine) bullets.push(`  chat line: ${previewText(oneLine, 220)}`);
+      }
       if (phaseInteresting) {
         bullets.push(
           'Phase: summarizing-results — orchestration summarizing tool results into final assistant markdown'
@@ -216,7 +331,8 @@ function buildParsedTimeline(lines: string[]): string {
 export function formatSessionLogForDebugCopy(lines: string[]): string {
   const generatedAt = new Date().toISOString();
   const redactedLines = lines.map(redactSessionLogLineForCopy);
-  const timeline = buildParsedTimeline(redactedLines);
+  /** Delta char totals use the raw capture so spikes remain visible; VERBATIM uses elided lines. */
+  const timeline = buildParsedTimeline(lines);
   const verbatim = redactedLines.join('\n');
 
   return [
@@ -226,7 +342,8 @@ export function formatSessionLogForDebugCopy(lines: string[]): string {
     '',
     'How to read:',
     '  • TIMELINE — what happened in order (phases, tools, terminal frames, client outcomes).',
-    '  • VERBATIM — exact captured lines (JSON); secrets redacted; use for grep / repro.',
+    '  • VERBATIM — captured SSE lines (JSON); secrets redacted; inline images replaced with',
+    '    “[inline image omitted from debug log (N base64 chars)]” notes; use for grep / repro.',
     '',
     '--- TIMELINE ---',
     timeline,

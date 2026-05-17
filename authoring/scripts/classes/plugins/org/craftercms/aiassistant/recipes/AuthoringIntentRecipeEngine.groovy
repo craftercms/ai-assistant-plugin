@@ -67,6 +67,7 @@ final class AuthoringIntentRecipeEngine {
     Map bindings = ops.recipeEngineAuthoringBindings()
     List<Map> stepSummaries = new ArrayList<>()
     List<Map> stepResults = new ArrayList<>()
+    Map<String, Map> namedSoFar = new LinkedHashMap<>()
     int index = 0
     for (Object stepObj : steps) {
       if (!(stepObj instanceof Map)) {
@@ -90,7 +91,7 @@ final class AuthoringIntentRecipeEngine {
       Map argsTemplate = argsObj instanceof Map ? (Map) argsObj : [:]
       Map resolvedArgs
       try {
-        resolvedArgs = resolveArgsMap(argsTemplate, bindings, stepResults)
+        resolvedArgs = resolveArgsMap(argsTemplate, bindings, stepResults, namedSoFar, namedSoFar)
       } catch (Throwable te) {
         stepSummaries.add([index: index, tool: tool, ok: false, error: 'arg resolution: ' + te.message])
         stepResults.add([:] as Map)
@@ -110,13 +111,28 @@ final class AuthoringIntentRecipeEngine {
       if (Boolean.TRUE.equals(summary.get('ok'))) {
         summary.put('result', shrinkToolResultForPrefetch(resultPayload, maxField))
       }
+      String asName = AuthoringIntentRecipeBindings.stepOutputName(step)
+      if (asName && Boolean.TRUE.equals(summary.get('ok')) && resultPayload instanceof Map) {
+        namedSoFar.put(asName, (Map) resultPayload)
+        summary.put('as', asName)
+      }
       stepSummaries.add(summary)
       stepResults.add(resultPayload instanceof Map ? (Map) resultPayload : [:] as Map)
       index++
     }
+    Map<String, Map> initialBindings = AuthoringIntentRecipeBindings.buildInitialBindings(steps, stepResults)
+    Map<String, Map> shrunkInitial = new LinkedHashMap<>()
+    for (Map.Entry e : initialBindings.entrySet()) {
+      shrunkInitial.put(
+        e.key.toString(),
+        shrinkToolResultForPrefetch(e.value instanceof Map ? (Map) e.value : [:], maxField)
+      )
+    }
+    AuthoringIntentRecipeBindings.installTurnState(ops, initialBindings)
     Map envelope = [
       recipeId: recipe.get('id')?.toString(),
-      steps   : stepSummaries
+      steps   : stepSummaries,
+      bindings: [initial: shrunkInitial]
     ]
     String json = JsonOutput.toJson(envelope)
     boolean truncated = false
@@ -128,7 +144,8 @@ final class AuthoringIntentRecipeEngine {
     return [
       markdown                : markdown,
       prefetchSteps             : stepSummaries,
-      prefetchEnvelopeTruncated : truncated
+      prefetchEnvelopeTruncated : truncated,
+      initialBindings           : initialBindings
     ]
   }
 
@@ -196,41 +213,27 @@ final class AuthoringIntentRecipeEngine {
     ]
   }
 
-  private static Map resolveArgsMap(Map template, Map bindings, List<Map> priorResults) {
+  private static Map resolveArgsMap(
+    Map template,
+    Map bindings,
+    List<Map> priorResults,
+    Map<String, Map> initialNamed,
+    Map<String, Map> currentNamed
+  ) {
     Map out = new LinkedHashMap<>()
     for (Map.Entry e : template.entrySet()) {
-      out.put(e.key, resolveArgValue(e.value, bindings, priorResults))
+      out.put(
+        e.key,
+        AuthoringIntentRecipeBindings.resolveArgValue(
+          e.value,
+          bindings,
+          priorResults,
+          initialNamed ?: [:],
+          currentNamed ?: [:]
+        )
+      )
     }
     out
-  }
-
-  private static Object resolveArgValue(Object v, Map bindings, List<Map> priorResults) {
-    if (!(v instanceof String)) {
-      return v
-    }
-    String s = ((String) v).trim()
-    if ('$siteId'.equals(s)) {
-      return bindings.get('siteId') ?: ''
-    }
-    if ('$contentPath'.equals(s)) {
-      return bindings.get('contentPath') ?: ''
-    }
-    if ('$contentTypeId'.equals(s)) {
-      return bindings.get('contentTypeId') ?: ''
-    }
-    if ('$previewUrl'.equals(s)) {
-      return bindings.get('previewUrl') ?: ''
-    }
-    Matcher m = STEP_REF.matcher(s)
-    if (m.matches()) {
-      int si = Integer.parseInt(m.group(1), 10)
-      String path = m.group(2)
-      if (si < 0 || si >= priorResults.size()) {
-        return ''
-      }
-      return navigateMapPath(priorResults.get(si), path)
-    }
-    return s
   }
 
   private static Object navigateMapPath(Map root, String dotPath) {

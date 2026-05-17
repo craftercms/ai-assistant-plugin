@@ -1,6 +1,6 @@
 const { Fragment, jsx: jsx$1, jsxs } = craftercms.libs?.reactJsxRuntime;
 const require$$2 = craftercms.libs?.reactJsxRuntime && Object.prototype.hasOwnProperty.call(craftercms.libs?.reactJsxRuntime, 'default') ? craftercms.libs?.reactJsxRuntime['default'] : craftercms.libs?.reactJsxRuntime;
-const { useTheme, Box, CircularProgress, Typography, TableContainer, Paper, Table: Table$1, TableHead, TableBody, TableRow, TableCell, Stack: Stack$1, Tooltip, IconButton, Tabs, Tab, Button, Divider, TextField, Chip, FormControlLabel, Switch, Popover, paperClasses, GlobalStyles, Menu, MenuItem, ListItemIcon, ListItemText, Dialog, DialogContent, Alert, FormControl, InputLabel, Select, List, ListItem, Checkbox, ListItemButton, Badge, DialogTitle, DialogActions, Avatar, useMediaQuery, Autocomplete, ListItemSecondaryAction, FormLabel, FormGroup, Link, RadioGroup, Radio } = craftercms.libs.MaterialUI;
+const { useTheme, Box, CircularProgress, Typography, TableContainer, Paper, Table: Table$1, TableHead, TableBody, TableRow, TableCell, Stack: Stack$1, Tooltip, IconButton, Tabs, Tab, Button, Divider, TextField, Chip, FormControlLabel, Switch, Popover, paperClasses, GlobalStyles, Menu, MenuItem, ListItemIcon, ListItemText, Dialog, DialogContent, Alert, FormControl, InputLabel, Select, List, ListItem, Checkbox, ListItemButton, Badge, DialogTitle, DialogActions, Avatar, useMediaQuery, Autocomplete, ListItemSecondaryAction, FormLabel, FormGroup, Snackbar, Link, RadioGroup, Radio } = craftercms.libs.MaterialUI;
 const React = craftercms.libs.React;
 const { useRef, useState, useEffect, useCallback, useMemo, useLayoutEffect, useSyncExternalStore, createElement, forwardRef, useImperativeHandle } = craftercms.libs.React;
 const React__default = craftercms.libs.React && Object.prototype.hasOwnProperty.call(craftercms.libs.React, 'default') ? craftercms.libs.React['default'] : craftercms.libs.React;
@@ -19,7 +19,7 @@ const AddCommentRounded = craftercms.utils.constants.components.get('@mui/icons-
 const MicRounded = craftercms.utils.constants.components.get('@mui/icons-material/MicRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/MicRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/MicRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/MicRounded');
 const AssignmentRounded = craftercms.utils.constants.components.get('@mui/icons-material/AssignmentRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/AssignmentRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/AssignmentRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/AssignmentRounded');
 const { useSelector, useDispatch } = craftercms.libs.ReactRedux;
-const { fetchContentXML, fetchItemsByPath } = craftercms.services.content;
+const { fetchContentXML, fetchItemsByPath, writeContent } = craftercms.services.content;
 const { fetchConfigurationXML, writeConfiguration } = craftercms.services.configuration;
 const { createAction } = craftercms.libs.ReduxToolkit;
 const { getHostToGuestBus, getHostToHostBus, getGuestToHostBus } = craftercms.utils.subjects;
@@ -67,6 +67,10 @@ const AddRounded = craftercms.utils.constants.components.get('@mui/icons-materia
 const DeleteOutlineRounded = craftercms.utils.constants.components.get('@mui/icons-material/DeleteOutlineRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/DeleteOutlineRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/DeleteOutlineRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/DeleteOutlineRounded');
 const RefreshRounded = craftercms.utils.constants.components.get('@mui/icons-material/RefreshRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/RefreshRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/RefreshRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/RefreshRounded');
 const SaveRounded = craftercms.utils.constants.components.get('@mui/icons-material/SaveRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/SaveRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/SaveRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/SaveRounded');
+const DownloadRounded = craftercms.utils.constants.components.get('@mui/icons-material/DownloadRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/DownloadRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/DownloadRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/DownloadRounded');
+const RestartAltRounded = craftercms.utils.constants.components.get('@mui/icons-material/RestartAltRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/RestartAltRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/RestartAltRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/RestartAltRounded');
+const AutoFixHighRounded = craftercms.utils.constants.components.get('@mui/icons-material/AutoFixHighRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/AutoFixHighRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/AutoFixHighRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/AutoFixHighRounded');
+const ArrowForwardRounded = craftercms.utils.constants.components.get('@mui/icons-material/ArrowForwardRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/ArrowForwardRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/ArrowForwardRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/ArrowForwardRounded');
 const FormatListBulletedRounded = craftercms.utils.constants.components.get('@mui/icons-material/FormatListBulletedRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/FormatListBulletedRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/FormatListBulletedRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/FormatListBulletedRounded');
 const Autocomplete$1 = craftercms.libs.MaterialUI.Autocomplete && Object.prototype.hasOwnProperty.call(craftercms.libs.MaterialUI.Autocomplete, 'default') ? craftercms.libs.MaterialUI.Autocomplete['default'] : craftercms.libs.MaterialUI.Autocomplete;
 
@@ -419,9 +423,101 @@ async function streamChat(args) {
 const TEXT_PREVIEW_CHARS = 320;
 /** Query params that may carry secrets inside URL string values (not only JSON keys). */
 const SENSITIVE_URL_QUERY_PARAM_RE = /([?&])(token|previewToken|access_token|accessToken|api_key|apikey|authorization|bearer|crafterPreview|sessionId|sessionToken)=([^&\s"'<>]+)/gi;
+const DATA_IMAGE_BASE64_PREFIX_RE = /data:image\/[a-z0-9.+-]+;base64,/gi;
+const INLINE_IMAGE_OMITTED_NOTE = '[inline image omitted from debug log';
+/**
+ * Replace {@code data:image/...;base64,...} payloads with a short note (keeps analyst signal, drops ciphertext).
+ */
+function elideDataImageBase64ForSessionLog(raw) {
+    if (!raw || raw.indexOf('data:image') < 0) {
+        return raw;
+    }
+    const re = new RegExp(DATA_IMAGE_BASE64_PREFIX_RE.source, 'gi');
+    let out = '';
+    let pos = 0;
+    const len = raw.length;
+    let m;
+    re.lastIndex = 0;
+    while (pos < len) {
+        re.lastIndex = pos;
+        m = re.exec(raw);
+        if (!m || m.index == null) {
+            out += raw.slice(pos);
+            break;
+        }
+        out += raw.slice(pos, m.index);
+        const payloadStart = m.index + m[0].length;
+        let i = payloadStart;
+        while (i < len) {
+            const c = raw.charAt(i);
+            if ((c >= 'A' && c <= 'Z') ||
+                (c >= 'a' && c <= 'z') ||
+                (c >= '0' && c <= '9') ||
+                c === '+' ||
+                c === '/' ||
+                c === '=' ||
+                c === '\n' ||
+                c === '\r' ||
+                c === ' ' ||
+                c === '\t') {
+                i++;
+                continue;
+            }
+            break;
+        }
+        const b64Chars = i - payloadStart;
+        out += `${INLINE_IMAGE_OMITTED_NOTE} (${b64Chars} base64 chars)]`;
+        pos = i;
+    }
+    return out;
+}
+/** Tool JSON may carry raw {@code b64_json} — elide the value only. */
+function elideLongB64JsonFieldsForSessionLog(raw) {
+    if (!raw || raw.indexOf('b64_json') < 0) {
+        return raw;
+    }
+    return raw.replace(/("b64_json"\s*:\s*")([A-Za-z0-9+/=\s]{200,})(")/g, (_match, prefix, payload, suffix) => `${prefix}${INLINE_IMAGE_OMITTED_NOTE} (${payload.length} b64_json chars)]${suffix}`);
+}
+/**
+ * Final assistant SSE is chunked (~48k); middle frames are often base64 continuations without a {@code data:image} prefix.
+ */
+function elideLikelyBase64ImageSseTextChunk(line) {
+    const isoRow = /^(\d{4}-\d{2}-\d{2}T[^\t]+\t)([\s\S]+)$/.exec(line);
+    if (!isoRow) {
+        return line;
+    }
+    let json;
+    try {
+        json = JSON.parse(isoRow[2].trim());
+    }
+    catch {
+        return line;
+    }
+    const text = typeof json.text === 'string' ? json.text : '';
+    if (text.length < 800) {
+        return line;
+    }
+    const compact = text.replace(/\s/g, '');
+    if (compact.length < 800) {
+        return line;
+    }
+    const b64ish = (compact.match(/[A-Za-z0-9+/=]/g) || []).length;
+    if (b64ish / compact.length < 0.92) {
+        return line;
+    }
+    const next = {
+        ...json,
+        text: `${INLINE_IMAGE_OMITTED_NOTE} (likely image SSE chunk; ${text.length} chars)]`
+    };
+    return `${isoRow[1]}${JSON.stringify(next)}`;
+}
 /** Best-effort redaction before copying the raw SSE debug log to the clipboard. */
 function redactSessionLogLineForCopy(s) {
-    return s
+    let out = s;
+    out = elideDataImageBase64ForSessionLog(out);
+    out = elideLongB64JsonFieldsForSessionLog(out);
+    out = elideLikelyBase64ImageSseTextChunk(out);
+    return out
         .replace(/("?(authorization|bearer|token|previewToken)"?\s*:\s*)"[^"]+"/gi, '$1"***"')
         .replace(/("?(?:\w*[Bb]earer\w*|[Tt]oken\w*|previewToken)"?\s*:\s*)"[^"]+"/g, '$1"***"')
         .replace(SENSITIVE_URL_QUERY_PARAM_RE, '$1$2=***')
@@ -552,6 +648,7 @@ function buildParsedTimeline(lines) {
             meta.planGateFailure === true ||
             status === 'tool-progress' ||
             status === 'tool-workflow-hint' ||
+            status === 'intent-recipe-routing' ||
             status === 'pipeline-heartbeat' ||
             phaseInteresting;
         if (!streamIdsLoggedForTurn && (meta.chatId || meta.messageId)) {
@@ -577,6 +674,15 @@ function buildParsedTimeline(lines) {
                 if (oneLine)
                     bullets.push(`  strip preview: ${previewText(oneLine, 220)}`);
             }
+            if (status === 'intent-recipe-routing') {
+                const tel = meta.intentRecipeRouting && typeof meta.intentRecipeRouting === 'object'
+                    ? meta.intentRecipeRouting
+                    : null;
+                bullets.push(`Intent recipe: outcome=${tel?.outcome ?? '—'} recipeId=${tel?.recipeId ?? '—'} title=${previewText(String(tel?.recipeTitle ?? ''), 80)}`);
+                const oneLine = text.replace(/\s+/g, ' ').trim();
+                if (oneLine)
+                    bullets.push(`  chat line: ${previewText(oneLine, 220)}`);
+            }
             if (phaseInteresting) {
                 bullets.push('Phase: summarizing-results — orchestration summarizing tool results into final assistant markdown');
             }
@@ -596,7 +702,8 @@ function buildParsedTimeline(lines) {
 function formatSessionLogForDebugCopy(lines) {
     const generatedAt = new Date().toISOString();
     const redactedLines = lines.map(redactSessionLogLineForCopy);
-    const timeline = buildParsedTimeline(redactedLines);
+    /** Delta char totals use the raw capture so spikes remain visible; VERBATIM uses elided lines. */
+    const timeline = buildParsedTimeline(lines);
     const verbatim = redactedLines.join('\n');
     return [
         '==============================================================================',
@@ -605,7 +712,8 @@ function formatSessionLogForDebugCopy(lines) {
         '',
         'How to read:',
         '  • TIMELINE — what happened in order (phases, tools, terminal frames, client outcomes).',
-        '  • VERBATIM — exact captured lines (JSON); secrets redacted; use for grep / repro.',
+        '  • VERBATIM — captured SSE lines (JSON); secrets redacted; inline images replaced with',
+        '    “[inline image omitted from debug log (N base64 chars)]” notes; use for grep / repro.',
         '',
         '--- TIMELINE ---',
         timeline,
@@ -29443,6 +29551,121 @@ function getSpeechRecognitionCtor() {
     return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
+/** Fallback when server does not send {@code recipeChatLine} (catalog {@code chatDefaults.prefixEmoji}). */
+const INTENT_RECIPE_CHAT_PREFIX_EMOJI = '🥗';
+/** Fallback workflow emoji when server does not send {@code recipeChatLine} (catalog {@code chatDefaults.fallbackEmoji}). */
+const INTENT_RECIPE_CHAT_FALLBACK_EMOJI = '📋';
+/** Mirrors server {@code AuthoringIntentRecipeCatalog.formatIntentRecipeChatLine} for Studio config preview. */
+function formatIntentRecipeChatLineFromRecipe(recipe, defaults) {
+    const title = String(recipe.title ?? recipe.id ?? '').trim();
+    if (!title)
+        return '';
+    const prefix = String(recipe.chatPrefixEmoji ?? defaults?.prefixEmoji ?? INTENT_RECIPE_CHAT_PREFIX_EMOJI).trim();
+    const emoji = String(recipe.chatEmoji ?? defaults?.fallbackEmoji ?? INTENT_RECIPE_CHAT_FALLBACK_EMOJI).trim();
+    const suffix = String(recipe.chatLineSuffix ?? defaults?.lineSuffix ?? 'workflow').trim() || 'workflow';
+    return `${prefix} ${emoji} **${title}** ${suffix}\n`;
+}
+/** Legacy client fallback — prefer {@code intentRecipeRouting.recipeChatLine} from the server. */
+function formatIntentRecipeChatLine(recipeId, recipeTitle) {
+    const id = recipeId.trim();
+    if (!id)
+        return '';
+    const title = (recipeTitle ?? id).trim() || id;
+    return `${INTENT_RECIPE_CHAT_PREFIX_EMOJI} ${INTENT_RECIPE_CHAT_FALLBACK_EMOJI} **${title}** workflow\n`;
+}
+function intentRecipeLineFromRoutingTelemetry(telemetry) {
+    if (!telemetry || typeof telemetry !== 'object')
+        return undefined;
+    const o = telemetry;
+    if (String(o.outcome ?? '') !== 'matched')
+        return undefined;
+    const fromServer = String(o.recipeChatLine ?? '').trim();
+    if (fromServer) {
+        return fromServer.endsWith('\n') ? fromServer : `${fromServer}\n`;
+    }
+    const id = String(o.recipeId ?? '').trim();
+    if (!id)
+        return undefined;
+    const title = String(o.recipeTitle ?? '').trim() || id;
+    return formatIntentRecipeChatLine(id, title);
+}
+
+/**
+ * Built-in Studio AI orchestration tool names (Spring AI wire). Keep aligned with
+ * `AiOrchestrationTools.groovy` {@code FunctionToolCallback.builder('…')}.
+ * Use {@link STUDIO_AI_MCP_ALL_TOKEN} in agent JSON to retain every dynamic {@code mcp_*} tool after site policy.
+ */
+const STUDIO_AI_MCP_ALL_TOKEN = 'mcp:*';
+/** Checkbox order for Project Tools → AI Assistant Agents (subset may be omitted at runtime). */
+const STUDIO_AI_BUILTIN_TOOL_IDS = [
+    'GenerateTextNoTools',
+    'TranslateContentBatch',
+    'TranslateContentItem',
+    'TransformContentSubgraph',
+    'GetContentSubgraph',
+    'GetContent',
+    'ListContentTranslationScope',
+    'ListStudioContentTypes',
+    'GetContentTypeFormDefinition',
+    'GetContentVersionHistory',
+    'GetPreviewHtml',
+    'FetchHttpUrl',
+    'WebSearch',
+    'ResearchSiteContent',
+    'QueryExpertGuidance',
+    'WriteContent',
+    'ListPagesAndComponents',
+    'update_template',
+    'update_content',
+    'update_content_type',
+    'analyze_template',
+    'publish_content',
+    'GetCrafterizingPlaybook',
+    'revert_change',
+    'GenerateImage',
+    'InvokeSiteUserTool',
+    STUDIO_AI_MCP_ALL_TOKEN
+];
+/** LLM values accepted by {@link StudioAiLlmKind#normalize} (POST / stream `llm`). */
+const STUDIO_AI_LLM_VENDOR_IDS = [
+    'openAI',
+    'xAI',
+    'deepSeek',
+    'llama',
+    'gemini',
+    'claude',
+    'script'
+];
+/** Default chat models for **tools-loop** vendors (UI hints; includes common OpenAI **vendor** defaults; server may accept others). */
+const STUDIO_AI_TOOLS_LOOP_CHAT_MODELS = [
+    'gpt-4o-mini',
+    'gpt-4o',
+    'gpt-4.1',
+    'gpt-4.1-mini',
+    'o3-mini',
+    'o1',
+    'o1-mini'
+];
+const STUDIO_AI_CLAUDE_CHAT_MODELS = [
+    'claude-3-5-sonnet-20241022',
+    'claude-3-5-haiku-20241022',
+    'claude-3-opus-20240229'
+];
+const STUDIO_AI_DEFAULT_IMAGE_MODEL = 'gpt-image-1';
+
+/** OpenAI transport: send default image model when agent/panel snapshot omitted it (server applies the same default). */
+function resolveWireImageModel(llm, imageModel) {
+    const trimmed = imageModel?.trim();
+    if (trimmed)
+        return trimmed;
+    const l = (llm ?? '').trim();
+    if (!l)
+        return undefined;
+    const low = l.toLowerCase().replace(/-/g, '');
+    if (low === 'openai')
+        return STUDIO_AI_DEFAULT_IMAGE_MODEL;
+    return undefined;
+}
 /**
  * Form-engine assistant passes {@link AiAssistantChatProps.getAuthoringFormContext}; XB / ICE does not.
  * Form state lives in the browser until Save; preview chat uses repo paths + server-side tools.
@@ -30572,6 +30795,7 @@ function AiAssistantChat(props) {
     const { agentId: agentIdProp, llm, llmModel, imageModel, imageGenerator, llmApiKey, initialMessages, configPrompts, embedTarget = 'default', getAuthoringFormContext, formEngineClientJsonApply, enableTools, enabledBuiltInTools, expertSkills, translateBatchConcurrency } = props;
     /** Widget **`agentId`** from agent configuration (UUID when applicable). */
     const agentId = agentIdProp?.trim() ?? '';
+    const wireImageModel = resolveWireImageModel(llm, imageModel);
     const siteId = useActiveSiteId() ?? 'default';
     const previewItem = useCurrentPreviewItem();
     const guest = usePreviewGuest();
@@ -30993,7 +31217,7 @@ function AiAssistantChat(props) {
                     agentId,
                     llm: llm ?? null,
                     llmModel: llmModel ?? null,
-                    imageModel: imageModel ?? null,
+                    imageModel: wireImageModel ?? null,
                     imageGenerator: imageGenerator != null ? String(imageGenerator).trim() || null : null,
                     authoringSurface: formEngine ? 'formEngine' : 'preview',
                     omitTools: omitToolsThisSend,
@@ -31039,7 +31263,7 @@ function AiAssistantChat(props) {
                     : undefined,
                 llm,
                 llmModel,
-                imageModel,
+                imageModel: wireImageModel,
                 ...(imageGenerator != null && String(imageGenerator).trim() !== ''
                     ? { imageGenerator: String(imageGenerator).trim() }
                     : {}),
@@ -31096,6 +31320,18 @@ function AiAssistantChat(props) {
                                 pipelineHeartbeat: { elapsedSec, nextInSec, hint }
                             }
                             : m));
+                        return;
+                    }
+                    if (mdStatus === 'intent-recipe-routing') {
+                        const tel = md.intentRecipeRouting;
+                        const line = rawTextChunk.trim() ||
+                            intentRecipeLineFromRoutingTelemetry(tel) ||
+                            (tel && typeof tel === 'object'
+                                ? formatIntentRecipeChatLine(String(tel.recipeId ?? ''), String(tel.recipeTitle ?? ''))
+                                : '');
+                        if (line.trim()) {
+                            setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, intentRecipeLine: line.trimEnd() + '\n' } : m)));
+                        }
                         return;
                     }
                     if (planGateFailure && streamErr && textChunk.trim()) {
@@ -31446,7 +31682,16 @@ function AiAssistantChat(props) {
                                     opacity: 0.9,
                                     '&:hover': { opacity: 1, bgcolor: 'action.hover' }
                                 })
-                        }, children: jsx$1(CloseRounded, { fontSize: "inherit", sx: { fontSize: 18 } }) }) }), jsx$1(Box, { sx: { minWidth: 0 }, children: m.role === 'assistant' || m.role === 'system' ? (jsxs(Box, { children: [m.reasoningStreamText?.trim() && m.isStreaming ? (jsx$1(AssistantReasoningLive, { text: m.reasoningStreamText || '' })) : null, m.pipelineHeartbeat ? (jsx$1(PipelineHeartbeatBar, { elapsedSec: m.pipelineHeartbeat.elapsedSec, nextInSec: m.pipelineHeartbeat.nextInSec, hint: m.pipelineHeartbeat.hint })) : null, m.toolProgressText?.trim() && m.assistantPreToolsText !== undefined ? (jsxs(Fragment, { children: [m.assistantPreToolsText.trim() ? (jsx$1(Box, { sx: { mb: 1 }, children: jsx$1(MarkdownMessage, { text: stripDisplayedGeneratedImages(stripStudioAiInlineImageMarkdownFromText(m.assistantPreToolsText, m.studioAiInlineImageUrls), combineGeneratedImageSources(m.studioAiInlineImageUrls, m.assistantPreToolsText)), studioAiInlineImageUrls: combineGeneratedImageSources(m.studioAiInlineImageUrls, m.assistantPreToolsText).length
+                        }, children: jsx$1(CloseRounded, { fontSize: "inherit", sx: { fontSize: 18 } }) }) }), jsx$1(Box, { sx: { minWidth: 0 }, children: m.role === 'assistant' || m.role === 'system' ? (jsxs(Box, { children: [m.reasoningStreamText?.trim() && m.isStreaming ? (jsx$1(AssistantReasoningLive, { text: m.reasoningStreamText || '' })) : null, m.pipelineHeartbeat ? (jsx$1(PipelineHeartbeatBar, { elapsedSec: m.pipelineHeartbeat.elapsedSec, nextInSec: m.pipelineHeartbeat.nextInSec, hint: m.pipelineHeartbeat.hint })) : null, m.intentRecipeLine?.trim() ? (jsx$1(Box, { sx: {
+                                    mb: 1,
+                                    py: 0.5,
+                                    px: 1,
+                                    borderRadius: 1,
+                                    bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.50',
+                                    border: `1px solid ${theme.palette.divider}`,
+                                    fontSize: '0.875rem',
+                                    lineHeight: 1.45
+                                }, children: jsx$1(MarkdownMessage, { text: m.intentRecipeLine }) })) : null, m.toolProgressText?.trim() && m.assistantPreToolsText !== undefined ? (jsxs(Fragment, { children: [m.assistantPreToolsText.trim() ? (jsx$1(Box, { sx: { mb: 1 }, children: jsx$1(MarkdownMessage, { text: stripDisplayedGeneratedImages(stripStudioAiInlineImageMarkdownFromText(m.assistantPreToolsText, m.studioAiInlineImageUrls), combineGeneratedImageSources(m.studioAiInlineImageUrls, m.assistantPreToolsText)), studioAiInlineImageUrls: combineGeneratedImageSources(m.studioAiInlineImageUrls, m.assistantPreToolsText).length
                                                 ? undefined
                                                 : m.studioAiInlineImageUrls }) })) : null, jsx$1(ToolProgressScrollArea, { text: m.toolProgressText }), m.summarizingResults ? (jsx$1(Typography, { variant: "caption", component: "p", sx: {
                                             mt: 0.75,
@@ -35486,67 +35731,6 @@ function AiAssistantFormControl(props) {
 
 const fetchSiteUiConfig = /*#__PURE__*/ createAction('FETCH_SITE_UI_CONFIG');
 
-/**
- * Built-in Studio AI orchestration tool names (Spring AI wire). Keep aligned with
- * `AiOrchestrationTools.groovy` {@code FunctionToolCallback.builder('…')}.
- * Use {@link STUDIO_AI_MCP_ALL_TOKEN} in agent JSON to retain every dynamic {@code mcp_*} tool after site policy.
- */
-const STUDIO_AI_MCP_ALL_TOKEN = 'mcp:*';
-/** Checkbox order for Project Tools → AI Assistant Agents (subset may be omitted at runtime). */
-const STUDIO_AI_BUILTIN_TOOL_IDS = [
-    'GenerateTextNoTools',
-    'TranslateContentBatch',
-    'TranslateContentItem',
-    'TransformContentSubgraph',
-    'GetContentSubgraph',
-    'GetContent',
-    'ListContentTranslationScope',
-    'ListStudioContentTypes',
-    'GetContentTypeFormDefinition',
-    'GetContentVersionHistory',
-    'GetPreviewHtml',
-    'FetchHttpUrl',
-    'QueryExpertGuidance',
-    'WriteContent',
-    'ListPagesAndComponents',
-    'update_template',
-    'update_content',
-    'update_content_type',
-    'analyze_template',
-    'publish_content',
-    'GetCrafterizingPlaybook',
-    'revert_change',
-    'GenerateImage',
-    'InvokeSiteUserTool',
-    STUDIO_AI_MCP_ALL_TOKEN
-];
-/** LLM values accepted by {@link StudioAiLlmKind#normalize} (POST / stream `llm`). */
-const STUDIO_AI_LLM_VENDOR_IDS = [
-    'openAI',
-    'xAI',
-    'deepSeek',
-    'llama',
-    'gemini',
-    'claude',
-    'script'
-];
-/** Default chat models for **tools-loop** vendors (UI hints; includes common OpenAI **vendor** defaults; server may accept others). */
-const STUDIO_AI_TOOLS_LOOP_CHAT_MODELS = [
-    'gpt-4o-mini',
-    'gpt-4o',
-    'gpt-4.1',
-    'gpt-4.1-mini',
-    'o3-mini',
-    'o1',
-    'o1-mini'
-];
-const STUDIO_AI_CLAUDE_CHAT_MODELS = [
-    'claude-3-5-sonnet-20241022',
-    'claude-3-5-haiku-20241022',
-    'claude-3-opus-20240229'
-];
-const STUDIO_AI_DEFAULT_IMAGE_MODEL = 'gpt-image-1';
-
 /** Built-in wire names for hide/whitelist pickers (excludes the agent-only `mcp:*` sentinel). */
 const BUILTIN_TOOL_NAME_OPTIONS = STUDIO_AI_BUILTIN_TOOL_IDS.filter((id) => id !== STUDIO_AI_MCP_ALL_TOKEN);
 const KNOWN_TOP_LEVEL_KEYS = new Set([
@@ -35805,18 +35989,12 @@ function serializeToolsPolicyToJson(state) {
     return JSON.stringify(obj, null, 2);
 }
 
-function AiAssistantIntentRecipeRoutingFields(props) {
-    const { value, onChange } = props;
-    const patch = (partial) => onChange({ ...value, ...partial });
-    return (jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Intent recipe routing" }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Optional pre-tools router: classifies the author message, runs read-only prefetch steps from a matched recipe, then prepends guidance to the main CMS tool loop." }), jsxs(Stack$1, { spacing: 2, children: [jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.enabled, onChange: (_, c) => patch({ enabled: c }), size: "small" }), label: "Enable intent recipe router" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.engineEnabled, onChange: (_, c) => patch({ engineEnabled: c }), size: "small", disabled: !value.enabled }), label: "Prefetch engine (server read-only tool steps before tools loop)" }), jsx$1(TextField, { label: "Min confidence (0\u20131)", value: value.minConfidence, onChange: (ev) => patch({ minConfidence: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled, helperText: "Router must meet this confidence to apply a recipe (default 0.55)." }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.requestClarificationOnUnmatched, onChange: (_, c) => patch({ requestClarificationOnUnmatched: c }), size: "small", disabled: !value.enabled }), label: "Tools-off clarification when unmatched" }), jsx$1(TextField, { label: "Custom recipes path (optional)", value: value.customRecipesPath, onChange: (ev) => patch({ customRecipesPath: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled, placeholder: "/scripts/aiassistant/config/intent-recipes.json", helperText: "Studio module path; merged over bundled defaults by recipe id." })] })] }));
-}
-
 /**
- * Site-wide {@code tools.json} policy: built-in tool hide/whitelist and intent recipe routing.
+ * Site-wide {@code tools.json} policy: built-in tool hide/whitelist. Intent recipe routing lives on the **Recipes** tab.
  */
 function AiAssistantSiteOrchestrationToolsForm(props) {
     const { value, onChange } = props;
-    return (jsxs(Stack$1, { spacing: 3, children: [jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Built-In CMS Tools" }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Optional lists use exact wire names. If ", jsx$1("strong", { children: "Whitelist" }), " is non-empty, only those built-ins stay;", jsx$1("code", { children: " InvokeSiteUserTool" }), " and dynamic ", jsx$1("code", { children: "mcp_*" }), " tools still register unless disabled under MCP."] }), jsxs(Stack$1, { spacing: 2, children: [jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [...BUILTIN_TOOL_NAME_OPTIONS], value: value.disabledBuiltInTools, onChange: (_, v) => onChange({ ...value, disabledBuiltInTools: v.map(String) }), renderTags: (tagValue, getTagProps) => tagValue.map((option, index) => (createElement(Chip, { variant: "outlined", label: option, size: "small", ...getTagProps({ index }), key: `${option}-${index}` }))), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Hide built-in tools", placeholder: "e.g. GenerateImage", size: "small" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [...BUILTIN_TOOL_NAME_OPTIONS], value: value.enabledBuiltInTools, onChange: (_, v) => onChange({ ...value, enabledBuiltInTools: v.map(String) }), renderTags: (tagValue, getTagProps) => tagValue.map((option, index) => (createElement(Chip, { variant: "outlined", label: option, size: "small", ...getTagProps({ index }), key: `${option}-${index}` }))), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Whitelist built-in tools (optional)", placeholder: "Leave empty for no whitelist", size: "small" })) })] })] }), jsx$1(AiAssistantIntentRecipeRoutingFields, { value: value.intentRecipeRouting, onChange: (intentRecipeRouting) => onChange({ ...value, intentRecipeRouting }) })] }));
+    return (jsxs(Stack$1, { spacing: 3, children: [jsxs(Typography, { variant: "body2", color: "text.secondary", children: ["Intent recipe routing and the recipe catalog are configured under the ", jsx$1("strong", { children: "Recipes" }), " tab."] }), jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Built-In CMS Tools" }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Optional lists use exact wire names. If ", jsx$1("strong", { children: "Whitelist" }), " is non-empty, only those built-ins stay;", jsx$1("code", { children: " InvokeSiteUserTool" }), " and dynamic ", jsx$1("code", { children: "mcp_*" }), " tools still register unless disabled under MCP."] }), jsxs(Stack$1, { spacing: 2, children: [jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [...BUILTIN_TOOL_NAME_OPTIONS], value: value.disabledBuiltInTools, onChange: (_, v) => onChange({ ...value, disabledBuiltInTools: v.map(String) }), renderTags: (tagValue, getTagProps) => tagValue.map((option, index) => (createElement(Chip, { variant: "outlined", label: option, size: "small", ...getTagProps({ index }), key: `${option}-${index}` }))), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Hide built-in tools", placeholder: "e.g. GenerateImage", size: "small" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [...BUILTIN_TOOL_NAME_OPTIONS], value: value.enabledBuiltInTools, onChange: (_, v) => onChange({ ...value, enabledBuiltInTools: v.map(String) }), renderTags: (tagValue, getTagProps) => tagValue.map((option, index) => (createElement(Chip, { variant: "outlined", label: option, size: "small", ...getTagProps({ index }), key: `${option}-${index}` }))), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Whitelist built-in tools (optional)", placeholder: "Leave empty for no whitelist", size: "small" })) })] })] })] }));
 }
 
 const BASE$1 = '/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/scripts';
@@ -35899,7 +36077,7 @@ function studioConfigRelativePath(studioModulePath) {
     return p.startsWith('/') ? p.slice(1) : p;
 }
 /** Sandbox repo path for {@code tools.json} (same file as Studio module {@code scripts/aiassistant/config/tools.json}). */
-const TOOLS_JSON_SANDBOX_PATH = '/config/studio/scripts/aiassistant/config/tools.json';
+const TOOLS_JSON_SANDBOX_PATH$1 = '/config/studio/scripts/aiassistant/config/tools.json';
 /** Raw UTF-8 from Studio {@code fetchContentXML} / similar payloads (string or {@code content}/{@code configuration} envelope). */
 function utf8FromStudioContentPayload(raw) {
     if (raw == null)
@@ -35923,7 +36101,7 @@ function utf8FromStudioContentPayload(raw) {
  */
 async function fetchOptionalStudioSandboxUtf8(siteId, sandboxPath) {
     const sid = (siteId || '').trim();
-    const path = (sandboxPath).trim().startsWith('/') ? (sandboxPath).trim() : `/${(sandboxPath).trim()}`;
+    const path = (sandboxPath || '').trim().startsWith('/') ? (sandboxPath || '').trim() : `/${(sandboxPath || '').trim()}`;
     if (!sid || !path)
         return '';
     try {
@@ -36213,7 +36391,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
         setSiteOrchLoading(true);
         setSiteOrchError(null);
         try {
-            const text = await fetchOptionalStudioSandboxUtf8(siteId, TOOLS_JSON_SANDBOX_PATH);
+            const text = await fetchOptionalStudioSandboxUtf8(siteId, TOOLS_JSON_SANDBOX_PATH$1);
             const parsed = parseToolsPolicyFromJsonText(text.trim() ? text : '');
             if (!parsed.ok) {
                 setSiteOrchError(parsed.message);
@@ -36639,108 +36817,1467 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
                             })() }), jsxs(DialogActions, { sx: { flexShrink: 0 }, children: [jsx$1(Button, { onClick: closeDialog, children: "Cancel" }), jsx$1(Button, { variant: "contained", onClick: applyDraft, children: "Apply to catalog" })] })] })] }));
 });
 
-/** Default Groovy when creating a site user tool (see {@code StudioAiUserSiteTools#invokeRegisteredTool}). */
-const AI_ASSISTANT_USER_TOOL_GROOVY_STUB = `// InvokeSiteUserTool — bindings: studio, args, toolId, siteId, log
-[
-  ok     : true,
-  message: 'Replace this stub — return a Map (ok, message, data, etc.).'
-]
-`;
-/** Default Groovy for script image generator {@code script:{id}} (see {@code StudioAiScriptImageGenLoader}). */
-const AI_ASSISTANT_IMAGEGEN_GROOVY_STUB = `{ Map input, Map context ->
-  String p = (input?.prompt ?: '').toString()
-  if (p.length() > 120) {
-    p = p.substring(0, 120) + '…'
-  }
-  [
-    error  : true,
-    message: 'Stub image generator — implement (input, context) -> Map per GenerateImage contract. prompt=' + p
-  ]
-}
-`;
-/** Default Groovy for script LLM {@code script:id} (see {@code StudioAiScriptLlmLoader} and demo runtime). */
-const AI_ASSISTANT_LLM_RUNTIME_GROOVY_STUB = `import plugins.org.craftercms.aiassistant.llm.OpenAiSpringAiLlmRuntime
-import plugins.org.craftercms.aiassistant.llm.StudioAiLlmKind
-import plugins.org.craftercms.aiassistant.llm.StudioAiRuntimeBuildRequest
+var version = 1;
+var chatDefaults = {
+	prefixEmoji: "🥗",
+	fallbackEmoji: "📋",
+	lineSuffix: "workflow"
+};
+var recipeOrder = [
+	"web_research",
+	"site_content_research",
+	"llm_research",
+	"open_page_inquiry",
+	"modify_page_content",
+	"revert_content_version",
+	"generate_image",
+	"template_display_change",
+	"publish_item",
+	"new_content_item",
+	"translate_content_item"
+];
+var recipes = [
+	{
+		id: "web_research",
+		title: "Web search (news & current events)",
+		chatEmoji: "🔎",
+		toolsLoopForceTool: "WebSearch",
+		deterministicMatch: {
+			signal: "web_research",
+			priority: 90,
+			routerReason: "deterministic_web_research"
+		},
+		description: "Author wants fresh information from the public web: latest news, headlines, what happened today, or current facts that need citations. Not CMS repository work.",
+		matchHints: [
+			"latest news",
+			"recent news",
+			"news on",
+			"news about",
+			"headlines",
+			"breaking news",
+			"current events",
+			"search the web",
+			"web search",
+			"look up the latest",
+			"what happened today",
+			"what's new with"
+		],
+		dontMatchHints: [
+			"generate image",
+			"draw",
+			"WriteContent",
+			"update",
+			"rewrite",
+			"translate",
+			"publish",
+			"this page",
+			"summarize this page"
+		],
+		toolsLoopAllowlist: [
+			"WebSearch"
+		],
+		phases: {
+			context: [
+				"Call WebSearch in the first tool round with a focused query built from the author's exact words.",
+				"If the author pasted a specific http(s) URL, you may use FetchHttpUrl for that URL only — not instead of WebSearch for open-ended news."
+			],
+			action: [
+				"Summarize findings in clear prose with source titles and URLs from the tool result. Do not invent links."
+			],
+			confirmation: [
+				"Note knowledge cutoff vs search date when relevant. Offer to help apply insights to CMS content only if the author asks."
+			]
+		}
+	},
+	{
+		id: "site_content_research",
+		title: "Site content search",
+		chatEmoji: "📚",
+		toolsLoopForceTool: "ResearchSiteContent",
+		deterministicMatch: {
+			signal: "site_content_research",
+			priority: 89,
+			routerReason: "deterministic_site_content_research"
+		},
+		description: "Author wants to find or summarize existing pages and components in this Crafter site (indexed authoring search + content lookup), not the open web and not a write.",
+		matchHints: [
+			"search the site",
+			"site search",
+			"find pages",
+			"find content",
+			"pages about",
+			"content about",
+			"what pages",
+			"what content",
+			"where in the site",
+			"in our site",
+			"in the repository"
+		],
+		dontMatchHints: [
+			"latest news",
+			"headlines",
+			"breaking",
+			"search the web",
+			"web search",
+			"look up the latest",
+			"generate image",
+			"WriteContent",
+			"update",
+			"rewrite",
+			"translate",
+			"publish",
+			"summarize this page",
+			"what is this page",
+			"this page about",
+			"page is about"
+		],
+		toolsLoopAllowlist: [
+			"ResearchSiteContent"
+		],
+		phases: {
+			context: [
+				"Call ResearchSiteContent in the first tool round with siteId and a focused query from the author's words."
+			],
+			action: [
+				"Answer from hits: cite repository paths and titles; use contentExcerpt and indexSnippet — do not invent paths."
+			],
+			confirmation: [
+				"Offer GetContent on specific paths if the author wants to edit; do not WriteContent unless they ask to change content."
+			]
+		}
+	},
+	{
+		id: "llm_research",
+		title: "General knowledge (LLM)",
+		chatEmoji: "💡",
+		deterministicMatch: {
+			signal: "llm_research",
+			priority: 88,
+			routerReason: "deterministic_llm_research"
+		},
+		description: "Author wants explanation, comparison, or background from model knowledge — not live web headlines and not editing the repository.",
+		matchHints: [
+			"explain",
+			"what is",
+			"what are",
+			"tell me about",
+			"compare",
+			"difference between",
+			"pros and cons",
+			"how does",
+			"work"
+		],
+		dontMatchHints: [
+			"latest news",
+			"headlines",
+			"breaking",
+			"search the web",
+			"search the site",
+			"find pages",
+			"look up the latest",
+			"generate image",
+			"WriteContent",
+			"update",
+			"translate",
+			"publish",
+			"summarize this page",
+			"this page"
+		],
+		toolsLoopDisable: true,
+		phases: {
+			action: [
+				"Answer from general knowledge in clear prose (bullets ok). Do not call CMS repository tools on this turn.",
+				"If the question needs live/current data, say so and suggest the author ask for a web search instead."
+			],
+			confirmation: [
+				"Keep the reply self-contained; mention training cutoff when dates matter."
+			]
+		}
+	},
+	{
+		id: "open_page_inquiry",
+		title: "Describe this page (read-only)",
+		chatEmoji: "📖",
+		toolsLoopForceTool: "GetContent",
+		deterministicMatch: {
+			signal: "open_page_inquiry",
+			priority: 93,
+			routerReason: "deterministic_open_page_inquiry"
+		},
+		description: "Author wants a summary or explanation of the page or component currently open in Studio (anchored /site/.../*.xml). Read repository XML and answer in prose. Not a write, not site-wide search, not open web.",
+		matchHints: [
+			"tell me about this page",
+			"what is this page",
+			"what would you say",
+			"how would you describe",
+			"describe this page",
+			"page is about",
+			"explain this page",
+			"what do you think"
+		],
+		dontMatchHints: [
+			"update",
+			"change",
+			"rewrite",
+			"WriteContent",
+			"translate",
+			"publish",
+			"generate image",
+			"search the site",
+			"search the web",
+			"latest news"
+		],
+		toolsLoopAllowlist: [
+			"GetContent",
+			"GetPreviewHtml"
+		],
+		matchedUserPrelude: "[Studio — read-only page inquiry] Summarize what this anchored page is about using prefetch or GetContent XML. Answer in clear prose only. Do not WriteContent, update_template, or chase CSS/FTL paths unless the author asks to change something.",
+		phases: {
+			context: {
+				hints: [
+					"Prefetch loads pageItem (XML) for the anchored path when available.",
+					"If prefetch already includes full contentXml for the anchored path, do not call GetContent again on that path."
+				],
+				engineSteps: [
+					{
+						as: "pageItem",
+						tool: "GetContent",
+						args: {
+							siteId: "$siteId",
+							path: "$contentPath"
+						}
+					}
+				]
+			},
+			action: [
+				"Answer what the page is about from the XML fields (title, hero, features, sections). Plain prose for the author."
+			],
+			confirmation: [
+				"Do not call WriteContent. Optional GetPreviewHtml only if it helps describe what visitors see."
+			]
+		}
+	},
+	{
+		id: "modify_page_content",
+		title: "Modify page or component content",
+		chatEmoji: "✏️",
+		prefetchHotpathForceWrite: true,
+		serverHotpathExternalContent: true,
+		deterministicMatch: [
+			{
+				signal: "concrete_field_edit",
+				priority: 60,
+				routerReason: "deterministic_concrete_field_edit"
+			},
+			{
+				signal: "external_content_field_edit",
+				priority: 55,
+				routerReason: "deterministic_external_content_field_edit"
+			}
+		],
+		description: "Change copy, tone, grammar, or field values on a page or component XML item. If the user provides the page URL, Title or Internal name then they may not be talking about the current page - resolve the page path first.",
+		matchHints: [
+			"update",
+			"change",
+			"rewrite",
+			"proofread",
+			"grammar",
+			"tone",
+			"rephrase"
+		],
+		dontMatchHints: [
+			"summarize",
+			"summary",
+			"summarize this page",
+			"latest news",
+			"headlines",
+			"breaking news",
+			"search the web",
+			"look up the latest"
+		],
+		phases: {
+			context: {
+				hints: [
+					"Prefetch binds pageItem (item XML) and pageForm (form definition) for this turn.",
+					"If the author gives a page URL, title, or internal name, resolve the correct repository path before GetContent — they may not mean the item currently open in Studio.",
+					"Load the target item with GetContent (and GetContentTypeFormDefinition with contentPath when the form model matters)."
+				],
+				engineSteps: [
+					{
+						as: "pageItem",
+						tool: "GetContent",
+						args: {
+							siteId: "$siteId",
+							path: "$contentPath"
+						}
+					},
+					{
+						as: "pageForm",
+						tool: "GetContentTypeFormDefinition",
+						args: {
+							siteId: "$siteId",
+							contentPath: "$contentPath"
+						}
+					}
+				]
+			},
+			action: [
+				"Use update_content or GetContent → revise XML → WriteContent; preserve <page>/<component> structure and node-selector shapes. After a write, prefer {{current.pageItem}} over {{initial.pageItem}} for the edited XML snapshot."
+			],
+			confirmation: [
+				"When an Engine preview URL exists, use GetPreviewHtml after substantive writes affecting rendered output."
+			]
+		}
+	},
+	{
+		id: "revert_content_version",
+		title: "Revert to previous version",
+		chatEmoji: "↩️",
+		deterministicMatch: {
+			signal: "revert_content_version",
+			priority: 70,
+			routerReason: "deterministic_revert_content_version",
+			skipPrefetch: true
+		},
+		matchHints: [
+			"revert",
+			"undo",
+			"rollback",
+			"restore version",
+			"previous version"
+		],
+		phases: {
+			context: [
+				"Confirm siteId and anchored repository path from Studio context."
+			],
+			action: [
+				"Use revert_change on the anchored /site/.../*.xml item when the author wants to roll back."
+			],
+			confirmation: [
+				"Summarize the reverted version from the tool result."
+			]
+		}
+	},
+	{
+		id: "generate_image",
+		title: "Generate image (bitmap)",
+		chatEmoji: "🖼️",
+		toolsLoopForceTool: "GenerateImage",
+		deterministicMatch: {
+			signal: "image_only_generate",
+			priority: 100,
+			routerReason: "deterministic_image_only"
+		},
+		description: "Author wants a new AI-generated image, illustration, art, logo, or picture",
+		matchHints: [
+			"generate",
+			"draw",
+			"image",
+			"picture",
+			"illustration",
+			"hero",
+			"cover",
+			"banner",
+			"logo",
+			"artwork",
+			"graphic",
+			"bitmap",
+			"sketch",
+			"paint"
+		],
+		dontMatchHints: [
+			"latest news",
+			"headlines",
+			"breaking news",
+			"search the web",
+			"look up the latest",
+			"news on",
+			"current events"
+		],
+		toolsLoopAllowlist: [
+			"GenerateImage"
+		],
+		toolsLoopAllowlistBypassIfAuthorMentions: [
+			"WriteContent",
+			"write content",
+			"save to",
+			"update_content",
+			"image-picker",
+			"static-assets",
+			"upload to repo"
+		],
+		phases: {
+			context: [
+				"Build the GenerateImage prompt from the author's exact words plus any page/topic context already in the message; do not run GetContent unless subject detail for the prompt is still missing."
+			],
+			action: [
+				"Call GenerateImage in the first tool round with a concrete prompt; optional size/quality only when the author specified them."
+			],
+			confirmation: [
+				"Wrap up in short prose only — the bitmap appears in the Studio chat image strip, not markdown image syntax."
+			]
+		}
+	},
+	{
+		id: "template_display_change",
+		title: "Template / display (FTL) change",
+		chatEmoji: "🧩",
+		description: "Author explicitly wants layout, FreeMarker, listing markup, dates formatting in code, or how the page renders.",
+		matchHints: [
+			"template",
+			"ftl",
+			"freemarker",
+			"render",
+			"layout",
+			"listing",
+			"cards",
+			"display"
+		],
+		phases: {
+			context: [
+				"GetContent on page/component XML; read display-template; follow sections_o keys to component templates when the shell is not the listing."
+			],
+			action: [
+				"Read templates with GetContent or analyze_template (read-only) before update_template; persist with WriteContent on .ftl paths."
+			],
+			confirmation: [
+				"GetPreviewHtml when preview URL is available."
+			]
+		}
+	},
+	{
+		id: "publish_item",
+		title: "Publish or go live",
+		chatEmoji: "🚀",
+		description: "Author wants to publish the current item or a named path to live/staging.",
+		matchHints: [
+			"publish",
+			"go live",
+			"deploy",
+			"push to live",
+			"release"
+		],
+		phases: {
+			context: [
+				"Confirm siteId and target path from Studio context or author text."
+			],
+			action: [
+				"Use publish_content with path/contentPath; avoid unnecessary discovery reads when context already has the item path."
+			],
+			confirmation: [
+				"Summarize publish package outcome from tool result."
+			]
+		}
+	},
+	{
+		id: "new_content_item",
+		title: "Create new page or component",
+		chatEmoji: "📄",
+		description: "Author asks to create, draft, or write a new item (new URL or new component), not only edit the open file.",
+		matchHints: [
+			"create",
+			"new page",
+			"new article",
+			"draft",
+			"write a",
+			"add a page"
+		],
+		phases: {
+			context: {
+				hints: [
+					"ListStudioContentTypes (siteId only) then exact catalog match; GetContentTypeFormDefinition for resolved contentTypeId; GetContent on one sibling of the same type when siblings exist."
+				],
+				engineSteps: [
+					{
+						tool: "ListStudioContentTypes",
+						args: {
+							siteId: "$siteId",
+							searchable: false
+						}
+					}
+				]
+			},
+			action: [
+				"WriteContent the new item with correct conventions (objectId, dates, file-name, sections)."
+			],
+			confirmation: [
+				"Tell the author how to preview the new route; optional GetPreviewHtml."
+			]
+		}
+	},
+	{
+		id: "translate_content_item",
+		title: "Translate or localize content",
+		chatEmoji: "🌐",
+		deterministicMatch: {
+			signal: "translate_intent",
+			priority: 65,
+			routerReason: "deterministic_translate_intent"
+		},
+		description: "Author explicitly asks to translate or localize page/component copy into another language. Use TranslateContentItem or TranslateContentBatch (with ListContentTranslationScope for full-page scope) — not update_content or same-language rewrite via GetContent→WriteContent.",
+		matchHints: [
+			"translate",
+			"translation",
+			"localize",
+			"localise",
+			"localization",
+			"localisation",
+			"language",
+			"Spanish",
+			"French",
+			"German",
+			"Italian",
+			"Portuguese",
+			"Japanese",
+			"Chinese",
+			"Korean",
+			"Arabic",
+			"Dutch",
+			"Polish",
+			"Russian"
+		],
+		phases: {
+			context: {
+				hints: [
+					"When the author means full page / everything visible / this page copy: ListContentTranslationScope once on the anchored contentPath, then TranslateContentBatch (same target language for every path) or TranslateContentItem per path — never call ListContentTranslationScope twice in one turn without a write in between.",
+					"When scope is only the open repository item: TranslateContentItem on that contentPath is enough; skip ListContentTranslationScope unless they expand scope mid-task.",
+					"GetContentTypeFormDefinition only when you need unknown field ids."
+				],
+				engineSteps: [
+					{
+						tool: "GetContent",
+						args: {
+							siteId: "$siteId",
+							path: "$contentPath"
+						}
+					},
+					{
+						tool: "GetContentTypeFormDefinition",
+						args: {
+							siteId: "$siteId",
+							contentPath: "$contentPath"
+						}
+					}
+				]
+			},
+			action: [
+				"TranslateContentItem or TranslateContentBatch with explicit target language/locale from the author message; reuse the first ListContentTranslationScope result for batch paths."
+			],
+			confirmation: [
+				"Optional GetPreviewHtml when preview URL exists after substantive translation writes."
+			]
+		}
+	}
+];
+var bundledCatalog = {
+	version: version,
+	chatDefaults: chatDefaults,
+	recipeOrder: recipeOrder,
+	recipes: recipes
+};
 
-[
-  supportsNativeStudioTools: true,
-  normalizedKind          : StudioAiLlmKind.SCRIPT_LLM_PREFIX + llmId,
-  buildSessionBundle      : { StudioAiRuntimeBuildRequest r ->
-    StudioAiRuntimeBuildRequest sub = new StudioAiRuntimeBuildRequest()
-    sub.orchestration = r.orchestration
-    sub.toolResultConverter = r.toolResultConverter
-    sub.studioOps = r.studioOps
-    sub.studioServletRequest = r.studioServletRequest
-    sub.agentId = r.agentId
-    sub.chatId = r.chatId
-    sub.llmNormalized = StudioAiLlmKind.OPENAI_NATIVE
-    sub.llmModelParam = r.llmModelParam
-    sub.llmApiKeyFromRequest = r.llmApiKeyFromRequest
-    sub.toolProgressListener = r.toolProgressListener
-    sub.imageModelParam = r.imageModelParam
-    sub.imageGeneratorParam = r.imageGeneratorParam
-    sub.fullSuppressRepoWrites = r.fullSuppressRepoWrites
-    sub.protectedFormItemPath = r.protectedFormItemPath
-    sub.enableTools = r.enableTools
-    sub.agentEnabledBuiltInTools = r.agentEnabledBuiltInTools
-    OpenAiSpringAiLlmRuntime.INSTANCE.buildSessionBundle(sub)
-  }
-]
-`;
-const AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB = `{
-  "tools": [
-    {
-      "id": "example_tool",
-      "script": "ExampleTool.groovy",
-      "description": "Example InvokeSiteUserTool registration"
+const INTENT_RECIPES_JSON_SANDBOX_PATH = '/scripts/aiassistant/config/intent-recipes.json';
+const INTENT_RECIPE_PHASE_KEYS = ['context', 'action', 'confirmation'];
+/** First user-perceived grapheme (emoji-safe). */
+function normalizeChatEmoji(input) {
+    const t = String(input ?? '').trim();
+    if (!t)
+        return '';
+    try {
+        if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
+            const seg = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+            const first = [...seg.segment(t)][0]?.segment;
+            if (first)
+                return first;
+        }
     }
-  ]
+    catch {
+        /* ignore */
+    }
+    return [...t][0] ?? '';
 }
-`;
-/** Starter markdown when creating a site override for {@code config/studio/scripts/aiassistant/prompts/&lt;KEY&gt;.md}. */
-function aiAssistantToolPromptMarkdownStub(key) {
-    return `# ${key}
-
-Non-empty markdown replaces the built-in prompt for this key. Leave the file blank or delete it to keep the plugin default (see ToolPromptsLoader).
-
-`;
+function resolveRecipeChatEmoji(recipe, catalogFallbackEmoji) {
+    const fromRecipe = normalizeChatEmoji(recipe.chatEmoji ?? '');
+    if (fromRecipe)
+        return fromRecipe;
+    const fb = normalizeChatEmoji(catalogFallbackEmoji ?? '');
+    return fb || '📋';
+}
+/** Read-only tools the server recipe engine may run during prefetch (see AuthoringIntentRecipeEngine). */
+/** Wire tool names for hint autocomplete and action-flow chips (excludes {@link STUDIO_AI_MCP_ALL_TOKEN}). */
+const INTENT_RECIPE_WIRE_TOOL_OPTIONS = STUDIO_AI_BUILTIN_TOOL_IDS.filter((id) => id !== STUDIO_AI_MCP_ALL_TOKEN);
+const INTENT_RECIPE_READ_ONLY_TOOLS = [
+    'GetContent',
+    'GetContentTypeFormDefinition',
+    'ListContentTranslationScope',
+    'ListContentDependencyScope',
+    'ListStudioContentTypes',
+    'GetContentVersionHistory',
+    'GetPreviewHtml'
+];
+function defaultIntentRecipesFile() {
+    return { version: 1, recipes: [] };
+}
+function parseIntentRecipesFile(raw) {
+    let parsed;
+    try {
+        parsed = JSON.parse(raw || '{}');
+    }
+    catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+    }
+    if (!parsed || typeof parsed !== 'object') {
+        return { ok: false, message: 'Root must be a JSON object.' };
+    }
+    const o = parsed;
+    const version = typeof o.version === 'number' ? o.version : 1;
+    if (!Array.isArray(o.recipes)) {
+        return { ok: false, message: 'Missing "recipes" array.' };
+    }
+    const recipes = [];
+    for (const item of o.recipes) {
+        if (!item || typeof item !== 'object')
+            continue;
+        const r = item;
+        const id = String(r.id ?? '').trim();
+        if (!id)
+            continue;
+        recipes.push(r);
+    }
+    const recipeOrder = Array.isArray(o.recipeOrder)
+        ? o.recipeOrder.map((x) => String(x ?? '').trim()).filter(Boolean)
+        : undefined;
+    let chatDefaults;
+    if (o.chatDefaults && typeof o.chatDefaults === 'object' && !Array.isArray(o.chatDefaults)) {
+        const cd = o.chatDefaults;
+        chatDefaults = {
+            ...(cd.prefixEmoji != null ? { prefixEmoji: String(cd.prefixEmoji) } : {}),
+            ...(cd.fallbackEmoji != null ? { fallbackEmoji: String(cd.fallbackEmoji) } : {}),
+            ...(cd.lineSuffix != null ? { lineSuffix: String(cd.lineSuffix) } : {})
+        };
+    }
+    return {
+        ok: true,
+        file: {
+            version,
+            recipes,
+            ...(recipeOrder?.length ? { recipeOrder } : {}),
+            ...(chatDefaults ? { chatDefaults } : {})
+        }
+    };
+}
+function serializeIntentRecipesFile(file) {
+    const body = {
+        version: file.version ?? 1,
+        recipes: file.recipes ?? []
+    };
+    if (file.recipeOrder?.length) {
+        body.recipeOrder = file.recipeOrder;
+    }
+    if (file.chatDefaults && Object.keys(file.chatDefaults).length > 0) {
+        body.chatDefaults = file.chatDefaults;
+    }
+    return JSON.stringify(body, null, 2);
+}
+function bundledIntentRecipesCatalog() {
+    const cat = bundledCatalog;
+    const recipeOrder = Array.isArray(cat.recipeOrder)
+        ? cat.recipeOrder.map((x) => String(x ?? '').trim()).filter(Boolean)
+        : undefined;
+    return {
+        version: typeof cat.version === 'number' ? cat.version : 1,
+        recipes: Array.isArray(cat.recipes) ? cat.recipes : [],
+        ...(recipeOrder?.length ? { recipeOrder } : {}),
+        ...(cat.chatDefaults ? { chatDefaults: cat.chatDefaults } : {})
+    };
+}
+/** Same merge semantics as {@code AuthoringIntentRecipeCatalog.loadRecipes}: bundled first, site overrides by id. */
+function mergeIntentRecipeCatalog(bundled, custom) {
+    const byId = new Map();
+    for (const r of bundled) {
+        const id = String(r?.id ?? '').trim();
+        if (id)
+            byId.set(id, r);
+    }
+    for (const r of custom) {
+        const id = String(r?.id ?? '').trim();
+        if (id)
+            byId.set(id, r);
+    }
+    return [...byId.values()];
+}
+/** Apply saved id order; unknown ids keep stable relative order at the end. */
+function orderIntentRecipes(merged, recipeOrder) {
+    if (!recipeOrder?.length) {
+        return merged;
+    }
+    const byId = new Map();
+    for (const r of merged) {
+        const id = String(r.id ?? '').trim();
+        if (id)
+            byId.set(id, r);
+    }
+    const out = [];
+    const seen = new Set();
+    for (const id of recipeOrder) {
+        const r = byId.get(id);
+        if (r) {
+            out.push(r);
+            seen.add(id);
+        }
+    }
+    for (const r of merged) {
+        const id = String(r.id ?? '').trim();
+        if (id && !seen.has(id)) {
+            out.push(r);
+        }
+    }
+    return out;
+}
+function defaultRecipeOrderForCatalog(bundled, custom) {
+    return orderIntentRecipes(mergeIntentRecipeCatalog(bundled, custom)).map((r) => String(r.id ?? '').trim()).filter(Boolean);
+}
+function listIntentRecipeEntries(bundled, custom, recipeOrder, chatDefaults) {
+    const bundledIds = new Set(bundled.map((r) => String(r.id ?? '').trim()).filter(Boolean));
+    const customIds = new Set(custom.map((r) => String(r.id ?? '').trim()).filter(Boolean));
+    const merged = orderIntentRecipes(mergeIntentRecipeCatalog(bundled, custom), recipeOrder);
+    const catalogFallback = chatDefaults?.fallbackEmoji;
+    return merged.map((recipe) => {
+        const id = String(recipe.id ?? '').trim();
+        const title = String(recipe.title ?? id).trim() || id;
+        let source = 'bundled';
+        if (customIds.has(id) && bundledIds.has(id))
+            source = 'override';
+        else if (customIds.has(id))
+            source = 'custom';
+        return {
+            id,
+            title,
+            chatEmoji: resolveRecipeChatEmoji(recipe, catalogFallback),
+            source,
+            recipe
+        };
+    });
+}
+function normalizePhaseValue(raw) {
+    if (raw == null)
+        return null;
+    if (Array.isArray(raw)) {
+        return raw.map((x) => String(x ?? '')).filter(Boolean);
+    }
+    if (typeof raw === 'object') {
+        const o = raw;
+        const block = {};
+        if (Array.isArray(o.hints)) {
+            block.hints = o.hints.map((x) => String(x ?? '')).filter(Boolean);
+        }
+        if (Array.isArray(o.engineSteps)) {
+            block.engineSteps = o.engineSteps
+                .map((step) => {
+                if (!step || typeof step !== 'object')
+                    return null;
+                const s = step;
+                const tool = String(s.tool ?? '').trim();
+                if (!tool)
+                    return null;
+                const args = s.args && typeof s.args === 'object'
+                    ? Object.fromEntries(Object.entries(s.args).map(([k, v]) => [k, String(v ?? '')]))
+                    : undefined;
+                const asName = String(s.as ?? '').trim();
+                return {
+                    ...(asName ? { as: asName } : {}),
+                    tool,
+                    args
+                };
+            })
+                .filter((x) => x != null);
+        }
+        if ((block.hints?.length ?? 0) === 0 && (block.engineSteps?.length ?? 0) === 0)
+            return null;
+        return block;
+    }
+    return null;
+}
+/** Binding names from prefetch step {@code as} fields (server: {@code AuthoringIntentRecipeBindings}). */
+function declaredBindingNames(recipe) {
+    const names = new Set();
+    for (const step of collectEngineStepsFromRecipe(recipe)) {
+        const as = String(step.as ?? '').trim();
+        if (as)
+            names.add(as);
+    }
+    return [...names];
+}
+function collectEngineStepsFromRecipe(recipe) {
+    const out = [];
+    const phases = recipe.phases;
+    if (!phases)
+        return out;
+    for (const key of INTENT_RECIPE_PHASE_KEYS) {
+        const phase = normalizePhaseValue(phases[key]);
+        if (phase && !Array.isArray(phase) && phase.engineSteps?.length) {
+            out.push(...phase.engineSteps);
+        }
+    }
+    return out;
+}
+function phaseHints(recipe, key) {
+    const phase = normalizePhaseValue(recipe.phases?.[key]);
+    if (!phase)
+        return [];
+    if (Array.isArray(phase))
+        return phase;
+    return phase.hints ?? [];
+}
+function phaseEngineSteps(recipe, key) {
+    const phase = normalizePhaseValue(recipe.phases?.[key]);
+    if (!phase || Array.isArray(phase))
+        return [];
+    return phase.engineSteps ?? [];
+}
+function cloneRecipe(recipe) {
+    return JSON.parse(JSON.stringify(recipe));
+}
+function emptyRecipe(id) {
+    return {
+        id: id.trim() || 'new_recipe',
+        title: 'New intent recipe',
+        chatEmoji: '📋',
+        description: '',
+        matchHints: [],
+        phases: {
+            context: { hints: [], engineSteps: [] },
+            action: [],
+            confirmation: []
+        }
+    };
+}
+function validateRecipe(recipe) {
+    const id = String(recipe.id ?? '').trim();
+    if (!id)
+        return { ok: false, message: 'Recipe id is required.' };
+    if (!/^[a-z][a-z0-9_]*$/i.test(id)) {
+        return { ok: false, message: 'Recipe id should use letters, numbers, and underscores.' };
+    }
+    return { ok: true };
+}
+function phaseToEditState(phase) {
+    const normalized = normalizePhaseValue(phase);
+    if (!normalized) {
+        return { hintsLines: '', engineSteps: [] };
+    }
+    if (Array.isArray(normalized)) {
+        return { hintsLines: normalized.join('\n'), engineSteps: [] };
+    }
+    return {
+        hintsLines: (normalized.hints ?? []).join('\n'),
+        engineSteps: (normalized.engineSteps ?? []).map((s) => ({
+            ...(String(s.as ?? '').trim() ? { as: String(s.as).trim() } : {}),
+            tool: s.tool,
+            args: s.args ? { ...s.args } : undefined
+        }))
+    };
+}
+function editStateToPhase(state) {
+    const hints = state.hintsLines
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
+    const steps = state.engineSteps.filter((s) => String(s.tool ?? '').trim());
+    if (steps.length === 0 && hints.length === 0)
+        return undefined;
+    if (steps.length === 0) {
+        return hints;
+    }
+    return {
+        hints,
+        engineSteps: steps.map((s) => ({
+            ...(String(s.as ?? '').trim() ? { as: String(s.as).trim() } : {}),
+            tool: s.tool.trim(),
+            ...(s.args && Object.keys(s.args).length > 0 ? { args: { ...s.args } } : {})
+        }))
+    };
+}
+function recipeFromPhaseEdits(base, phaseEdits) {
+    const phases = {};
+    for (const key of INTENT_RECIPE_PHASE_KEYS) {
+        const phase = editStateToPhase(phaseEdits[key]);
+        if (phase != null)
+            phases[key] = phase;
+    }
+    return { ...base, phases };
+}
+function recipeToPhaseEdits(recipe) {
+    const phases = recipe.phases ?? {};
+    return {
+        context: phaseToEditState(phases.context),
+        action: phaseToEditState(phases.action),
+        confirmation: phaseToEditState(phases.confirmation)
+    };
+}
+function intentRecipesFileFromMergedRecipes(recipes, version = 1, recipeOrder) {
+    const file = { version, recipes: recipes.map((r) => cloneRecipe(r)) };
+    if (recipeOrder?.length) {
+        file.recipeOrder = [...recipeOrder];
+    }
+    return file;
+}
+function downloadTextFile(filename, content, mime = 'application/json') {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+}
+async function copyTextToClipboard(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+function hintLinesToArray(hintsLines) {
+    return hintsLines
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
+}
+function hintArrayToLines(hints) {
+    return hints.join('\n');
+}
+function collectHintTemplatesFromBundled() {
+    const out = {
+        context: [],
+        action: [],
+        confirmation: []
+    };
+    const seen = {
+        context: new Set(),
+        action: new Set(),
+        confirmation: new Set()
+    };
+    for (const recipe of bundledIntentRecipesCatalog().recipes) {
+        for (const key of INTENT_RECIPE_PHASE_KEYS) {
+            for (const hint of phaseHints(recipe, key)) {
+                if (!seen[key].has(hint)) {
+                    seen[key].add(hint);
+                    out[key].push(hint);
+                }
+            }
+        }
+    }
+    return out;
+}
+/** Suggested full hint lines per phase (from bundled recipes). */
+const INTENT_RECIPE_HINT_TEMPLATES = collectHintTemplatesFromBundled();
+/** Ordered tool names as they appear in hint text (longest match first). */
+function extractWireToolsFromHintText(text) {
+    const order = [];
+    const sorted = [...INTENT_RECIPE_WIRE_TOOL_OPTIONS].sort((a, b) => b.length - a.length);
+    const re = new RegExp(sorted.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'gi');
+    let m;
+    while ((m = re.exec(text)) !== null) {
+        const match = sorted.find((t) => t.toLowerCase() === m[0].toLowerCase());
+        if (match && !order.includes(match))
+            order.push(match);
+    }
+    return order;
+}
+function formatToolOrList(tools) {
+    if (tools.length === 0)
+        return '';
+    if (tools.length === 1)
+        return tools[0];
+    if (tools.length === 2)
+        return `${tools[0]} or ${tools[1]}`;
+    return `${tools.slice(0, -1).join(', ')}, or ${tools[tools.length - 1]}`;
+}
+function buildActionFlowHint(tools, middleStep, suffix) {
+    const tail = suffix.trim();
+    if (tools.length === 0)
+        return tail;
+    const mid = (middleStep || 'revise XML').trim();
+    if (tools.length >= 3) {
+        const head = tools.slice(0, -1);
+        const last = tools[tools.length - 1];
+        let line = `Use ${formatToolOrList(head)} → ${mid} → ${last}`;
+        if (tail)
+            line += `; ${tail}`;
+        return line;
+    }
+    let line = `Use ${formatToolOrList(tools)} → ${mid}`;
+    if (tail)
+        line += `; ${tail}`;
+    return line;
+}
+/** Best-effort parse of the common “Use tool → step; suffix” action hint shape. */
+function parseActionFlowHint(hint) {
+    const text = hint.trim();
+    const triple = text.match(/^Use\s+(.+?)\s*→\s*([^→;]+)\s*→\s*([^;]+)(?:;\s*(.*))?$/i);
+    if (triple) {
+        const headTools = extractWireToolsFromHintText(triple[1]);
+        const lastTool = extractWireToolsFromHintText(triple[3]);
+        const last = lastTool[lastTool.length - 1];
+        const tools = last ? [...headTools.filter((t) => t !== last), last] : headTools;
+        return {
+            tools: tools.length ? tools : [...headTools, ...lastTool],
+            middleStep: triple[2].trim(),
+            suffix: (triple[4] ?? '').trim()
+        };
+    }
+    const arrow = text.match(/^Use\s+(.+?)\s*→\s*([^;]+)(?:;\s*(.*))?$/i);
+    if (!arrow) {
+        return { tools: extractWireToolsFromHintText(text), middleStep: 'revise XML', suffix: '' };
+    }
+    return {
+        tools: extractWireToolsFromHintText(arrow[1]),
+        middleStep: arrow[2].trim(),
+        suffix: (arrow[3] ?? '').trim()
+    };
 }
 
-function emptyMcpServerRow() {
-    return { id: '', url: '', readTimeoutMs: '', headerPairs: [{ key: '', value: '' }] };
+const PHASE_LABELS$1 = {
+    context: 'Context',
+    action: 'Action',
+    confirmation: 'Confirmation'
+};
+function AiAssistantIntentRecipePhaseHintsField(props) {
+    const { phaseKey, hintsLines, bindingNames = [], onChange } = props;
+    const hintChips = useMemo(() => hintLinesToArray(hintsLines), [hintsLines]);
+    const templates = INTENT_RECIPE_HINT_TEMPLATES[phaseKey];
+    const [flowTools, setFlowTools] = useState([]);
+    const [flowMiddle, setFlowMiddle] = useState('revise XML');
+    const [flowSuffix, setFlowSuffix] = useState('preserve <page>/<component> structure and node-selector shapes.');
+    useEffect(() => {
+        if (phaseKey !== 'action' || hintChips.length === 0)
+            return;
+        const parsed = parseActionFlowHint(hintChips[0]);
+        if (parsed.tools.length > 0) {
+            setFlowTools(parsed.tools);
+            setFlowMiddle(parsed.middleStep);
+            setFlowSuffix(parsed.suffix);
+        }
+    }, [phaseKey, hintChips[0]]);
+    const setHintChips = useCallback((next) => onChange(hintArrayToLines(next)), [onChange]);
+    const appendToolToNewHint = (tool) => {
+        const t = tool.trim();
+        if (!t)
+            return;
+        const last = hintChips[hintChips.length - 1] ?? '';
+        if (!last) {
+            setHintChips([`Use ${t}`]);
+            return;
+        }
+        if (last.includes('→')) {
+            setHintChips([...hintChips.slice(0, -1), `${last} → ${t}`]);
+        }
+        else if (/\bUse\b/i.test(last)) {
+            setHintChips([...hintChips.slice(0, -1), `${last} or ${t}`]);
+        }
+        else {
+            setHintChips([...hintChips, `Use ${t}`]);
+        }
+    };
+    const applyActionFlow = () => {
+        const generated = buildActionFlowHint(flowTools, flowMiddle, flowSuffix);
+        const rest = hintChips.slice(1);
+        setHintChips([generated, ...rest]);
+    };
+    return (jsxs(Stack$1, { spacing: 1.5, children: [jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: templates, value: hintChips, onChange: (_, v) => setHintChips(v.map(String).map((s) => s.trim()).filter(Boolean)), filterSelectedOptions: true, renderTags: (value, getTagProps) => value.map((option, index) => (createElement(Chip, { ...getTagProps({ index }), key: `${option}-${index}`, label: option.length > 72 ? `${option.slice(0, 69)}…` : option, size: "small", sx: { maxWidth: '100%', height: 'auto', '& .MuiChip-label': { whiteSpace: 'normal', py: 0.5 } } }))), renderInput: (params) => (jsx$1(TextField, { ...params, label: `${PHASE_LABELS$1[phaseKey]} hints`, size: "small", placeholder: "Pick a template or type a hint and press Enter", helperText: "One hint per line. Pick a template or type your own." })) }), bindingNames.length > 0 ? (jsxs(Box, { children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 0.75 }, children: "Insert placeholder" }), jsx$1(Box, { sx: { display: 'flex', flexWrap: 'wrap', gap: 0.5 }, children: bindingNames.flatMap((name) => [
+                            jsx$1(Chip, { label: `{{initial.${name}}}`, size: "small", variant: "outlined", onClick: () => setHintChips([...hintChips, `{{initial.${name}}}`]), sx: { fontFamily: 'monospace', fontSize: 11, cursor: 'pointer' } }, `initial-${name}`),
+                            jsx$1(Chip, { label: `{{current.${name}}}`, size: "small", variant: "outlined", onClick: () => setHintChips([...hintChips, `{{current.${name}}}`]), sx: { fontFamily: 'monospace', fontSize: 11, cursor: 'pointer' } }, `current-${name}`)
+                        ]) })] })) : null, jsxs(Box, { children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 0.75 }, children: "Insert CMS tool name" }), jsx$1(Box, { sx: { display: 'flex', flexWrap: 'wrap', gap: 0.5 }, children: INTENT_RECIPE_WIRE_TOOL_OPTIONS.map((tool) => (jsx$1(Chip, { label: tool, size: "small", variant: "outlined", onClick: () => appendToolToNewHint(tool), sx: { fontFamily: 'monospace', fontSize: 11, cursor: 'pointer' } }, tool))) })] }), phaseKey === 'action' ? (jsxs(Paper, { variant: "outlined", sx: { p: 1.5, bgcolor: 'action.hover' }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Action tool flow" }), jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 1.5 }, children: ["Build hints like", ' ', jsx$1("em", { children: "Use update_content or GetContent \u2192 revise XML \u2192 WriteContent; preserve structure\u2026" }), ". Tools are ordered chips; click Generate to update the first hint line."] }), jsxs(Stack$1, { spacing: 1.5, children: [jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [...INTENT_RECIPE_WIRE_TOOL_OPTIONS], value: flowTools, onChange: (_, v) => setFlowTools(v.map(String).filter(Boolean)), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Tools in flow (ordered)", size: "small", placeholder: "update_content, GetContent, WriteContent" })), renderTags: (value, getTagProps) => value.map((option, index) => (createElement(Chip, { ...getTagProps({ index }), key: `${option}-${index}`, label: option, size: "small", sx: { fontFamily: 'monospace', fontSize: 11 } }))) }), jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 1, children: [jsx$1(TextField, { label: "After \u2192", value: flowMiddle, onChange: (e) => setFlowMiddle(e.target.value), size: "small", fullWidth: true, placeholder: "revise XML" }), jsx$1(TextField, { label: "After ;", value: flowSuffix, onChange: (e) => setFlowSuffix(e.target.value), size: "small", fullWidth: true, placeholder: "preserve <page>/<component> structure\u2026" })] }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(AutoFixHighRounded, {}), onClick: applyActionFlow, sx: { alignSelf: 'flex-start' }, children: "Generate action hint from tools" }), flowTools.length > 0 ? (jsxs(Typography, { variant: "body2", sx: { fontSize: 12, color: 'text.secondary' }, children: ["Preview: ", buildActionFlowHint(flowTools, flowMiddle, flowSuffix)] })) : null] })] })) : null] }));
 }
-function AiAssistantToolsMcpForm(props) {
-    const { value, onChange } = props;
-    const setMcpEnabled = (mcpEnabled) => {
-        onChange({ ...value, mcpEnabled });
+
+/**
+ * Prefetch {@code engineSteps} args — aligned with
+ * {@code AuthoringIntentRecipeEngine#executeReadOnlyTool} and {@code #resolveArgValue}.
+ */
+const PREFETCH_BINDING_TOKENS = [
+    { token: '$siteId', description: 'Studio project id for the current author session' },
+    { token: '$contentPath', description: 'Open form/preview item path (e.g. /site/website/.../index.xml)' },
+    { token: '$contentTypeId', description: 'Content type id when already known from Studio context' },
+    { token: '$previewUrl', description: 'Engine preview URL when available' },
+    {
+        token: '$step0.fieldName',
+        description: 'Field from a prior step result (0-based index), e.g. $step0.contentXml'
+    },
+    {
+        token: '$initial.pageItem.contentXml',
+        description: 'Named prefetch snapshot at turn start (step as: pageItem)'
+    },
+    {
+        token: '$current.pageItem.contentXml',
+        description: 'Same binding after WriteContent on the item path (falls back to initial)'
+    },
+    {
+        token: '{{initial.pageItem}}',
+        description: 'Expanded in phase hints when the recipe matches (server prelude)'
+    },
+    {
+        token: '{{current.pageItem}}',
+        description: 'Expanded after writes in the same turn when available'
+    }
+];
+const INTENT_RECIPE_PREFETCH_TOOL_DOCS = {
+    GetContent: {
+        summary: 'Read repository XML for the anchored or specified path (read-only prefetch).',
+        args: [
+            { name: 'siteId', required: true, description: 'Project id', example: '$siteId' },
+            {
+                name: 'path',
+                required: true,
+                description: 'Repository path (alias: contentPath)',
+                example: '$contentPath'
+            },
+            { name: 'contentPath', description: 'Same as path', example: '$contentPath' },
+            { name: 'commitId', description: 'Optional git commit id / commitRef for historical read' }
+        ],
+        defaultArgs: { siteId: '$siteId', path: '$contentPath' }
+    },
+    GetContentTypeFormDefinition: {
+        summary: 'Load form-definition XML for the item’s content type (via contentPath or contentTypeId).',
+        args: [
+            { name: 'siteId', required: true, description: 'Project id', example: '$siteId' },
+            {
+                name: 'contentPath',
+                description: 'Item path; content type inferred from item XML (preferred in recipes)',
+                example: '$contentPath'
+            },
+            { name: 'contentTypeId', description: 'Direct type id when path is not used', example: '$contentTypeId' }
+        ],
+        defaultArgs: { siteId: '$siteId', contentPath: '$contentPath' }
+    },
+    ListContentTranslationScope: {
+        summary: 'Tree of translatable paths for batch translation (read-only scope discovery).',
+        args: [
+            { name: 'siteId', required: true, description: 'Project id', example: '$siteId' },
+            { name: 'contentPath', required: true, description: 'Root page/item path', example: '$contentPath' },
+            { name: 'path', description: 'Alias for contentPath' },
+            { name: 'maxItems', description: 'Optional cap on items in tree' },
+            { name: 'maxDepth', description: 'Optional depth limit' },
+            { name: 'chunkSize', description: 'Optional chunk size for large trees' }
+        ],
+        defaultArgs: { siteId: '$siteId', contentPath: '$contentPath' }
+    },
+    ListContentDependencyScope: {
+        summary: 'Dependency scope tree (same arg shape as ListContentTranslationScope).',
+        args: [
+            { name: 'siteId', required: true, description: 'Project id', example: '$siteId' },
+            { name: 'contentPath', required: true, description: 'Root path', example: '$contentPath' },
+            { name: 'maxItems', description: 'Optional cap' },
+            { name: 'maxDepth', description: 'Optional depth limit' }
+        ],
+        defaultArgs: { siteId: '$siteId', contentPath: '$contentPath' }
+    },
+    ListStudioContentTypes: {
+        summary: 'List content types in the project (e.g. before creating a new item).',
+        args: [
+            { name: 'siteId', required: true, description: 'Project id', example: '$siteId' },
+            {
+                name: 'searchable',
+                description: 'Boolean — false lists all types; true limits to searchable types',
+                example: 'false'
+            },
+            { name: 'contentPath', description: 'Optional path hint for filtering' }
+        ],
+        defaultArgs: { siteId: '$siteId', searchable: false }
+    },
+    GetContentVersionHistory: {
+        summary: 'Git version history for a content path (read-only).',
+        args: [
+            { name: 'siteId', required: true, description: 'Project id', example: '$siteId' },
+            { name: 'path', required: true, description: 'Repository path', example: '$contentPath' },
+            { name: 'contentPath', description: 'Alias for path' }
+        ],
+        defaultArgs: { siteId: '$siteId', path: '$contentPath' }
+    },
+    GetPreviewHtml: {
+        summary: 'Fetch rendered preview HTML from Engine (confirmation phase).',
+        args: [
+            {
+                name: 'url',
+                description: 'Preview URL (alias: previewUrl)',
+                example: '$previewUrl'
+            },
+            { name: 'previewUrl', description: 'Same as url', example: '$previewUrl' },
+            { name: 'siteId', description: 'Optional project id for preview auth', example: '$siteId' },
+            { name: 'previewToken', description: 'Optional preview token when required by Engine' }
+        ],
+        defaultArgs: { url: '$previewUrl', siteId: '$siteId' }
+    }
+};
+function prefetchToolDoc(tool) {
+    const t = tool?.trim();
+    if (!t)
+        return undefined;
+    return INTENT_RECIPE_PREFETCH_TOOL_DOCS[t];
+}
+function defaultPrefetchArgsJsonForTool(tool) {
+    const doc = prefetchToolDoc(tool);
+    if (!doc)
+        return null;
+    return JSON.stringify(doc.defaultArgs, null, 2);
+}
+
+function AiAssistantIntentRecipePrefetchArgsHelp(props) {
+    const { tool, onInsertDefaultArgs } = props;
+    const doc = prefetchToolDoc(tool);
+    if (!doc) {
+        return (jsx$1(Alert, { severity: "warning", sx: { py: 0.5 }, children: jsxs(Typography, { variant: "body2", children: ["No built-in reference for ", jsx$1("strong", { children: tool || '(pick a tool)' }), ". Prefetch only supports read-only tools documented in the plugin. Copy args from a bundled recipe or see", ' ', jsx$1("code", { children: "AuthoringIntentRecipeEngine.groovy" }), "."] }) }));
+    }
+    return (jsxs(Stack$1, { spacing: 1, children: [jsx$1(Typography, { variant: "body2", color: "text.secondary", children: doc.summary }), jsxs(Table$1, { size: "small", sx: { '& td, & th': { py: 0.5, px: 1 } }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Arg" }), jsx$1(TableCell, { children: "Required" }), jsx$1(TableCell, { children: "Description" }), jsx$1(TableCell, { children: "Example" })] }) }), jsx$1(TableBody, { children: doc.args.map((a) => (jsxs(TableRow, { children: [jsx$1(TableCell, { sx: { fontFamily: 'monospace', fontSize: 12 }, children: a.name }), jsx$1(TableCell, { children: a.required ? 'yes' : '' }), jsx$1(TableCell, { children: a.description }), jsx$1(TableCell, { sx: { fontFamily: 'monospace', fontSize: 11 }, children: a.example ?? '' })] }, a.name))) })] }), onInsertDefaultArgs ? (jsxs(Button, { size: "small", variant: "text", onClick: onInsertDefaultArgs, sx: { alignSelf: 'flex-start' }, children: ["Insert default args for ", tool] })) : null] }));
+}
+function AiAssistantIntentRecipePrefetchBindingsHelp() {
+    return (jsxs(Box, { children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", gutterBottom: true, children: "Placeholders for prefetch step arguments" }), jsxs(Table$1, { size: "small", sx: { '& td, & th': { py: 0.5, px: 1 } }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Token" }), jsx$1(TableCell, { children: "Meaning" })] }) }), jsx$1(TableBody, { children: PREFETCH_BINDING_TOKENS.map((b) => (jsxs(TableRow, { children: [jsx$1(TableCell, { sx: { fontFamily: 'monospace', fontSize: 12 }, children: b.token }), jsx$1(TableCell, { children: b.description })] }, b.token))) })] })] }));
+}
+
+const EXTRA_SUGGESTED_EMOJIS = ['📋', '🛠️', '✨', '⚙️', '📝', '🔗', '🎯', '⏪', '🔄', '✅'];
+function suggestedRecipeEmojis() {
+    const seen = new Set();
+    const out = [];
+    const push = (e) => {
+        const n = normalizeChatEmoji(e);
+        if (n && !seen.has(n)) {
+            seen.add(n);
+            out.push(n);
+        }
     };
-    const updateServer = (index, row) => {
-        const mcpServers = value.mcpServers.map((r, i) => (i === index ? row : r));
-        onChange({ ...value, mcpServers });
+    for (const r of bundledIntentRecipesCatalog().recipes) {
+        push(String(r.chatEmoji ?? ''));
+    }
+    for (const e of EXTRA_SUGGESTED_EMOJIS) {
+        push(e);
+    }
+    push(INTENT_RECIPE_CHAT_FALLBACK_EMOJI);
+    return out;
+}
+function AiAssistantIntentRecipeEmojiField(props) {
+    const { emoji, title, recipeId, onChange, disabled } = props;
+    const [anchor, setAnchor] = useState(null);
+    const suggestions = useMemo(() => suggestedRecipeEmojis(), []);
+    const display = normalizeChatEmoji(emoji) || INTENT_RECIPE_CHAT_FALLBACK_EMOJI;
+    const preview = formatIntentRecipeChatLineFromRecipe({
+        id: recipeId,
+        title: title || recipeId,
+        chatEmoji: display
+    });
+    return (jsxs(Stack$1, { spacing: 0.75, sx: { flex: '0 0 auto' }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Workflow emoji" }), jsxs(Stack$1, { direction: "row", spacing: 1, alignItems: "center", children: [jsx$1(Button, { variant: "outlined", disabled: disabled, onClick: (e) => setAnchor(e.currentTarget), "aria-label": "Pick workflow emoji", sx: {
+                            minWidth: 52,
+                            width: 52,
+                            height: 40,
+                            fontSize: '1.35rem',
+                            lineHeight: 1,
+                            px: 0
+                        }, children: display }), jsx$1(TextField, { label: "Emoji", value: emoji, onChange: (e) => onChange(normalizeChatEmoji(e.target.value)), size: "small", disabled: disabled, placeholder: INTENT_RECIPE_CHAT_FALLBACK_EMOJI, inputProps: { maxLength: 8, 'aria-label': 'Workflow emoji character' }, sx: { width: 88 } })] }), jsxs(Typography, { variant: "caption", color: "text.secondary", sx: { fontFamily: 'inherit', whiteSpace: 'pre-wrap' }, children: ["Chat preview: ", preview.trim()] }), jsx$1(Popover, { open: Boolean(anchor), anchorEl: anchor, onClose: () => setAnchor(null), anchorOrigin: { vertical: 'bottom', horizontal: 'left' }, children: jsxs(Box, { sx: { p: 1.5, maxWidth: 280 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", sx: { display: 'block', mb: 1 }, children: "Pick an emoji" }), jsx$1(Box, { sx: {
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(8, 1fr)',
+                                gap: 0.5
+                            }, children: suggestions.map((e) => (jsx$1(Button, { size: "small", onClick: () => {
+                                    onChange(e);
+                                    setAnchor(null);
+                                }, sx: { minWidth: 36, fontSize: '1.2rem', lineHeight: 1, p: 0.5 }, children: e }, e))) })] }) })] }));
+}
+
+const PHASE_LABELS = {
+    context: 'Context',
+    action: 'Action',
+    confirmation: 'Confirmation'
+};
+function EngineStepCard(props) {
+    const { step, index } = props;
+    const allowlisted = INTENT_RECIPE_READ_ONLY_TOOLS.includes(step.tool);
+    return (jsxs(Paper, { variant: "outlined", sx: {
+            p: 1.25,
+            bgcolor: allowlisted ? 'action.hover' : 'warning.light',
+            borderColor: allowlisted ? 'divider' : 'warning.main'
+        }, children: [jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", children: ["Step ", index + 1] }), jsxs(Stack$1, { direction: "row", spacing: 0.5, alignItems: "center", flexWrap: "wrap", useFlexGap: true, children: [jsx$1(Typography, { variant: "subtitle2", children: step.tool }), step.as?.trim() ? (jsx$1(Chip, { size: "small", label: `as: ${step.as.trim()}`, color: "primary", variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } })) : null] }), !allowlisted ? (jsx$1(Typography, { variant: "caption", color: "warning.dark", children: "Not in read-only prefetch allowlist \u2014 server will skip at runtime." })) : null, step.args && Object.keys(step.args).length > 0 ? (jsx$1(Box, { component: "pre", sx: { mt: 0.75, mb: 0, fontSize: 11, whiteSpace: 'pre-wrap', fontFamily: 'monospace' }, children: JSON.stringify(step.args, null, 2) })) : null] }));
+}
+function PhaseColumn(props) {
+    const { phaseKey, recipe } = props;
+    const hints = phaseHints(recipe, phaseKey);
+    const steps = phaseEngineSteps(recipe, phaseKey);
+    return (jsxs(Paper, { variant: "outlined", sx: {
+            flex: '1 1 0',
+            minWidth: 200,
+            p: 1.5,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 1,
+            minHeight: 160,
+            bgcolor: 'background.paper'
+        }, children: [jsx$1(Typography, { variant: "overline", color: "text.secondary", sx: { lineHeight: 1.2 }, children: PHASE_LABELS[phaseKey] }), hints.length > 0 ? (jsx$1(Stack$1, { spacing: 0.5, children: hints.map((h, i) => (jsx$1(Typography, { variant: "body2", sx: { fontSize: 13 }, children: h }, `${phaseKey}-hint-${i}`))) })) : (jsx$1(Typography, { variant: "body2", color: "text.disabled", sx: { fontSize: 13 }, children: "No phase hints" })), steps.length > 0 ? (jsxs(Stack$1, { spacing: 1, sx: { mt: 0.5 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Prefetch wiring" }), steps.map((step, i) => (jsx$1(EngineStepCard, { step: step, index: i }, `${phaseKey}-step-${i}`)))] })) : null] }));
+}
+/**
+ * Phased swimlane (Context → Action → Confirmation) aligned with server {@code AuthoringIntentRecipeCatalog}.
+ * Tool steps render as wired cards inside the phase that owns {@code engineSteps}.
+ */
+function AiAssistantIntentRecipeSwimlane(props) {
+    const { recipe } = props;
+    const prefetchOrder = INTENT_RECIPE_PHASE_KEYS.flatMap((k) => phaseEngineSteps(recipe, k));
+    return (jsxs(Stack$1, { spacing: 2, children: [jsx$1(Box, { sx: {
+                    display: 'flex',
+                    flexDirection: { xs: 'column', md: 'row' },
+                    alignItems: { xs: 'stretch', md: 'flex-start' },
+                    gap: 1
+                }, children: INTENT_RECIPE_PHASE_KEYS.map((key, idx) => (jsxs(Box, { sx: { display: 'flex', flex: '1 1 0', alignItems: 'stretch', gap: 1, minWidth: 0 }, children: [jsx$1(PhaseColumn, { phaseKey: key, recipe: recipe }), idx < INTENT_RECIPE_PHASE_KEYS.length - 1 ? (jsx$1(Box, { sx: {
+                                display: { xs: 'none', md: 'flex' },
+                                alignItems: 'center',
+                                flexShrink: 0,
+                                color: 'text.disabled',
+                                pt: 4
+                            }, children: jsx$1(ArrowForwardRounded, { fontSize: "small" }) })) : null] }, key))) }), prefetchOrder.length > 1 ? (jsxs(Paper, { variant: "outlined", sx: { p: 1.5, bgcolor: 'action.hover' }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", gutterBottom: true, children: "Server prefetch execution order (context \u2192 action \u2192 confirmation)" }), jsx$1(Stack$1, { direction: "row", flexWrap: "wrap", useFlexGap: true, spacing: 0.5, alignItems: "center", children: prefetchOrder.map((step, i) => (jsxs(Box, { sx: { display: 'flex', alignItems: 'center', gap: 0.5 }, children: [i > 0 ? jsx$1(ArrowForwardRounded, { sx: { fontSize: 14, color: 'text.disabled' } }) : null, jsx$1(Chip, { size: "small", label: step.tool, variant: "outlined" })] }, `flow-${i}`))) })] })) : null] }));
+}
+
+const PHASE_TAB_LABELS = {
+    context: 'Context',
+    action: 'Action',
+    confirmation: 'Confirmation'
+};
+const EDITOR_TABS = [...INTENT_RECIPE_PHASE_KEYS, 'preview'];
+function parseArgsJson(text) {
+    const t = text.trim();
+    if (!t)
+        return undefined;
+    try {
+        const o = JSON.parse(t);
+        if (!o || typeof o !== 'object' || Array.isArray(o))
+            return undefined;
+        return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, String(v ?? '')]));
+    }
+    catch {
+        return undefined;
+    }
+}
+function argsToJsonText(args) {
+    if (!args || Object.keys(args).length === 0)
+        return '';
+    return JSON.stringify(args, null, 2);
+}
+function EngineStepRow(props) {
+    const { step, index, onChange, onRemove, onDragStart, onDragOver, onDrop, onDragEnd, dragging } = props;
+    const [argsText, setArgsText] = useState(() => argsToJsonText(step.args));
+    const toolName = (step.tool || '').trim();
+    useEffect(() => {
+        setArgsText(argsToJsonText(step.args));
+    }, [step.tool, step.args]);
+    const applyDefaultArgs = () => {
+        const json = defaultPrefetchArgsJsonForTool(toolName);
+        if (!json)
+            return;
+        const parsed = parseArgsJson(json);
+        if (parsed) {
+            setArgsText(json);
+            onChange({ ...step, args: parsed });
+        }
     };
-    const addServer = () => {
-        onChange({ ...value, mcpServers: [...value.mcpServers, emptyMcpServerRow()] });
+    const onToolChange = (v) => {
+        const nextTool = v.trim();
+        const next = { ...step, tool: nextTool };
+        const hasArgs = step.args && Object.keys(step.args).length > 0;
+        if (!hasArgs && nextTool) {
+            const json = defaultPrefetchArgsJsonForTool(nextTool);
+            const parsed = json ? parseArgsJson(json) : undefined;
+            if (parsed) {
+                next.args = parsed;
+                setArgsText(json);
+            }
+        }
+        onChange(next);
     };
-    const removeServer = (index) => {
-        onChange({ ...value, mcpServers: value.mcpServers.filter((_, i) => i !== index) });
+    return (jsx$1(Paper, { variant: "outlined", draggable: true, onDragStart: () => onDragStart(index), onDragEnd: onDragEnd, onDragOver: (e) => {
+            e.preventDefault();
+            onDragOver(index);
+        }, onDrop: (e) => {
+            e.preventDefault();
+            onDrop();
+        }, sx: {
+            p: 1.5,
+            opacity: dragging ? 0.5 : 1,
+            cursor: 'grab',
+            bgcolor: 'action.hover'
+        }, children: jsxs(Stack$1, { direction: "row", spacing: 1, alignItems: "flex-start", children: [jsx$1(DragIndicatorRounded, { sx: { color: 'text.disabled', mt: 1, flexShrink: 0 }, fontSize: "small" }), jsxs(Stack$1, { spacing: 1.5, sx: { flex: 1, minWidth: 0 }, children: [jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 1, children: [jsx$1(TextField, { label: "Binding name (as)", value: step.as ?? '', onChange: (e) => onChange({ ...step, as: e.target.value.trim() || undefined }), size: "small", placeholder: "pageItem", sx: { flex: '0 0 160px' }, InputProps: { sx: { fontFamily: 'monospace' } } }), jsx$1(Autocomplete, { freeSolo: true, size: "small", options: [...INTENT_RECIPE_READ_ONLY_TOOLS], value: step.tool || '', onInputChange: (_, v) => onToolChange(v), sx: { flex: 1, minWidth: 0 }, renderInput: (params) => (jsx$1(TextField, { ...params, label: "Tool", helperText: "Read-only tools only \u2014 see arg reference below." })) })] }), toolName ? (jsx$1(AiAssistantIntentRecipePrefetchArgsHelp, { tool: toolName, onInsertDefaultArgs: applyDefaultArgs })) : null, jsx$1(TextField, { label: "Args (JSON)", value: argsText, onChange: (e) => {
+                                setArgsText(e.target.value);
+                                const parsed = parseArgsJson(e.target.value);
+                                onChange({ ...step, args: parsed });
+                            }, size: "small", fullWidth: true, multiline: true, minRows: 3, placeholder: defaultPrefetchArgsJsonForTool(toolName) ?? '{\n  "siteId": "$siteId"\n}', InputProps: { sx: { fontFamily: 'monospace', fontSize: 12 } } })] }), jsx$1(IconButton, { size: "small", "aria-label": "Remove step", onClick: onRemove, sx: { mt: 0.5 }, children: jsx$1(DeleteOutlineRounded, { fontSize: "small" }) })] }) }));
+}
+function PhaseEditor(props) {
+    const { phaseKey, state, bindingNamesForHints, onChange } = props;
+    const [dragIndex, setDragIndex] = useState(null);
+    const [dropIndex, setDropIndex] = useState(null);
+    const reorderSteps = useCallback((from, to) => {
+        if (from === to)
+            return;
+        const steps = [...state.engineSteps];
+        const [moved] = steps.splice(from, 1);
+        steps.splice(to, 0, moved);
+        onChange({ ...state, engineSteps: steps });
+    }, [state, onChange]);
+    return (jsxs(Stack$1, { spacing: 2, children: [jsx$1(AiAssistantIntentRecipePhaseHintsField, { phaseKey: phaseKey, hintsLines: state.hintsLines, bindingNames: bindingNamesForHints, onChange: (hintsLines) => onChange({ ...state, hintsLines }) }), jsxs(Box, { children: [jsxs(Typography, { variant: "subtitle2", sx: { mb: 1 }, children: ["Prefetch steps (", phaseKey, ")"] }), jsx$1(Paper, { variant: "outlined", sx: { p: 1.5, mb: 1.5, bgcolor: 'background.default' }, children: jsx$1(AiAssistantIntentRecipePrefetchBindingsHelp, {}) }), jsx$1(Stack$1, { direction: "row", justifyContent: "flex-end", alignItems: "center", sx: { mb: 1 }, children: jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: () => onChange({
+                                ...state,
+                                engineSteps: [...state.engineSteps, { tool: 'GetContent', args: { siteId: '$siteId', path: '$contentPath' } }]
+                            }), children: "Add step" }) }), jsx$1(Stack$1, { spacing: 1, children: state.engineSteps.length === 0 ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No engine steps \u2014 hints only for this phase." })) : (state.engineSteps.map((step, i) => (jsx$1(EngineStepRow, { step: step, index: i, dragging: dragIndex === i, onChange: (next) => {
+                                const steps = [...state.engineSteps];
+                                steps[i] = next;
+                                onChange({ ...state, engineSteps: steps });
+                            }, onRemove: () => {
+                                const steps = state.engineSteps.filter((_, j) => j !== i);
+                                onChange({ ...state, engineSteps: steps });
+                            }, onDragStart: (idx) => setDragIndex(idx), onDragOver: (idx) => setDropIndex(idx), onDrop: () => {
+                                if (dragIndex != null && dropIndex != null)
+                                    reorderSteps(dragIndex, dropIndex);
+                                setDragIndex(null);
+                                setDropIndex(null);
+                            }, onDragEnd: () => {
+                                setDragIndex(null);
+                                setDropIndex(null);
+                            } }, `step-${i}`)))) })] })] }));
+}
+function AiAssistantIntentRecipeEditor(props) {
+    const { recipe, onChange, idReadOnly, saveHint, onDone } = props;
+    const [editorTab, setEditorTab] = useState('context');
+    const [phaseEdits, setPhaseEdits] = useState(() => recipeToPhaseEdits(recipe));
+    useEffect(() => {
+        setPhaseEdits(recipeToPhaseEdits(recipe));
+    }, [recipe.id]);
+    const previewRecipe = useMemo(() => recipeFromPhaseEdits(recipe, phaseEdits), [recipe, phaseEdits]);
+    const bindingNamesForHints = useMemo(() => declaredBindingNames(previewRecipe), [previewRecipe]);
+    const patchRecipe = (partial) => {
+        onChange({ ...recipe, ...partial });
     };
-    return (jsxs(Stack$1, { spacing: 4, children: [jsx$1(AiAssistantSiteOrchestrationToolsForm, { value: value, onChange: onChange }), jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "subtitle2", children: "MCP (Streamable HTTP):" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.mcpEnabled, onChange: (_, c) => setMcpEnabled(c), size: "small" }), label: "Enable MCP client" })] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "When enabled, each server below is contacted on chat requests to list and call remote tools. URLs must pass the same outbound rules as FetchHttpUrl." }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Example (streamable HTTP, optional headers, read-only URL patterns):", ' ', jsx$1(Link, { href: "https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md", target: "_blank", rel: "noopener noreferrer", children: "GitHub MCP Server \u2014 remote-server.md" }), "."] }), value.mcpEnabled ? (jsxs(Fragment, { children: [jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "body2", children: "MCP servers" }), jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: addServer, children: "Add server" })] }), value.mcpServers.length === 0 ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 1 }, children: "No servers yet. Use Add server to register a Streamable HTTP MCP endpoint." })) : (jsxs(Table$1, { size: "small", sx: { border: 1, borderColor: 'divider', borderRadius: 1, mb: 1 }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Server id" }), jsx$1(TableCell, { children: "MCP URL and optional headers" }), jsx$1(TableCell, { width: 120, children: "Timeout (ms)" }), jsx$1(TableCell, { align: "right", width: 88, children: ' ' })] }) }), jsx$1(TableBody, { children: value.mcpServers.map((row, si) => (jsxs(TableRow, { children: [jsx$1(TableCell, { sx: { verticalAlign: 'top' }, children: jsx$1(TextField, { size: "small", fullWidth: true, value: row.id, onChange: (e) => updateServer(si, { ...row, id: e.target.value }), placeholder: "e.g. docs" }) }), jsxs(TableCell, { sx: { verticalAlign: 'top' }, children: [jsx$1(TextField, { size: "small", fullWidth: true, value: row.url, onChange: (e) => updateServer(si, { ...row, url: e.target.value }), placeholder: "https://host/\u2026/mcp" }), jsxs(Stack$1, { spacing: 0.5, sx: { mt: 1 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Optional headers" }), row.headerPairs.map((hp, hi) => (jsxs(Stack$1, { direction: "row", spacing: 0.5, alignItems: "center", children: [jsx$1(TextField, { size: "small", label: "Name", value: hp.key, onChange: (e) => {
-                                                                                const headerPairs = row.headerPairs.map((p, j) => j === hi ? { ...p, key: e.target.value } : p);
-                                                                                updateServer(si, { ...row, headerPairs });
-                                                                            }, sx: { flex: 1 } }), jsx$1(TextField, { size: "small", label: "Value", type: hp.key.trim().toLowerCase() === 'authorization' ? 'password' : 'text', autoComplete: "off", value: hp.value, onChange: (e) => {
-                                                                                const headerPairs = row.headerPairs.map((p, j) => j === hi ? { ...p, value: e.target.value } : p);
-                                                                                updateServer(si, { ...row, headerPairs });
-                                                                            }, sx: { flex: 2 } }), jsx$1(IconButton, { size: "small", "aria-label": "Remove header", onClick: () => {
-                                                                                const headerPairs = row.headerPairs.filter((_, j) => j !== hi);
-                                                                                updateServer(si, {
-                                                                                    ...row,
-                                                                                    headerPairs: headerPairs.length ? headerPairs : [{ key: '', value: '' }]
-                                                                                });
-                                                                            }, children: jsx$1(DeleteOutlineRounded, { fontSize: "small" }) })] }, hi))), jsx$1(Button, { size: "small", onClick: () => updateServer(si, {
-                                                                        ...row,
-                                                                        headerPairs: [...row.headerPairs, { key: '', value: '' }]
-                                                                    }), children: "Add header" })] })] }), jsx$1(TableCell, { sx: { verticalAlign: 'top' }, children: jsx$1(TextField, { size: "small", fullWidth: true, value: row.readTimeoutMs, onChange: (e) => updateServer(si, { ...row, readTimeoutMs: e.target.value }), placeholder: "120000" }) }), jsx$1(TableCell, { align: "right", sx: { verticalAlign: 'top' }, children: jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), onClick: () => removeServer(si), children: "Remove" }) })] }, si))) })] })), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: value.disabledMcpTools, onChange: (_, v) => onChange({ ...value, disabledMcpTools: v.map(String) }), renderTags: (tagValue, getTagProps) => tagValue.map((option, index) => (createElement(Chip, { variant: "outlined", label: option, size: "small", ...getTagProps({ index }), key: `${option}-${index}` }))), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Hide MCP wire tools", placeholder: "e.g. mcp_docs_search", size: "small" })) })] })) : null] })] }));
+    const patchPhase = (key, next) => {
+        const merged = { ...phaseEdits, [key]: next };
+        setPhaseEdits(merged);
+        onChange(recipeFromPhaseEdits(recipe, merged));
+    };
+    return (jsxs(Stack$1, { spacing: 2, children: [jsxs(Stack$1, { direction: "row", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", useFlexGap: true, children: [saveHint ? (jsx$1(Typography, { variant: "caption", color: "text.secondary", children: saveHint })) : (jsx$1(Box, {})), onDone ? (jsx$1(Button, { size: "small", variant: "outlined", onClick: onDone, children: "Done editing" })) : null] }), jsxs(Stack$1, { spacing: 2, children: [jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 2, alignItems: "flex-start", children: [jsx$1(AiAssistantIntentRecipeEmojiField, { emoji: recipe.chatEmoji ?? '', title: recipe.title ?? '', recipeId: recipe.id, onChange: (chatEmoji) => patchRecipe({ chatEmoji: chatEmoji || undefined }) }), jsx$1(TextField, { label: "Recipe id", value: recipe.id, onChange: (e) => patchRecipe({ id: e.target.value.trim() }), size: "small", disabled: idReadOnly, sx: { flex: '0 0 220px' }, InputProps: { sx: { fontFamily: 'monospace' } } }), jsx$1(TextField, { label: "Title", value: recipe.title ?? '', onChange: (e) => patchRecipe({ title: e.target.value }), size: "small", fullWidth: true })] }), jsx$1(TextField, { label: "Description (router)", value: recipe.description ?? '', onChange: (e) => patchRecipe({ description: e.target.value }), size: "small", fullWidth: true, multiline: true, minRows: 2 }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.matchHints ?? [], onChange: (_, v) => patchRecipe({ matchHints: v.map(String) }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Match hints", size: "small", placeholder: "translate, publish, \u2026" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.dontMatchHints ?? [], onChange: (_, v) => patchRecipe({ dontMatchHints: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Don't match hints", size: "small", placeholder: "translate, publish, \u2026" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [...INTENT_RECIPE_READ_ONLY_TOOLS, 'GenerateImage', 'WriteContent', 'update_content'], value: recipe.toolsLoopAllowlist ?? [], onChange: (_, v) => patchRecipe({ toolsLoopAllowlist: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Tools-loop allowlist (optional)", size: "small" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.toolsLoopAllowlistBypassIfAuthorMentions ?? [], onChange: (_, v) => patchRecipe({
+                            toolsLoopAllowlistBypassIfAuthorMentions: v.length ? v.map(String) : undefined
+                        }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Allowlist bypass keywords (optional)", size: "small" })) })] }), jsx$1(Tabs, { value: editorTab, onChange: (_, v) => setEditorTab(v), variant: "scrollable", scrollButtons: "auto", children: EDITOR_TABS.map((k) => (jsx$1(Tab, { label: k === 'preview' ? 'Preview' : PHASE_TAB_LABELS[k], value: k }, k))) }), INTENT_RECIPE_PHASE_KEYS.map((k) => editorTab === k ? (jsx$1(PhaseEditor, { phaseKey: k, state: phaseEdits[k], bindingNamesForHints: bindingNamesForHints, onChange: (n) => patchPhase(k, n) }, k)) : null), editorTab === 'preview' ? jsx$1(AiAssistantIntentRecipeSwimlane, { recipe: previewRecipe }) : null] }));
+}
+
+/**
+ * Read-only recipe panel: swimlane visualization and metadata. Full editor opens on demand.
+ */
+function AiAssistantIntentRecipeView(props) {
+    const { recipe, entry, onEdit } = props;
+    const bindingNames = declaredBindingNames(recipe);
+    const chatEmoji = resolveRecipeChatEmoji(recipe);
+    return (jsxs(Stack$1, { spacing: 2, children: [jsxs(Stack$1, { direction: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 1, flexWrap: "wrap", children: [jsxs(Box, { sx: { minWidth: 0 }, children: [jsxs(Stack$1, { direction: "row", spacing: 1, alignItems: "center", sx: { mb: recipe.description ? 1 : 0 }, children: [jsx$1(Typography, { component: "span", sx: { fontSize: '1.5rem', lineHeight: 1 }, "aria-hidden": true, children: chatEmoji }), jsx$1(Typography, { variant: "subtitle2", children: recipe.title || recipe.id })] }), recipe.description ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 1 }, children: recipe.description })) : null, recipe.matchHints && recipe.matchHints.length > 0 ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", sx: { mb: 0.5 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Match:" }), recipe.matchHints.map((h) => (jsx$1(Chip, { size: "small", label: h, variant: "outlined" }, `m:${h}`)))] })) : null, recipe.dontMatchHints && recipe.dontMatchHints.length > 0 ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Don't match:" }), recipe.dontMatchHints.map((h) => (jsx$1(Chip, { size: "small", label: h, variant: "outlined", color: "warning" }, `d:${h}`)))] })) : null] }), jsx$1(Button, { size: "small", variant: "contained", startIcon: jsx$1(EditRounded, {}), onClick: onEdit, children: "Edit recipe" })] }), bindingNames.length > 0 ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Prefetch:" }), bindingNames.map((n) => (jsx$1(Chip, { size: "small", label: n, variant: "outlined" }, n)))] })) : null, jsx$1(AiAssistantIntentRecipeSwimlane, { recipe: recipe }), entry.source === 'bundled' ? (jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Built-in recipe \u2014 Edit to customize for your project." })) : null] }));
+}
+
+function AiAssistantIntentRecipeRoutingFields(props) {
+    const { value: valueProp, onChange } = props;
+    const value = valueProp ?? defaultIntentRecipeRoutingFormState();
+    const patch = (partial) => onChange({ ...value, ...partial });
+    return (jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Intent recipe routing" }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Optional pre-tools router: classifies the author message, runs read-only prefetch steps from a matched recipe, then prepends guidance to the main CMS tool loop." }), jsxs(Stack$1, { spacing: 2, children: [jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.enabled, onChange: (_, c) => patch({ enabled: c }), size: "small" }), label: "Enable intent recipe router" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.engineEnabled, onChange: (_, c) => patch({ engineEnabled: c }), size: "small", disabled: !value.enabled }), label: "Prefetch engine (server read-only tool steps before tools loop)" }), jsx$1(TextField, { label: "Min confidence (0\u20131)", value: value.minConfidence, onChange: (ev) => patch({ minConfidence: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled, helperText: "Router must meet this confidence to apply a recipe (default 0.55)." }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.requestClarificationOnUnmatched, onChange: (_, c) => patch({ requestClarificationOnUnmatched: c }), size: "small", disabled: !value.enabled }), label: "Tools-off clarification when unmatched" }), jsx$1(TextField, { label: "Custom recipes path (optional)", value: value.customRecipesPath, onChange: (ev) => patch({ customRecipesPath: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled, placeholder: "/scripts/aiassistant/config/intent-recipes.json", helperText: "Studio module path; merged over bundled defaults by recipe id." })] })] }));
 }
 
 function _extends() {
@@ -71134,6 +72671,566 @@ function AiAssistantStudioCodeEditor(props) {
             }, onChange: readOnly || !onChange ? undefined : (v) => onChange(v) }) }));
 }
 
+const TOOLS_JSON_SANDBOX_PATH = '/scripts/aiassistant/config/tools.json';
+const TOOLS_JSON_REL$1 = 'scripts/aiassistant/config/tools.json';
+function sourceChip(entry) {
+    switch (entry.source) {
+        case 'bundled':
+            return jsx$1(Chip, { size: "small", label: "Built-in", variant: "outlined" });
+        case 'custom':
+            return jsx$1(Chip, { size: "small", label: "Project custom", color: "primary", variant: "outlined" });
+        case 'override':
+            return jsx$1(Chip, { size: "small", label: "Overrides built-in", color: "secondary", variant: "outlined" });
+        default:
+            return null;
+    }
+}
+function customRecipesPathFromPolicy(policy) {
+    return policy.intentRecipeRouting.customRecipesPath.trim() || INTENT_RECIPES_JSON_SANDBOX_PATH;
+}
+function intentRecipesStudioRel(policy) {
+    return studioConfigRelativePath(customRecipesPathFromPolicy(policy));
+}
+function parseIntentRecipesFileFromText(text) {
+    if (!text.trim()) {
+        return defaultIntentRecipesFile();
+    }
+    const parsed = parseIntentRecipesFile(text);
+    return parsed.ok ? parsed.file : defaultIntentRecipesFile();
+}
+function pendingNavigateDescription(p) {
+    switch (p.kind) {
+        case 'selectRecipe':
+            return 'switch to another recipe';
+        case 'leaveEdit':
+            return 'leave edit mode';
+        case 'openJson':
+            return 'open the project JSON editor';
+        case 'deleteRecipe':
+            return 'delete this project recipe';
+        case 'newRecipe':
+            return 'create a new recipe';
+        default:
+            return 'continue';
+    }
+}
+const AiAssistantIntentRecipesConfiguration = forwardRef(function AiAssistantIntentRecipesConfiguration(props, ref) {
+    const { onDirtyChange } = props;
+    const siteId = useActiveSiteId() ?? '';
+    const bundledCatalog = useMemo(() => bundledIntentRecipesCatalog(), []);
+    const bundled = useMemo(() => bundledCatalog.recipes, [bundledCatalog]);
+    const [toolsPolicy, setToolsPolicy] = useState(() => defaultToolsPolicyFormState());
+    const [customFile, setCustomFile] = useState(() => defaultIntentRecipesFile());
+    const [selectedId, setSelectedId] = useState(null);
+    const [recipeDraft, setRecipeDraft] = useState(null);
+    const [loaded, setLoaded] = useState(false);
+    const [loadError, setLoadError] = useState(null);
+    const [dirty, setDirty] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [saveError, setSaveError] = useState(null);
+    const [jsonDialogOpen, setJsonDialogOpen] = useState(false);
+    const [jsonDraft, setJsonDraft] = useState('');
+    const [jsonError, setJsonError] = useState(null);
+    const [toast, setToast] = useState(null);
+    /** Bumps when selection or server reload should rehydrate the editor draft. */
+    const [draftSyncToken, setDraftSyncToken] = useState(0);
+    /** Full recipe editor vs read-only swimlane visualization. */
+    const [editingRecipe, setEditingRecipe] = useState(false);
+    const [pendingNavigate, setPendingNavigate] = useState(null);
+    const [navigateSaveBusy, setNavigateSaveBusy] = useState(false);
+    const [recipeDragIndex, setRecipeDragIndex] = useState(null);
+    const [recipeDropIndex, setRecipeDropIndex] = useState(null);
+    const [pendingRevertId, setPendingRevertId] = useState(null);
+    const [revertBusy, setRevertBusy] = useState(false);
+    const recipeOrder = useMemo(() => {
+        if (customFile.recipeOrder?.length) {
+            return customFile.recipeOrder;
+        }
+        if (bundledCatalog.recipeOrder?.length) {
+            return bundledCatalog.recipeOrder;
+        }
+        return defaultRecipeOrderForCatalog(bundled, customFile.recipes);
+    }, [bundled, bundledCatalog.recipeOrder, customFile.recipeOrder, customFile.recipes]);
+    const entries = useMemo(() => listIntentRecipeEntries(bundled, customFile.recipes, recipeOrder, customFile.chatDefaults ?? bundledCatalog.chatDefaults), [bundled, bundledCatalog.chatDefaults, customFile.chatDefaults, customFile.recipes, recipeOrder]);
+    const selectedEntry = useMemo(() => entries.find((e) => e.id === selectedId) ?? entries[0] ?? null, [entries, selectedId]);
+    useEffect(() => {
+        setEditingRecipe(false);
+    }, [selectedEntry?.id, draftSyncToken]);
+    useEffect(() => {
+        onDirtyChange?.(dirty);
+    }, [dirty, onDirtyChange]);
+    useEffect(() => {
+        if (!dirty)
+            return;
+        const onBeforeUnload = (e) => {
+            e.preventDefault();
+            e.returnValue = '';
+        };
+        window.addEventListener('beforeunload', onBeforeUnload);
+        return () => window.removeEventListener('beforeunload', onBeforeUnload);
+    }, [dirty]);
+    const mergedRecipes = useMemo(() => orderIntentRecipes(mergeIntentRecipeCatalog(bundled, customFile.recipes), recipeOrder), [bundled, customFile.recipes, recipeOrder]);
+    const reorderRecipeList = useCallback((from, to) => {
+        if (from === to)
+            return;
+        const ids = entries.map((e) => e.id);
+        const [moved] = ids.splice(from, 1);
+        ids.splice(to, 0, moved);
+        setCustomFile((f) => ({ ...f, recipeOrder: ids }));
+        setDirty(true);
+    }, [entries]);
+    const reload = useCallback(async () => {
+        if (!siteId)
+            return;
+        setLoadError(null);
+        setLoaded(false);
+        try {
+            const toolsText = await fetchOptionalStudioSandboxUtf8(siteId, TOOLS_JSON_SANDBOX_PATH);
+            const parsedTools = parseToolsPolicyFromJsonText(toolsText.trim() ? toolsText : '');
+            if (!parsedTools.ok) {
+                setLoadError(parsedTools.message);
+                setToolsPolicy(defaultToolsPolicyFormState());
+            }
+            else {
+                setToolsPolicy(parsedTools.state);
+            }
+            const policyState = parsedTools.ok ? parsedTools.state : defaultToolsPolicyFormState();
+            const customText = await fetchStudioConfigFileUtf8(siteId, intentRecipesStudioRel(policyState));
+            setCustomFile(parseIntentRecipesFileFromText(customText));
+            setDirty(false);
+            setDraftSyncToken((t) => t + 1);
+        }
+        catch (e) {
+            setLoadError(e instanceof Error ? e.message : String(e));
+        }
+        finally {
+            setLoaded(true);
+        }
+    }, [siteId]);
+    useEffect(() => {
+        void reload();
+    }, [reload]);
+    useEffect(() => {
+        if (selectedId && entries.some((e) => e.id === selectedId))
+            return;
+        setSelectedId(entries[0]?.id ?? null);
+    }, [entries, selectedId]);
+    useEffect(() => {
+        if (!selectedId) {
+            setRecipeDraft(null);
+            return;
+        }
+        const entry = listIntentRecipeEntries(bundled, customFile.recipes, recipeOrder, customFile.chatDefaults ?? bundledCatalog.chatDefaults).find((e) => e.id === selectedId);
+        if (entry)
+            setRecipeDraft(cloneRecipe(entry.recipe));
+        // Rehydrate only on selection change or server reload — not on each editor keystroke (customFile updates).
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedId, draftSyncToken, bundled]);
+    const patchToolsRouting = (intentRecipeRouting) => {
+        setToolsPolicy((p) => ({ ...p, intentRecipeRouting }));
+        setDirty(true);
+    };
+    const upsertCustomRecipe = useCallback((recipe) => {
+        const v = validateRecipe(recipe);
+        if (!v.ok) {
+            setSaveError(v.message);
+            return false;
+        }
+        setCustomFile((f) => {
+            const recipes = [...f.recipes];
+            const idx = recipes.findIndex((r) => r.id === recipe.id);
+            if (idx >= 0)
+                recipes[idx] = cloneRecipe(recipe);
+            else
+                recipes.push(cloneRecipe(recipe));
+            return { ...f, recipes };
+        });
+        setDirty(true);
+        setSelectedId(recipe.id);
+        return true;
+    }, []);
+    const commitRecipeDraft = useCallback((recipe) => {
+        setRecipeDraft(cloneRecipe(recipe));
+        upsertCustomRecipe(recipe);
+    }, [upsertCustomRecipe]);
+    const applyPendingNavigate = useCallback((p) => {
+        switch (p.kind) {
+            case 'selectRecipe':
+                setSelectedId(p.id);
+                setEditingRecipe(false);
+                setDraftSyncToken((t) => t + 1);
+                break;
+            case 'leaveEdit':
+                setEditingRecipe(false);
+                break;
+            case 'openJson':
+                setJsonDraft(serializeIntentRecipesFile(customFile));
+                setJsonError(null);
+                setJsonDialogOpen(true);
+                break;
+            case 'deleteRecipe': {
+                setCustomFile((f) => ({
+                    ...f,
+                    recipes: f.recipes.filter((r) => r.id !== p.id),
+                    recipeOrder: (f.recipeOrder ?? recipeOrder).filter((id) => id !== p.id)
+                }));
+                setDirty(true);
+                const next = entries.find((e) => e.id !== p.id);
+                setSelectedId(next?.id ?? null);
+                break;
+            }
+            case 'newRecipe': {
+                const id = `recipe_${Date.now()}`;
+                const recipe = emptyRecipe(id);
+                setCustomFile((f) => {
+                    const recipes = [...f.recipes, cloneRecipe(recipe)];
+                    const order = [...(f.recipeOrder ?? recipeOrder), id];
+                    return { ...f, recipes, recipeOrder: order };
+                });
+                setDirty(true);
+                setSelectedId(id);
+                setRecipeDraft(cloneRecipe(recipe));
+                setEditingRecipe(true);
+                break;
+            }
+        }
+    }, [bundled, customFile, entries, recipeOrder, upsertCustomRecipe]);
+    const requestNavigate = useCallback((p) => {
+        if (!dirty) {
+            applyPendingNavigate(p);
+            return;
+        }
+        setPendingNavigate(p);
+    }, [applyPendingNavigate, dirty]);
+    const cancelPendingNavigate = useCallback(() => {
+        setPendingNavigate(null);
+        setNavigateSaveBusy(false);
+    }, []);
+    const discardPendingNavigate = useCallback(async () => {
+        if (!pendingNavigate)
+            return;
+        const p = pendingNavigate;
+        setPendingNavigate(null);
+        setNavigateSaveBusy(true);
+        try {
+            await reload();
+            applyPendingNavigate(p);
+        }
+        finally {
+            setNavigateSaveBusy(false);
+        }
+    }, [applyPendingNavigate, pendingNavigate, reload]);
+    const removeCustomRecipe = (id) => {
+        requestNavigate({ kind: 'deleteRecipe', id });
+    };
+    const resetBuiltInToBundled = (id) => {
+        setPendingRevertId(id);
+    };
+    const cancelPendingRevert = useCallback(() => {
+        setPendingRevertId(null);
+        setRevertBusy(false);
+    }, []);
+    const addNewRecipe = () => {
+        requestNavigate({ kind: 'newRecipe' });
+    };
+    const openJsonEditor = () => {
+        requestNavigate({ kind: 'openJson' });
+    };
+    const applyJsonEditor = () => {
+        const parsed = parseIntentRecipesFile(jsonDraft);
+        if (!parsed.ok) {
+            setJsonError(parsed.message);
+            return;
+        }
+        setCustomFile(parsed.file);
+        setDirty(true);
+        setJsonDialogOpen(false);
+        setJsonError(null);
+        setToast('Applied project recipes JSON to draft.');
+    };
+    const exportSiteFile = () => {
+        downloadTextFile('intent-recipes.json', serializeIntentRecipesFile(customFile));
+        setToast('Downloaded project recipes file.');
+    };
+    const exportMergedCatalog = () => {
+        const effective = recipeDraft && selectedEntry ? mergeIntentRecipeCatalog(bundled, customFile.recipes.map((r) => (r.id === recipeDraft.id ? recipeDraft : r))) : mergedRecipes;
+        downloadTextFile('intent-recipes-merged.json', serializeIntentRecipesFile(intentRecipesFileFromMergedRecipes(effective, 1, recipeOrder)));
+        setToast('Downloaded merged catalog.');
+    };
+    const copySiteJson = async () => {
+        const ok = await copyTextToClipboard(serializeIntentRecipesFile(customFile));
+        setToast(ok ? 'Copied project recipes JSON to clipboard.' : 'Could not copy to clipboard.');
+    };
+    const copyMergedJson = async () => {
+        const effective = recipeDraft && selectedEntry
+            ? mergeIntentRecipeCatalog(bundled, customFile.recipes.map((r) => (r.id === recipeDraft.id ? recipeDraft : r)))
+            : mergedRecipes;
+        const ok = await copyTextToClipboard(serializeIntentRecipesFile(intentRecipesFileFromMergedRecipes(effective, 1, recipeOrder)));
+        setToast(ok ? 'Copied merged catalog JSON to clipboard.' : 'Could not copy to clipboard.');
+    };
+    const buildCustomFileForSave = useCallback((options) => {
+        const omit = new Set((options?.omitRecipeIdsFromCustom ?? []).map((x) => x.trim()).filter(Boolean));
+        let recipes = customFile.recipes.filter((r) => !omit.has(String(r.id ?? '').trim()));
+        if (!recipeDraft || omit.has(String(recipeDraft.id ?? '').trim())) {
+            return {
+                ...customFile,
+                recipes,
+                ...(customFile.recipeOrder?.length ? { recipeOrder: [...customFile.recipeOrder] } : {})
+            };
+        }
+        const v = validateRecipe(recipeDraft);
+        if (!v.ok)
+            return { ...customFile, recipes, ...(customFile.recipeOrder?.length ? { recipeOrder: [...customFile.recipeOrder] } : {}) };
+        const idx = recipes.findIndex((r) => r.id === recipeDraft.id);
+        const copy = cloneRecipe(recipeDraft);
+        if (idx >= 0)
+            recipes[idx] = copy;
+        else
+            recipes.push(copy);
+        return {
+            ...customFile,
+            recipes,
+            ...(customFile.recipeOrder?.length ? { recipeOrder: [...customFile.recipeOrder] } : {})
+        };
+    }, [customFile, recipeDraft]);
+    const saveToRepository = useCallback(async (options) => {
+        if (!siteId)
+            return false;
+        setSaveError(null);
+        const omit = new Set((options?.omitRecipeIdsFromCustom ?? []).map((x) => x.trim()).filter(Boolean));
+        if (recipeDraft && !omit.has(String(recipeDraft.id ?? '').trim())) {
+            const v = validateRecipe(recipeDraft);
+            if (!v.ok) {
+                setSaveError(v.message);
+                return false;
+            }
+        }
+        const validation = validateToolsPolicy(toolsPolicy);
+        if (!validation.ok) {
+            setSaveError(validation.message);
+            return false;
+        }
+        const fileToWrite = buildCustomFileForSave(options);
+        const recipesRel = intentRecipesStudioRel(toolsPolicy);
+        setSaving(true);
+        try {
+            const routing = toolsPolicy.intentRecipeRouting;
+            const customPath = routing.customRecipesPath.trim() || INTENT_RECIPES_JSON_SANDBOX_PATH;
+            const toolsBody = serializeToolsPolicyToJson({
+                ...toolsPolicy,
+                intentRecipeRouting: { ...routing, customRecipesPath: customPath }
+            });
+            await firstValueFrom(writeConfiguration(siteId, TOOLS_JSON_REL$1, 'studio', toolsBody));
+            await firstValueFrom(writeConfiguration(siteId, recipesRel, 'studio', serializeIntentRecipesFile(fileToWrite)));
+            setCustomFile(fileToWrite);
+            setDirty(false);
+            setDraftSyncToken((t) => t + 1);
+            setToast(options?.successToast ?? 'Saved routing and project recipes.');
+            return true;
+        }
+        catch (e) {
+            setSaveError(e instanceof Error ? e.message : String(e));
+            return false;
+        }
+        finally {
+            setSaving(false);
+        }
+    }, [buildCustomFileForSave, recipeDraft, siteId, toolsPolicy]);
+    const confirmRevertToBuiltIn = useCallback(async () => {
+        const id = pendingRevertId?.trim();
+        if (!id || !siteId)
+            return;
+        const bundledRecipe = bundled.find((r) => r.id === id);
+        if (!bundledRecipe) {
+            setSaveError(`Built-in recipe "${id}" was not found.`);
+            setPendingRevertId(null);
+            return;
+        }
+        setRevertBusy(true);
+        setSaveError(null);
+        try {
+            const ok = await saveToRepository({
+                omitRecipeIdsFromCustom: [id],
+                successToast: 'Reverted to built-in and saved for this project.'
+            });
+            if (ok) {
+                setRecipeDraft(cloneRecipe(bundledRecipe));
+                setEditingRecipe(false);
+                setDraftSyncToken((t) => t + 1);
+                setPendingRevertId(null);
+            }
+        }
+        finally {
+            setRevertBusy(false);
+        }
+    }, [bundled, pendingRevertId, saveToRepository, siteId]);
+    useImperativeHandle(ref, () => ({
+        save: saveToRepository,
+        discard: reload
+    }), [reload, saveToRepository]);
+    const saveAndPendingNavigate = useCallback(async () => {
+        if (!pendingNavigate)
+            return;
+        const p = pendingNavigate;
+        setNavigateSaveBusy(true);
+        try {
+            const ok = await saveToRepository();
+            if (ok) {
+                setPendingNavigate(null);
+                applyPendingNavigate(p);
+            }
+        }
+        finally {
+            setNavigateSaveBusy(false);
+        }
+    }, [applyPendingNavigate, pendingNavigate, saveToRepository]);
+    const save = async () => {
+        await saveToRepository();
+    };
+    const selectedIsSiteStored = selectedEntry?.source === 'custom' || selectedEntry?.source === 'override';
+    const selectedIsBundledOnly = selectedEntry?.source === 'bundled';
+    const idReadOnly = selectedEntry?.source !== 'custom';
+    const saveHint = selectedIsBundledOnly || selectedIsSiteStored ? 'Save to keep your changes for this project.' : undefined;
+    return (jsxs(Stack$1, { spacing: 2.5, sx: { pb: 3 }, children: [jsxs(Box, { children: [jsx$1(Typography, { variant: "h6", gutterBottom: true, children: "Intent recipes" }), jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "Recipes guide the assistant through common authoring tasks\u2014editing content, translating, generating images, publishing, and more. Built-in recipes are included; customize and save changes for your project." })] }), loadError ? jsx$1(Alert, { severity: "error", children: loadError }) : null, saveError ? jsx$1(Alert, { severity: "error", onClose: () => setSaveError(null), children: saveError }) : null, dirty ? (jsx$1(Alert, { severity: "warning", children: "You have unsaved changes. Save or discard before you leave." })) : null, jsx$1(AiAssistantIntentRecipeRoutingFields, { value: toolsPolicy.intentRecipeRouting, onChange: patchToolsRouting }), jsxs(Stack$1, { direction: "row", spacing: 1, flexWrap: "wrap", useFlexGap: true, alignItems: "center", children: [jsx$1(Button, { variant: "contained", startIcon: jsx$1(SaveRounded, {}), disabled: !dirty || saving || !siteId, onClick: () => void save(), children: saving ? 'Saving…' : 'Save routing and project recipes' }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(AddRounded, {}), onClick: addNewRecipe, disabled: !loaded, children: "New recipe" }), jsx$1(Button, { size: "small", variant: "outlined", onClick: openJsonEditor, disabled: !loaded, children: "Edit project JSON" }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(DownloadRounded, {}), onClick: exportSiteFile, disabled: !loaded, children: "Export project file" }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(DownloadRounded, {}), onClick: exportMergedCatalog, disabled: !loaded, children: "Export merged catalog" }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(ContentCopyRounded, {}), onClick: () => void copySiteJson(), disabled: !loaded, children: "Copy project JSON" }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(ContentCopyRounded, {}), onClick: () => void copyMergedJson(), disabled: !loaded, children: "Copy merged JSON" })] }), jsxs(Box, { sx: {
+                    display: 'grid',
+                    gridTemplateColumns: { xs: '1fr', md: 'minmax(220px, 280px) 1fr' },
+                    gap: 2,
+                    minHeight: 360
+                }, children: [jsxs(Paper, { variant: "outlined", sx: { overflow: 'auto', maxHeight: { md: '78vh' } }, children: [jsxs(Typography, { variant: "subtitle2", sx: { px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider' }, children: ["Recipes (", entries.length, ")"] }), jsx$1(List, { dense: true, disablePadding: true, children: entries.map((entry, index) => (jsxs(ListItemButton, { selected: entry.id === selectedEntry?.id, draggable: true, onDragStart: (e) => {
+                                        e.stopPropagation();
+                                        setRecipeDragIndex(index);
+                                    }, onDragEnd: () => {
+                                        setRecipeDragIndex(null);
+                                        setRecipeDropIndex(null);
+                                    }, onDragOver: (e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        setRecipeDropIndex(index);
+                                    }, onDrop: (e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        if (recipeDragIndex != null && recipeDropIndex != null) {
+                                            reorderRecipeList(recipeDragIndex, recipeDropIndex);
+                                        }
+                                        setRecipeDragIndex(null);
+                                        setRecipeDropIndex(null);
+                                    }, onClick: () => {
+                                        if (entry.id === selectedEntry?.id)
+                                            return;
+                                        requestNavigate({ kind: 'selectRecipe', id: entry.id });
+                                    }, sx: {
+                                        opacity: recipeDragIndex === index ? 0.55 : 1,
+                                        cursor: 'grab',
+                                        alignItems: 'flex-start'
+                                    }, children: [jsx$1(DragIndicatorRounded, { sx: { color: 'text.disabled', mt: 0.75, mr: 0.5, flexShrink: 0 }, fontSize: "small" }), jsx$1(Typography, { component: "span", "aria-hidden": true, sx: { fontSize: '1.15rem', lineHeight: 1, mt: 0.85, mr: 1, flexShrink: 0, width: 24, textAlign: 'center' }, children: entry.chatEmoji }), jsx$1(ListItemText, { primary: entry.title, secondary: entry.id, primaryTypographyProps: { variant: 'body2', fontWeight: entry.id === selectedEntry?.id ? 600 : 400 }, secondaryTypographyProps: { variant: 'caption', fontFamily: 'monospace' } }), jsx$1(Box, { sx: { ml: 1, flexShrink: 0 }, children: sourceChip(entry) })] }, entry.id))) })] }), jsx$1(Paper, { variant: "outlined", sx: { p: 2, minWidth: 0, overflow: 'auto', maxHeight: { md: '78vh' } }, children: !selectedEntry || !recipeDraft ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", children: loaded ? 'Select or create a recipe.' : 'Loading…' })) : (jsxs(Stack$1, { spacing: 2, children: [jsxs(Stack$1, { direction: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 1, flexWrap: "wrap", children: [jsxs(Stack$1, { direction: "row", spacing: 1, alignItems: "center", flexWrap: "wrap", useFlexGap: true, children: [jsx$1(Typography, { component: "span", sx: { fontSize: '1.35rem', lineHeight: 1 }, "aria-hidden": true, children: selectedEntry.chatEmoji }), jsx$1(Typography, { variant: "subtitle1", children: recipeDraft.title || recipeDraft.id }), sourceChip(selectedEntry)] }), jsxs(Stack$1, { direction: "row", spacing: 1, flexWrap: "wrap", useFlexGap: true, children: [selectedEntry.source === 'override' ? (jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(RestartAltRounded, {}), onClick: () => resetBuiltInToBundled(selectedEntry.id), children: "Reset to built-in" })) : null, selectedEntry.source === 'custom' ? (jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), onClick: () => removeCustomRecipe(selectedEntry.id), children: "Delete project recipe" })) : null] })] }), editingRecipe ? (jsx$1(AiAssistantIntentRecipeEditor, { recipe: recipeDraft, onChange: commitRecipeDraft, idReadOnly: idReadOnly, saveHint: saveHint, onDone: () => requestNavigate({ kind: 'leaveEdit' }) }, selectedEntry.id)) : (jsx$1(AiAssistantIntentRecipeView, { recipe: recipeDraft, entry: selectedEntry, onEdit: () => setEditingRecipe(true) }))] })) })] }), jsxs(Dialog, { open: pendingRevertId != null, onClose: cancelPendingRevert, maxWidth: "sm", fullWidth: true, children: [jsx$1(DialogTitle, { children: "Revert to built-in?" }), jsx$1(DialogContent, { children: jsxs(Typography, { variant: "body2", paragraph: true, children: ["This removes your project customization for", ' ', jsx$1("strong", { children: pendingRevertId ?? '' }), " and restores the built-in recipe. The change is saved to your project file immediately (no override entry is kept)."] }) }), jsxs(DialogActions, { children: [jsx$1(Button, { onClick: cancelPendingRevert, disabled: revertBusy || saving, children: "Cancel" }), jsx$1(Button, { variant: "contained", color: "warning", onClick: () => void confirmRevertToBuiltIn(), disabled: revertBusy || saving || !siteId, children: revertBusy || saving ? 'Saving…' : 'Revert and save' })] })] }), jsxs(Dialog, { open: pendingNavigate != null, onClose: cancelPendingNavigate, maxWidth: "sm", fullWidth: true, children: [jsx$1(DialogTitle, { children: "Unsaved changes" }), jsx$1(DialogContent, { children: jsxs(Typography, { variant: "body2", paragraph: true, children: ["Save your changes, discard them, or stay here", pendingNavigate ? ` before you ${pendingNavigateDescription(pendingNavigate)}` : '', "."] }) }), jsxs(DialogActions, { children: [jsx$1(Button, { onClick: cancelPendingNavigate, disabled: navigateSaveBusy || saving, children: "Stay" }), jsx$1(Button, { color: "warning", onClick: () => void discardPendingNavigate(), disabled: navigateSaveBusy || saving, children: "Discard changes" }), jsx$1(Button, { variant: "contained", onClick: () => void saveAndPendingNavigate(), disabled: navigateSaveBusy || saving, children: navigateSaveBusy || saving ? 'Saving…' : 'Save and continue' })] })] }), jsxs(Dialog, { open: jsonDialogOpen, onClose: () => setJsonDialogOpen(false), maxWidth: "md", fullWidth: true, children: [jsx$1(DialogTitle, { children: "Project intent recipes" }), jsxs(DialogContent, { children: [jsonError ? (jsx$1(Alert, { severity: "error", sx: { mb: 2 }, children: jsonError })) : null, jsx$1(AiAssistantStudioCodeEditor, { value: jsonDraft, onChange: setJsonDraft, language: "json", minHeight: 360 })] }), jsxs(DialogActions, { children: [jsx$1(Button, { onClick: () => setJsonDialogOpen(false), children: "Cancel" }), jsx$1(Button, { onClick: () => {
+                                    void copyTextToClipboard(jsonDraft).then((ok) => setToast(ok ? 'Copied.' : 'Could not copy.'));
+                                }, children: "Copy" }), jsx$1(Button, { variant: "contained", onClick: applyJsonEditor, children: "Apply to draft" })] })] }), jsx$1(Snackbar, { open: Boolean(toast), autoHideDuration: 4000, onClose: () => setToast(null), message: toast ?? '', anchorOrigin: { vertical: 'bottom', horizontal: 'center' } })] }));
+});
+
+/** Default Groovy when creating a site user tool (see {@code StudioAiUserSiteTools#invokeRegisteredTool}). */
+const AI_ASSISTANT_USER_TOOL_GROOVY_STUB = `// InvokeSiteUserTool — bindings: studio, args, toolId, siteId, log
+[
+  ok     : true,
+  message: 'Replace this stub — return a Map (ok, message, data, etc.).'
+]
+`;
+/** Default Groovy for script image generator {@code script:{id}} (see {@code StudioAiScriptImageGenLoader}). */
+const AI_ASSISTANT_IMAGEGEN_GROOVY_STUB = `{ Map input, Map context ->
+  String p = (input?.prompt ?: '').toString()
+  if (p.length() > 120) {
+    p = p.substring(0, 120) + '…'
+  }
+  [
+    error  : true,
+    message: 'Stub image generator — implement (input, context) -> Map per GenerateImage contract. prompt=' + p
+  ]
+}
+`;
+/** Default Groovy for script LLM {@code script:id} (see {@code StudioAiScriptLlmLoader} and demo runtime). */
+const AI_ASSISTANT_LLM_RUNTIME_GROOVY_STUB = `import plugins.org.craftercms.aiassistant.llm.OpenAiSpringAiLlmRuntime
+import plugins.org.craftercms.aiassistant.llm.StudioAiLlmKind
+import plugins.org.craftercms.aiassistant.llm.StudioAiRuntimeBuildRequest
+
+[
+  supportsNativeStudioTools: true,
+  normalizedKind          : StudioAiLlmKind.SCRIPT_LLM_PREFIX + llmId,
+  buildSessionBundle      : { StudioAiRuntimeBuildRequest r ->
+    StudioAiRuntimeBuildRequest sub = new StudioAiRuntimeBuildRequest()
+    sub.orchestration = r.orchestration
+    sub.toolResultConverter = r.toolResultConverter
+    sub.studioOps = r.studioOps
+    sub.studioServletRequest = r.studioServletRequest
+    sub.agentId = r.agentId
+    sub.chatId = r.chatId
+    sub.llmNormalized = StudioAiLlmKind.OPENAI_NATIVE
+    sub.llmModelParam = r.llmModelParam
+    sub.llmApiKeyFromRequest = r.llmApiKeyFromRequest
+    sub.toolProgressListener = r.toolProgressListener
+    sub.imageModelParam = r.imageModelParam
+    sub.imageGeneratorParam = r.imageGeneratorParam
+    sub.fullSuppressRepoWrites = r.fullSuppressRepoWrites
+    sub.protectedFormItemPath = r.protectedFormItemPath
+    sub.enableTools = r.enableTools
+    sub.agentEnabledBuiltInTools = r.agentEnabledBuiltInTools
+    OpenAiSpringAiLlmRuntime.INSTANCE.buildSessionBundle(sub)
+  }
+]
+`;
+const AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB = `{
+  "tools": [
+    {
+      "id": "example_tool",
+      "script": "ExampleTool.groovy",
+      "description": "Example InvokeSiteUserTool registration"
+    }
+  ]
+}
+`;
+/** Starter markdown when creating a site override for {@code config/studio/scripts/aiassistant/prompts/&lt;KEY&gt;.md}. */
+function aiAssistantToolPromptMarkdownStub(key) {
+    return `# ${key}
+
+Non-empty markdown replaces the built-in prompt for this key. Leave the file blank or delete it to keep the plugin default (see ToolPromptsLoader).
+
+`;
+}
+
+function emptyMcpServerRow() {
+    return { id: '', url: '', readTimeoutMs: '', headerPairs: [{ key: '', value: '' }] };
+}
+function AiAssistantToolsMcpForm(props) {
+    const { value, onChange } = props;
+    const setMcpEnabled = (mcpEnabled) => {
+        onChange({ ...value, mcpEnabled });
+    };
+    const updateServer = (index, row) => {
+        const mcpServers = value.mcpServers.map((r, i) => (i === index ? row : r));
+        onChange({ ...value, mcpServers });
+    };
+    const addServer = () => {
+        onChange({ ...value, mcpServers: [...value.mcpServers, emptyMcpServerRow()] });
+    };
+    const removeServer = (index) => {
+        onChange({ ...value, mcpServers: value.mcpServers.filter((_, i) => i !== index) });
+    };
+    return (jsxs(Stack$1, { spacing: 4, children: [jsx$1(AiAssistantSiteOrchestrationToolsForm, { value: value, onChange: onChange }), jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "subtitle2", children: "MCP (Streamable HTTP):" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.mcpEnabled, onChange: (_, c) => setMcpEnabled(c), size: "small" }), label: "Enable MCP client" })] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "When enabled, each server below is contacted on chat requests to list and call remote tools. URLs must pass the same outbound rules as FetchHttpUrl." }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Example (streamable HTTP, optional headers, read-only URL patterns):", ' ', jsx$1(Link, { href: "https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md", target: "_blank", rel: "noopener noreferrer", children: "GitHub MCP Server \u2014 remote-server.md" }), "."] }), value.mcpEnabled ? (jsxs(Fragment, { children: [jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "body2", children: "MCP servers" }), jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: addServer, children: "Add server" })] }), value.mcpServers.length === 0 ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 1 }, children: "No servers yet. Use Add server to register a Streamable HTTP MCP endpoint." })) : (jsxs(Table$1, { size: "small", sx: { border: 1, borderColor: 'divider', borderRadius: 1, mb: 1 }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Server id" }), jsx$1(TableCell, { children: "MCP URL and optional headers" }), jsx$1(TableCell, { width: 120, children: "Timeout (ms)" }), jsx$1(TableCell, { align: "right", width: 88, children: ' ' })] }) }), jsx$1(TableBody, { children: value.mcpServers.map((row, si) => (jsxs(TableRow, { children: [jsx$1(TableCell, { sx: { verticalAlign: 'top' }, children: jsx$1(TextField, { size: "small", fullWidth: true, value: row.id, onChange: (e) => updateServer(si, { ...row, id: e.target.value }), placeholder: "e.g. docs" }) }), jsxs(TableCell, { sx: { verticalAlign: 'top' }, children: [jsx$1(TextField, { size: "small", fullWidth: true, value: row.url, onChange: (e) => updateServer(si, { ...row, url: e.target.value }), placeholder: "https://host/\u2026/mcp" }), jsxs(Stack$1, { spacing: 0.5, sx: { mt: 1 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Optional headers" }), row.headerPairs.map((hp, hi) => (jsxs(Stack$1, { direction: "row", spacing: 0.5, alignItems: "center", children: [jsx$1(TextField, { size: "small", label: "Name", value: hp.key, onChange: (e) => {
+                                                                                const headerPairs = row.headerPairs.map((p, j) => j === hi ? { ...p, key: e.target.value } : p);
+                                                                                updateServer(si, { ...row, headerPairs });
+                                                                            }, sx: { flex: 1 } }), jsx$1(TextField, { size: "small", label: "Value", type: hp.key.trim().toLowerCase() === 'authorization' ? 'password' : 'text', autoComplete: "off", value: hp.value, onChange: (e) => {
+                                                                                const headerPairs = row.headerPairs.map((p, j) => j === hi ? { ...p, value: e.target.value } : p);
+                                                                                updateServer(si, { ...row, headerPairs });
+                                                                            }, sx: { flex: 2 } }), jsx$1(IconButton, { size: "small", "aria-label": "Remove header", onClick: () => {
+                                                                                const headerPairs = row.headerPairs.filter((_, j) => j !== hi);
+                                                                                updateServer(si, {
+                                                                                    ...row,
+                                                                                    headerPairs: headerPairs.length ? headerPairs : [{ key: '', value: '' }]
+                                                                                });
+                                                                            }, children: jsx$1(DeleteOutlineRounded, { fontSize: "small" }) })] }, hi))), jsx$1(Button, { size: "small", onClick: () => updateServer(si, {
+                                                                        ...row,
+                                                                        headerPairs: [...row.headerPairs, { key: '', value: '' }]
+                                                                    }), children: "Add header" })] })] }), jsx$1(TableCell, { sx: { verticalAlign: 'top' }, children: jsx$1(TextField, { size: "small", fullWidth: true, value: row.readTimeoutMs, onChange: (e) => updateServer(si, { ...row, readTimeoutMs: e.target.value }), placeholder: "120000" }) }), jsx$1(TableCell, { align: "right", sx: { verticalAlign: 'top' }, children: jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), onClick: () => removeServer(si), children: "Remove" }) })] }, si))) })] })), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: value.disabledMcpTools, onChange: (_, v) => onChange({ ...value, disabledMcpTools: v.map(String) }), renderTags: (tagValue, getTagProps) => tagValue.map((option, index) => (createElement(Chip, { variant: "outlined", label: option, size: "small", ...getTagProps({ index }), key: `${option}-${index}` }))), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Hide MCP wire tools", placeholder: "e.g. mcp_docs_search", size: "small" })) })] })) : null] })] }));
+}
+
 const REGISTRY_REL = 'scripts/aiassistant/user-tools/registry.json';
 /** Site policy + MCP: {@code StudioAiAssistantProjectConfig#TOOLS_JSON_PATH}. */
 const TOOLS_JSON_REL = 'scripts/aiassistant/config/tools.json';
@@ -71216,7 +73313,7 @@ function AiAssistantScriptsSandboxConfiguration(props) {
             }
             if (!toolsPolicyDirtyRef.current && showTools) {
                 try {
-                    const text = await fetchOptionalStudioSandboxUtf8(siteId, TOOLS_JSON_SANDBOX_PATH);
+                    const text = await fetchOptionalStudioSandboxUtf8(siteId, TOOLS_JSON_SANDBOX_PATH$1);
                     const parsed = parseToolsPolicyFromJsonText(text.trim() ? text : '');
                     if (!parsed.ok) {
                         setLoadError(parsed.message);
@@ -71797,18 +73894,32 @@ async function fetchAiAssistantContentTypeCatalog(siteId) {
 
 const AI_ASSISTANT_FORM_FIELD_MARKER_BEGIN = '<!-- AI_ASSISTANT_PLUGIN_FIELD_BEGIN -->';
 const AI_ASSISTANT_FORM_FIELD_MARKER_END = '<!-- AI_ASSISTANT_PLUGIN_FIELD_END -->';
-const PLUGIN_FIELD_TYPE = `${aiAssistantStudioPluginId}/ai-assistant`;
+/** Must match {@code getName()} in {@code sources/control/ai-assistant/main.js} and site-config-tools control name. */
+const STUDIO_AI_ASSISTANT_CONTROL_TYPE = 'ai-assistant';
+/** Earlier bulk inserts used pluginId/name; Studio only resolves {@link STUDIO_AI_ASSISTANT_CONTROL_TYPE}. */
+const LEGACY_BULK_CONTROL_TYPE = `${aiAssistantStudioPluginId}/ai-assistant`;
 const DEFAULT_FIELD_ID = 'cqAiAssistantStudio';
-/** Minimal field block; Studio merges plugin control from site-config-tools registration. */
+/**
+ * Required for {@code getPluginInfo} in forms-engine: without {@code <plugin>}, Studio loads
+ * {@code /static-assets/components/cstudio-forms/controls/ai-assistant.js} (missing) instead of the plugin URL.
+ */
+const AI_ASSISTANT_FIELD_PLUGIN_FRAGMENT = `<plugin>
+    <pluginId>${aiAssistantStudioPluginId}</pluginId>
+    <type>control</type>
+    <name>${STUDIO_AI_ASSISTANT_CONTROL_TYPE}</name>
+    <filename>main.js</filename>
+  </plugin>`;
+/** Minimal field block matching Content Types editor serialization (type + plugin + properties). */
 const MARKED_FIELD_FRAGMENT = `${AI_ASSISTANT_FORM_FIELD_MARKER_BEGIN}
 <field>
-  <type>${PLUGIN_FIELD_TYPE}</type>
+  <type>${STUDIO_AI_ASSISTANT_CONTROL_TYPE}</type>
   <id>${DEFAULT_FIELD_ID}</id>
   <iceId></iceId>
   <title>AI Assistant</title>
   <description></description>
   <defaultValue></defaultValue>
   <help></help>
+  ${AI_ASSISTANT_FIELD_PLUGIN_FRAGMENT}
   <properties>
   </properties>
   <constraints>
@@ -71822,39 +73933,119 @@ function normalizeContentTypeId(id) {
 }
 function formDefinitionStudioPath(contentTypeId) {
     const normalized = normalizeContentTypeId(contentTypeId);
-    return `content-types${normalized}/form-definition.xml`;
+    return studioConfigRelativePath(`content-types${normalized}/form-definition.xml`);
 }
-function hasPluginAssistantField(xml) {
+function formDefinitionSandboxPath(contentTypeId) {
+    const normalized = normalizeContentTypeId(contentTypeId);
+    return `/config/studio/content-types${normalized}/form-definition.xml`;
+}
+function hasWrongBulkControlType(xml) {
+    return xml.includes(`<type>${LEGACY_BULK_CONTROL_TYPE}</type>`);
+}
+function aiAssistantFieldBlock(xml) {
+    const re = new RegExp(`<field>[\\s\\S]*?<type>\\s*${STUDIO_AI_ASSISTANT_CONTROL_TYPE}\\s*</type>[\\s\\S]*?<id>\\s*${DEFAULT_FIELD_ID}\\s*</id>[\\s\\S]*?</field>`, 'm');
+    return xml.match(re)?.[0] ?? null;
+}
+/** Field present with correct {@code <type>} (marker or default id). */
+function hasCorrectPluginAssistantField(xml) {
     if (!xml)
+        return false;
+    if (hasWrongBulkControlType(xml))
         return false;
     if (xml.includes(AI_ASSISTANT_FORM_FIELD_MARKER_BEGIN))
         return true;
-    return xml.includes(`<type>${PLUGIN_FIELD_TYPE}</type>`);
+    return aiAssistantFieldBlock(xml) != null;
+}
+/** {@code <plugin>} block so forms-engine loads plugin {@code main.js}, not built-in controls path. */
+function hasAiAssistantPluginLinkage(xml) {
+    const block = aiAssistantFieldBlock(xml);
+    if (!block)
+        return false;
+    return (block.includes('<plugin>') &&
+        block.includes(`<pluginId>${aiAssistantStudioPluginId}</pluginId>`) &&
+        block.includes(`<name>${STUDIO_AI_ASSISTANT_CONTROL_TYPE}</name>`));
+}
+/** Repair bulk inserts that used {@code pluginId/control-name} in {@code <type>}. */
+function repairBulkControlType(xml) {
+    if (!hasWrongBulkControlType(xml))
+        return xml;
+    return xml.split(`<type>${LEGACY_BULK_CONTROL_TYPE}</type>`).join(`<type>${STUDIO_AI_ASSISTANT_CONTROL_TYPE}</type>`);
+}
+/** Bulk inserts before plugin linkage fix omitted {@code <plugin>}; control script never loads in Content Form. */
+function repairMissingPluginLinkage(xml) {
+    const block = aiAssistantFieldBlock(xml);
+    if (!block || hasAiAssistantPluginLinkage(xml))
+        return xml;
+    const indented = AI_ASSISTANT_FIELD_PLUGIN_FRAGMENT.split('\n')
+        .map((line) => (line.trim() ? `  ${line}` : line))
+        .join('\n');
+    const patchedBlock = block.replace(/<help>\s*<\/help>\s*/i, (m) => `${m}${indented}\n  `);
+    if (patchedBlock === block) {
+        return xml.replace(block, block.replace(/<type>\s*ai-assistant\s*<\/type>\s*/i, (m) => `${m}${indented}\n  `));
+    }
+    return xml.replace(block, patchedBlock);
 }
 function stripMarkedBlock(xml) {
     const re = new RegExp(`${AI_ASSISTANT_FORM_FIELD_MARKER_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${AI_ASSISTANT_FORM_FIELD_MARKER_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`, 'm');
     return xml.replace(re, '');
 }
-/** Remove legacy unmarked field (same type + id) if present. */
+/** Remove legacy unmarked field (correct or wrong type + default id). */
 function stripLegacyUnmarkedField(xml) {
-    const re = new RegExp(`<field>\\s*<type>\\s*${PLUGIN_FIELD_TYPE.replace(/\//g, '\\/')}\\s*</type>[\\s\\S]*?<id>\\s*${DEFAULT_FIELD_ID}\\s*</id>[\\s\\S]*?</field>\\s*`, 'm');
-    return xml.replace(re, '');
+    const types = [STUDIO_AI_ASSISTANT_CONTROL_TYPE, LEGACY_BULK_CONTROL_TYPE.replace(/\//g, '\\/')];
+    let out = xml;
+    for (const typePat of types) {
+        const re = new RegExp(`<field>\\s*<type>\\s*${typePat}\\s*</type>[\\s\\S]*?<id>\\s*${DEFAULT_FIELD_ID}\\s*</id>[\\s\\S]*?</field>\\s*`, 'm');
+        out = out.replace(re, '');
+    }
+    return out;
 }
+/**
+ * Inserts the marked field after the opening {@code <fields>} of the first {@code <section>} under {@code <sections>}.
+ * Crafter form definitions almost always have {@code <title>}, {@code <defaultOpen>}, etc. between {@code <section>} and {@code <fields>}.
+ */
 function insertAfterFirstSectionFieldsOpen(xml) {
-    const m = xml.match(/<sections>\s*<section[^>]*>\s*<fields>/);
-    if (!m || m.index == null)
+    const sectionsIdx = xml.search(/<sections\b[^>]*>/i);
+    if (sectionsIdx < 0)
         return null;
-    const idx = m.index + m[0].length;
-    return xml.slice(0, idx) + '\n' + MARKED_FIELD_FRAGMENT + '\n' + xml.slice(idx);
+    const afterSections = xml.slice(sectionsIdx);
+    const sectionRel = afterSections.search(/<section\b[^>]*>/i);
+    if (sectionRel < 0)
+        return null;
+    const afterSection = afterSections.slice(sectionRel);
+    const fieldsMatch = afterSection.match(/<fields\b[^>]*>/i);
+    if (!fieldsMatch || fieldsMatch.index == null)
+        return null;
+    const insertPos = sectionsIdx + sectionRel + fieldsMatch.index + fieldsMatch[0].length;
+    return xml.slice(0, insertPos) + '\n' + MARKED_FIELD_FRAGMENT + '\n' + xml.slice(insertPos);
+}
+/** Fallback when {@code <sections>} is absent (legacy or minimal form definitions). */
+function insertAfterFirstFieldsOpen(xml) {
+    const fieldsMatch = xml.match(/<fields\b[^>]*>/i);
+    if (!fieldsMatch || fieldsMatch.index == null)
+        return null;
+    const insertPos = fieldsMatch.index + fieldsMatch[0].length;
+    return xml.slice(0, insertPos) + '\n' + MARKED_FIELD_FRAGMENT + '\n' + xml.slice(insertPos);
 }
 async function fetchFormDefinitionXml(siteId, contentTypeId) {
-    const path = formDefinitionStudioPath(contentTypeId);
-    const xml = await firstValueFrom(fetchConfigurationXML(siteId, path, 'studio'));
-    return xml ?? '';
+    const rel = formDefinitionStudioPath(contentTypeId);
+    return fetchStudioConfigFileUtf8(siteId, rel);
 }
 async function writeFormDefinitionXml(siteId, contentTypeId, xml) {
-    const path = formDefinitionStudioPath(contentTypeId);
-    await firstValueFrom(writeConfiguration(siteId, path, 'studio', xml));
+    const rel = formDefinitionStudioPath(contentTypeId);
+    const sandboxPath = formDefinitionSandboxPath(contentTypeId);
+    try {
+        await firstValueFrom(writeConfiguration(siteId, rel, 'studio', xml));
+    }
+    catch (configErr) {
+        try {
+            await firstValueFrom(writeContent(siteId, sandboxPath, xml, { unlock: true }));
+        }
+        catch (contentErr) {
+            const a = configErr instanceof Error ? configErr.message : String(configErr);
+            const b = contentErr instanceof Error ? contentErr.message : String(contentErr);
+            throw new Error(`Could not save form-definition (${rel}): ${a}; sandbox write (${sandboxPath}): ${b}`);
+        }
+    }
 }
 async function mutateFormDefinitionForContentType(siteId, contentTypeId, mode) {
     let xml = await fetchFormDefinitionXml(siteId, contentTypeId);
@@ -71867,13 +74058,29 @@ async function mutateFormDefinitionForContentType(siteId, contentTypeId, mode) {
         await writeFormDefinitionXml(siteId, contentTypeId, next);
         return 'ok';
     }
-    // add
-    if (hasPluginAssistantField(xml))
+    // add: fix wrong <type>, missing <plugin>, insert when absent; skip only when fully wired
+    if (hasWrongBulkControlType(xml)) {
+        xml = repairBulkControlType(xml);
+        await writeFormDefinitionXml(siteId, contentTypeId, xml);
+        return 'ok';
+    }
+    if (hasCorrectPluginAssistantField(xml) && !hasAiAssistantPluginLinkage(xml)) {
+        const repaired = repairMissingPluginLinkage(xml);
+        if (repaired !== xml) {
+            await writeFormDefinitionXml(siteId, contentTypeId, repaired);
+            return 'ok';
+        }
+    }
+    if (hasCorrectPluginAssistantField(xml) && hasAiAssistantPluginLinkage(xml))
         return 'skipped';
-    const inserted = insertAfterFirstSectionFieldsOpen(xml);
+    const inserted = insertAfterFirstSectionFieldsOpen(xml) ?? insertAfterFirstFieldsOpen(xml);
     if (inserted == null)
         return 'missing_form';
     await writeFormDefinitionXml(siteId, contentTypeId, inserted);
+    const verify = await fetchFormDefinitionXml(siteId, contentTypeId);
+    if (!hasCorrectPluginAssistantField(verify) || !hasAiAssistantPluginLinkage(verify)) {
+        throw new Error(`Write did not persist AI Assistant field for ${contentTypeId}`);
+    }
     return 'ok';
 }
 async function runBulkFormControlChange(siteId, mode, contentTypeIds) {
@@ -72020,6 +74227,12 @@ function AiAssistantStudioUiSettings() {
             ];
             if (stats.errors.length)
                 parts.push(`Errors: ${stats.errors.join('; ')}`);
+            if (stats.ok > 0) {
+                parts.push('Open a content item in Form Engine (not only the Content Types builder) to use the AI Assistant panel. Commit or publish form-definition changes if your site requires it.');
+            }
+            else if (stats.missing > 0 && stats.ok === 0 && stats.errors.length === 0) {
+                parts.push('No form-definition.xml was loaded for the selected types. Confirm the plugin bundle is rebuilt and reinstalled, then try again.');
+            }
             setBulkMsg(parts.join('. '));
         }
         catch (e) {
@@ -72044,7 +74257,11 @@ function AiAssistantStudioUiSettings() {
                                 contentTypeIdsForImageAugmentation: v.map((x) => x.id)
                             }));
                             setDirty(true);
-                        }, disabled: imageScope !== 'selected', renderInput: (params) => (jsx$1(TextField, { ...params, label: "Content types (image augmentation)", placeholder: "Pick types\u2026" })) }), jsx$1(Divider, { sx: { my: 3 } }), jsx$1(Typography, { variant: "subtitle1", sx: { mt: 1 }, children: "AI Assistant Form Control on Content Types:" }), jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 1 }, children: "Inserts or removes a marked field block in the first fields section of form-definition.xml for each chosen content type. Review in Git before publishing. Backup recommended." }), catalogError ? jsx$1(Alert, { severity: "warning", children: catalogError }) : null, bulkMsg ? jsx$1(Alert, { severity: "info", children: bulkMsg }) : null, jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 1, flexWrap: "wrap", useFlexGap: true, children: [jsx$1(Button, { variant: "outlined", disabled: bulkBusy || !catalog.length, onClick: () => void runBulk('add', allTypeIds), children: "Add to all" }), jsx$1(Button, { variant: "outlined", color: "warning", disabled: bulkBusy || !catalog.length, onClick: () => void runBulk('remove', allTypeIds), children: "Remove from all" })] }), jsx$1(Autocomplete$1, { multiple: true, options: catalog, getOptionLabel: (o) => o.label, isOptionEqualToValue: (a, b) => a.id === b.id, value: formTargets, onChange: (_, v) => setFormTargets(v), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Selected content types (form control)", placeholder: "Pick types\u2026" })) }), jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 1, flexWrap: "wrap", useFlexGap: true, children: [jsx$1(Button, { variant: "contained", disabled: bulkBusy || formTargets.length === 0, onClick: () => void runBulk('add', formTargets.map((x) => x.id)), children: "Add to selected" }), jsx$1(Button, { variant: "outlined", color: "warning", disabled: bulkBusy || formTargets.length === 0, onClick: () => void runBulk('remove', formTargets.map((x) => x.id)), children: "Remove from selected" })] }), jsx$1(Divider, {}), jsxs(Stack$1, { direction: "row", spacing: 1, alignItems: "center", children: [jsx$1(Button, { variant: "contained", startIcon: jsx$1(SaveRounded, {}), disabled: !dirty || saving, onClick: () => void save(), children: "Save UI settings" }), dirty ? (jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Unsaved changes" })) : null] })] })] }));
+                        }, disabled: imageScope !== 'selected', renderInput: (params) => (jsx$1(TextField, { ...params, label: "Content types (image augmentation)", placeholder: "Pick types\u2026" })) }), jsx$1(Divider, { sx: { my: 3 } }), jsx$1(Typography, { variant: "subtitle1", sx: { mt: 1 }, children: "AI Assistant Form Control on Content Types:" }), jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 1 }, children: "Inserts or removes a marked field block in the first fields section of form-definition.xml for each chosen content type. Review in Git before publishing. Backup recommended." }), catalogError ? jsx$1(Alert, { severity: "warning", children: catalogError }) : null, bulkMsg ? (jsx$1(Alert, { severity: bulkMsg.startsWith('Updated: 0') && bulkMsg.includes('Errors:')
+                            ? 'error'
+                            : bulkMsg.startsWith('Updated: 0')
+                                ? 'warning'
+                                : 'info', children: bulkMsg })) : null, jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 1, flexWrap: "wrap", useFlexGap: true, children: [jsx$1(Button, { variant: "outlined", disabled: bulkBusy || !catalog.length, onClick: () => void runBulk('add', allTypeIds), children: "Add to all" }), jsx$1(Button, { variant: "outlined", color: "warning", disabled: bulkBusy || !catalog.length, onClick: () => void runBulk('remove', allTypeIds), children: "Remove from all" })] }), jsx$1(Autocomplete$1, { multiple: true, options: catalog, getOptionLabel: (o) => o.label, isOptionEqualToValue: (a, b) => a.id === b.id, value: formTargets, onChange: (_, v) => setFormTargets(v), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Selected content types (form control)", placeholder: "Pick types\u2026" })) }), jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 1, flexWrap: "wrap", useFlexGap: true, children: [jsx$1(Button, { variant: "contained", disabled: bulkBusy || formTargets.length === 0, onClick: () => void runBulk('add', formTargets.map((x) => x.id)), children: "Add to selected" }), jsx$1(Button, { variant: "outlined", color: "warning", disabled: bulkBusy || formTargets.length === 0, onClick: () => void runBulk('remove', formTargets.map((x) => x.id)), children: "Remove from selected" })] }), jsx$1(Divider, {}), jsxs(Stack$1, { direction: "row", spacing: 1, alignItems: "center", children: [jsx$1(Button, { variant: "contained", startIcon: jsx$1(SaveRounded, {}), disabled: !dirty || saving, onClick: () => void save(), children: "Save UI settings" }), dirty ? (jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Unsaved changes" })) : null] })] })] }));
 }
 
 /**
@@ -72130,6 +74347,8 @@ function projectToolsTabLabel(t) {
             return 'UI';
         case 'agents':
             return 'Agents';
+        case 'recipes':
+            return 'Recipes';
         case 'prompts':
             return 'Prompts and Context';
         case 'tools':
@@ -72147,36 +74366,58 @@ function AiAssistantProjectToolsConfigurationPanel(props) {
     const { defaultTab = 'ui' } = props;
     const [tab, setTab] = useState(defaultTab);
     const [agentsCatalogDirty, setAgentsCatalogDirty] = useState(false);
+    const [recipesDirty, setRecipesDirty] = useState(false);
     const [pendingTabSwitch, setPendingTabSwitch] = useState(null);
     const [tabLeaveSaveBusy, setTabLeaveSaveBusy] = useState(false);
     const agentsCatalogRef = useRef(null);
+    const recipesConfigRef = useRef(null);
     const { ref: rootRef, isFullscreen: toolFullscreen, toggleFullscreen: toggleToolFullscreen } = useDomFullscreen();
     const handleTabsChange = useCallback((_, value) => {
         if (tab === 'agents' && agentsCatalogDirty && value !== 'agents') {
-            setPendingTabSwitch(value);
+            setPendingTabSwitch({ from: 'agents', to: value });
+            return;
+        }
+        if (tab === 'recipes' && recipesDirty && value !== 'recipes') {
+            setPendingTabSwitch({ from: 'recipes', to: value });
             return;
         }
         setTab(value);
-    }, [tab, agentsCatalogDirty]);
+    }, [tab, agentsCatalogDirty, recipesDirty]);
     const cancelPendingTabSwitch = useCallback(() => {
         setPendingTabSwitch(null);
         setTabLeaveSaveBusy(false);
     }, []);
-    const discardPendingTabSwitch = useCallback(() => {
+    const discardPendingTabSwitch = useCallback(async () => {
         if (pendingTabSwitch == null)
             return;
-        const next = pendingTabSwitch;
-        setAgentsCatalogDirty(false);
-        setPendingTabSwitch(null);
-        setTab(next);
+        const next = pendingTabSwitch.to;
+        setTabLeaveSaveBusy(true);
+        try {
+            if (pendingTabSwitch.from === 'agents') {
+                setAgentsCatalogDirty(false);
+            }
+            if (pendingTabSwitch.from === 'recipes') {
+                await recipesConfigRef.current?.discard();
+                setRecipesDirty(false);
+            }
+            setPendingTabSwitch(null);
+            setTab(next);
+        }
+        finally {
+            setTabLeaveSaveBusy(false);
+        }
     }, [pendingTabSwitch]);
     const saveAndPendingTabSwitch = useCallback(async () => {
         if (pendingTabSwitch == null)
             return;
-        const next = pendingTabSwitch;
+        const { from, to: next } = pendingTabSwitch;
         setTabLeaveSaveBusy(true);
         try {
-            const ok = (await agentsCatalogRef.current?.save()) === true;
+            const ok = from === 'agents'
+                ? (await agentsCatalogRef.current?.save()) === true
+                : from === 'recipes'
+                    ? (await recipesConfigRef.current?.save()) === true
+                    : true;
             if (ok) {
                 setPendingTabSwitch(null);
                 setTab(next);
@@ -72193,15 +74434,15 @@ function AiAssistantProjectToolsConfigurationPanel(props) {
             minHeight: 0,
             alignSelf: 'stretch',
             ...(toolFullscreen ? { bgcolor: 'background.default' } : {})
-        }, children: [jsxs(Stack$2, { direction: "row", alignItems: "stretch", sx: { flexShrink: 0, borderBottom: 1, borderColor: 'divider' }, children: [jsxs(Tabs$1, { value: tab, onChange: handleTabsChange, variant: "scrollable", scrollButtons: "auto", allowScrollButtonsMobile: true, sx: { flex: '1 1 auto', minWidth: 0 }, children: [jsx$1(Tab$1, { label: "UI", value: "ui" }), jsx$1(Tab$1, { label: "Agents", value: "agents" }), jsx$1(Tab$1, { label: "Tools and MCP", value: "tools" }), jsx$1(Tab$1, { label: "Scripts", value: "scripts" }), jsx$1(Tab$1, { label: "Prompts and Context", value: "prompts" })] }), jsx$1(Box$1, { sx: { display: 'flex', alignItems: 'center', flexShrink: 0, borderLeft: 1, borderColor: 'divider', px: 0.5 }, children: jsx$1(Tooltip$1, { title: toolFullscreen ? 'Exit fullscreen' : 'Fullscreen', children: jsx$1(IconButton$1, { size: "small", "aria-label": toolFullscreen ? 'Exit fullscreen' : 'Enter fullscreen', onClick: () => toggleToolFullscreen(), children: toolFullscreen ? jsx$1(FullscreenExitRounded, {}) : jsx$1(FullscreenRounded, {}) }) }) })] }), jsxs(Box$1, { sx: {
+        }, children: [jsxs(Stack$2, { direction: "row", alignItems: "stretch", sx: { flexShrink: 0, borderBottom: 1, borderColor: 'divider' }, children: [jsxs(Tabs$1, { value: tab, onChange: handleTabsChange, variant: "scrollable", scrollButtons: "auto", allowScrollButtonsMobile: true, sx: { flex: '1 1 auto', minWidth: 0 }, children: [jsx$1(Tab$1, { label: "UI", value: "ui" }), jsx$1(Tab$1, { label: "Agents", value: "agents" }), jsx$1(Tab$1, { label: "Tools and MCP", value: "tools" }), jsx$1(Tab$1, { label: "Scripts", value: "scripts" }), jsx$1(Tab$1, { label: "Recipes", value: "recipes" }), jsx$1(Tab$1, { label: "Prompts and Context", value: "prompts" })] }), jsx$1(Box$1, { sx: { display: 'flex', alignItems: 'center', flexShrink: 0, borderLeft: 1, borderColor: 'divider', px: 0.5 }, children: jsx$1(Tooltip$1, { title: toolFullscreen ? 'Exit fullscreen' : 'Fullscreen', children: jsx$1(IconButton$1, { size: "small", "aria-label": toolFullscreen ? 'Exit fullscreen' : 'Enter fullscreen', onClick: () => toggleToolFullscreen(), children: toolFullscreen ? jsx$1(FullscreenExitRounded, {}) : jsx$1(FullscreenRounded, {}) }) }) })] }), jsxs(Box$1, { sx: {
                     flex: '1 1 auto',
                     minHeight: 0,
                     overflow: 'auto',
                     ...aiAssistantProjectToolsPanelContentSx
-                }, children: [tab === 'ui' ? jsx$1(AiAssistantStudioUiSettings, {}) : null, tab === 'agents' ? (jsx$1(AiAssistantCentralAgentsConfiguration, { ref: agentsCatalogRef, onDirtyChange: setAgentsCatalogDirty })) : null, tab === 'tools' ? jsx$1(AiAssistantScriptsSandboxConfiguration, { panel: "tools" }) : null, tab === 'scripts' ? jsx$1(AiAssistantScriptsSandboxConfiguration, { panel: "scripts" }) : null, tab === 'prompts' ? jsx$1(AiAssistantScriptsSandboxConfiguration, { panel: "prompts" }) : null] }), jsxs(Dialog$1, { open: pendingTabSwitch != null, onClose: cancelPendingTabSwitch, maxWidth: "sm", fullWidth: true, children: [jsx$1(DialogTitle$1, { children: "Unsaved changes" }), jsx$1(DialogContent$1, { children: jsxs(Typography$1, { variant: "body2", paragraph: true, children: ["Save, discard, or stay on Agents before opening", ' ', jsx$1("strong", { children: pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch) : '' }), "."] }) }), jsxs(DialogActions$1, { children: [jsx$1(Button$1, { onClick: cancelPendingTabSwitch, disabled: tabLeaveSaveBusy, children: "Stay on Agents" }), jsx$1(Button$1, { color: "warning", onClick: discardPendingTabSwitch, disabled: tabLeaveSaveBusy, children: "Discard changes" }), jsx$1(Button$1, { variant: "contained", onClick: () => void saveAndPendingTabSwitch(), disabled: tabLeaveSaveBusy, children: tabLeaveSaveBusy ? 'Saving…' : 'Save and continue' })] })] })] }));
+                }, children: [tab === 'ui' ? jsx$1(AiAssistantStudioUiSettings, {}) : null, tab === 'agents' ? (jsx$1(AiAssistantCentralAgentsConfiguration, { ref: agentsCatalogRef, onDirtyChange: setAgentsCatalogDirty })) : null, tab === 'recipes' ? (jsx$1(AiAssistantIntentRecipesConfiguration, { ref: recipesConfigRef, onDirtyChange: setRecipesDirty })) : null, tab === 'tools' ? jsx$1(AiAssistantScriptsSandboxConfiguration, { panel: "tools" }) : null, tab === 'scripts' ? jsx$1(AiAssistantScriptsSandboxConfiguration, { panel: "scripts" }) : null, tab === 'prompts' ? jsx$1(AiAssistantScriptsSandboxConfiguration, { panel: "prompts" }) : null] }), jsxs(Dialog$1, { open: pendingTabSwitch != null, onClose: cancelPendingTabSwitch, maxWidth: "sm", fullWidth: true, children: [jsx$1(DialogTitle$1, { children: "Unsaved changes" }), jsx$1(DialogContent$1, { children: jsxs(Typography$1, { variant: "body2", paragraph: true, children: ["Save, discard, or stay on", ' ', jsx$1("strong", { children: pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.from) : '' }), " before opening", ' ', jsx$1("strong", { children: pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.to) : '' }), "."] }) }), jsxs(DialogActions$1, { children: [jsxs(Button$1, { onClick: cancelPendingTabSwitch, disabled: tabLeaveSaveBusy, children: ["Stay on ", pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.from) : 'this tab'] }), jsx$1(Button$1, { color: "warning", onClick: () => void discardPendingTabSwitch(), disabled: tabLeaveSaveBusy, children: "Discard changes" }), jsx$1(Button$1, { variant: "contained", onClick: () => void saveAndPendingTabSwitch(), disabled: tabLeaveSaveBusy, children: tabLeaveSaveBusy ? 'Saving…' : 'Save and continue' })] })] })] }));
 }
 /**
- * Single Project Tools surface: **UI** (`studio-ui.json` + bulk), **Agents** (`agents.json`),
+ * Single Project Tools surface: **UI** (`studio-ui.json` + bulk), **Agents** (`agents.json`), **Recipes** (intent router + site overrides),
  * **Tools and MCP** (`tools.json` + registry + user Groovy), **Scripts** (imagegen + script LLMs), **Prompts and Context** (tool markdown overrides).
  * Opens in a **large dialog** when the Project Tools entry mounts so authors stay focused and get more space than the default tool pane.
  * Primary widget id: {@link projectToolsAiAssistantConfigWidgetId}. Legacy ids still mount this component with a fixed default tab.

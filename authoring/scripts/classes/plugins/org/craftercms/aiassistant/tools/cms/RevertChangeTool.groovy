@@ -45,27 +45,11 @@ class RevertChangeTool extends AbstractStudioAiTool {
       ]
     }
     boolean revertToPrevious = AuthoringPreviewContext.isTruthy(input?.revertToPrevious)
-    def versionArg = input?.version?.toString()?.trim()
-    if (!versionArg) versionArg = input?.itemVersion?.toString()?.trim()
-    def revertType = input?.revertType?.toString()?.trim()
-    def semanticRt = revertType && ['content', 'template', 'contenttype'].contains(revertType.toLowerCase())
-    if (!versionArg && revertType && !semanticRt) {
-      versionArg = revertType
-    }
-    String versionToUse = versionArg
-    if (!versionToUse) {
-      if (revertToPrevious) {
-        versionToUse = ctx.ops.resolvePreviousRevertibleVersionNumber(siteId, path)
-      } else if (semanticRt) {
-        throw new IllegalArgumentException(
-          'revertType content/template/contentType is not a Studio version id. Call GetContentVersionHistory and pass version=<versionNumber>, or set revertToPrevious:true to go back one revertible step.'
-        )
-      } else {
-        throw new IllegalArgumentException(
-          'Missing version: pass version (versionNumber from GetContentVersionHistory) or revertToPrevious:true.'
-        )
-      }
-    }
+    boolean revertToInitial = AuthoringPreviewContext.isTruthy(input?.revertToInitial) ||
+      AuthoringPreviewContext.isTruthy(input?.revertToOldest) ||
+      AuthoringPreviewContext.isTruthy(input?.revertToFirst)
+    Map sel = ctx.ops.resolveRevertChangeVersionSelection(siteId, path, input ?: [:])
+    String versionToUse = sel.version?.toString()?.trim()
     String err = null
     try {
       ctx.ops.revertContentItem(siteId, path, versionToUse, false, 'revert_change tool')
@@ -79,6 +63,8 @@ class RevertChangeTool extends AbstractStudioAiTool {
       path             : path,
       version          : versionToUse,
       revertToPrevious : revertToPrevious,
+      revertToInitial  : revertToInitial,
+      versionSelection : sel.selection?.toString() ?: '',
       ok               : err == null,
       message          : err ?: 'Reverted to selected Studio version.',
       result           : err == null ? 'ok' : null

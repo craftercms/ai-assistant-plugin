@@ -10,8 +10,11 @@ import plugins.org.craftercms.aiassistant.orchestration.AiOrchestration
 
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Collections
+import java.util.LinkedHashSet
 import java.util.Locale
 import java.util.Map
+import java.util.Set
 
 /**
  * Built-in {@code POST …/v1/images/generations} HTTP wire for {@link StudioAiImageGenerator}. Not tied to the chat LLM vendor:
@@ -20,6 +23,83 @@ import java.util.Map
 final class CompatibleImageGenerator implements StudioAiImageGenerator {
 
   private static final Logger LOG = LoggerFactory.getLogger(CompatibleImageGenerator.class)
+
+  private static final Set<String> GPT_IMAGE_API_SIZES =
+    Collections.unmodifiableSet(
+      new LinkedHashSet<>(['auto', '1024x1024', '1024x1536', '1536x1024'])
+    )
+
+  static boolean isGptImageFamilyModel(String model) {
+    String m = (model ?: '').toString().trim().toLowerCase(Locale.US)
+    return m.startsWith('gpt-image') || m.startsWith('chatgpt-image')
+  }
+
+  /**
+   * Maps model-chosen or legacy aspect sizes to values accepted by the GPT Image Images API.
+   * Returns {@code null} to omit {@code size} from the JSON body when input is blank and model is not GPT Image family.
+   */
+  static String normalizeImageGenerationSize(String sizeRaw, String model) {
+    String modelNorm = (model ?: '').toString().trim()
+    boolean gptFamily = isGptImageFamilyModel(modelNorm)
+    String size = (sizeRaw ?: '').toString().trim().toLowerCase(Locale.US)
+    if (!gptFamily) {
+      return size ?: null
+    }
+    if (!size) {
+      return null
+    }
+    if (GPT_IMAGE_API_SIZES.contains(size)) {
+      return size
+    }
+    def dim = (size =~ /^(\d+)\s*[x×]\s*(\d+)$/)
+    if (dim.matches()) {
+      int w = dim.group(1) as int
+      int h = dim.group(2) as int
+      if (w > 0 && h > 0) {
+        double ratio = w / (double) h
+        String mapped
+        if (ratio > 1.12d) {
+          mapped = '1536x1024'
+        } else if (ratio < 0.88d) {
+          mapped = '1024x1536'
+        } else {
+          mapped = '1024x1024'
+        }
+        if (mapped != size) {
+          LOG.info(
+            'CompatibleImageGenerator: coerced unsupported size {} to {} for model {}',
+            sizeRaw,
+            mapped,
+            modelNorm
+          )
+        }
+        return mapped
+      }
+    }
+    String mappedAlias
+    switch (size) {
+      case 'landscape':
+      case 'wide':
+        mappedAlias = '1536x1024'
+        break
+      case 'portrait':
+      case 'tall':
+        mappedAlias = '1024x1536'
+        break
+      case 'square':
+        mappedAlias = '1024x1024'
+        break
+      default:
+        mappedAlias = '1024x1024'
+    }
+    LOG.info(
+      'CompatibleImageGenerator: coerced unsupported size {} to {} for model {}',
+      sizeRaw,
+      mappedAlias,
+      modelNorm
+    )
+    mappedAlias
+  }
 
   @Override
   Map generate(Map input, StudioAiImageGenContext ctx) {
@@ -76,12 +156,13 @@ final class CompatibleImageGenerator implements StudioAiImageGenerator {
     if (!model?.trim()) {
       return [error: true, message: 'No image model configured']
     }
-    def size = input?.size?.toString()?.trim()
+    String sizeRaw = input?.size?.toString()?.trim()
     def quality = input?.quality?.toString()?.trim()
     model = AiOrchestration.normalizeImagesApiModelId(model)
     if (!model?.trim()) {
       return [error: true, message: 'No image model configured']
     }
+    String size = normalizeImageGenerationSize(sizeRaw, model)
     String body = buildImagesGenerationsRequestJson(model, prompt, size, quality)
     if (LOG.isDebugEnabled()) {
       LOG.debug('CompatibleImageGenerator wireJson={}', AiHttpProxy.elideForLog(body, 900))

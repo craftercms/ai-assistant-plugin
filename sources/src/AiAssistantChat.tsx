@@ -51,6 +51,19 @@ import {
   stripStudioAiInlineImageMarkdownFromText
 } from './assistantGeneratedImageChat';
 import { getSpeechRecognitionCtor } from './browserSpeechRecognition';
+import { formatIntentRecipeChatLine, intentRecipeLineFromRoutingTelemetry } from './intentRecipeChatDisplay';
+import { STUDIO_AI_DEFAULT_IMAGE_MODEL } from './studioAiOrchestrationToolIds';
+
+/** OpenAI transport: send default image model when agent/panel snapshot omitted it (server applies the same default). */
+function resolveWireImageModel(llm: string | undefined, imageModel: string | undefined): string | undefined {
+  const trimmed = imageModel?.trim();
+  if (trimmed) return trimmed;
+  const l = (llm ?? '').trim();
+  if (!l) return undefined;
+  const low = l.toLowerCase().replace(/-/g, '');
+  if (low === 'openai') return STUDIO_AI_DEFAULT_IMAGE_MODEL;
+  return undefined;
+}
 
 /**
  * Form-engine assistant passes {@link AiAssistantChatProps.getAuthoringFormContext}; XB / ICE does not.
@@ -1133,6 +1146,8 @@ type UiMessage = {
   assistantPreToolsText?: string;
   /** Server SSE tool-progress lines (🛠️ …); shown in a short scroll area between plan and answer when {@link assistantPreToolsText} is set. */
   toolProgressText?: string;
+  /** Emoji + recipe title when intent routing matched (SSE {@code intent-recipe-routing}). */
+  intentRecipeLine?: string;
   /**
    * Raw assistant text before the first tool-progress chunk — shown in muted “live” styling, then cleared once tools run
    * or folded into {@link text} when the stream completes without tools.
@@ -1364,6 +1379,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
   } = props;
   /** Widget **`agentId`** from agent configuration (UUID when applicable). */
   const agentId = agentIdProp?.trim() ?? '';
+  const wireImageModel = resolveWireImageModel(llm, imageModel);
 
   const siteId = useActiveSiteId() ?? 'default';
   const previewItem = useCurrentPreviewItem();
@@ -1837,7 +1853,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
             agentId,
             llm: llm ?? null,
             llmModel: llmModel ?? null,
-            imageModel: imageModel ?? null,
+            imageModel: wireImageModel ?? null,
             imageGenerator: imageGenerator != null ? String(imageGenerator).trim() || null : null,
             authoringSurface: formEngine ? 'formEngine' : 'preview',
             omitTools: omitToolsThisSend,
@@ -1887,7 +1903,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
             : undefined,
         llm,
         llmModel,
-        imageModel,
+        imageModel: wireImageModel,
         ...(imageGenerator != null && String(imageGenerator).trim() !== ''
           ? { imageGenerator: String(imageGenerator).trim() }
           : {}),
@@ -1952,6 +1968,25 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                   : m
               )
             );
+            return;
+          }
+
+          if (mdStatus === 'intent-recipe-routing') {
+            const tel = md.intentRecipeRouting;
+            const line =
+              rawTextChunk.trim() ||
+              intentRecipeLineFromRoutingTelemetry(tel) ||
+              (tel && typeof tel === 'object'
+                ? formatIntentRecipeChatLine(
+                    String((tel as Record<string, unknown>).recipeId ?? ''),
+                    String((tel as Record<string, unknown>).recipeTitle ?? '')
+                  )
+                : '');
+            if (line.trim()) {
+              setMessages((prev) =>
+                prev.map((m) => (m.id === assistantId ? { ...m, intentRecipeLine: line.trimEnd() + '\n' } : m))
+              );
+            }
             return;
           }
 
@@ -2384,6 +2419,22 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                   nextInSec={m.pipelineHeartbeat.nextInSec}
                   hint={m.pipelineHeartbeat.hint}
                 />
+              ) : null}
+              {m.intentRecipeLine?.trim() ? (
+                <Box
+                  sx={{
+                    mb: 1,
+                    py: 0.5,
+                    px: 1,
+                    borderRadius: 1,
+                    bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.50',
+                    border: `1px solid ${theme.palette.divider}`,
+                    fontSize: '0.875rem',
+                    lineHeight: 1.45
+                  }}
+                >
+                  <MarkdownMessage text={m.intentRecipeLine} />
+                </Box>
               ) : null}
               {m.toolProgressText?.trim() && m.assistantPreToolsText !== undefined ? (
                 <>

@@ -17,12 +17,15 @@ import Typography from '@mui/material/Typography';
 import AiAssistantCentralAgentsConfiguration, {
   type AiAssistantCentralAgentsCatalogHandle
 } from './AiAssistantCentralAgentsConfiguration';
+import AiAssistantIntentRecipesConfiguration, {
+  type AiAssistantIntentRecipesConfigurationHandle
+} from './AiAssistantIntentRecipesConfiguration';
 import AiAssistantScriptsSandboxConfiguration from './AiAssistantScriptsSandboxConfiguration';
 import AiAssistantStudioUiSettings from './AiAssistantStudioUiSettings';
 import { aiAssistantProjectToolsPanelContentSx } from './aiAssistantProjectToolsFormSx';
 import { useDomFullscreen } from './aiAssistantDomFullscreen';
 
-export type AiAssistantProjectToolsTab = 'ui' | 'agents' | 'prompts' | 'tools' | 'scripts';
+export type AiAssistantProjectToolsTab = 'ui' | 'agents' | 'recipes' | 'prompts' | 'tools' | 'scripts';
 
 function projectToolsTabLabel(t: AiAssistantProjectToolsTab): string {
   switch (t) {
@@ -30,6 +33,8 @@ function projectToolsTabLabel(t: AiAssistantProjectToolsTab): string {
       return 'UI';
     case 'agents':
       return 'Agents';
+    case 'recipes':
+      return 'Recipes';
     case 'prompts':
       return 'Prompts and Context';
     case 'tools':
@@ -53,21 +58,30 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
   const { defaultTab = 'ui' } = props;
   const [tab, setTab] = useState<AiAssistantProjectToolsTab>(defaultTab);
   const [agentsCatalogDirty, setAgentsCatalogDirty] = useState(false);
-  const [pendingTabSwitch, setPendingTabSwitch] = useState<AiAssistantProjectToolsTab | null>(null);
+  const [recipesDirty, setRecipesDirty] = useState(false);
+  const [pendingTabSwitch, setPendingTabSwitch] = useState<{
+    from: AiAssistantProjectToolsTab;
+    to: AiAssistantProjectToolsTab;
+  } | null>(null);
   const [tabLeaveSaveBusy, setTabLeaveSaveBusy] = useState(false);
   const agentsCatalogRef = useRef<AiAssistantCentralAgentsCatalogHandle>(null);
+  const recipesConfigRef = useRef<AiAssistantIntentRecipesConfigurationHandle>(null);
   const { ref: rootRef, isFullscreen: toolFullscreen, toggleFullscreen: toggleToolFullscreen } =
     useDomFullscreen<HTMLDivElement>();
 
   const handleTabsChange = useCallback(
     (_: SyntheticEvent, value: AiAssistantProjectToolsTab) => {
       if (tab === 'agents' && agentsCatalogDirty && value !== 'agents') {
-        setPendingTabSwitch(value);
+        setPendingTabSwitch({ from: 'agents', to: value });
+        return;
+      }
+      if (tab === 'recipes' && recipesDirty && value !== 'recipes') {
+        setPendingTabSwitch({ from: 'recipes', to: value });
         return;
       }
       setTab(value);
     },
-    [tab, agentsCatalogDirty]
+    [tab, agentsCatalogDirty, recipesDirty]
   );
 
   const cancelPendingTabSwitch = useCallback(() => {
@@ -75,20 +89,36 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
     setTabLeaveSaveBusy(false);
   }, []);
 
-  const discardPendingTabSwitch = useCallback(() => {
+  const discardPendingTabSwitch = useCallback(async () => {
     if (pendingTabSwitch == null) return;
-    const next = pendingTabSwitch;
-    setAgentsCatalogDirty(false);
-    setPendingTabSwitch(null);
-    setTab(next);
+    const next = pendingTabSwitch.to;
+    setTabLeaveSaveBusy(true);
+    try {
+      if (pendingTabSwitch.from === 'agents') {
+        setAgentsCatalogDirty(false);
+      }
+      if (pendingTabSwitch.from === 'recipes') {
+        await recipesConfigRef.current?.discard();
+        setRecipesDirty(false);
+      }
+      setPendingTabSwitch(null);
+      setTab(next);
+    } finally {
+      setTabLeaveSaveBusy(false);
+    }
   }, [pendingTabSwitch]);
 
   const saveAndPendingTabSwitch = useCallback(async () => {
     if (pendingTabSwitch == null) return;
-    const next = pendingTabSwitch;
+    const { from, to: next } = pendingTabSwitch;
     setTabLeaveSaveBusy(true);
     try {
-      const ok = (await agentsCatalogRef.current?.save()) === true;
+      const ok =
+        from === 'agents'
+          ? (await agentsCatalogRef.current?.save()) === true
+          : from === 'recipes'
+            ? (await recipesConfigRef.current?.save()) === true
+            : true;
       if (ok) {
         setPendingTabSwitch(null);
         setTab(next);
@@ -127,6 +157,7 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
           <Tab label="Agents" value="agents" />
           <Tab label="Tools and MCP" value="tools" />
           <Tab label="Scripts" value="scripts" />
+          <Tab label="Recipes" value="recipes" />
           <Tab label="Prompts and Context" value="prompts" />
         </Tabs>
         <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0, borderLeft: 1, borderColor: 'divider', px: 0.5 }}>
@@ -156,6 +187,9 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
             onDirtyChange={setAgentsCatalogDirty}
           />
         ) : null}
+        {tab === 'recipes' ? (
+          <AiAssistantIntentRecipesConfiguration ref={recipesConfigRef} onDirtyChange={setRecipesDirty} />
+        ) : null}
         {tab === 'tools' ? <AiAssistantScriptsSandboxConfiguration panel="tools" /> : null}
         {tab === 'scripts' ? <AiAssistantScriptsSandboxConfiguration panel="scripts" /> : null}
         {tab === 'prompts' ? <AiAssistantScriptsSandboxConfiguration panel="prompts" /> : null}
@@ -165,15 +199,16 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
         <DialogTitle>Unsaved changes</DialogTitle>
         <DialogContent>
           <Typography variant="body2" paragraph>
-            Save, discard, or stay on Agents before opening{' '}
-            <strong>{pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch) : ''}</strong>.
+            Save, discard, or stay on{' '}
+            <strong>{pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.from) : ''}</strong> before opening{' '}
+            <strong>{pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.to) : ''}</strong>.
           </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={cancelPendingTabSwitch} disabled={tabLeaveSaveBusy}>
-            Stay on Agents
+            Stay on {pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.from) : 'this tab'}
           </Button>
-          <Button color="warning" onClick={discardPendingTabSwitch} disabled={tabLeaveSaveBusy}>
+          <Button color="warning" onClick={() => void discardPendingTabSwitch()} disabled={tabLeaveSaveBusy}>
             Discard changes
           </Button>
           <Button variant="contained" onClick={() => void saveAndPendingTabSwitch()} disabled={tabLeaveSaveBusy}>
@@ -186,7 +221,7 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
 }
 
 /**
- * Single Project Tools surface: **UI** (`studio-ui.json` + bulk), **Agents** (`agents.json`),
+ * Single Project Tools surface: **UI** (`studio-ui.json` + bulk), **Agents** (`agents.json`), **Recipes** (intent router + site overrides),
  * **Tools and MCP** (`tools.json` + registry + user Groovy), **Scripts** (imagegen + script LLMs), **Prompts and Context** (tool markdown overrides).
  * Opens in a **large dialog** when the Project Tools entry mounts so authors stay focused and get more space than the default tool pane.
  * Primary widget id: {@link projectToolsAiAssistantConfigWidgetId}. Legacy ids still mount this component with a fixed default tab.

@@ -3,6 +3,7 @@ import org.slf4j.LoggerFactory
 import plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext
 import plugins.org.craftercms.aiassistant.http.AiHttpProxy
 import plugins.org.craftercms.aiassistant.http.AiAssistantBearerUiXmlMerge
+import plugins.org.craftercms.aiassistant.http.AiAssistantCentralAgentsMerge
 import plugins.org.craftercms.aiassistant.orchestration.AiOrchestration
 import plugins.org.craftercms.aiassistant.prompt.ToolPromptsSiteContext
 import plugins.org.craftercms.aiassistant.rag.ExpertSkillVectorRegistry
@@ -56,6 +57,7 @@ if (AuthoringPreviewContext.isFormEngineSurface(body?.authoringSurface)) {
   promptForOrchestration = AuthoringPreviewContext.appendEnginePreviewHintIfPossible(
     promptForOrchestration, request, siteIdBody ?: params?.siteId, body?.contentPath, body?.studioPreviewPageUrl)
 }
+promptForOrchestration = AuthoringPreviewContext.appendAgentDateTimeContext(promptForOrchestration)
 def chatId = body.chatId?.toString()
 def llmApiKey = body.apiKey?.toString()
 if (siteIdBody) {
@@ -92,14 +94,36 @@ try {
   request.setAttribute('aiassistant.expertSkills', expertSkillsNorm)
 } catch (Throwable ignored) {}
 def siteForBearer = siteIdBody ?: params?.siteId?.toString()?.trim()
-if (body instanceof Map && siteForBearer && agentId) {
+if (body instanceof Map && siteForBearer) {
   try {
-    AiAssistantBearerUiXmlMerge.mergeStreamAgentFieldsFromSiteUiXmlIfMissing(applicationContext, (Map) body, siteForBearer, agentId)
+    AiAssistantCentralAgentsMerge.mergeStreamAgentFieldsFromSiteAgentsFileIfMissing(
+      applicationContext, (Map) body, siteForBearer, agentId)
   } catch (Throwable mergeEx) {
-    log.debug('Agent ui.xml merge skipped: {}', mergeEx.message ?: mergeEx.toString())
+    log.debug('Central agents.json merge skipped: {}', mergeEx.message ?: mergeEx.toString())
+  }
+  if (agentId) {
+    try {
+      AiAssistantBearerUiXmlMerge.mergeStreamAgentFieldsFromSiteUiXmlIfMissing(applicationContext, (Map) body, siteForBearer, agentId)
+    } catch (Throwable mergeEx) {
+      log.debug('Agent ui.xml merge skipped: {}', mergeEx.message ?: mergeEx.toString())
+    }
   }
 }
 def llm = body.llm?.toString()
+def llmNormalized
+try {
+  llmNormalized = AiOrchestration.normalizeLlmProvider(llm)
+} catch (IllegalArgumentException iae) {
+  response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
+  return [ok: false, message: (iae.message ?: 'Invalid llm').toString()]
+}
+if (body instanceof Map && siteForBearer) {
+  try {
+    AiAssistantCentralAgentsMerge.applyOpenAiDefaultImageModelIfMissing((Map) body, llmNormalized)
+  } catch (Throwable defIm) {
+    log.debug('OpenAI default imageModel skipped: {}', defIm.message ?: defIm.toString())
+  }
+}
 def llmModel = body.llmModel?.toString()
 def imageModelRaw = body.imageModel?.toString()
 def imageModel = null
@@ -114,13 +138,6 @@ if (imageModelRaw?.trim()) {
 }
 
 def imageGenerator = body?.imageGenerator?.toString()?.trim() ?: null
-
-try {
-  AiOrchestration.normalizeLlmProvider(llm)
-} catch (IllegalArgumentException iae) {
-  response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
-  return [ok: false, message: (iae.message ?: 'Invalid llm').toString()]
-}
 
 if (!prompt) {
   response.setStatus(HttpServletResponse.SC_BAD_REQUEST)

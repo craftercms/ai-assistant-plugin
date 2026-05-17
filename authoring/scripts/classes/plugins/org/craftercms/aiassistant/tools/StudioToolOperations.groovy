@@ -8,6 +8,7 @@ import org.dom4j.Document
 import org.dom4j.DocumentException
 import org.dom4j.Element
 import org.dom4j.io.SAXReader
+import org.opensearch.client.opensearch._types.query_dsl.TextQueryType
 import org.opensearch.client.opensearch.core.SearchRequest
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -38,6 +39,7 @@ import java.util.Base64
 import java.util.List
 import java.util.Locale
 import java.util.Set
+import java.util.regex.Pattern
 import java.util.TimeZone
 
 import java.awt.Color
@@ -1977,6 +1979,195 @@ class StudioToolOperations {
     return vn
   }
 
+  /**
+   * Oldest revertible {@code versionNumber} in Studio history (last revertible entry in v2 list order).
+   */
+  String resolveOldestRevertibleVersionNumber(String siteId, String path) {
+    def history = getContentVersionHistory(siteId, path)
+    if (history == null || history.isEmpty()) {
+      throw new IllegalStateException('No version history for path')
+    }
+    for (int i = history.size() - 1; i >= 0; i--) {
+      def e = history[i]
+      if (e == null || e.revertible == false) {
+        continue
+      }
+      def vn = e.versionNumber?.toString()?.trim()
+      if (vn) {
+        return vn
+      }
+    }
+    throw new IllegalStateException('No revertible oldest version found in history')
+  }
+
+  /**
+   * Resolves {@code version} for {@code revert_change} from explicit id, initial/oldest, content match, or previous step.
+   *
+   * @return map with {@code version} (String), {@code selection} (initial|content_match|previous|explicit)
+   */
+  Map resolveRevertChangeVersionSelection(String siteId, String path, Map input) {
+    siteId = resolveEffectiveSiteId(siteId)
+    def normalized = normalizeLeadingSlash(path, 'path')
+    boolean revertToInitial = AuthoringPreviewContext.isTruthy(input?.revertToInitial) ||
+      AuthoringPreviewContext.isTruthy(input?.revertToOldest) ||
+      AuthoringPreviewContext.isTruthy(input?.revertToFirst)
+    boolean revertToPrevious = AuthoringPreviewContext.isTruthy(input?.revertToPrevious)
+    def versionArg = input?.version?.toString()?.trim()
+    if (!versionArg) {
+      versionArg = input?.itemVersion?.toString()?.trim()
+    }
+    def revertType = input?.revertType?.toString()?.trim()
+    def semanticRt = revertType && ['content', 'template', 'contenttype'].contains(revertType.toLowerCase())
+    if (!versionArg && revertType && !semanticRt) {
+      versionArg = revertType
+    }
+    List<String> contentContains = []
+    def rawContains = input?.contentContains ?: input?.mustContain
+    if (rawContains instanceof Collection) {
+      for (def item : rawContains) {
+        String t = (item ?: '').toString().trim()
+        if (t) {
+          contentContains.add(t)
+        }
+      }
+    } else {
+      String one = (rawContains ?: '').toString().trim()
+      if (one) {
+        contentContains.add(one)
+      }
+    }
+    String contentFieldId = (input?.contentFieldId ?: input?.fieldId ?: '').toString().trim()
+    if (versionArg) {
+      return [version: versionArg, selection: 'explicit']
+    }
+    if (revertToInitial) {
+      return [version: resolveOldestRevertibleVersionNumber(siteId, normalized), selection: 'initial']
+    }
+    if (revertToPrevious) {
+      if (!contentContains.isEmpty()) {
+        String matched = resolveRevertibleVersionMatchingContent(
+          siteId, normalized, contentContains, contentFieldId ?: null
+        )
+        if (matched) {
+          return [version: matched, selection: 'content_match']
+        }
+      }
+      return [version: resolvePreviousRevertibleVersionNumber(siteId, normalized), selection: 'previous']
+    }
+    if (semanticRt) {
+      throw new IllegalArgumentException(
+        'revertType content/template/contentType is not a Studio version id. Call GetContentVersionHistory and pass version=<versionNumber>, revertToInitial:true for the oldest revertible version, or revertToPrevious:true for one step back.'
+      )
+    }
+    throw new IllegalArgumentException(
+      'Missing version: pass version (versionNumber from GetContentVersionHistory), revertToInitial:true for the oldest revertible version, or revertToPrevious:true for one step back.'
+    )
+  }
+
+  /**
+   * Newest revertible history entry whose XML (optionally one field) contains every snippet (case-insensitive).
+   * Uses {@link #getContent} with each {@code versionNumber} as ref when Studio accepts it.
+   */
+  String resolveRevertibleVersionMatchingContent(
+    String siteId,
+    String path,
+    List<String> mustContainSnippets,
+    String fieldId = null,
+    int maxScan = 40
+  ) {
+    withStudioRequestSecurity {
+      siteId = resolveEffectiveSiteId(siteId)
+      def normalized = normalizeLeadingSlash(path, 'path')
+      List<String> snippets = []
+      for (def sn : (mustContainSnippets ?: [])) {
+        String t = (sn ?: '').toString().trim()
+        if (t) {
+          snippets.add(t)
+        }
+      }
+      if (snippets.isEmpty()) {
+        return null
+      }
+      List history = getContentVersionHistory(siteId, normalized)
+      if (history == null || history.isEmpty()) {
+        return null
+      }
+      int limit = Math.min(history.size(), Math.max(1, maxScan))
+      for (int i = 0; i < limit; i++) {
+        def e = history[i]
+        if (e == null || e.revertible == false) {
+          continue
+        }
+        String vn = e.versionNumber?.toString()?.trim()
+        if (!vn) {
+          continue
+        }
+        String xml = ''
+        try {
+          Map item = getContent(siteId, normalized, vn) as Map
+          xml = (item?.contentXml ?: '').toString()
+        } catch (Throwable ignored) {
+          continue
+        }
+        if (!xml?.trim()) {
+          continue
+        }
+        String plain = fieldId?.trim() ?
+          extractXmlFieldRoughPlainText(xml, fieldId.trim()) :
+          roughPlainTextFromHtml(xml)
+        if (!plain) {
+          continue
+        }
+        boolean allMatch = true
+        for (String snip : snippets) {
+          if (!plainTextContainsIgnoreCase(plain, snip)) {
+            allMatch = false
+            break
+          }
+        }
+        if (allMatch) {
+          return vn
+        }
+      }
+      return null
+    }
+  }
+
+  private static String extractXmlFieldRoughPlainText(String contentXml, String fieldId) {
+    if (!contentXml?.trim() || !fieldId?.trim()) {
+      return ''
+    }
+    String tagQuoted = Pattern.quote(fieldId.trim())
+    def mCdata = (contentXml =~ "(?is)<${tagQuoted}>\\s*<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>\\s*</${tagQuoted}>")
+    if (mCdata.find()) {
+      return roughPlainTextFromHtml(mCdata.group(1))
+    }
+    def mEsc = (contentXml =~ "(?is)<${tagQuoted}>([\\s\\S]*?)</${tagQuoted}>")
+    if (mEsc.find()) {
+      return roughPlainTextFromHtml(mEsc.group(1))
+    }
+    return ''
+  }
+
+  private static String roughPlainTextFromHtml(String html) {
+    if (!html?.trim()) {
+      return ''
+    }
+    return html
+      .replaceAll('(?is)<script[^>]*>[\\s\\S]*?</script>', ' ')
+      .replaceAll('(?is)<style[^>]*>[\\s\\S]*?</style>', ' ')
+      .replaceAll('<[^>]+>', ' ')
+      .replaceAll('\\s+', ' ')
+      .trim()
+  }
+
+  private static boolean plainTextContainsIgnoreCase(String haystackPlain, String needle) {
+    if (!needle?.trim() || !haystackPlain) {
+      return false
+    }
+    return haystackPlain.toLowerCase(Locale.ROOT).contains(needle.trim().toLowerCase(Locale.ROOT))
+  }
+
   private static final long MAX_REMOTE_IMAGE_BYTES = 25L * 1024 * 1024
 
   /**
@@ -2251,6 +2442,276 @@ class StudioToolOperations {
         message: """OpenSearch is not reachable from Studio (${t.class.simpleName}: ${msg}). ListPagesAndComponents requires OpenSearch (same as Studio search) to be running and configured for authoring—start the search stack or fix connection settings. Until then, use GetContent with a full path (e.g. /site/website/...) if the user knows it.""",
         siteId : effectiveSite,
         items  : []
+      ]
+    }
+  }
+
+  boolean siteContentResearchGloballyEnabled() {
+    !'false'.equalsIgnoreCase(System.getProperty('aiassistant.siteContentResearch.enabled', 'true')?.toString()?.trim())
+  }
+
+  private static int siteContentResearchMaxSearchHits(Integer requested) {
+    int defMax = 12
+    try {
+      String p = System.getProperty('aiassistant.siteContentResearch.maxSearchHits')?.toString()?.trim()
+      if (p) {
+        defMax = Integer.parseInt(p)
+      }
+    } catch (Throwable ignored) {
+      defMax = 12
+    }
+    int r = (requested != null) ? requested.intValue() : defMax
+    return Math.min(30, Math.max(1, r))
+  }
+
+  private static int siteContentResearchMaxFetchItems(Integer requested) {
+    int defMax = 5
+    try {
+      String p = System.getProperty('aiassistant.siteContentResearch.maxFetchItems')?.toString()?.trim()
+      if (p) {
+        defMax = Integer.parseInt(p)
+      }
+    } catch (Throwable ignored) {
+      defMax = 5
+    }
+    int r = (requested != null) ? requested.intValue() : defMax
+    return Math.min(10, Math.max(0, r))
+  }
+
+  private static int siteContentResearchExcerptChars() {
+    try {
+      String p = System.getProperty('aiassistant.siteContentResearch.excerptChars')?.toString()?.trim()
+      if (p) {
+        int n = Integer.parseInt(p)
+        return Math.min(8000, Math.max(200, n))
+      }
+    } catch (Throwable ignored) {}
+    return 1800
+  }
+
+  private static boolean siteContentResearchSkipPath(String path, String contentType) {
+    String p = (path ?: '').toString().trim()
+    String ct = (contentType ?: '').toString().trim()
+    if (!p || !p.endsWith('.xml')) {
+      return true
+    }
+    if (p.toLowerCase(Locale.ROOT).endsWith('level.xml')) {
+      return true
+    }
+    if ('/page/redirect'.equals(ct)) {
+      return true
+    }
+    return false
+  }
+
+  /**
+   * Plain-text excerpt from a {@code /site/.../*.xml} body for research answers (strips markup in {@code *_html} / {@code *_t} fields).
+   */
+  static String plainTextExcerptFromSiteContentXml(String xmlUtf8, int maxChars) {
+    if (!xmlUtf8?.toString()?.trim() || maxChars <= 0) {
+      return ''
+    }
+    String s = xmlUtf8.toString()
+    s = s.replaceAll('(?s)<!\\[CDATA\\[(.*?)\\]\\]>', '$1')
+    StringBuilder buf = new StringBuilder()
+    def m = (s =~ /(?is)<([a-zA-Z0-9_.-]+(?:_html|_t))>(.*?)<\/\1>/)
+    while (m.find()) {
+      String inner = m.group(2)?.toString()?.replaceAll('<[^>]+>', ' ')?.replaceAll('\\s+', ' ')?.trim()
+      if (!inner) {
+        continue
+      }
+      if (buf.length() > 0) {
+        buf.append('\n')
+      }
+      buf.append(inner)
+      if (buf.length() >= maxChars * 2) {
+        break
+      }
+    }
+    String out = buf.toString().trim()
+    if (!out) {
+      out = s.replaceAll('<[^>]+>', ' ').replaceAll('\\s+', ' ').trim()
+    }
+    if (out.length() > maxChars) {
+      return out.substring(0, maxChars) + '…'
+    }
+    out
+  }
+
+  /**
+   * Authoring OpenSearch keyword search over indexed site items, then {@link #getContent} on the top hits
+   * (RAG-style site research — same index Studio search uses).
+   */
+  Map researchSiteContent(String siteId, String query, Integer maxSearchHitsOpt, Integer maxFetchItemsOpt, String pathPrefixOpt) {
+    if (!siteContentResearchGloballyEnabled()) {
+      return [
+        ok      : false,
+        tool    : 'ResearchSiteContent',
+        message : 'Site content research is disabled (JVM aiassistant.siteContentResearch.enabled=false).'
+      ]
+    }
+    String q = (query ?: '').toString().trim()
+    if (!q) {
+      throw new IllegalArgumentException('Missing required field: query')
+    }
+    def effectiveSite = resolveEffectiveSiteId(siteId)
+    if (!effectiveSite?.trim()) {
+      return [
+        ok      : false,
+        tool    : 'ResearchSiteContent',
+        siteId  : '',
+        query   : q,
+        message : 'No siteId could be resolved. Pass siteId matching the open Crafter site.'
+      ]
+    }
+    String pathPrefix = (pathPrefixOpt ?: '/site/').toString().trim()
+    if (!pathPrefix.startsWith('/')) {
+      pathPrefix = '/' + pathPrefix
+    }
+    int searchSize = siteContentResearchMaxSearchHits(maxSearchHitsOpt)
+    int fetchMax = siteContentResearchMaxFetchItems(maxFetchItemsOpt)
+    int excerptMax = siteContentResearchExcerptChars()
+
+    def authoringSearchService = null
+    try {
+      authoringSearchService = applicationContext?.get('authoringSearchService')
+    } catch (Throwable ignored) {}
+    if (authoringSearchService == null) {
+      return [
+        ok                 : false,
+        tool               : 'ResearchSiteContent',
+        siteId             : effectiveSite,
+        query              : q,
+        searchAvailable    : false,
+        message            :
+          'Authoring search service is not available. Use GetContent when the author supplies a repository path.',
+        hint               : 'Ensure OpenSearch authoring index is running (same as Studio sidebar search).'
+      ]
+    }
+
+    def req = SearchRequest.of { r ->
+      r.query { qb ->
+        qb.bool { b ->
+          b.must { m ->
+            m.multiMatch { mm ->
+              mm.query(q)
+              mm.fields(
+                'title_t^3',
+                'internal-name^2',
+                'body_html',
+                'description_html',
+                'navLabel',
+                'seoDescription_t'
+              )
+              mm.type(TextQueryType.BestFields)
+              mm.fuzziness('AUTO')
+            }
+          }
+          b.filter { f ->
+            f.prefix { p ->
+              p.field('localId').value(pathPrefix)
+            }
+          }
+          b.should { s -> s.prefix { p -> p.field('content-type').value('/page') } }
+          b.should { s -> s.prefix { p -> p.field('content-type').value('/component') } }
+          b.minimumShouldMatch('1')
+          b.mustNot { mn ->
+            mn.term { t ->
+              t.field('disabled').value(true)
+            }
+          }
+        }
+      }.from(0).size(searchSize)
+    }
+
+    try {
+      return withStudioRequestSecurity {
+        def result = authoringSearchService.search(effectiveSite, req, Map)
+        List hitsOut = []
+        int fetched = 0
+        int searchHitCount = 0
+        if (result?.hits()?.hits() != null) {
+          searchHitCount = result.hits().hits().size()
+          for (def hit : result.hits().hits()) {
+            Map src = (hit?.source() instanceof Map) ? (Map) hit.source() : [:]
+            String path = src.get('localId')?.toString()?.trim() ?: ''
+            String ctype = src.get('content-type')?.toString()?.trim() ?: ''
+            if (siteContentResearchSkipPath(path, ctype)) {
+              continue
+            }
+            String title =
+              src.get('title_t')?.toString()?.trim() ?:
+                src.get('internal-name')?.toString()?.trim() ?:
+                src.get('navLabel')?.toString()?.trim() ?: ''
+            Double scoreVal = null
+            try {
+              if (hit.score() != null) {
+                scoreVal = hit.score()
+              }
+            } catch (Throwable ignoredScore) {}
+            Map row = [
+              path        : path,
+              contentType : ctype,
+              title       : title,
+              score       : scoreVal
+            ]
+            String indexSnippet = ''
+            for (String fk : ['body_html', 'description_html', 'seoDescription_t', 'title_t']) {
+              String fv = src.get(fk)?.toString()?.trim()
+              if (fv) {
+                indexSnippet = fv.replaceAll('<[^>]+>', ' ').replaceAll('\\s+', ' ').trim()
+                if (indexSnippet.length() > 320) {
+                  indexSnippet = indexSnippet.substring(0, 317) + '…'
+                }
+                break
+              }
+            }
+            if (indexSnippet) {
+              row.indexSnippet = indexSnippet
+            }
+            if (fetchMax > 0 && fetched < fetchMax && path) {
+              try {
+                Map gc = getContent(effectiveSite, path)
+                String xml = (gc?.contentXml ?: '').toString()
+                if (xml?.trim()) {
+                  row.contentExcerpt = plainTextExcerptFromSiteContentXml(xml, excerptMax)
+                  row.contentXmlChars = xml.length()
+                  fetched++
+                }
+              } catch (Throwable tFetch) {
+                row.fetchError = (tFetch.message ?: tFetch.toString()).toString()
+                log.debug('researchSiteContent GetContent failed path={}: {}', path, tFetch.message)
+              }
+            }
+            hitsOut << row
+          }
+        }
+        [
+          ok              : true,
+          tool            : 'ResearchSiteContent',
+          siteId          : effectiveSite,
+          query           : q,
+          pathPrefix      : pathPrefix,
+          searchAvailable : true,
+          searchHitCount  : searchHitCount,
+          fetchedCount    : fetched,
+          hits            : hitsOut,
+          hint            :
+            'Hits are from the authoring search index; contentExcerpt is from GetContent on the top matches. Cite repository paths in your answer; call GetContent again for full XML when editing.'
+        ]
+      }
+    } catch (Throwable t) {
+      def msg = t.message ?: t.toString()
+      log.warn('researchSiteContent OpenSearch failed site {} query={}: {}', effectiveSite, q, msg)
+      return [
+        ok              : false,
+        tool            : 'ResearchSiteContent',
+        siteId          : effectiveSite,
+        query           : q,
+        searchAvailable : false,
+        message         :
+          "OpenSearch is not reachable from Studio (${t.class.simpleName}: ${msg}). Start the authoring search stack or use GetContent on a known path.",
+        hits            : []
       ]
     }
   }
@@ -3083,6 +3544,177 @@ class StudioToolOperations {
   /** After writing/deleting Studio sandbox config files, notify Studio to reconcile (same as post-write tool path). */
   void publishConfigChangeRefresh(String siteId) {
     publishSyncFromRepoForSite(siteId)
+  }
+
+  private static final int WEB_SEARCH_DEFAULT_MAX_RESULTS = 8
+
+  private static int webSearchMaxResults(Integer toolRequested) {
+    int r = (toolRequested != null) ? toolRequested.intValue() : WEB_SEARCH_DEFAULT_MAX_RESULTS
+    return Math.min(15, Math.max(1, r))
+  }
+
+  /**
+   * Open-web search via DuckDuckGo HTML (no API keys). Studio must reach the public internet.
+   */
+  Map webSearch(String query, Integer maxResultsOpt) {
+    String q = (query ?: '').toString().trim()
+    if (!q) {
+      throw new IllegalArgumentException('Missing required field: query')
+    }
+    int maxResults = webSearchMaxResults(maxResultsOpt)
+    List<Map> results = webSearchDuckDuckGoResults(q, maxResults)
+    if (results.isEmpty()) {
+      return [
+        ok         : false,
+        tool       : 'WebSearch',
+        query      : q,
+        message    : 'Web search returned no results (the search service may be unreachable or blocked from Studio).',
+        resultCount: 0,
+        results    : []
+      ]
+    }
+    return [
+      ok          : true,
+      tool        : 'WebSearch',
+      query       : q,
+      resultCount : results.size(),
+      results     : results
+    ]
+  }
+
+  private static String webSearchStripHtml(String htmlFragment) {
+    if (!htmlFragment) {
+      return ''
+    }
+    String s = htmlFragment.toString()
+    s = s.replaceAll('(?is)<[^>]+>', ' ')
+    s = webSearchDecodeHtmlEntities(s)
+    return s.replaceAll('\\s+', ' ').trim()
+  }
+
+  private static String webSearchDecodeHtmlEntities(String s) {
+    if (!s) {
+      return ''
+    }
+    return s
+      .replace('&amp;', '&')
+      .replace('&lt;', '<')
+      .replace('&gt;', '>')
+      .replace('&quot;', '"')
+      .replace('&#39;', "'")
+      .replace('&nbsp;', ' ')
+  }
+
+  private static boolean webSearchSkipResultUrl(String url) {
+    String u = (url ?: '').toString().trim().toLowerCase(Locale.ROOT)
+    if (!u.startsWith('http://') && !u.startsWith('https://')) {
+      return true
+    }
+    return u.contains('duckduckgo.com/') || u.contains('duck.com/')
+  }
+
+  private static List<Map> webSearchParseDuckDuckGoLiteHtml(String html, int maxResults) {
+    List<Map> results = []
+    if (!html?.trim() || maxResults < 1) {
+      return results
+    }
+    java.util.regex.Pattern linkPat =
+      java.util.regex.Pattern.compile("(?is)<a[^>]*class=['\"]result-link['\"][^>]*href=['\"]([^'\"]+)['\"][^>]*>(.*?)</a>")
+    java.util.regex.Pattern snippetPat =
+      java.util.regex.Pattern.compile("(?is)<td[^>]*class=['\"]result-snippet['\"][^>]*>(.*?)</td>")
+    def linkMatcher = linkPat.matcher(html)
+    def snippetMatcher = snippetPat.matcher(html)
+    while (linkMatcher.find() && results.size() < maxResults) {
+      String url = webSearchDecodeHtmlEntities(linkMatcher.group(1)?.trim())
+      String title = webSearchStripHtml(linkMatcher.group(2))
+      String snippet = ''
+      if (snippetMatcher.find()) {
+        snippet = webSearchStripHtml(snippetMatcher.group(1))
+      }
+      if (!url || webSearchSkipResultUrl(url)) {
+        continue
+      }
+      results.add([title: title ?: url, url: url, snippet: snippet])
+    }
+    results
+  }
+
+  private static List<Map> webSearchParseDuckDuckGoHtml(String html, int maxResults) {
+    List<Map> results = []
+    if (!html?.trim() || maxResults < 1) {
+      return results
+    }
+    java.util.regex.Pattern linkPat =
+      java.util.regex.Pattern.compile("(?is)<a[^>]*class=['\"]result__a['\"][^>]*href=['\"]([^'\"]+)['\"][^>]*>(.*?)</a>")
+    java.util.regex.Pattern snippetPat =
+      java.util.regex.Pattern.compile("(?is)<a[^>]*class=['\"]result__snippet['\"][^>]*>(.*?)</a>")
+    def linkMatcher = linkPat.matcher(html)
+    def snippetMatcher = snippetPat.matcher(html)
+    while (linkMatcher.find() && results.size() < maxResults) {
+      String url = webSearchDecodeHtmlEntities(linkMatcher.group(1)?.trim())
+      String title = webSearchStripHtml(linkMatcher.group(2))
+      String snippet = snippetMatcher.find() ? webSearchStripHtml(snippetMatcher.group(1)) : ''
+      if (!url || webSearchSkipResultUrl(url)) {
+        continue
+      }
+      results.add([title: title ?: url, url: url, snippet: snippet])
+    }
+    results
+  }
+
+  private List<Map> webSearchDuckDuckGoResults(String q, int maxResults) {
+    List<Map> fromLite = webSearchDuckDuckGoPost('https://lite.duckduckgo.com/lite/', q, maxResults, true)
+    if (!fromLite.isEmpty()) {
+      return fromLite
+    }
+    return webSearchDuckDuckGoPost('https://html.duckduckgo.com/html/', q, maxResults, false)
+  }
+
+  private List<Map> webSearchDuckDuckGoPost(String endpoint, String q, int maxResults, boolean liteParser) {
+    URI uri = new URI(endpoint)
+    String hopErr = httpFetchSsrfErrorForUri(uri)
+    if (hopErr) {
+      log.warn('webSearch DuckDuckGo blocked by SSRF policy: {}', hopErr)
+      return []
+    }
+    String body = 'q=' + URLEncoder.encode(q, StandardCharsets.UTF_8.name())
+    HttpURLConnection conn = null
+    try {
+      conn = (HttpURLConnection) uri.toURL().openConnection()
+      conn.setRequestMethod('POST')
+      conn.setDoOutput(true)
+      conn.setInstanceFollowRedirects(true)
+      conn.setConnectTimeout(15000)
+      conn.setReadTimeout(60_000)
+      conn.setRequestProperty('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8')
+      conn.setRequestProperty('Accept', 'text/html,application/xhtml+xml')
+      conn.setRequestProperty(
+        'User-Agent',
+        'Mozilla/5.0 (compatible; CrafterCMS-AI-Assistant/1.0; +https://craftercms.org)'
+      )
+      conn.outputStream.withWriter(StandardCharsets.UTF_8.name()) { it.write(body) }
+      int status = conn.responseCode
+      if (status < 200 || status >= 300) {
+        log.warn('webSearch DuckDuckGo HTTP {} endpoint={}', status, endpoint)
+        return []
+      }
+      String html = ''
+      InputStream is = conn.inputStream
+      if (is != null) {
+        html = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8)).text
+      }
+      return liteParser ?
+        webSearchParseDuckDuckGoLiteHtml(html, maxResults) :
+        webSearchParseDuckDuckGoHtml(html, maxResults)
+    } catch (Throwable t) {
+      log.warn('webSearch DuckDuckGo failed endpoint={}: {}', endpoint, t.message)
+      return []
+    } finally {
+      try {
+        conn?.disconnect()
+      } catch (Throwable ignored) {
+      }
+    }
   }
 }
 

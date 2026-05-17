@@ -8,21 +8,22 @@ import {
 } from '@mui/material';
 import type { ToolsPolicyFormState } from './aiAssistantToolsMcpUiModel';
 import { BUILTIN_TOOL_NAME_OPTIONS } from './aiAssistantToolsMcpUiModel';
-import AiAssistantIntentRecipeRoutingFields from './AiAssistantIntentRecipeRoutingFields';
-
 export interface AiAssistantSiteOrchestrationToolsFormProps {
   value: ToolsPolicyFormState;
   onChange: (next: ToolsPolicyFormState) => void;
 }
 
 /**
- * Site-wide {@code tools.json} policy: built-in tool hide/whitelist and intent recipe routing.
+ * Site-wide {@code tools.json} policy: built-in tool hide/whitelist. Intent recipe routing lives on the **Recipes** tab.
  */
 export default function AiAssistantSiteOrchestrationToolsForm(props: AiAssistantSiteOrchestrationToolsFormProps) {
   const { value, onChange } = props;
 
   return (
     <Stack spacing={3}>
+      <Typography variant="body2" color="text.secondary">
+        Intent recipe routing and the recipe catalog are configured under the <strong>Recipes</strong> tab.
+      </Typography>
       <Paper variant="outlined" sx={{ p: 2.5 }}>
         <Typography variant="subtitle2" gutterBottom>
           Built-In CMS Tools
@@ -69,10 +70,6 @@ export default function AiAssistantSiteOrchestrationToolsForm(props: AiAssistant
           />
         </Stack>
       </Paper>
-      <AiAssistantIntentRecipeRoutingFields
-        value={value.intentRecipeRouting}
-        onChange={(intentRecipeRouting) => onChange({ ...value, intentRecipeRouting })}
-      />
     </Stack>
   );
 }

@@ -342,12 +342,26 @@ For **content-only** tasks, use **`aiassistantFormFieldUpdates`** in your final 
     p('GENERAL_DESC_FETCH_HTTP_URL', 'GET a public **http(s)** URL and return the response **body as UTF-8 text** (HTML page, CSS file, JSON, etc.) for redesign or “make my site look like this” workflows. **Not** for Crafter Engine preview tickets — use **GetPreviewHtml** for your site preview. SSRF protections: blocks localhost/private IPs/metadata hosts; follows up to **5** redirects and re-validates each target. Optional **maxChars** caps returned size (JVM **aiassistant.httpFetch.maxChars** still applies, default 400000). Disable entirely with **aiassistant.httpFetch.enabled=false**. Restrict hosts with comma suffix list **aiassistant.httpFetch.allowedHostSuffixes** (e.g. `example.com,cdn.example.net`). No Studio cookies or Authorization are sent. Remind the author about **copyright and terms** of third-party pages.')
   }
 
+  static String getDESC_WEB_SEARCH() {
+    p(
+      'GENERAL_DESC_WEB_SEARCH',
+      'Search the **public web** for **current** information (news, headlines, recent events). No API keys — Studio queries a public HTML search index. Required: **query**. Optional **maxResults** (1–15, default 8). Returns **title**, **url**, **snippet** — cite those sources; **do not** invent links. **Not** for Crafter repository search (**ResearchSiteContent**). **Not** for a URL the author already gave (**FetchHttpUrl**). If no results, say the search service may be unreachable from Studio.'
+    )
+  }
+
+  static String getDESC_RESEARCH_SITE_CONTENT() {
+    p(
+      'CMS_DESC_RESEARCH_SITE_CONTENT',
+      'Search **this Crafter site’s indexed content** (Studio authoring OpenSearch — same index as sidebar search), then **GetContent** on the top matches and return **path**, **title**, **indexSnippet**, and **contentExcerpt** text. Required: **siteId**, **query**. Optional **maxSearchHits** (1–30), **maxFetchItems** (0–10 full-item excerpts), **pathPrefix** (default `/site/`). Use when the author asks what pages or components exist about a topic, to find where copy lives, or to answer from **repository** content — **not** for open-web news (**WebSearch**), **not** for general knowledge with no site scope (**llm** answer), **not** for editing (**GetContent** + **WriteContent** on a known path). If **searchAvailable:false**, say authoring search is down and suggest **GetContent** with a known path.'
+    )
+  }
+
   static String getDESC_QUERY_EXPERT_GUIDANCE() {
     p('GENERAL_DESC_QUERY_EXPERT_GUIDANCE', 'Semantic search over a **configured expert skill** markdown corpus (Spring AI in-memory vector store + embeddings). First load fetches the skill URL server-side (same SSRF rules as FetchHttpUrl). Required: **skillId** from the system “Expert guidance skills” table, **query** (what to retrieve). Optional **topK** (1–20, default 8). Returns ranked text chunks with scores — use them to ground answers before large CMS edits. Does not write the repository. Injected tool-progress lines use **🤓** after **🛠️** so authors recognize expert-instruction work; mention **🤓** in your own prose when you summarize this tool.')
   }
 
   static String getDESC_REVERT_CHANGE() {
-    p('CMS_CONTENT_DESC_REVERT_CHANGE', 'Revert a content item to a prior Studio version (v1 revertContentItem). Requires siteId and path or contentPath. Pass version=<versionNumber> from GetContentVersionHistory, or revertToPrevious:true to restore the immediate prior revertible version. Do not pass content/template/contentType as a version.')
+    p('CMS_CONTENT_DESC_REVERT_CHANGE', 'Revert a content item to a prior Studio version (v1 revertContentItem). Requires siteId and path or contentPath. Pass version=<versionNumber> from GetContentVersionHistory, revertToInitial:true for the oldest revertible version (e.g. “initial commit”, “first version”), or revertToPrevious:true for one step back. For a specific historical body, call GetContentVersionHistory first, then pass contentContains (distinct phrases from that version) and optional contentFieldId from GetContentTypeFormDefinition — do not guess field ids. Do not pass content/template/contentType as a version.')
   }
 
   static String getDESC_GET_CRAFTERIZING_PLAYBOOK() {
@@ -355,7 +369,7 @@ For **content-only** tasks, use **`aiassistantFormFieldUpdates`** in your final 
   }
 
   static String getDESC_GENERATE_IMAGE() {
-    p('CMS_CONTENT_DESC_GENERATE_IMAGE', 'Generates an image using the **configured image backend** for this Studio site/agent (default: built-in **POST /v1/images/generations** wire when an API key and **imageModel** are set; **script:{id}** uses **`/scripts/aiassistant/imagegen/{id}/generate.groovy`**; **none** / **off** / **disabled** removes the tool). Same key material as chat when using the default tools-loop image path. Default image model is the agent **imageModel** (ui.xml) or chat request **imageModel** only — no JVM default; optional tool argument **model** overrides per call on the wire path. Required: **prompt**. Optional: **size**, **quality** (GPT Image provider fields — see provider docs). **Do not** pass **response_format** on the GPT Image Images path; the server never sends it. When the backend returns base64, the **tool result wire** uses a short **`inlineImageRef`** (not a multi‑megabyte `data:` URL). When the author asked for an image, **call this tool** — do not answer with a text-only “concept” or ask them to approve a concept first. Studio shows the generated bitmap in the **chat image strip**; your **author-visible** reply is **plain prose** only (subject, style, how to use the image)—**do not** stream markdown `![…](…)` lines, 📋 steps about “present as markdown”, or raw `data:image/...;base64,...` blobs (context limit). The server may attach image metadata for the UI; authors drag from the strip when they need to persist bytes.')
+    p('CMS_CONTENT_DESC_GENERATE_IMAGE', 'Generates an image using the **configured image backend** for this Studio site/agent (default: built-in **POST /v1/images/generations** wire when an API key and **imageModel** are set; **script:{id}** uses **`/scripts/aiassistant/imagegen/{id}/generate.groovy`**; **none** / **off** / **disabled** removes the tool). Same key material as chat when using the default tools-loop image path. Default image model is the agent **imageModel** (ui.xml) or chat request **imageModel** only — no JVM default; optional tool argument **model** overrides per call on the wire path. Required: **prompt**. Optional: **size** (GPT Image only: **auto**, **1024x1024**, **1024x1536**, **1536x1024** — **omit** unless the author asked for aspect ratio; never use legacy sizes like **1024x768**), **quality** (low, medium, high, auto). **Do not** pass **response_format** on the GPT Image Images path; the server never sends it. When the backend returns base64, the **tool result wire** uses a short **`inlineImageRef`** (not a multi‑megabyte `data:` URL). When the author asked for an image, **call this tool** — do not answer with a text-only “concept” or ask them to approve a concept first. Studio shows the generated bitmap in the **chat image strip**; your **author-visible** reply is **plain prose** only (subject, style, how to use the image)—**do not** stream markdown `![…](…)` lines, 📋 steps about “present as markdown”, or raw `data:image/...;base64,...` blobs (context limit). The server may attach image metadata for the UI; authors drag from the strip when they need to persist bytes.')
   }
 
   static String getTRANSFORM_CONTENT_SUBGRAPH_SYSTEM() {
@@ -518,7 +532,7 @@ If the bundle exceeds ~280k characters, the tool fails — narrow **maxDepth**/s
    */
   static String getLlm_AUTHORING_INTENT_EXPANSION_SYSTEM() {
     p('GENERAL_LLM_AUTHORING_INTENT_EXPANSION_SYSTEM',
-      '''You help Crafter Studio authors whose message is **underspecified** for safe tool execution: **one-liners**, **short** asks, or vague “make it like …” / “match …” language — often with a reference URL **or** a bare host like **google.com** (no {@code https://} required).
+      '''You help Crafter Studio authors whose message is **underspecified** for safe tool execution: **one-liners**, **short** asks, or vague “make it like …” / “match …” language — often with a reference URL **or** a bare host like **google.com** (no {@code https://} required). When they ask **what this page is about** / **what do you think this page is about** and Studio metadata already names **contentPath**, bullets must tell the follow-up model to **GetContent** on that path first and summarize from XML — **not** to answer from memory or refuse for “lack of access.”
 
 Output **only** a **markdown bullet list** (each line starts with `- ` or `* `). **4–10 bullets**, each one sentence when possible, **under ~900 words** total. No title line, no preamble (“Here is…”), no JSON, no fenced code blocks with full stylesheets.
 
@@ -531,6 +545,39 @@ Each bullet should be **actionable for a follow-up model that has native CMS too
 **Copyright / ethics:** Do **not** instruct copying proprietary article body text, logos, or photos from the reference site — **visual structure and styling direction only**.
 
 End with **one** bullet that names **how the author can verify** success in Studio preview (e.g. obvious change to chrome + one interior section), without naming API tools.'''
+    )
+  }
+
+  /**
+   * Pass-2 **recipe rematch** expansion (after intent router pass 1 missed). User message carries the recipe catalog
+   * table + author text. Output is fed back into the JSON recipe router — must align to a {@code recipeId}, not a generic edit plan.
+   */
+  static String getLlm_AUTHORING_INTENT_EXPANSION_RECIPE_REMATCH_SYSTEM() {
+    p('GENERAL_LLM_AUTHORING_INTENT_EXPANSION_RECIPE_REMATCH_SYSTEM',
+      '''You help Crafter Studio when **pass-1 intent recipe routing did not match** any workflow. Your job is to **restate the author's goal in terms of one row from the recipe catalog** the user message includes — so a **strict JSON classifier** on the next step can pick the right `recipeId`.
+
+You receive:
+- A **markdown table** of `recipeId`, title, description, **match if** / **do not match if** columns.
+- The **author message** (may include **Repository path:** / **contentPath** anchor blocks).
+
+**Output format (required):**
+1) **First line exactly:** `Recipe match hint: <recipeId> — <read-only|edit> — <one short sentence why this row fits>` where `<recipeId>` is **exactly** an id from the table (never invent ids).
+2) Then **3–8 markdown bullets** (`- `) that clarify **mode** and **first tools** for that recipe only.
+
+**How to pick the row (use table descriptions, not keyword games alone):**
+- **Anchored `/site/.../*.xml`** + author asks what **this / the page** is about, means, covers, or wants your **interpretation/summary** with **no** edit verbs → **`open_page_inquiry`** (read-only: GetContent on anchored path or use prefetch XML; answer in prose; **no** WriteContent / template/CSS work unless they ask to change something). Do **not** treat this as “exploratory chitchat” or **`llm_research`** when Studio already named a repository path.
+- **Find/summarize content across the site** (search site, what pages about X) → **`site_content_research`**.
+- **Latest news / web headlines** → **`web_research`**.
+- **General knowledge** with **no** repo anchor and **no** “this page” → **`llm_research`**.
+- **Translate / localize** → **`translate_content_item`**.
+- **Generate image only** → **`generate_image`**.
+- **Explicit copy/field edit** on anchored XML → **`modify_page_content`** as **edit**.
+
+**Read-only vs edit:** When the author only wants understanding (about / describe / what would you say / summarize this page), bullets must say **read-only** and forbid WriteContent. When they want changes, say **edit** and name the field or area if known.
+
+**Do not:** output JSON; invent recipe ids; default to CSS/FTL/theme bullets for read-only page questions; claim files were read; write a generic “implementation plan” unrelated to the table.
+
+Keep total output under **~600 words**.'''
     )
   }
 
@@ -571,15 +618,19 @@ Reply again with that **## Plan** plus **tool_calls** in the same assistant mess
       'GENERAL_LLM_AUTHORING_INTENT_RECIPE_ROUTER_SYSTEM',
       '''You are a **strict classifier** for Crafter Studio authoring. You **do not** call CMS tools and **do not** invent repository paths.
 
-You receive a **markdown table** of recipe rows (`recipeId`, title, description) and an **author message** (may include Studio context).
+You receive a **markdown table** of recipe rows (`recipeId`, title, description, optional **match if** / **do not match if** keyword columns) and an **author message** (may include Studio context).
 
 Reply with **JSON only** (no markdown fences, no prose). Shape:
 {"recipeId":"<exact id from table or null>","confidence":0.0-1.0,"reason":"one short sentence"}
 
 Rules:
 - **recipeId** must be **exactly** one of the ids in the table **or** JSON **null** if none fits.
+- If the author message contains a phrase from a row's **do not match if** column (substring, any language casing), you **must not** return that row's `recipeId` — pick another row or **null**.
+- **match if** keywords are positive signals only; missing keywords does **not** forbid a match when the description clearly fits.
 - **confidence** (0–1): the server compares it to the site’s **minConfidence** (often **0.55**); **below threshold = no recipe applied**. Use **high confidence** when the author clearly fits a row. Use **low confidence** only for **pure chitchat**, **unrelated** asks, **no CMS/repo work**, or **ambiguous between two table rows** — **not** for a clear one-line content edit. **Single-row catalog:** when the table has **exactly one** row and the author asks for **normal Studio authoring** (copy, title, field, tone, grammar, page, component, update, edit, rewrite — not greeting-only), return **that `recipeId`** with **confidence ≥ 0.85** unless clearly **off-topic** for CMS work (then `recipeId: null` with low confidence).
 - Prefer **null** when the author only greets or asks a generic CMS question with **no** clear workflow from the table.
+- If the author message begins with **`Recipe match hint:`** naming a `recipeId` from the table (from pass-2 expansion), return **that** `recipeId` with **confidence ≥ 0.85** unless a **do not match if** phrase forbids it — the hint is a strong signal, not a separate author ask.
+- **Read-only page inquiry:** When Studio anchors **`/site/.../*.xml`** and the author asks what **this page** is about (any phrasing: “what is”, “what would you say”, “describe”, “tell me about”) with **no** edit/translate/publish/image verbs, **`open_page_inquiry`** is the correct row — **not** `modify_page_content`, **not** `null`, and **not** “unrelated to CMS workflows”.
 - Do **not** output any key besides recipeId, confidence, reason.'''
     )
   }
