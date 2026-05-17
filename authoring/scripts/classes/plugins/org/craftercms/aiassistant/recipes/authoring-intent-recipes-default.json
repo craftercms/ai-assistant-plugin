@@ -14,6 +14,7 @@
     "revert_content_version",
     "generate_image",
     "template_display_change",
+    "publish_site",
     "publish_item",
     "new_content_item",
     "translate_content_item"
@@ -387,17 +388,56 @@
       }
     },
     {
+      "id": "publish_site",
+      "title": "Publish entire site / first go-live",
+      "chatEmoji": "🌐",
+      "deterministicMatch": {
+        "signal": "publish_site_bulk",
+        "priority": 94,
+        "routerReason": "deterministic_publish_site_bulk"
+      },
+      "description": "Author wants to publish the whole site, everything, or first-time go-live — not a read-only page summary and not a single item unless they narrowed scope after first publish.",
+      "matchHints": [
+        "publish entire site",
+        "publish everything",
+        "publish all",
+        "whole site",
+        "first publish",
+        "never published",
+        "go live on the site"
+      ],
+      "dontMatchHints": [
+        "what is this page",
+        "describe this page",
+        "summarize this page",
+        "translate",
+        "update",
+        "WriteContent"
+      ],
+      "phases": {
+        "context": [
+          "Confirm siteId and publishingTarget (default live). If Studio metadata says the site has never been published, publishScope=all is required."
+        ],
+        "action": [
+          "Call publish_content with publishScope=all (PublishService.publishAll) for entire site / first publish. Use publishScope=bulk and bulkRootPath=/site only when publish all is unavailable and bulk go-live is appropriate. Do not pass only the open preview contentPath for entire-site requests."
+        ],
+        "confirmation": [
+          "Report publishScope, initialPublish flag, and path counts from the tool result — never claim entire site published if publishScope was item or only one path was deployed."
+        ]
+      }
+    },
+    {
       "id": "publish_item",
       "title": "Publish or go live",
       "chatEmoji": "🚀",
-      "description": "Author wants to publish the current item or a named path to live/staging.",
+      "description": "Author wants to publish one item, a list of paths, or go live without sitewide / first-publish scope.",
       "matchHints": ["publish", "go live", "deploy", "push to live", "release"],
       "phases": {
-        "context": ["Confirm siteId and target path from Studio context or author text."],
+        "context": ["Confirm siteId, publishingTarget, and scope: single path, paths array, or bulk subtree — not entire site unless author asked."],
         "action": [
-          "Use publish_content with path/contentPath; avoid unnecessary discovery reads when context already has the item path."
+          "publish_content: publishScope=item with path/contentPath for one item; publishScope=paths with paths/contentPaths array for a list (one deploy); publishScope=bulk with bulkRootPath for subtree. Avoid discovery reads when context already has paths."
         ],
-        "confirmation": ["Summarize publish package outcome from tool result."]
+        "confirmation": ["Summarize publishScope, path(s), and tool outcome — do not claim entire site if only one path or a short list was published."]
       }
     },
     {

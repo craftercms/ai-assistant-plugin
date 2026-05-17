@@ -143,14 +143,25 @@ final class AuthoringIntentRecipeCatalog {
       }
     },
     {
+      "id": "publish_site",
+      "title": "Publish entire site / first go-live",
+      "description": "Author wants entire site, everything, or first publish — publish_content publishScope=all.",
+      "matchHints": ["publish entire site", "publish everything", "first publish"],
+      "phases": {
+        "context": ["Confirm siteId; use publishScope=all when site never published."],
+        "action": ["publish_content with publishScope=all — not only open contentPath."],
+        "confirmation": ["Report publishScope and counts; never claim whole site on single-path deploy."]
+      }
+    },
+    {
       "id": "publish_item",
       "title": "Publish or go live",
-      "description": "Author wants to publish the current item or a named path to live/staging.",
+      "description": "Author wants one item, a path list, or bulk subtree — not entire-site first publish.",
       "matchHints": ["publish", "go live", "deploy", "push to live", "release"],
       "phases": {
-        "context": ["Confirm siteId and target path from Studio context or author text."],
-        "action": ["Use publish_content with path/contentPath; avoid unnecessary discovery reads when context already has the item path."],
-        "confirmation": ["Summarize publish package outcome from tool result."]
+        "context": ["Confirm siteId, scope (item/paths/bulk), and path(s)."],
+        "action": ["publish_content with publishScope item|paths|bulk per scope."],
+        "confirmation": ["Summarize publishScope and tool outcome."]
       }
     },
     {

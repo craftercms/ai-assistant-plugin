@@ -6,6 +6,7 @@ import plugins.org.craftercms.aiassistant.http.AiAssistantCentralAgentsMerge
 import plugins.org.craftercms.aiassistant.orchestration.AiOrchestration
 import plugins.org.craftercms.aiassistant.prompt.ToolPromptsSiteContext
 import plugins.org.craftercms.aiassistant.rag.ExpertSkillVectorRegistry
+import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
 
 /**
  * Minimal proxy for assistant chat (non-streaming).
@@ -55,6 +56,14 @@ if (AuthoringPreviewContext.isFormEngineSurface(body?.authoringSurface)) {
   promptForOrchestration = AuthoringPreviewContext.appendToUserPrompt(prompt, body?.contentPath, body?.contentTypeId, body?.contentTypeLabel)
   promptForOrchestration = AuthoringPreviewContext.appendEnginePreviewHintIfPossible(
     promptForOrchestration, request, siteIdBody ?: params?.siteId, body?.contentPath, body?.studioPreviewPageUrl)
+  def siteForPub = siteIdBody ?: params?.siteId?.toString()?.trim()
+  if (siteForPub) {
+    try {
+      def pubOps = new StudioToolOperations(request, applicationContext, params)
+      promptForOrchestration = AuthoringPreviewContext.appendSitePublishingStatus(
+        promptForOrchestration, pubOps.isSiteEverPublished(siteForPub))
+    } catch (Throwable ignoredPub) {}
+  }
 }
 promptForOrchestration = AuthoringPreviewContext.appendAgentDateTimeContext(promptForOrchestration)
 def chatId = body.chatId?.toString()

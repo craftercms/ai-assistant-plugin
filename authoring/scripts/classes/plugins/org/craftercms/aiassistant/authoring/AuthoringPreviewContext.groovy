@@ -19,6 +19,11 @@ class AuthoringPreviewContext {
     '(?i)\\b(publish(\\s+now|\\s+this|\\s+the\\s+(page|article|post|item))?|push\\s+to\\s+live|go\\s+live|deploy(\\s+now)?|release(\\s+to\\s+live)?|make\\s+it\\s+live|send\\s+to\\s+live|put\\s+it\\s+live)\\b'
   )
 
+  /** Entire site / first publish / publish everything — not a single open item. */
+  private static final Pattern PUBLISH_SITE_BULK_INTENT = Pattern.compile(
+    '(?i)\\b(publish\\s+(the\\s+)?(entire|whole)\\s+site|publish\\s+everything|publish\\s+all(\\s+content)?|publish\\s+the\\s+site|first\\s+publish|initial\\s+publish|publish\\s+for\\s+the\\s+first\\s+time|never\\s+been\\s+published|bulk\\s+publish|deploy\\s+(the\\s+)?(entire|whole)\\s+site|go\\s+live\\s+(on|for)\\s+the\\s+(whole|entire)\\s+site)\\b'
+  )
+
   /** Cross-language or “translate this” style work — paired with path injection. */
   private static final Pattern CROSS_LANGUAGE_TRANSLATE_INTENT = Pattern.compile(
     '(?i)\\b(translat|localiz|localization|to\\s+(spanish|french|german|arabic|italian|portuguese|dutch|russian|japanese|chinese|korean|hindi|vietnamese|polish|turkish|hebrew|swedish|norwegian|danish|finnish|greek)|in\\s+spanish|in\\s+french|in\\s+german|msa\\b|modern\\s+standard\\s+arabic)\\b'
@@ -373,6 +378,9 @@ Use these when the author asks about "today", "now", freshness, or dated content
     if (!v) {
       return false
     }
+    if (PUBLISH_NOW_INTENT.matcher(v).find() || authorVisibleSuggestsPublishSiteBulk(v)) {
+      return false
+    }
     if (OPEN_PAGE_INQUIRY.matcher(v).find()) {
       return true
     }
@@ -414,6 +422,38 @@ Use these when the author asks about "today", "now", freshness, or dated content
       return false
     }
     return LLM_RESEARCH_SIGNAL.matcher(v).find()
+  }
+
+  /** Entire site / publish everything / first go-live — use {@code publish_content} with {@code publishScope=all} or {@code bulk}. */
+  static boolean authorVisibleSuggestsPublishSiteBulk(String fullOrUserPrompt) {
+    def v = stripStudioInjectedPromptBlocks((fullOrUserPrompt ?: '').toString())?.trim()
+    if (!v) {
+      return false
+    }
+    if (PUBLISH_SITE_BULK_INTENT.matcher(v).find()) {
+      return true
+    }
+    return PUBLISH_NOW_INTENT.matcher(v).find() &&
+      (FULL_PAGE_OR_SITE_COPY_INTENT.matcher(v).find() &&
+        (v =~ /(?i)\b(entire|whole|everything|all|site|first)\b/).find())
+  }
+
+  /**
+   * Optional Studio metadata: whether the site has ever been published (from v2 {@code PublishService}).
+   */
+  static String appendSitePublishingStatus(String prompt, Boolean siteEverPublished) {
+    def base = (prompt ?: '').toString()
+    if (siteEverPublished == null) {
+      return base
+    }
+    if (siteEverPublished == Boolean.TRUE) {
+      return base
+    }
+    return """${base}
+
+--- Studio publishing status (metadata; not the author's request) ---
+This site has **never** been published to the delivery tier. For first go-live or "publish everything", call **publish_content** with **publishScope** `all` (PublishService.publishAll) — **not** only the open **index.xml** path unless the author explicitly narrowed to one item after first publish.
+---"""
   }
 
   /** Search indexed site copy (OpenSearch) — {@code ResearchSiteContent}, not open web or generic LLM-only. */
@@ -706,9 +746,14 @@ When the author says "this page", "my page", "the current page", "this item", "u
     if (!path || !PUBLISH_NOW_INTENT.matcher(p).find()) {
       return ''
     }
+    if (authorVisibleSuggestsPublishSiteBulk(p)) {
+      return '''
+
+**Fast path — publish site / everything:** The author wants **entire site** or **first-time** go-live — **not** a single open item. Call **publish_content** with **publishScope** `all` (and **siteId**, **publishingTarget**, default **live**) as your **first** tool after a minimal **## Plan** — **do not** pass only **contentPath** from the open preview item. **Do not** call **GetContent**, **ListPagesAndComponents**, or **open_page_inquiry** first. Use **1–2** 📋 lines. Summarize from the tool result (**publishScope**, path counts) — **never** claim the whole site was published if the tool only deployed one path.'''
+    }
     return '''
 
-**Fast path — publish / go live:** Studio context already names **Current content item repository path**. Call **publish_content** with **contentPath** = that path (plus **siteId**, **publishingTarget** as requested, default **live** when the author says publish/go live) as your **first** tool after a minimal **## Plan** — **do not** call **GetContent**, **ListPagesAndComponents**, or **ListContentTranslationScope** first. Use **1–2** 📋 lines only. **Optional** extras (“also publish the listing page”, “watch propagation”, “publish dependencies”) must be **short sentences after ## Plan Execution** or a *Would you like…* offer — **not** extra 📋 steps unless the author explicitly asked for them.'''
+**Fast path — publish / go live (this item):** Studio context names **Current content item repository path**. Call **publish_content** with **publishScope** `item` and **contentPath** = that path (plus **siteId**, **publishingTarget**, default **live**) as your **first** tool after a minimal **## Plan** — **do not** call **GetContent**, **ListPagesAndComponents**, or **ListContentTranslationScope** first. For **several named paths**, use **publishScope** `paths` with **paths** / **contentPaths** array (one deploy). For **subtree** bulk, use **publishScope** `bulk` and **bulkRootPath** (default `/site`). Use **1–2** 📋 lines only.'''
   }
 
   /**

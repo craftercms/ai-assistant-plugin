@@ -2441,41 +2441,7 @@ class AiOrchestrationTools {
       @Override Map apply(Map input) {
         runWithToolProgress('publish_content', input, toolProgressListener, {
           logToolInvocation('publish_content', (Map) (input ?: [:]))
-          def siteId = ops.resolveEffectiveSiteId(input?.siteId?.toString()?.trim() ?: (input?.site_id?.toString()?.trim()))
-          if (!siteId) throw new IllegalArgumentException('Missing required field: siteId')
-          def path = repoPathFromToolInput((Map) (input ?: [:]))
-          if (!path) throw new IllegalArgumentException('Missing required field: path (or contentPath)')
-          if (pathProtect && AuthoringPreviewContext.sameRepoPath(path, normProtected)) {
-            return [
-              ok: false,
-              blockedForFormClientApply: true,
-              path: AuthoringPreviewContext.normalizeRepoPath(path),
-              message:
-                'publish_content blocked for the form item path (client-side apply). Save/publish from Studio after applying form updates.',
-              action: 'publish_content'
-            ]
-          }
-          def date = input?.date?.toString()?.trim()
-          def target = input?.publishingTarget?.toString()?.trim() ?: 'live'
-          Long packageId = null
-          String err = null
-          try {
-            packageId = ops.submitPublishPackage(siteId, path, target, date) as Long
-          } catch (Throwable t) {
-            err = (t.message ?: t.toString())
-            log.warn('publish_content failed: {}', err)
-          }
-          [
-            action            : 'publish_content',
-            siteId            : siteId,
-            path              : path,
-            date              : date,
-            publishingTarget  : target,
-            publishPackageId  : packageId,
-            ok                : err == null,
-            message           : err ?: 'Publish submitted.',
-            result            : packageId
-          ]
+          ops.publishContentFromToolInput((Map) (input ?: [:]), pathProtect, normProtected)
         })
       }
     })

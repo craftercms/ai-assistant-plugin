@@ -68,6 +68,14 @@ try {
     promptForOrchestration = AuthoringPreviewContext.appendToUserPrompt(prompt, contentPathBody, contentTypeIdBody, contentTypeLabelBody)
     promptForOrchestration = AuthoringPreviewContext.appendEnginePreviewHintIfPossible(
       promptForOrchestration, request, siteIdBody ?: params?.siteId, contentPathBody, body?.studioPreviewPageUrl)
+    def siteForPub = siteIdBody ?: params?.siteId?.toString()?.trim()
+    if (siteForPub) {
+      try {
+        def pubOps = new StudioToolOperations(request, applicationContext, params)
+        promptForOrchestration = AuthoringPreviewContext.appendSitePublishingStatus(
+          promptForOrchestration, pubOps.isSiteEverPublished(siteForPub))
+      } catch (Throwable ignoredPub) {}
+    }
   }
   promptForOrchestration = AuthoringPreviewContext.appendAgentDateTimeContext(promptForOrchestration)
   def chatId = body?.chatId?.toString()

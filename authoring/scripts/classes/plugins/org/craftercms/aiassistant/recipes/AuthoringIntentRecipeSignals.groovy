@@ -62,6 +62,8 @@ final class AuthoringIntentRecipeSignals {
         return ex != null ? Boolean.TRUE.equals(ex.call()) : false
       case 'open_page_inquiry':
         return AuthoringPreviewContext.authorVisibleSuggestsOpenPageInquiry(prompt)
+      case 'publish_site_bulk':
+        return AuthoringPreviewContext.authorVisibleSuggestsPublishSiteBulk(prompt)
       default:
         return false
     }

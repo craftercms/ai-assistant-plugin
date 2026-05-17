@@ -533,6 +533,8 @@ class StudioToolOperations {
   final Object configurationServiceBean
   /** v1 deployment service bean {@code cstudioDeploymentService}. */
   final Object deploymentServiceBean
+  /** Optional v2 {@code publishService} — {@code isSitePublished}, {@code publishAll}. */
+  final Object publishServiceBean
   /** v1 {@code org.craftercms.studio.api.v1.service.content.ContentService} (bean {@code cstudioContentService}) for repository writes. */
   final Object cstudioContentServiceBean
   /**
@@ -563,6 +565,11 @@ class StudioToolOperations {
       'Studio configurationService bean not found (configurationService). AI Assistant tools use the Studio JVM only.')
     this.deploymentServiceBean = resolveRequiredBean('cstudioDeploymentService',
       'Studio cstudioDeploymentService bean not found (DeploymentService).')
+    Object ps = null
+    try {
+      ps = applicationContext?.get('publishService')
+    } catch (Throwable ignoredPs) {}
+    this.publishServiceBean = ps
     this.cstudioContentServiceBean = resolveRequiredBean('cstudioContentService',
       'Studio cstudioContentService bean not found (v1 ContentService). AI Assistant writeContent uses this bean.')
     Object cts = null
@@ -1875,10 +1882,90 @@ class StudioToolOperations {
    * @param optionalScheduleIso optional ISO-8601 instant; unparsable values are ignored (deploy immediately)
    * @return deployment id is not provided by this API; returns {@code null}
    */
-  Long submitPublishPackage(String siteId, String path, String publishingTarget, String optionalScheduleIso = null) {
+  /** @return {@code true} when the site has been published at least once; {@code null} if {@code publishService} is unavailable. */
+  Boolean isSiteEverPublished(String siteId) {
+    if (publishServiceBean == null) {
+      return null
+    }
     withStudioRequestSecurity {
       siteId = resolveEffectiveSiteId(siteId)
-      def normalized = normalizeLeadingSlash(path, 'path')
+      try {
+        return Boolean.valueOf(publishServiceBean.isSitePublished(siteId))
+      } catch (Throwable t) {
+        log.warn('isSiteEverPublished failed for site {}: {}', siteId, t.message)
+        return null
+      }
+    }
+  }
+
+  /**
+   * Publishes all pending changes for the site (v2 {@code PublishService#publishAll}) — use for first publish / publish everything.
+   */
+  Map publishAllSiteChanges(String siteId, String publishingTarget, String submissionComment = null) {
+    if (publishServiceBean == null) {
+      throw new IllegalStateException('Studio publishService bean not found; publishScope=all requires PublishService.')
+    }
+    withStudioRequestSecurity {
+      siteId = resolveEffectiveSiteId(siteId)
+      def target = (publishingTarget ?: 'live').toString().trim()
+      if (!target) target = 'live'
+      def comment = (submissionComment ?: 'publish_content tool (publish all)').toString().trim()
+      def changes = publishServiceBean.publishAll(siteId, target, comment)
+      int updatedCount = 0
+      int deletedCount = 0
+      int failedCount = 0
+      try {
+        updatedCount = changes?.getUpdatedPaths()?.size() ?: 0
+        deletedCount = changes?.getDeletedPaths()?.size() ?: 0
+        failedCount = changes?.getFailedPaths()?.size() ?: 0
+      } catch (Throwable ignored) {}
+      return [
+        initialPublish : changes?.isInitialPublish(),
+        updatedCount   : updatedCount,
+        deletedCount   : deletedCount,
+        failedCount    : failedCount,
+        empty          : changes?.isEmpty()
+      ]
+    }
+  }
+
+  /**
+   * Bulk go-live from a repository subtree ({@code DeploymentService#bulkGoLive}) — Studio “publish all under path”.
+   */
+  void submitBulkGoLive(String siteId, String basePath, String publishingTarget, String submissionComment = null) {
+    withStudioRequestSecurity {
+      siteId = resolveEffectiveSiteId(siteId)
+      def normalized = normalizeLeadingSlash((basePath ?: '/site'), 'path')
+      def target = (publishingTarget ?: 'live').toString().trim()
+      if (!target) target = 'live'
+      def comment = (submissionComment ?: 'publish_content tool (bulk)').toString().trim()
+      deploymentServiceBean.bulkGoLive(siteId, target, normalized, comment)
+    }
+  }
+
+  Long submitPublishPackage(String siteId, String path, String publishingTarget, String optionalScheduleIso = null) {
+    submitPublishPackageList(siteId, [path], publishingTarget, optionalScheduleIso)
+  }
+
+  /**
+   * Publishes multiple repository paths in one deployment package ({@code DeploymentService#deploy} with a path list).
+   */
+  Long submitPublishPackageList(String siteId, List paths, String publishingTarget, String optionalScheduleIso = null) {
+    withStudioRequestSecurity {
+      siteId = resolveEffectiveSiteId(siteId)
+      if (paths == null || paths.isEmpty()) {
+        throw new IllegalArgumentException('paths must be a non-empty list of repository paths')
+      }
+      def normalized = []
+      for (def p : paths) {
+        def s = (p ?: '').toString().trim()
+        if (s) {
+          normalized.add(normalizeLeadingSlash(s, 'path'))
+        }
+      }
+      if (normalized.isEmpty()) {
+        throw new IllegalArgumentException('paths must contain at least one non-empty repository path')
+      }
       def target = (publishingTarget ?: 'live').toString().trim()
       if (!target) target = 'live'
       Instant schedule = null
@@ -1890,23 +1977,245 @@ class StudioToolOperations {
           try {
             schedule = ZonedDateTime.parse(raw).toInstant()
           } catch (Throwable ignored2) {
-            log.warn('submitPublishPackage: could not parse schedule "{}", publishing immediately', raw)
+            log.warn('submitPublishPackageList: could not parse schedule "{}", publishing immediately', raw)
           }
         }
       }
       ZonedDateTime scheduledDate = schedule != null ? ZonedDateTime.ofInstant(schedule, ZoneId.systemDefault()) : null
       boolean scheduleDateNow = (scheduledDate == null)
+      def comment = normalized.size() == 1 ?
+        'publish_content tool' :
+        "publish_content tool (${normalized.size()} paths)"
       deploymentServiceBean.deploy(
         siteId,
         target,
-        Collections.singletonList(normalized),
+        normalized,
         scheduledDate,
         currentAuthenticatedUsername(),
-        'publish_content tool',
+        comment,
         scheduleDateNow
       )
       null
     }
+  }
+
+  /**
+   * Resolves {@code publish_content} tool input into a single deploy / bulk / publish-all operation.
+   */
+  Map publishContentFromToolInput(Map input, boolean pathProtectFormItem = false, String normProtectedFormPath = '') {
+    def siteId = resolveEffectiveSiteId(input?.siteId?.toString()?.trim() ?: (input?.site_id?.toString()?.trim()))
+    if (!siteId) {
+      throw new IllegalArgumentException('Missing required field: siteId')
+    }
+    def target = input?.publishingTarget?.toString()?.trim() ?: 'live'
+    def date = input?.date?.toString()?.trim()
+    def comment = input?.submissionComment?.toString()?.trim() ?: input?.comment?.toString()?.trim()
+    def scope = normalizePublishScopeFromToolInput(input)
+    def paths = collectPublishPathsFromToolInput(input)
+    Boolean everPublished = isSiteEverPublished(siteId)
+
+    if (!scope) {
+      if (plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext.isTruthy(input?.publishEntireSite) ||
+        plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext.isTruthy(input?.publishAll) ||
+        plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext.isTruthy(input?.publishEverything)) {
+        scope = 'all'
+      } else if (paths.size() > 1) {
+        scope = 'paths'
+      } else if (paths.size() == 1) {
+        scope = 'item'
+      }
+    }
+
+    if (scope == 'all') {
+      def summary = publishAllSiteChanges(siteId, target, comment)
+      return [
+        action               : 'publish_content',
+        siteId               : siteId,
+        publishScope         : 'all',
+        publishingTarget     : target,
+        siteEverPublishedBefore: everPublished,
+        ok                   : true,
+        message              : buildPublishAllMessage(summary, everPublished),
+        result               : summary
+      ]
+    }
+
+    if (scope == 'bulk') {
+      def bulkRoot = (input?.bulkRootPath ?: input?.bulkPath ?: '/site').toString().trim()
+      if (!bulkRoot) bulkRoot = '/site'
+      String err = null
+      try {
+        submitBulkGoLive(siteId, bulkRoot, target, comment)
+      } catch (Throwable t) {
+        err = (t.message ?: t.toString())
+        log.warn('publish_content bulk failed: {}', err)
+      }
+      return [
+        action               : 'publish_content',
+        siteId               : siteId,
+        publishScope         : 'bulk',
+        bulkRootPath         : normalizeLeadingSlash(bulkRoot, 'bulkRootPath'),
+        publishingTarget     : target,
+        siteEverPublishedBefore: everPublished,
+        ok                   : err == null,
+        message              : err ?: "Bulk publish submitted from ${bulkRoot}.",
+        result               : err == null ? 'ok' : null
+      ]
+    }
+
+    if (scope == 'paths') {
+      if (paths.isEmpty()) {
+        throw new IllegalArgumentException('publishScope=paths requires paths or contentPaths (non-empty array)')
+      }
+      def blocked = []
+      def publishable = []
+      for (def p : paths) {
+        if (pathProtectFormItem && plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext.sameRepoPath(p, normProtectedFormPath)) {
+          blocked.add(p)
+        } else {
+          publishable.add(p)
+        }
+      }
+      if (publishable.isEmpty()) {
+        return [
+          action                   : 'publish_content',
+          ok                       : false,
+          blockedForFormClientApply: true,
+          blockedPaths             : blocked,
+          message                  : 'publish_content blocked for all requested paths (form client-side apply).',
+        ]
+      }
+      String err = null
+      try {
+        submitPublishPackageList(siteId, publishable, target, date)
+      } catch (Throwable t) {
+        err = (t.message ?: t.toString())
+        log.warn('publish_content paths failed: {}', err)
+      }
+      def out = [
+        action               : 'publish_content',
+        siteId               : siteId,
+        publishScope         : 'paths',
+        paths                : publishable,
+        pathCount            : publishable.size(),
+        publishingTarget     : target,
+        date                 : date,
+        siteEverPublishedBefore: everPublished,
+        ok                   : err == null,
+        message              : err ?: "Publish submitted for ${publishable.size()} path(s).",
+        result               : err == null ? 'ok' : null
+      ]
+      if (!blocked.isEmpty()) {
+        out.blockedPaths = blocked
+        out.partialBlockedForFormClientApply = true
+      }
+      if (everPublished == Boolean.FALSE && publishable.size() == 1) {
+        out.warning = 'Site has never been published. For first go-live or entire site, use publishScope=all (not a single path).'
+      }
+      return out
+    }
+
+    def path = paths ? paths[0] : plugins.org.craftercms.aiassistant.tools.AiOrchestrationTools.repoPathFromToolInput((Map) (input ?: [:]))
+    if (!path) {
+      throw new IllegalArgumentException('Missing required field: path (or contentPath), or set publishScope=all|bulk|paths')
+    }
+    if (pathProtectFormItem && plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext.sameRepoPath(path, normProtectedFormPath)) {
+      return [
+        ok                       : false,
+        blockedForFormClientApply: true,
+        path                     : plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext.normalizeRepoPath(path),
+        message                  :
+          'publish_content blocked for the form item path (client-side apply). Save/publish from Studio after applying form updates.',
+        action                   : 'publish_content'
+      ]
+    }
+    String err = null
+    try {
+      submitPublishPackage(siteId, path, target, date)
+    } catch (Throwable t) {
+      err = (t.message ?: t.toString())
+      log.warn('publish_content failed: {}', err)
+    }
+    def result = [
+      action               : 'publish_content',
+      siteId               : siteId,
+      path                 : path,
+      publishScope         : 'item',
+      date                 : date,
+      publishingTarget     : target,
+      siteEverPublishedBefore: everPublished,
+      ok                   : err == null,
+      message              : err ?: 'Publish submitted.',
+      result               : err == null ? 'ok' : null
+    ]
+    if (everPublished == Boolean.FALSE) {
+      result.warning =
+        'Site has never been published. Studio first publish typically requires publishScope=all (entire site), not a single item path.'
+    }
+    return result
+  }
+
+  private static String buildPublishAllMessage(Map summary, Boolean everPublished) {
+    def initial = summary?.initialPublish == true
+    def updated = summary?.updatedCount ?: 0
+    def deleted = summary?.deletedCount ?: 0
+    def failed = summary?.failedCount ?: 0
+    def base = initial ?
+      'Initial site publish (publish all) submitted.' :
+      'Publish all pending changes submitted.'
+    if (everPublished == Boolean.FALSE) {
+      base = 'First-time site publish (publish all) submitted.'
+    }
+    if (updated > 0 || deleted > 0 || failed > 0) {
+      base += " (${updated} updated, ${deleted} deleted" + (failed > 0 ? ", ${failed} failed" : '') + ').'
+    }
+    return base
+  }
+
+  private static String normalizePublishScopeFromToolInput(Map input) {
+    def raw = (input?.publishScope ?: input?.publishMode ?: '').toString().trim().toLowerCase(Locale.ROOT)
+    if (!raw) {
+      return ''
+    }
+    if (raw in ['item', 'single', 'one']) {
+      return 'item'
+    }
+    if (raw in ['paths', 'list', 'batch', 'multiple']) {
+      return 'paths'
+    }
+    if (raw in ['bulk', 'subtree', 'bulkgolive', 'bulk_go_live']) {
+      return 'bulk'
+    }
+    if (raw in ['all', 'everything', 'entire', 'site', 'publishall', 'publish_all', 'first']) {
+      return 'all'
+    }
+    return raw
+  }
+
+  static List<String> collectPublishPathsFromToolInput(Map input) {
+    LinkedHashSet<String> out = new LinkedHashSet<>()
+    if (!(input instanceof Map)) {
+      return []
+    }
+    def single = plugins.org.craftercms.aiassistant.tools.AiOrchestrationTools.repoPathFromToolInput(input)
+    if (single?.trim()) {
+      out.add(single.trim())
+    }
+    for (String key : ['paths', 'contentPaths', 'pathList'] as List) {
+      def arr = input[key]
+      if (!(arr instanceof Collection)) {
+        continue
+      }
+      for (def p : arr) {
+        def s = (p ?: '').toString().trim()
+        if (s) {
+          out.add(s)
+        }
+      }
+    }
+    return out.collect {
+      plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext.normalizeRepoPath(it)
+    }.findAll { it }
   }
 
   /**
