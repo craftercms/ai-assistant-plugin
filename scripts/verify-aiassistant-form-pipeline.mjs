@@ -76,7 +76,7 @@ if (!idx.includes('export default plugin') || !idx.includes('export { AiAssistan
 }
 
 needContains(formCtl, 'normalizeAgentsProp', 'FormControl agents normalization');
-needContains(fetchAgents, 'fetchCentralAgentsFile', 'fetch agents from central catalog');
+needContains(fetchAgents, 'getEffectiveCentralAgentsCatalog', 'fetch agents from central catalog');
 needNotContains(fetchAgents, 'parseAgentsFromStudioUiXml', 'no ui.xml agent parse in fetch helper');
 
 console.log('[verify-aiassistant-form-pipeline] OK');

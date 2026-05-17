@@ -29438,7 +29438,7 @@ function resolvedGeneratedImageSources(urls) {
         const t = v.trim();
         if (t.length < 13)
             continue;
-        if (t.startsWith('data:image/') || /^https?:\/\//i.test(t)) {
+        if (t.startsWith('data:image/') || /^https?:\/\//i.test(t) || t.startsWith('/static-assets/')) {
             if (!seen.has(t)) {
                 seen.add(t);
                 out.push(t);
@@ -30584,6 +30584,25 @@ function shouldShowGenerateImagePlaceholder(toolProgressText, tailMarkdown, stud
     }
     return false;
 }
+/** Drop consecutive duplicate 🛠️ lines (hotpath + tool listener used to emit the same row twice). */
+function appendToolProgressText(prior, chunk) {
+    if (!chunk)
+        return prior;
+    if (!prior)
+        return chunk;
+    const join = prior.endsWith('\n\n') ? (chunk.startsWith('\n') ? '' : '\n') : '\n\n';
+    const combined = prior + join + chunk;
+    const lines = combined.split('\n');
+    const out = [];
+    for (const line of lines) {
+        const norm = line.trimEnd();
+        const prev = out.length ? out[out.length - 1].trimEnd() : '';
+        if (norm && norm === prev)
+            continue;
+        out.push(line);
+    }
+    return out.join('\n');
+}
 /** Keeps the tool-progress list pinned to the latest line as SSE chunks append. */
 function ToolProgressScrollArea(props) {
     const ref = useRef(null);
@@ -30626,7 +30645,17 @@ function formatCqPipelineWallMs(ms) {
     return `${(rounded / 1000).toFixed(1)}s`;
 }
 function AssistantPipelineTimingLine(props) {
-    if (props.wallMs == null || props.wallMs < 0)
+    const parts = [];
+    if (props.taskSec != null && Number.isFinite(props.taskSec) && props.taskSec >= 0) {
+        parts.push(`tools ${props.taskSec.toFixed(1)}s`);
+    }
+    if (props.totalSec != null && Number.isFinite(props.totalSec) && props.totalSec >= 0) {
+        parts.push(`total ${props.totalSec.toFixed(1)}s`);
+    }
+    else if (props.wallMs != null && props.wallMs >= 0) {
+        parts.push(formatCqPipelineWallMs(props.wallMs));
+    }
+    if (!parts.length)
         return null;
     return (jsxs(Typography, { variant: "caption", component: "p", sx: {
             mt: 0.75,
@@ -30635,7 +30664,7 @@ function AssistantPipelineTimingLine(props) {
             opacity: 0.7,
             fontStyle: 'italic',
             letterSpacing: '0.01em'
-        }, children: ["Completed in ", formatCqPipelineWallMs(props.wallMs)] }));
+        }, children: ["Completed in ", parts.join(' · ')] }));
 }
 /** Muted stream of tokens before tool-progress begins — hidden once tools run. */
 function AssistantReasoningLive(props) {
@@ -30696,6 +30725,8 @@ function loadConversation(siteId, agentId) {
                     : undefined;
                 const rawWall = m.toolPipelineWallMs;
                 const toolPipelineWallMs = typeof rawWall === 'number' && Number.isFinite(rawWall) && rawWall >= 0 ? Math.round(rawWall) : undefined;
+                const rawTotal = m.toolPipelineTotalSec;
+                const toolPipelineTotalSec = typeof rawTotal === 'number' && Number.isFinite(rawTotal) && rawTotal >= 0 ? rawTotal : undefined;
                 return {
                     id: m.id,
                     role: m.role === 'assistant' || m.role === 'system' ? m.role : 'user',
@@ -30703,6 +30734,7 @@ function loadConversation(siteId, agentId) {
                     ...(assistantPreToolsText !== undefined ? { assistantPreToolsText } : {}),
                     ...(toolProgressText !== undefined && toolProgressText !== '' ? { toolProgressText } : {}),
                     ...(toolPipelineWallMs !== undefined ? { toolPipelineWallMs } : {}),
+                    ...(toolPipelineTotalSec !== undefined ? { toolPipelineTotalSec } : {}),
                     isStreaming: false
                 };
             })
@@ -31393,17 +31425,9 @@ function AiAssistantChat(props) {
                                         ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls)
                                     };
                                 }
-                                const prior = m.toolProgressText || '';
-                                // ReactMarkdown collapses single newlines into spaces; separate SSE chunks with a blank line
-                                // so each 🛠️ tool line stays readable when pasted or viewed in the tool strip.
-                                const join = prior.endsWith('\n\n')
-                                    ? textChunk.startsWith('\n')
-                                        ? ''
-                                        : '\n'
-                                    : '\n\n';
                                 return {
                                     ...m,
-                                    toolProgressText: prior + join + textChunk,
+                                    toolProgressText: appendToolProgressText(m.toolProgressText || '', textChunk),
                                     ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls)
                                 };
                             }));
@@ -31465,6 +31489,14 @@ function AiAssistantChat(props) {
                         const toolPipelineWallMs = typeof rawPipe === 'number' && Number.isFinite(rawPipe) && rawPipe >= 0
                             ? Math.round(rawPipe)
                             : undefined;
+                        const rawTotalSec = evt.metadata?.toolPipelineTotalSec;
+                        const toolPipelineTotalSec = typeof rawTotalSec === 'number' && Number.isFinite(rawTotalSec) && rawTotalSec >= 0
+                            ? rawTotalSec
+                            : undefined;
+                        const rawTaskSec = evt.metadata?.toolPipelineTaskCompletionSec;
+                        const toolPipelineTaskSec = typeof rawTaskSec === 'number' && Number.isFinite(rawTaskSec) && rawTaskSec >= 0
+                            ? rawTaskSec
+                            : undefined;
                         setMessages((prev) => prev.map((m) => {
                             if (m.id !== assistantId)
                                 return m;
@@ -31478,7 +31510,11 @@ function AiAssistantChat(props) {
                                 summarizingResults: false,
                                 pipelineHeartbeat: undefined,
                                 ...(foldReasoning ? { text: reasoningRest, reasoningStreamText: '' } : {}),
-                                ...(toolPipelineWallMs !== undefined ? { toolPipelineWallMs } : {})
+                                ...(toolPipelineWallMs !== undefined ? { toolPipelineWallMs } : {}),
+                                ...(toolPipelineTotalSec !== undefined ? { toolPipelineTotalSec } : {}),
+                                ...(toolPipelineTaskSec !== undefined
+                                    ? { toolPipelineTaskCompletionSec: toolPipelineTaskSec }
+                                    : {})
                             };
                         }));
                         if (formEngine &&
@@ -31706,7 +31742,7 @@ function AiAssistantChat(props) {
                                         const mdUrls = imageStripSources.length ? undefined : m.studioAiInlineImageUrls;
                                         const showGenImgPlaceholder = shouldShowGenerateImagePlaceholder(m.toolProgressText, tailRaw, m.studioAiInlineImageUrls);
                                         return (jsxs(Fragment, { children: [imageStripSources.length ? jsx$1(AssistantChatGeneratedImages, { sources: imageStripSources }) : null, !imageStripSources.length && showGenImgPlaceholder ? (jsx$1(GenerateImageBlurredPlaceholder, {})) : null, jsx$1(MarkdownMessage, { text: tailDisplay, studioAiInlineImageUrls: mdUrls })] }));
-                                    })(), jsx$1(AssistantPipelineTimingLine, { wallMs: m.toolPipelineWallMs })] })) : (jsxs(Fragment, { children: [m.toolProgressText?.trim() ? (jsx$1(ToolProgressScrollArea, { text: m.toolProgressText })) : null, m.summarizingResults ? (jsx$1(Typography, { variant: "caption", component: "p", sx: {
+                                    })(), jsx$1(AssistantPipelineTimingLine, { wallMs: m.toolPipelineWallMs, totalSec: m.toolPipelineTotalSec, taskSec: m.toolPipelineTaskCompletionSec })] })) : (jsxs(Fragment, { children: [m.toolProgressText?.trim() ? (jsx$1(ToolProgressScrollArea, { text: m.toolProgressText })) : null, m.summarizingResults ? (jsx$1(Typography, { variant: "caption", component: "p", sx: {
                                             mt: 0.75,
                                             mb: 0,
                                             color: 'text.secondary',
@@ -31719,7 +31755,7 @@ function AiAssistantChat(props) {
                                         const mdUrls = imageStripSources.length ? undefined : m.studioAiInlineImageUrls;
                                         const showGenImgPlaceholder = shouldShowGenerateImagePlaceholder(m.toolProgressText, tailRaw, m.studioAiInlineImageUrls);
                                         return (jsxs(Fragment, { children: [imageStripSources.length ? jsx$1(AssistantChatGeneratedImages, { sources: imageStripSources }) : null, !imageStripSources.length && showGenImgPlaceholder ? (jsx$1(GenerateImageBlurredPlaceholder, {})) : null, jsx$1(MarkdownMessage, { text: tailDisplay, studioAiInlineImageUrls: mdUrls })] }));
-                                    })(), jsx$1(AssistantPipelineTimingLine, { wallMs: m.toolPipelineWallMs })] }))] })) : (jsxs(Fragment, { children: [jsx$1(Typography, { variant: "body2", sx: { whiteSpace: 'pre-wrap' }, children: m.text }), jsxs(Box, { sx: {
+                                    })(), jsx$1(AssistantPipelineTimingLine, { wallMs: m.toolPipelineWallMs, totalSec: m.toolPipelineTotalSec, taskSec: m.toolPipelineTaskCompletionSec })] }))] })) : (jsxs(Fragment, { children: [jsx$1(Typography, { variant: "body2", sx: { whiteSpace: 'pre-wrap' }, children: m.text }), jsxs(Box, { sx: {
                                     display: 'flex',
                                     justifyContent: 'flex-end',
                                     alignItems: 'center',
@@ -33113,27 +33149,40 @@ function unwrapConfigurationEnvelope(raw) {
     return raw;
 }
 /**
- * Loads the central catalog so reads match {@code write_configuration} writes.
- *
- * **Important:** {@code fetchConfigurationJSON} runs XML `deserialize` on the response body — that is wrong for
- * `.json` files and yields garbage / empty objects, so reloads looked like saves “did nothing”. We read the sandbox
- * file via content APIs first (same pattern as {@code fetchStudioUiConfigAsync}), then fall back to raw
- * {@code get_configuration} + {@code JSON.parse}.
+ * True when {@code sandbox_items_by_path} reports the catalog path absent — do not call
+ * {@code get_configuration} (Studio logs ERROR / stack trace for missing optional JSON).
+ */
+async function isCentralAgentsCatalogMissingOnSite(siteId) {
+    const sid = (siteId || '').trim();
+    if (!sid)
+        return false;
+    try {
+        const listings = (await firstValueFrom(fetchItemsByPath(sid, [CENTRAL_AGENTS_SANDBOX_PATH], { preferContent: true })));
+        return Array.isArray(listings.missingItems) && listings.missingItems.includes(CENTRAL_AGENTS_SANDBOX_PATH);
+    }
+    catch {
+        return false;
+    }
+}
+/**
+ * Loads the central catalog from the site repo when present.
+ * Missing or unreadable file → {@code null} (not an error; callers use {@link getEffectiveCentralAgentsCatalog}).
+ * Does not call {@code get_configuration} when the path is absent (avoids Studio ERROR noise).
  */
 async function fetchCentralAgentsFile(siteId) {
     if (!siteId)
         return null;
     try {
-        const listings = (await firstValueFrom(fetchItemsByPath(siteId, [CENTRAL_AGENTS_SANDBOX_PATH], { preferContent: true })));
-        const missing = Array.isArray(listings.missingItems) && listings.missingItems.includes(CENTRAL_AGENTS_SANDBOX_PATH);
-        if (!missing) {
-            const fromSandbox = await firstValueFrom(fetchContentXML(siteId, CENTRAL_AGENTS_SANDBOX_PATH, { lock: false }).pipe(catchError(() => of(null))));
-            let blob = fromSandbox;
-            blob = unwrapConfigurationEnvelope(blob);
-            const parsed = parseCentralAgentsFromContentPayload(blob);
-            if (parsed)
-                return parsed;
+        const missing = await isCentralAgentsCatalogMissingOnSite(siteId);
+        if (missing) {
+            return null;
         }
+        const fromSandbox = await firstValueFrom(fetchContentXML(siteId, CENTRAL_AGENTS_SANDBOX_PATH, { lock: false }).pipe(catchError(() => of(null))));
+        let blob = fromSandbox;
+        blob = unwrapConfigurationEnvelope(blob);
+        const parsed = parseCentralAgentsFromContentPayload(blob);
+        if (parsed)
+            return parsed;
         const confStr = await firstValueFrom(fetchConfigurationXML(siteId, CENTRAL_AGENTS_STUDIO_PATH, 'studio'));
         if (typeof confStr === 'string' && confStr.trim()) {
             const trimmed = confStr.trim();
@@ -33149,6 +33198,15 @@ async function fetchCentralAgentsFile(siteId) {
         return null;
     }
 }
+/** Effective catalog for UI/runtime: site file when saved, otherwise built-in defaults (same as Project Tools). */
+async function getEffectiveCentralAgentsCatalog(siteId) {
+    const fromSite = await fetchCentralAgentsFile(siteId);
+    if (fromSite && fromSite.agents.length > 0) {
+        return fromSite;
+    }
+    return defaultCentralAgentsFile();
+}
+/** Built-in default catalog when the site has not saved `agents.json` yet. */
 function defaultCentralAgentsFile() {
     return {
         version: 1,
@@ -33186,18 +33244,15 @@ function defaultCentralAgentsFile() {
 }
 
 /**
- * Load chat agents from site `config/studio/ai-assistant/agents.json` (Project Tools → Agents).
- * When the file is missing or has no chat rows, returns an empty list — agent settings are not read from `ui.xml`.
+ * Load chat agents for preview Helper / toolbar: site `agents.json` when saved, else built-in defaults.
  */
 async function fetchSiteChatAgentsForOverlay(siteId) {
     if (!siteId)
         return { agents: [], exclusive: false };
-    const file = await fetchCentralAgentsFile(siteId);
-    if (file && file.agents.length > 0) {
-        const ex = exclusiveCentralChatAgentsFromFile(file);
-        if (ex)
-            return { agents: ex, exclusive: true };
-    }
+    const file = await getEffectiveCentralAgentsCatalog(siteId);
+    const ex = exclusiveCentralChatAgentsFromFile(file);
+    if (ex)
+        return { agents: ex, exclusive: true };
     return { agents: [], exclusive: false };
 }
 
@@ -33700,7 +33755,7 @@ function AiAssistantHelper(props) {
         fetchSiteChatAgentsForOverlay(studioUiSiteKey)
             .then((r) => {
             if (!cancelled)
-                setSiteChatOverlay(r.agents.length || r.exclusive ? r : null);
+                setSiteChatOverlay(r);
         })
             .catch(() => {
             if (!cancelled)
@@ -34636,14 +34691,14 @@ function AiAssistantAutonomousAssistantsImpl(props) {
             return;
         }
         let cancelled = false;
-        fetchCentralAgentsFile(siteId)
+        getEffectiveCentralAgentsCatalog(siteId)
             .then((f) => {
             if (!cancelled)
                 setCentralAgentsFile(f);
         })
             .catch(() => {
             if (!cancelled)
-                setCentralAgentsFile(null);
+                setCentralAgentsFile(defaultCentralAgentsFile());
         });
         return () => {
             cancelled = true;
@@ -36204,16 +36259,12 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
         setLoadError(null);
         setLoaded(false);
         try {
-            const data = await fetchCentralAgentsFile(siteId);
-            if (data && isCentralAgentsFileShape(data)) {
-                setCatalog({ version: typeof data.version === 'number' ? data.version : 1, agents: [...data.agents] });
-            }
-            else {
-                setCatalog(defaultCentralAgentsFile());
-            }
+            const data = await getEffectiveCentralAgentsCatalog(siteId);
+            setCatalog({ version: typeof data.version === 'number' ? data.version : 1, agents: [...data.agents] });
             setDirty(false);
         }
-        catch {
+        catch (e) {
+            setLoadError(e instanceof Error ? e.message : String(e));
             setCatalog(defaultCentralAgentsFile());
             setDirty(false);
         }

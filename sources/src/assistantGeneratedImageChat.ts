@@ -24,7 +24,7 @@ export function resolvedGeneratedImageSources(urls: Record<string, string> | und
     if (typeof v !== 'string') continue;
     const t = v.trim();
     if (t.length < 13) continue;
-    if (t.startsWith('data:image/') || /^https?:\/\//i.test(t)) {
+    if (t.startsWith('data:image/') || /^https?:\/\//i.test(t) || t.startsWith('/static-assets/')) {
       if (!seen.has(t)) {
         seen.add(t);
         out.push(t);

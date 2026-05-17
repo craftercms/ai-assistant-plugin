@@ -271,30 +271,42 @@ function unwrapConfigurationEnvelope(raw: unknown): unknown {
 }
 
 /**
- * Loads the central catalog so reads match {@code write_configuration} writes.
- *
- * **Important:** {@code fetchConfigurationJSON} runs XML `deserialize` on the response body — that is wrong for
- * `.json` files and yields garbage / empty objects, so reloads looked like saves “did nothing”. We read the sandbox
- * file via content APIs first (same pattern as {@code fetchStudioUiConfigAsync}), then fall back to raw
- * {@code get_configuration} + {@code JSON.parse}.
+ * True when {@code sandbox_items_by_path} reports the catalog path absent — do not call
+ * {@code get_configuration} (Studio logs ERROR / stack trace for missing optional JSON).
+ */
+export async function isCentralAgentsCatalogMissingOnSite(siteId: string): Promise<boolean> {
+  const sid = (siteId || '').trim();
+  if (!sid) return false;
+  try {
+    const listings = (await firstValueFrom(
+      fetchItemsByPath(sid, [CENTRAL_AGENTS_SANDBOX_PATH], { preferContent: true })
+    )) as unknown as { missingItems?: string[] };
+    return Array.isArray(listings.missingItems) && listings.missingItems.includes(CENTRAL_AGENTS_SANDBOX_PATH);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Loads the central catalog from the site repo when present.
+ * Missing or unreadable file → {@code null} (not an error; callers use {@link getEffectiveCentralAgentsCatalog}).
+ * Does not call {@code get_configuration} when the path is absent (avoids Studio ERROR noise).
  */
 export async function fetchCentralAgentsFile(siteId: string): Promise<CentralAgentsFile | null> {
   if (!siteId) return null;
   try {
-    const listings = (await firstValueFrom(
-      fetchItemsByPath(siteId, [CENTRAL_AGENTS_SANDBOX_PATH], { preferContent: true })
-    )) as unknown as { missingItems?: string[] };
-
-    const missing = Array.isArray(listings.missingItems) && listings.missingItems.includes(CENTRAL_AGENTS_SANDBOX_PATH);
-    if (!missing) {
-      const fromSandbox = await firstValueFrom(
-        fetchContentXML(siteId, CENTRAL_AGENTS_SANDBOX_PATH, { lock: false }).pipe(catchError(() => of(null)))
-      );
-      let blob: unknown = fromSandbox;
-      blob = unwrapConfigurationEnvelope(blob);
-      const parsed = parseCentralAgentsFromContentPayload(blob);
-      if (parsed) return parsed;
+    const missing = await isCentralAgentsCatalogMissingOnSite(siteId);
+    if (missing) {
+      return null;
     }
+
+    const fromSandbox = await firstValueFrom(
+      fetchContentXML(siteId, CENTRAL_AGENTS_SANDBOX_PATH, { lock: false }).pipe(catchError(() => of(null)))
+    );
+    let blob: unknown = fromSandbox;
+    blob = unwrapConfigurationEnvelope(blob);
+    const parsed = parseCentralAgentsFromContentPayload(blob);
+    if (parsed) return parsed;
 
     const confStr = await firstValueFrom(fetchConfigurationXML(siteId, CENTRAL_AGENTS_STUDIO_PATH, 'studio'));
     if (typeof confStr === 'string' && confStr.trim()) {
@@ -311,6 +323,16 @@ export async function fetchCentralAgentsFile(siteId: string): Promise<CentralAge
   }
 }
 
+/** Effective catalog for UI/runtime: site file when saved, otherwise built-in defaults (same as Project Tools). */
+export async function getEffectiveCentralAgentsCatalog(siteId: string): Promise<CentralAgentsFile> {
+  const fromSite = await fetchCentralAgentsFile(siteId);
+  if (fromSite && fromSite.agents.length > 0) {
+    return fromSite;
+  }
+  return defaultCentralAgentsFile();
+}
+
+/** Built-in default catalog when the site has not saved `agents.json` yet. */
 export function defaultCentralAgentsFile(): CentralAgentsFile {
   return {
     version: 1,

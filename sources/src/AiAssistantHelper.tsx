@@ -37,7 +37,7 @@ import {
   type AgentConfig,
   type ExpertSkillConfig
 } from './agentConfig';
-import { fetchSiteChatAgentsForOverlay } from './fetchAiAssistantUiAgents';
+import { fetchSiteChatAgentsForOverlay, type SiteChatAgentsOverlayResult } from './fetchAiAssistantUiAgents';
 import { logoWidgetId } from './consts';
 import { getAgentIcon } from './agentIcon';
 import { helperWidgetId } from './consts';
@@ -151,10 +151,7 @@ export function AiAssistantHelper(props: Readonly<AiAssistantHelperProps>) {
   useEffect(() => {
     dispatchPreviewToolbarUiXmlFixIfNeeded(studioUiXml, dispatch);
   }, [studioUiXml, dispatch]);
-  const [siteChatOverlay, setSiteChatOverlay] = useState<{
-    agents: AgentConfig[];
-    exclusive: boolean;
-  } | null>(null);
+  const [siteChatOverlay, setSiteChatOverlay] = useState<SiteChatAgentsOverlayResult | null>(null);
   useEffect(() => {
     if (!studioUiSiteKey || iceChatCfg) {
       setSiteChatOverlay(null);
@@ -163,7 +160,7 @@ export function AiAssistantHelper(props: Readonly<AiAssistantHelperProps>) {
     let cancelled = false;
     fetchSiteChatAgentsForOverlay(studioUiSiteKey)
       .then((r) => {
-        if (!cancelled) setSiteChatOverlay(r.agents.length || r.exclusive ? r : null);
+        if (!cancelled) setSiteChatOverlay(r);
       })
       .catch(() => {
         if (!cancelled) setSiteChatOverlay(null);

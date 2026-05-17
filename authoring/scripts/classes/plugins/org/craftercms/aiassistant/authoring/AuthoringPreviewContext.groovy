@@ -307,6 +307,14 @@ Use these when the author asks about "today", "now", freshness, or dated content
   )
 
   /**
+   * Author names the **open** Studio item in their own words ({@code this page}, {@code the component}, …)
+   * while the wire prompt carries a {@code Repository path: /site/.../*.xml} anchor.
+   */
+  private static final Pattern ANCHORED_OPEN_STUDIO_ITEM_REFERENCE = Pattern.compile(
+    '(?is)\\b(?:this|the)\\s+(?:page|component|item)\\b'
+  )
+
+  /**
    * Author asks what the **open** preview item is about (read/interpret), not open-web news or translate.
    * Requires anchored {@code /site/.../*.xml} (see {@link #authorVisibleSuggestsOpenPageInquiry}).
    */
@@ -320,10 +328,30 @@ Use these when the author asks about "today", "now", freshness, or dated content
   )
 
   /**
+   * Studio already named {@code /site/.../*.xml} and the author refers to that open page or component
+   * ({@code this page}, {@code the component}, …) — CMS authoring context, not general chit-chat.
+   */
+  static boolean authorRefersToAnchoredOpenStudioItem(String fullOrUserPrompt) {
+    def anchor = extractAnchoredRepositoryPath(fullOrUserPrompt)
+    if (!anchor?.trim()) {
+      return false
+    }
+    def low = anchor.toLowerCase(Locale.ROOT)
+    if (!low.startsWith('/site/') || !low.endsWith('.xml')) {
+      return false
+    }
+    def v = stripStudioInjectedPromptBlocks((fullOrUserPrompt ?: '').toString())?.trim()
+    return v && ANCHORED_OPEN_STUDIO_ITEM_REFERENCE.matcher(v).find()
+  }
+
+  /**
    * After stripping Studio-injected blocks, true when the author-visible text suggests CMS / repo / fetch work
    * (used server-side to avoid false “trivial greeting” tool suppression and to recover missing {@code tool_calls}).
    */
   static boolean authorVisibleSuggestsCmsTooling(String fullOrUserPrompt) {
+    if (authorRefersToAnchoredOpenStudioItem(fullOrUserPrompt)) {
+      return true
+    }
     def v = stripStudioInjectedPromptBlocks((fullOrUserPrompt ?: '').toString())
     return v && CMS_TASK_SIGNAL.matcher(v).find()
   }
@@ -528,7 +556,7 @@ Use these when the author asks about "today", "now", freshness, or dated content
       if (anchoredSiteXmlFieldPlacementIntent(fullPrompt)) {
         return null
       }
-      if (authorVisibleSuggestsOpenPageInquiry(fullPrompt)) {
+      if (authorRefersToAnchoredOpenStudioItem(fullPrompt)) {
         return null
       }
       if (authorVisibleSuggestsIntentRecipeResearch(fullPrompt)) {
@@ -583,8 +611,7 @@ Use these when the author asks about "today", "now", freshness, or dated content
     }
     // Any CMS / site / template signal — never force tools off (check before length heuristics).
     if (authorVisibleSuggestsCmsTooling(fullPrompt) ||
-      anchoredSiteXmlFieldPlacementIntent(fullPrompt) ||
-      authorVisibleSuggestsOpenPageInquiry(fullPrompt)) {
+      anchoredSiteXmlFieldPlacementIntent(fullPrompt)) {
       return false
     }
     if (isShortAffirmationContinuingPriorCmsWork(fullPrompt)) {

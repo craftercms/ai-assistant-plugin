@@ -63,7 +63,12 @@ import {
   type AutonomousMergeViewer,
   type AutonomousTableAgentRow
 } from './autonomousAssistantsConfig';
-import { catalogAutonomousAgents, fetchCentralAgentsFile, type CentralAgentsFile } from './centralAgentCatalog';
+import {
+  catalogAutonomousAgents,
+  defaultCentralAgentsFile,
+  getEffectiveCentralAgentsCatalog,
+  type CentralAgentsFile
+} from './centralAgentCatalog';
 import { autonomousAgentsMarkWidgetId } from './consts';
 import {
   getAutonomousAssistantsStatus,
@@ -496,12 +501,12 @@ function AiAssistantAutonomousAssistantsImpl(props: Readonly<AiAssistantAutonomo
       return;
     }
     let cancelled = false;
-    fetchCentralAgentsFile(siteId)
+    getEffectiveCentralAgentsCatalog(siteId)
       .then((f) => {
         if (!cancelled) setCentralAgentsFile(f);
       })
       .catch(() => {
-        if (!cancelled) setCentralAgentsFile(null);
+        if (!cancelled) setCentralAgentsFile(defaultCentralAgentsFile());
       });
     return () => {
       cancelled = true;

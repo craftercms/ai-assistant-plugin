@@ -4048,8 +4048,8 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
         )
       }
       String noMatchHint =
-        AuthoringPreviewContext.authorVisibleSuggestsOpenPageInquiry(cand) ?
-          '[Studio — open page inquiry (read-only): The author asked what **this page** is about. Call **GetContent** on the anchored **`/site/.../*.xml`** path first, then answer from that XML. Do **not** ResearchSiteContent, WriteContent, update_template, or guess CSS/FTL paths.]\n\n' :
+        AuthoringPreviewContext.authorRefersToAnchoredOpenStudioItem(cand) ?
+          '[Studio — open Studio item (read-only likely): The author refers to **this page** / **this component** and Studio anchored **`/site/.../*.xml`**. Call **GetContent** on that path first, then answer from the XML. Do **not** ResearchSiteContent, WriteContent, update_template, or guess CSS/FTL paths unless they ask to change something.]\n\n' :
           '[Studio — recipe intent router: no confident recipe match; proceed with normal CMS judgement. For **/site/.../*.xml** copy or field-only asks (no explicit FTL/CSS/template wording), use **GetContent**/**WriteContent** on **those XML paths** — not **update_template**, not **WriteContent** on **`.ftl`** with XML bodies, and not guessed **`/static-assets/styles.css`** unless the author asked for stylesheet work.]\n\n'
       result.userTextForToolsLoop = expansionWirePrefix + noMatchHint + (userTextAfterGuard ?: '')
       Map noMatchTel = [
@@ -4690,7 +4690,8 @@ ${checkedLine}
     String agentId,
     OutputStream sseOut,
     AtomicBoolean cancelRequested,
-    Map toolTimingCtx = null
+    Map toolTimingCtx = null,
+    Map<String, String> generateImageBacklogByToolCallId = null
   ) {
     if (cancelRequested != null && cancelRequested.get()) {
       return null
@@ -4715,33 +4716,27 @@ ${checkedLine}
     }
     Map args = [prompt: imagePrompt]
     String tcId = 'hotpath_gen_' + Long.toHexString(System.nanoTime())
-    long genStartMs = System.currentTimeMillis()
-    writeToolProgressSse(sseOut, 'GenerateImage', 'start', args, null, null, null)
     Map res
     try {
       ChatCompletionsToolWire.nativeToolCallIdBindingSet(tcId)
       res = coerceFunctionToolCallbackResultMap(genCb.call(JsonOutput.toJson(args)))
     } catch (Throwable genEx) {
-      long genDurMs = Math.max(0L, System.currentTimeMillis() - genStartMs)
-      writeToolProgressSse(sseOut, 'GenerateImage', 'error', args, genEx, null, genDurMs)
       log.warn('Tools-loop: GenerateImage hotpath failed agentId={}', agentId, genEx)
       return null
     } finally {
       ChatCompletionsToolWire.nativeToolCallIdBindingClear()
     }
-    long genDurMs = Math.max(0L, System.currentTimeMillis() - genStartMs)
     if (!Boolean.TRUE.equals(res?.ok)) {
-      writeToolProgressSse(sseOut, 'GenerateImage', 'warn', args, null, res, genDurMs)
       return null
     }
     String url = ChatCompletionsToolWire.generateImageResultUrlString(res)
     if (!url?.trim()) {
-      writeToolProgressSse(sseOut, 'GenerateImage', 'warn', args, null, res, genDurMs)
       return null
     }
-    writeToolProgressSse(sseOut, 'GenerateImage', 'done', args, null, res, genDurMs)
     markTaskCompletionWallMsIfUnset(toolTimingCtx)
-    Map<String, String> imgById = [(tcId): url]
+    if (generateImageBacklogByToolCallId != null) {
+      generateImageBacklogByToolCallId.put(tcId, url)
+    }
     String ref = ChatCompletionsToolWire.STUDIO_AI_INLINE_IMAGE_REF_PREFIX + tcId
     String prose = """## Plan Execution
 - Generated image from your prompt
@@ -4749,7 +4744,7 @@ ${checkedLine}
 
 ![Generated illustration](${ref})"""
     log.info('Tools-loop: GenerateImage hotpath completed agentId={} toolCallId={}', agentId, tcId)
-    return ChatCompletionsToolWire.expandInlineImageRefs(prose, imgById, null)
+    return prose
   }
 
   /**
@@ -6092,7 +6087,6 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
         userNeedsCmsTools =
           AuthoringPreviewContext.authorVisibleSuggestsCmsTooling(userWireSnapshotForRecovery) ||
             AuthoringPreviewContext.anchoredSiteXmlFieldPlacementIntent(userWireSnapshotForRecovery) ||
-            AuthoringPreviewContext.authorVisibleSuggestsOpenPageInquiry(userWireSnapshotForRecovery) ||
             AuthoringPreviewContext.isShortAffirmationContinuingPriorCmsWork(userWireSnapshotForRecovery)
         userNeedsImageGenerate =
           AuthoringPreviewContext.authorCurrentRequestLooksLikeImageOnlyGenerate(userWireSnapshotForRecovery)
@@ -6269,7 +6263,8 @@ Your last assistant message had a **plan-style heading** (## Plan, ## Revised Pl
       agentId,
       sseOut,
       cancelRequested,
-      toolTimingCtx
+      toolTimingCtx,
+      generateImageBacklogByToolCallId
     )
     if (serverHotpathText == null) {
       serverHotpathText = tryServerPrefetchContentAwareRevertHotpath(
@@ -6557,7 +6552,21 @@ Your last assistant message had a **plan-style heading** (## Plan, ## Revised Pl
         boolean terminalAlready = terminalEmitted != null && terminalEmitted.get()
         if (!terminalAlready) {
           String finalChunk = stripForbiddenMetaPlanFromAssistantText((text ?: '').toString())
-          writeSseFinalAssistantTextChunks(out, finalChunk)
+          Map<String, String> mergedImg =
+            mergedGenerateImageUrlByToolCallId([:], generateImageBacklogByToolCallId)
+          StudioToolOperations opsForImg =
+            (toolsLoopSessionBundle?.studioOps instanceof StudioToolOperations) ?
+              (StudioToolOperations) toolsLoopSessionBundle.studioOps :
+              null
+          Map<String, String> metaUrls = compactGenerateImageUrlsForAuthoringChat(mergedImg, opsForImg)
+          if (!metaUrls.isEmpty()) {
+            writeSseStudioAiInlineImageUrlsMetadata(out, metaUrls)
+          }
+          String authorMarkdown =
+            sanitizeAssistantMarkdownReplaceGenerateImageDataUrlsWithRefs(finalChunk, mergedImg)
+          authorMarkdown =
+            ChatCompletionsToolWire.appendMissingInlineImageRefs(authorMarkdown, mergedImg, null)
+          writeSseFinalAssistantTextChunks(out, authorMarkdown)
         }
         if (tryClaimToolsTerminalEmit(terminalEmitted)) {
           def doneMeta = new LinkedHashMap()
@@ -7027,6 +7036,72 @@ Your last assistant message had a **plan-style heading** (## Plan, ## Revised Pl
    * Adds {@code toolPipelineWallMs} and second-based {@code toolPipelineTaskCompletionSec},
    * {@code toolPipelineVerificationSec}, {@code toolPipelineTotalSec} for UI + maintainer logs.
    */
+  /**
+   * Shrinks {@code data:image} URLs for {@code studioAiInlineImageUrls} SSE metadata (28k cap). Huge payloads are
+   * imported under {@code /static-assets/ai-assistant/chat-generated/…} so the chat strip can load a repo path.
+   */
+  private static Map<String, String> compactGenerateImageUrlsForAuthoringChat(
+    Map<String, String> urlByToolCallId,
+    StudioToolOperations ops
+  ) {
+    if (urlByToolCallId == null || urlByToolCallId.isEmpty()) {
+      return [:]
+    }
+    Map<String, String> out = new LinkedHashMap<>()
+    String siteId = ''
+    try {
+      siteId = ops != null ? (ops.resolveEffectiveSiteId(null) ?: '').toString().trim() : ''
+    } catch (Throwable ignoredSite) {
+    }
+    for (Map.Entry<String, String> e : urlByToolCallId.entrySet()) {
+      String id = e.getKey() != null ? e.getKey().toString().trim() : ''
+      String url = e.getValue() != null ? e.getValue().toString().trim() : ''
+      if (!id || !url) {
+        continue
+      }
+      if (url.length() <= GENERATE_IMAGE_TOOL_PROGRESS_METADATA_MAX_URL_CHARS) {
+        out.put(id, url)
+        continue
+      }
+      if (url.startsWith('data:image') && ops != null && siteId) {
+        try {
+          Map imp = ops.importImageFromRemoteUrl(
+            siteId,
+            url,
+            '/static-assets/ai-assistant/chat-generated/{yyyy}/{mm}/{dd}/'
+          )
+          String rel = (imp?.relativeUrl ?: '').toString().trim()
+          if (rel) {
+            out.put(id, rel.startsWith('/') ? rel : ('/' + rel))
+          }
+        } catch (Throwable impEx) {
+          log.warn(
+            'GenerateImage: could not import oversized data URL to static-assets for chat preview (toolCallId={}): {}',
+            id,
+            impEx.message ?: impEx.toString()
+          )
+        }
+      } else if (url.startsWith('http://') || url.startsWith('https://')) {
+        out.put(id, url)
+      }
+    }
+    return out
+  }
+
+  private static void writeSseStudioAiInlineImageUrlsMetadata(OutputStream o, Map<String, String> urlByToolCallId) {
+    if (o == null || urlByToolCallId == null || urlByToolCallId.isEmpty()) {
+      return
+    }
+    try {
+      def ev = [text: '', metadata: [studioAiInlineImageUrls: new LinkedHashMap<>(urlByToolCallId)]]
+      synchronized (o) {
+        o.write(("data: ${JsonOutput.toJson(ev)}\n\n").getBytes(StandardCharsets.UTF_8))
+        o.flush()
+      }
+    } catch (Throwable ignored) {
+    }
+  }
+
   private static void mergeToolPipelineWallMsIntoMetadata(Map metadata, Map timingCtx) {
     if (metadata == null || timingCtx == null) return
     Object ps = timingCtx.pipelineStartMs

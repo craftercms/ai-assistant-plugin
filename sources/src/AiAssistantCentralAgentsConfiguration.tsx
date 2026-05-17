@@ -72,8 +72,7 @@ import {
   catalogAutonomousAgents,
   catalogChatAgents,
   defaultCentralAgentsFile,
-  fetchCentralAgentsFile,
-  isCentralAgentsFileShape,
+  getEffectiveCentralAgentsCatalog,
   rawPromptsToEditorRows,
   serializeCentralCatalogPrompts,
   type CentralAgentFileEntry,
@@ -450,14 +449,11 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
     setLoadError(null);
     setLoaded(false);
     try {
-      const data = await fetchCentralAgentsFile(siteId);
-      if (data && isCentralAgentsFileShape(data)) {
-        setCatalog({ version: typeof data.version === 'number' ? data.version : 1, agents: [...data.agents] });
-      } else {
-        setCatalog(defaultCentralAgentsFile());
-      }
+      const data = await getEffectiveCentralAgentsCatalog(siteId);
+      setCatalog({ version: typeof data.version === 'number' ? data.version : 1, agents: [...data.agents] });
       setDirty(false);
-    } catch {
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : String(e));
       setCatalog(defaultCentralAgentsFile());
       setDirty(false);
     } finally {

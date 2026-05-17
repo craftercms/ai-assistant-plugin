@@ -1,19 +1,22 @@
-import { exclusiveCentralChatAgentsFromFile, fetchCentralAgentsFile } from './centralAgentCatalog';
+import {
+  exclusiveCentralChatAgentsFromFile,
+  getEffectiveCentralAgentsCatalog
+} from './centralAgentCatalog';
 import type { AgentConfig } from './agentConfig';
 
+export type SiteChatAgentsOverlayResult = {
+  agents: AgentConfig[];
+  exclusive: boolean;
+};
+
 /**
- * Load chat agents from site `config/studio/ai-assistant/agents.json` (Project Tools → Agents).
- * When the file is missing or has no chat rows, returns an empty list — agent settings are not read from `ui.xml`.
+ * Load chat agents for preview Helper / toolbar: site `agents.json` when saved, else built-in defaults.
  */
-export async function fetchSiteChatAgentsForOverlay(
-  siteId: string
-): Promise<{ agents: AgentConfig[]; exclusive: boolean }> {
+export async function fetchSiteChatAgentsForOverlay(siteId: string): Promise<SiteChatAgentsOverlayResult> {
   if (!siteId) return { agents: [], exclusive: false };
-  const file = await fetchCentralAgentsFile(siteId);
-  if (file && file.agents.length > 0) {
-    const ex = exclusiveCentralChatAgentsFromFile(file);
-    if (ex) return { agents: ex, exclusive: true };
-  }
+  const file = await getEffectiveCentralAgentsCatalog(siteId);
+  const ex = exclusiveCentralChatAgentsFromFile(file);
+  if (ex) return { agents: ex, exclusive: true };
   return { agents: [], exclusive: false };
 }
 

@@ -53,7 +53,6 @@ import {
 import { getSpeechRecognitionCtor } from './browserSpeechRecognition';
 import { formatIntentRecipeChatLine, intentRecipeLineFromRoutingTelemetry } from './intentRecipeChatDisplay';
 import { STUDIO_AI_DEFAULT_IMAGE_MODEL } from './studioAiOrchestrationToolIds';
-
 /** OpenAI transport: send default image model when agent/panel snapshot omitted it (server applies the same default). */
 function resolveWireImageModel(llm: string | undefined, imageModel: string | undefined): string | undefined {
   const trimmed = imageModel?.trim();
@@ -1019,6 +1018,23 @@ function shouldShowGenerateImagePlaceholder(
   return false;
 }
 
+/** Drop consecutive duplicate 🛠️ lines (hotpath + tool listener used to emit the same row twice). */
+function appendToolProgressText(prior: string, chunk: string): string {
+  if (!chunk) return prior;
+  if (!prior) return chunk;
+  const join = prior.endsWith('\n\n') ? (chunk.startsWith('\n') ? '' : '\n') : '\n\n';
+  const combined = prior + join + chunk;
+  const lines = combined.split('\n');
+  const out: string[] = [];
+  for (const line of lines) {
+    const norm = line.trimEnd();
+    const prev = out.length ? out[out.length - 1].trimEnd() : '';
+    if (norm && norm === prev) continue;
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
 /** Keeps the tool-progress list pinned to the latest line as SSE chunks append. */
 function ToolProgressScrollArea(props: Readonly<{ text: string }>) {
   const ref = useRef<HTMLDivElement>(null);
@@ -1084,8 +1100,19 @@ function formatCqPipelineWallMs(ms: number): string {
   return `${(rounded / 1000).toFixed(1)}s`;
 }
 
-function AssistantPipelineTimingLine(props: Readonly<{ wallMs?: number }>) {
-  if (props.wallMs == null || props.wallMs < 0) return null;
+function AssistantPipelineTimingLine(
+  props: Readonly<{ wallMs?: number; totalSec?: number; taskSec?: number }>
+) {
+  const parts: string[] = [];
+  if (props.taskSec != null && Number.isFinite(props.taskSec) && props.taskSec >= 0) {
+    parts.push(`tools ${props.taskSec.toFixed(1)}s`);
+  }
+  if (props.totalSec != null && Number.isFinite(props.totalSec) && props.totalSec >= 0) {
+    parts.push(`total ${props.totalSec.toFixed(1)}s`);
+  } else if (props.wallMs != null && props.wallMs >= 0) {
+    parts.push(formatCqPipelineWallMs(props.wallMs));
+  }
+  if (!parts.length) return null;
   return (
     <Typography
       variant="caption"
@@ -1099,7 +1126,7 @@ function AssistantPipelineTimingLine(props: Readonly<{ wallMs?: number }>) {
         letterSpacing: '0.01em'
       }}
     >
-      Completed in {formatCqPipelineWallMs(props.wallMs)}
+      Completed in {parts.join(' · ')}
     </Typography>
   );
 }
@@ -1155,6 +1182,10 @@ type UiMessage = {
   reasoningStreamText?: string;
   /** Wall clock from server pipeline start through plan + tools (metadata.toolPipelineWallMs on completed). */
   toolPipelineWallMs?: number;
+  /** Server {@code toolPipelineTotalSec} on completed (preferred caption when present). */
+  toolPipelineTotalSec?: number;
+  /** Server {@code toolPipelineTaskCompletionSec} (plan + tools through last write/image). */
+  toolPipelineTaskCompletionSec?: number;
   /** Transient: server signaled final narrative is starting (cleared when summary text arrives). */
   summarizingResults?: boolean;
   /** In-place wait indicator while the OpenAI+tools worker is busy (SSE `pipeline-heartbeat`; not tool-log lines). */
@@ -1216,6 +1247,9 @@ function loadConversation(siteId: string, agentId: string): StoredConversation |
           const rawWall = (m as { toolPipelineWallMs?: unknown }).toolPipelineWallMs;
           const toolPipelineWallMs =
             typeof rawWall === 'number' && Number.isFinite(rawWall) && rawWall >= 0 ? Math.round(rawWall) : undefined;
+          const rawTotal = (m as { toolPipelineTotalSec?: unknown }).toolPipelineTotalSec;
+          const toolPipelineTotalSec =
+            typeof rawTotal === 'number' && Number.isFinite(rawTotal) && rawTotal >= 0 ? rawTotal : undefined;
           return {
             id: m.id,
             role: m.role === 'assistant' || m.role === 'system' ? m.role : 'user',
@@ -1223,6 +1257,7 @@ function loadConversation(siteId: string, agentId: string): StoredConversation |
             ...(assistantPreToolsText !== undefined ? { assistantPreToolsText } : {}),
             ...(toolProgressText !== undefined && toolProgressText !== '' ? { toolProgressText } : {}),
             ...(toolPipelineWallMs !== undefined ? { toolPipelineWallMs } : {}),
+            ...(toolPipelineTotalSec !== undefined ? { toolPipelineTotalSec } : {}),
             isStreaming: false
           };
         })
@@ -2067,17 +2102,9 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                       ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls)
                     };
                   }
-                  const prior = m.toolProgressText || '';
-                  // ReactMarkdown collapses single newlines into spaces; separate SSE chunks with a blank line
-                  // so each 🛠️ tool line stays readable when pasted or viewed in the tool strip.
-                  const join = prior.endsWith('\n\n')
-                    ? textChunk.startsWith('\n')
-                      ? ''
-                      : '\n'
-                    : '\n\n';
                   return {
                     ...m,
-                    toolProgressText: prior + join + textChunk,
+                    toolProgressText: appendToolProgressText(m.toolProgressText || '', textChunk),
                     ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls)
                   };
                 })
@@ -2146,6 +2173,16 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
               typeof rawPipe === 'number' && Number.isFinite(rawPipe) && rawPipe >= 0
                 ? Math.round(rawPipe)
                 : undefined;
+            const rawTotalSec = evt.metadata?.toolPipelineTotalSec;
+            const toolPipelineTotalSec =
+              typeof rawTotalSec === 'number' && Number.isFinite(rawTotalSec) && rawTotalSec >= 0
+                ? rawTotalSec
+                : undefined;
+            const rawTaskSec = evt.metadata?.toolPipelineTaskCompletionSec;
+            const toolPipelineTaskSec =
+              typeof rawTaskSec === 'number' && Number.isFinite(rawTaskSec) && rawTaskSec >= 0
+                ? rawTaskSec
+                : undefined;
             setMessages((prev) =>
               prev.map((m) => {
                 if (m.id !== assistantId) return m;
@@ -2159,7 +2196,11 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                   summarizingResults: false,
                   pipelineHeartbeat: undefined,
                   ...(foldReasoning ? { text: reasoningRest, reasoningStreamText: '' } : {}),
-                  ...(toolPipelineWallMs !== undefined ? { toolPipelineWallMs } : {})
+                  ...(toolPipelineWallMs !== undefined ? { toolPipelineWallMs } : {}),
+                  ...(toolPipelineTotalSec !== undefined ? { toolPipelineTotalSec } : {}),
+                  ...(toolPipelineTaskSec !== undefined
+                    ? { toolPipelineTaskCompletionSec: toolPipelineTaskSec }
+                    : {})
                 };
               })
             );
@@ -2492,7 +2533,11 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                       </>
                     );
                   })()}
-                  <AssistantPipelineTimingLine wallMs={m.toolPipelineWallMs} />
+                  <AssistantPipelineTimingLine
+                    wallMs={m.toolPipelineWallMs}
+                    totalSec={m.toolPipelineTotalSec}
+                    taskSec={m.toolPipelineTaskCompletionSec}
+                  />
                 </>
               ) : (
                 <>
@@ -2537,7 +2582,11 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                       </>
                     );
                   })()}
-                  <AssistantPipelineTimingLine wallMs={m.toolPipelineWallMs} />
+                  <AssistantPipelineTimingLine
+                    wallMs={m.toolPipelineWallMs}
+                    totalSec={m.toolPipelineTotalSec}
+                    taskSec={m.toolPipelineTaskCompletionSec}
+                  />
                 </>
               )}
             </Box>
