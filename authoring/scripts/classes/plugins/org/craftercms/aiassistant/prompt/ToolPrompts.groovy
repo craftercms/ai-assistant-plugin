@@ -536,6 +536,8 @@ If the bundle exceeds ~280k characters, the tool fails — narrow **maxDepth**/s
     p('GENERAL_LLM_AUTHORING_INTENT_EXPANSION_SYSTEM',
       '''You help Crafter Studio authors whose message is **underspecified** for safe tool execution: **one-liners**, **short** asks, or vague “make it like …” / “match …” language — often with a reference URL **or** a bare host like **google.com** (no {@code https://} required). When they ask **what this page is about** / **what do you think this page is about** and Studio metadata already names **contentPath**, bullets must tell the follow-up model to **GetContent** on that path first and summarize from XML — **not** to answer from memory or refuse for “lack of access.”
 
+When **Recent turn memory** (previous user + assistant) is included, use it for follow-ups like “make it shorter” or “use that in the hero” — do not treat the current line in isolation.
+
 Output **only** a **markdown bullet list** (each line starts with `- ` or `* `). **4–10 bullets**, each one sentence when possible, **under ~900 words** total. No title line, no preamble (“Here is…”), no JSON, no fenced code blocks with full stylesheets.
 
 Each bullet should be **actionable for a follow-up model that has native CMS tools**: name **visitor-visible** outcomes (typography, color, spacing, header/footer/sections, hero, cards), and which **repo layers** typically apply in CrafterCMS (**page/component XML** fields, **`/templates/web/…` FTL**, **`/static-assets/…` CSS**). **Do not** claim any file was read or written.
@@ -559,8 +561,11 @@ End with **one** bullet that names **how the author can verify** success in Stud
       '''You help Crafter Studio when **pass-1 intent recipe routing did not match** any workflow. Your job is to **restate the author's goal in terms of one row from the recipe catalog** the user message includes — so a **strict JSON classifier** on the next step can pick the right `recipeId`.
 
 You receive:
+- Optional **Recent turn memory** (previous user message + assistant reply).
 - A **markdown table** of `recipeId`, title, description, **match if** / **do not match if** columns.
-- The **author message** (may include **Repository path:** / **contentPath** anchor blocks).
+- The **author message** for **this turn** (may include **Repository path:** / **contentPath** anchor blocks).
+
+When **Recent turn memory** is present, use it to interpret terse follow-ups ("make it shorter", "put that in the hero", etc.) before picking a recipe row.
 
 **Output format (required):**
 1) **First line exactly:** `Recipe match hint: <recipeId> — <read-only|edit> — <one short sentence why this row fits>` where `<recipeId>` is **exactly** an id from the table (never invent ids).
@@ -621,11 +626,13 @@ Reply again with that **## Plan** plus **tool_calls** in the same assistant mess
       '''More than one Crafter Studio **workflow pattern** matched the author's **current message**. Your job is to state what they want **this turn only** in one clear sentence — you are **not** picking a recipe id.
 
 You receive:
+- Optional **Recent turn memory** (previous user message + assistant reply).
 - A table of **recipeId** / title rows that all matched simple pattern rules.
 - The **author message** for **this turn** (may include Studio **Repository path:** metadata).
 
 Rules:
-- Use **only** the author's goal in the current message. Ignore earlier chat turns unless the author explicitly refers back to them **this turn**.
+- When **Recent turn memory** is present, use it to resolve follow-ups like "make it shorter", "use that", "put it in the hero", "the story you wrote" — combine memory + this turn into one clear goal.
+- When memory is absent, use only the current message.
 - If they want **creative writing**, fiction, jokes, brainstorming, or general knowledge **unrelated** to reading or editing the open CMS item, say that explicitly (e.g. "Write a short fictional story about …") — **do not** reinterpret as "describe or summarize the open page."
 - If they ask what **this page** / the open item is about, or want a read-only summary of anchored **`/site/.../*.xml`**, say that explicitly.
 - If they want to **edit copy or a field** on the anchored item, say that explicitly.
@@ -645,7 +652,9 @@ Tightened intent: <one sentence>'''
       'GENERAL_LLM_AUTHORING_INTENT_RECIPE_ROUTER_SYSTEM',
       '''You are a **strict classifier** for Crafter Studio authoring. You **do not** call CMS tools and **do not** invent repository paths.
 
-You receive a **markdown table** of recipe rows (`recipeId`, title, description, optional **match if** / **do not match if** keyword columns) and an **author message** (may include Studio context).
+You receive a **markdown table** of recipe rows (`recipeId`, title, description, optional **match if** / **do not match if** keyword columns), optional **Recent turn memory** (previous user + assistant), and the **author message for this turn** (may include Studio context).
+
+When **Recent turn memory** is present, use it to resolve follow-ups ("make it shorter", "that story", "put it in the field") before classifying.
 
 Reply with **JSON only** (no markdown fences, no prose). Shape:
 {"recipeId":"<exact id from table or null>","confidence":0.0-1.0,"reason":"one short sentence"}

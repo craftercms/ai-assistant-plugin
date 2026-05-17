@@ -5,6 +5,8 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import java.util.Collections
+import java.util.List
 import java.util.Locale
 import java.util.regex.Pattern
 
@@ -228,6 +230,136 @@ Use these when the author asks about "today", "now", freshness, or dated content
       return (tail ?: '').trim()
     }
     return stripStudioInjectedPromptBlocks(s)?.trim() ?: ''
+  }
+
+  /** Body between {@code [Prior conversation …]} header and the {@code ---} separator before {@code Current request:}. */
+  static String extractPriorConversationBody(String fullPrompt) {
+    def s = (fullPrompt ?: '').toString()
+    def m = PRIOR_CONVERSATION_BODY.matcher(s)
+    return m.find() ? (m.group(1) ?: '').toString().trim() : ''
+  }
+
+  private static String clipPriorTurnMemoryText(String text, int maxChars) {
+    def t = (text ?: '').toString().trim()
+    if (!t || maxChars <= 0) {
+      return ''
+    }
+    if (t.length() <= maxChars) {
+      return t
+    }
+    return t.substring(0, maxChars) + '…'
+  }
+
+  /**
+   * Parses {@code User:} / {@code Assistant:} lines from the abbreviated prior-conversation block.
+   * @return list of maps {@code [role: 'user'|'assistant', text: String]}
+   */
+  static List<Map> parsePriorConversationTurns(String priorBody) {
+    def body = (priorBody ?: '').toString()
+    if (!body.trim()) {
+      return Collections.emptyList()
+    }
+    List<Map> turns = []
+    String currentRole = null
+    StringBuilder currentText = new StringBuilder()
+    Closure flush = {
+      if (!currentRole) {
+        return
+      }
+      String t = currentText.toString().trim()
+      if (t) {
+        turns.add([role: currentRole, text: t])
+      }
+      currentRole = null
+      currentText = new StringBuilder()
+    }
+    for (String line : body.split(/\r?\n/, -1)) {
+      def userM = (line =~ /^(?i)User:\s*(.*)$/)
+      if (userM.matches()) {
+        flush.call()
+        currentRole = 'user'
+        currentText = new StringBuilder((userM.group(1) ?: '').toString())
+        continue
+      }
+      def asstM = (line =~ /^(?i)Assistant:\s*(.*)$/)
+      if (asstM.matches()) {
+        flush.call()
+        currentRole = 'assistant'
+        currentText = new StringBuilder((asstM.group(1) ?: '').toString())
+        continue
+      }
+      if (currentRole) {
+        if (currentText.length() > 0) {
+          currentText.append('\n')
+        }
+        currentText.append(line)
+      }
+    }
+    flush.call()
+    return turns
+  }
+
+  /**
+   * Terse follow-up that only makes sense with {@linkplain #formatLastPriorTurnMemoryBlock prior turn memory}
+   * (e.g. "make it shorter") — eligible for intent routing / refine even without CMS keywords.
+   */
+  static boolean authorCurrentRequestLooksLikePriorTurnFollowUp(String fullPrompt) {
+    String current = extractAuthorCurrentRequestVisible(fullPrompt)?.trim()
+    if (!current || current.length() > 320) {
+      return false
+    }
+    if (!extractPriorConversationBody(fullPrompt)?.trim()) {
+      return false
+    }
+    if (PRIOR_TURN_CONTENT_REFERENCE.matcher(current).find()) {
+      return true
+    }
+    if ((current =~ /(?i)\b(make it|shorter|longer|brief|condense|trim it|expand it|rewrite it)\b/).find()) {
+      return true
+    }
+    return current.split(/\s+/).length() <= 8 &&
+      (current =~ /(?i)\b(it|that|this|your|the story)\b/).find()
+  }
+
+  /**
+   * Markdown block for intent-refine / router LLM calls: the **last** user message and assistant reply before
+   * {@code Current request:}, when the wire prompt includes prior conversation.
+   */
+  static String formatLastPriorTurnMemoryBlock(String fullPrompt) {
+    def priorBody = extractPriorConversationBody(fullPrompt)
+    if (!priorBody) {
+      return ''
+    }
+    List<Map> turns = parsePriorConversationTurns(priorBody)
+    if (turns.isEmpty()) {
+      return ''
+    }
+    int lastUserIdx = -1
+    for (int i = turns.size() - 1; i >= 0; i--) {
+      if ('user'.equals(turns.get(i).role?.toString())) {
+        lastUserIdx = i
+        break
+      }
+    }
+    if (lastUserIdx < 0) {
+      return ''
+    }
+    String userText = clipPriorTurnMemoryText(turns.get(lastUserIdx).text?.toString(), PRIOR_TURN_MEMORY_USER_MAX_CHARS)
+    if (!userText) {
+      return ''
+    }
+    String asstText = ''
+    if (lastUserIdx + 1 < turns.size() && 'assistant'.equals(turns.get(lastUserIdx + 1).role?.toString())) {
+      asstText = clipPriorTurnMemoryText(turns.get(lastUserIdx + 1).text?.toString(), PRIOR_TURN_MEMORY_ASSISTANT_MAX_CHARS)
+    }
+    String asstLine = asstText ? asstText : '(none captured)'
+    return """## Recent turn memory (immediately before this message)
+
+**Previous user message:**
+${userText}
+
+**Previous assistant reply:**
+${asstLine}"""
   }
 
   /**
@@ -608,7 +740,10 @@ This site has **never** been published to the delivery tier. For first go-live o
       return 'empty_visible_after_strip'
     }
     if (v.length() > 1600 && !authorCurrentRequestLooksLikeImageOnlyGenerate(fullPrompt)) {
-      return 'visible_exceeds_1600_chars'
+      String currentOnly = extractAuthorCurrentRequestVisible(fullPrompt)?.trim()
+      if (!(currentOnly && currentOnly.length() <= 1600)) {
+        return 'visible_exceeds_1600_chars'
+      }
     }
     if (!authorVisibleSuggestsCmsTooling(fullPrompt)) {
       if (anchoredSiteXmlFieldPlacementIntent(fullPrompt)) {
@@ -629,6 +764,9 @@ This site has **never** been published to the delivery tier. For first go-live o
       }
       if (authorVisibleSuggestsRevertIntent(v) &&
         extractAnchoredRepositoryPath(fullPrompt)?.trim()) {
+        return null
+      }
+      if (authorCurrentRequestLooksLikePriorTurnFollowUp(fullPrompt)) {
         return null
       }
       return 'no_cms_task_signal'

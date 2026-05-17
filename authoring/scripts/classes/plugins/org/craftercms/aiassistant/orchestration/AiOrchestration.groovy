@@ -3390,11 +3390,15 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       return ''
     }
     try {
+      String userMsg = authoringIntentRefineUserMessage(
+        '## Author message (this turn)\n\n' + authoringIntentRefineCurrentTurnVisible(cand),
+        cand
+      )
       String expanded = toolsLoopSimpleCompletionAssistantText(
         key,
         mdl,
         ToolPrompts.getLlm_AUTHORING_INTENT_EXPANSION_SYSTEM(),
-        cand,
+        userMsg,
         1024,
         120_000,
         'AuthoringIntentExpansion',
@@ -3419,6 +3423,28 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
    * Pass-2 expansion when pass-1 recipe routing missed: restate author goal toward a catalog {@code recipeId}
    * (see {@link ToolPrompts#getLlm_AUTHORING_INTENT_EXPANSION_RECIPE_REMATCH_SYSTEM}).
    */
+  /** Prepends {@link AuthoringPreviewContext#formatLastPriorTurnMemoryBlock} when the wire prompt has prior turns. */
+  private static String authoringIntentRefineUserMessage(String body, String wirePrompt) {
+    String memory = AuthoringPreviewContext.formatLastPriorTurnMemoryBlock((wirePrompt ?: '').toString())
+    String main = (body ?: '').toString().trim()
+    if (!memory?.trim()) {
+      return main
+    }
+    if (!main) {
+      return memory.trim()
+    }
+    return memory.trim() + '\n\n' + main
+  }
+
+  private static String authoringIntentRefineCurrentTurnVisible(String wirePrompt) {
+    String cand = (wirePrompt ?: '').toString()
+    String current = AuthoringPreviewContext.extractAuthorCurrentRequestVisible(cand)?.trim()
+    if (current) {
+      return current
+    }
+    return AuthoringPreviewContext.stripStudioInjectedPromptBlocks(cand)?.trim() ?: ''
+  }
+
   static String parseAuthoringIntentTightenedLine(String raw) {
     String s = (raw ?: '').toString().trim()
     if (!s) {
@@ -3444,6 +3470,7 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
   static String generateAuthoringIntentTighteningText(
     List<Map> ambiguousMatches,
     String routerVisible,
+    String wirePrompt,
     String apiKey,
     String model,
     String wireBaseUrl,
@@ -3466,11 +3493,13 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       return ''
     }
     String tableMd = AuthoringIntentRecipeCatalog.formatAmbiguousDeterministicMatchesMarkdown(ambiguousMatches)
-    String userMsg =
+    String userMsg = authoringIntentRefineUserMessage(
       '## Pattern-matched workflows (ambiguous — more than one)\n\n' +
         tableMd +
         '\n\n## Author message (this turn only)\n\n' +
-        visible
+        visible,
+      wirePrompt
+    )
     try {
       String raw = toolsLoopSimpleCompletionAssistantText(
         key,
@@ -3528,11 +3557,13 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     if (!catalogMd) {
       catalogMd = '(no recipes configured)'
     }
-    String userRematch =
+    String userRematch = authoringIntentRefineUserMessage(
       '## Recipe catalog\n\n' +
         catalogMd +
-        '\n\n## Author message (pass-1 intent router did not match)\n\n' +
-        cand
+        '\n\n## Author message (this turn)\n\n' +
+        authoringIntentRefineCurrentTurnVisible(cand),
+      cand
+    )
     try {
       String expanded = toolsLoopSimpleCompletionAssistantText(
         key,
@@ -3644,8 +3675,17 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
         detMatches.size(),
         detMatches.collect { it.recipeId?.toString() }.findAll { it }.join(', ')
       )
+      String wireForMemory = (routeCtx.cand ?: '').toString()
       String tightened =
-        generateAuthoringIntentTighteningText(detMatches, visible, apiKey, model, wireBaseUrl, toolsLoopSessionBundle)
+        generateAuthoringIntentTighteningText(
+          detMatches,
+          visible,
+          wireForMemory,
+          apiKey,
+          model,
+          wireBaseUrl,
+          toolsLoopSessionBundle
+        )
       if (tightened?.trim()) {
         intentTightened = true
         visible = tightened.trim()
@@ -3673,7 +3713,10 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     }
     List routerRecipes = AuthoringIntentRecipeCatalog.filterRecipesEligibleForRouter(recipes, visible)
     String catalogMd = AuthoringIntentRecipeCatalog.toRouterCatalogMarkdown(routerRecipes)
-    String userRouter = '## Recipe catalog\n\n' + catalogMd + '\n\n## Author message\n\n' + visible
+    String userRouter = authoringIntentRefineUserMessage(
+      '## Recipe catalog\n\n' + catalogMd + '\n\n## Author message (this turn)\n\n' + visible,
+      (routeCtx.cand ?: '').toString()
+    )
     String rawJson = toolsLoopSimpleCompletionAssistantText(
       apiKey,
       model,
