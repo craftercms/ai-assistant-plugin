@@ -432,17 +432,34 @@ final class AuthoringIntentRecipeCatalog {
   }
 
   /**
-   * First matching recipe by {@code deterministicMatch} priority (catalog config only).
-   * @return map with keys {@code recipe}, {@code recipeId}, {@code routerReason}, {@code skipPrefetch}, {@code visible}
+   * All recipes whose {@code deterministicMatch} signals evaluate true for {@code ctx} (deduped by {@code recipeId},
+   * highest priority per id). Used when more than one row matches — orchestration may LLM-tighten and retest.
    */
-  static Map findDeterministicRecipeMatch(List<Map> recipes, Map ctx) {
+  static List<Map> findDeterministicRecipeMatches(List<Map> recipes, Map ctx) {
     if (recipes == null || recipes.isEmpty() || !(ctx instanceof Map)) {
-      return null
+      return Collections.emptyList()
     }
-    Map openPage = tryBuiltinOpenPageInquiryMatch(recipes, ctx)
-    if (openPage != null) {
-      return openPage
+    Map<String, Map> byId = new LinkedHashMap<>()
+    Closure addMatch = { Map match ->
+      if (!(match instanceof Map)) {
+        return
+      }
+      String rid = match.recipeId?.toString()?.trim()
+      if (!rid) {
+        return
+      }
+      Map existing = byId.get(rid)
+      if (existing == null) {
+        byId.put(rid, match)
+        return
+      }
+      int pNew = match.priority instanceof Number ? ((Number) match.priority).intValue() : 0
+      int pOld = existing.priority instanceof Number ? ((Number) existing.priority).intValue() : 0
+      if (pNew > pOld) {
+        byId.put(rid, match)
+      }
     }
+    addMatch.call(tryBuiltinOpenPageInquiryCandidate(recipes, ctx))
     List<Map> candidates = []
     for (Map recipe : recipes) {
       if (!(recipe instanceof Map)) {
@@ -467,22 +484,69 @@ final class AuthoringIntentRecipeCatalog {
         ])
       }
     }
-    if (candidates.isEmpty()) {
-      return null
-    }
     candidates.sort { a, b -> (b.priority as Integer) <=> (a.priority as Integer) }
+    String visible = deterministicRoutingPrompt(ctx)
     for (Map c : candidates) {
       if (AuthoringIntentRecipeSignals.evaluate(c.signal as String, ctx)) {
-        return [
+        addMatch.call([
           recipe      : c.recipe,
           recipeId    : c.recipeId,
           routerReason: c.routerReason,
           skipPrefetch: c.skipPrefetch,
-          visible     : (ctx.routerVisible ?: '').toString()
-        ]
+          visible     : visible,
+          priority    : c.priority
+        ])
       }
     }
-    null
+    List<Map> out = new ArrayList<>(byId.values())
+    out.sort { a, b ->
+      int pa = a.priority instanceof Number ? ((Number) a.priority).intValue() : 0
+      int pb = b.priority instanceof Number ? ((Number) b.priority).intValue() : 0
+      pb <=> pa
+    }
+    return out
+  }
+
+  /**
+   * Single deterministic match when exactly one recipe matches; {@code null} when none or ambiguous.
+   * @return map with keys {@code recipe}, {@code recipeId}, {@code routerReason}, {@code skipPrefetch}, {@code visible}
+   */
+  static Map findDeterministicRecipeMatch(List<Map> recipes, Map ctx) {
+    List<Map> matches = findDeterministicRecipeMatches(recipes, ctx)
+    return matches.size() == 1 ? matches[0] : null
+  }
+
+  static String formatAmbiguousDeterministicMatchesMarkdown(List<Map> matches) {
+    if (matches == null || matches.isEmpty()) {
+      return '(none)'
+    }
+    StringBuilder sb = new StringBuilder()
+    sb.append('| recipeId | title | routerReason |\n|---|---|---|\n')
+    for (Map m : matches) {
+      Map recipe = m.recipe instanceof Map ? (Map) m.recipe : [:]
+      String rid = (m.recipeId ?: recipe.id ?: '').toString()
+      String title = (recipe.title ?: rid).toString().replace('|', '/')
+      String reason = (m.routerReason ?: '').toString().replace('|', '/')
+      sb.append('| `').append(rid).append('` | ').append(title).append(' | `').append(reason).append('` |\n')
+    }
+    return sb.toString()
+  }
+
+  /** Author text for deterministic routing (current turn, not prior conversation in wire prompt). */
+  static String deterministicRoutingPrompt(Map ctx) {
+    if (!(ctx instanceof Map)) {
+      return ''
+    }
+    String visible = (ctx.routerVisible ?: '').toString().trim()
+    if (visible) {
+      return visible
+    }
+    String cand = (ctx.cand ?: '').toString()
+    String current = AuthoringPreviewContext.extractAuthorCurrentRequestVisible(cand)
+    if (current?.trim()) {
+      return current.trim()
+    }
+    return AuthoringPreviewContext.stripStudioInjectedPromptBlocks(cand) ?: ''
   }
 
   /**
@@ -519,12 +583,16 @@ final class AuthoringIntentRecipeCatalog {
    * Anchored “what is / what would you say this page is about” — always route to {@code open_page_inquiry}
    * even when site recipe JSON replaced {@code deterministicMatch} on that row.
    */
-  private static Map tryBuiltinOpenPageInquiryMatch(List<Map> recipes, Map ctx) {
-    String prompt = (ctx.cand ?: ctx.routerVisible ?: '').toString()
-    if (AuthoringPreviewContext.authorCurrentRequestLooksLikeImageOnlyGenerate(prompt)) {
+  private static Map tryBuiltinOpenPageInquiryCandidate(List<Map> recipes, Map ctx) {
+    String authorText = deterministicRoutingPrompt(ctx)
+    if (AuthoringPreviewContext.authorCurrentRequestLooksLikeImageOnlyGenerate(authorText)) {
       return null
     }
-    if (!AuthoringPreviewContext.authorVisibleSuggestsOpenPageInquiry(prompt)) {
+    String anchorCarrier = (ctx.cand ?: '').toString()
+    if (!AuthoringPreviewContext.extractAnchoredRepositoryPath(anchorCarrier)?.trim()) {
+      return null
+    }
+    if (!AuthoringPreviewContext.authorVisibleSuggestsOpenPageInquiryForAuthorText(anchorCarrier, authorText)) {
       return null
     }
     Map recipe = findRecipeById(recipes, 'open_page_inquiry')
@@ -544,7 +612,8 @@ final class AuthoringIntentRecipeCatalog {
       recipeId    : 'open_page_inquiry',
       routerReason: usedFallback ? 'deterministic_open_page_inquiry_fallback' : 'deterministic_open_page_inquiry',
       skipPrefetch: false,
-      visible     : (ctx.routerVisible ?: '').toString()
+      visible     : authorText,
+      priority    : 93
     ]
   }
 

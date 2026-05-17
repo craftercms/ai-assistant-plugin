@@ -612,6 +612,31 @@ Reply again with that **## Plan** plus **tool_calls** in the same assistant mess
   }
 
   /**
+   * When more than one deterministic recipe signal matches, restate what the author wants **this turn only** so
+   * pattern matching can be retried (no recipe id selection).
+   */
+  static String getLlm_AUTHORING_INTENT_TIGHTEN_DISAMBIGUATION_SYSTEM() {
+    p(
+      'GENERAL_LLM_AUTHORING_INTENT_TIGHTEN_DISAMBIGUATION_SYSTEM',
+      '''More than one Crafter Studio **workflow pattern** matched the author's **current message**. Your job is to state what they want **this turn only** in one clear sentence — you are **not** picking a recipe id.
+
+You receive:
+- A table of **recipeId** / title rows that all matched simple pattern rules.
+- The **author message** for **this turn** (may include Studio **Repository path:** metadata).
+
+Rules:
+- Use **only** the author's goal in the current message. Ignore earlier chat turns unless the author explicitly refers back to them **this turn**.
+- If they want **creative writing**, fiction, jokes, brainstorming, or general knowledge **unrelated** to reading or editing the open CMS item, say that explicitly (e.g. "Write a short fictional story about …") — **do not** reinterpret as "describe or summarize the open page."
+- If they ask what **this page** / the open item is about, or want a read-only summary of anchored **`/site/.../*.xml`**, say that explicitly.
+- If they want to **edit copy or a field** on the anchored item, say that explicitly.
+- Do **not** invent repository paths, field ids, or tool names.
+
+Output **exactly one line** (no bullets, no JSON):
+Tightened intent: <one sentence>'''
+    )
+  }
+
+  /**
    * System prompt for the optional **intent recipe router** completion (no CMS tools). User message carries the
    * recipe catalog table + stripped author text — see {@code AiOrchestration#intentRecipeRoutingPrelude}.
    */

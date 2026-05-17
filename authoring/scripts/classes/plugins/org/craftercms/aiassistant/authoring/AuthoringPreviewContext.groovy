@@ -210,6 +210,13 @@ Use these when the author asks about "today", "now", freshness, or dated content
     '(?is)Current request:\\s*\\n(.*)\\z'
   )
 
+  private static final Pattern PRIOR_CONVERSATION_BODY = Pattern.compile(
+    '(?is)\\[Prior conversation[^\\]]*\\]\\s*\\n(.*?)\\n---\\s*\\n'
+  )
+
+  private static final int PRIOR_TURN_MEMORY_USER_MAX_CHARS = 2800
+  private static final int PRIOR_TURN_MEMORY_ASSISTANT_MAX_CHARS = 1800
+
   /**
    * Author text for this turn only (after {@code Current request:}), not abbreviated prior conversation.
    */
@@ -366,7 +373,15 @@ Use these when the author asks about "today", "now", freshness, or dated content
    * {@code GetContent} on the open item, not LLM-only or web search.
    */
   static boolean authorVisibleSuggestsOpenPageInquiry(String fullOrUserPrompt) {
-    def anchor = extractAnchoredRepositoryPath(fullOrUserPrompt)
+    return authorVisibleSuggestsOpenPageInquiryForAuthorText(fullOrUserPrompt, fullOrUserPrompt)
+  }
+
+  /**
+   * Open-page inquiry: anchored {@code /site/.../*.xml} from {@code anchorCarrier} (wire prompt / anchor block),
+   * author wording from {@code authorVisibleText} (current turn only when routing).
+   */
+  static boolean authorVisibleSuggestsOpenPageInquiryForAuthorText(String anchorCarrier, String authorVisibleText) {
+    def anchor = extractAnchoredRepositoryPath((anchorCarrier ?: '').toString())
     if (!anchor?.trim()) {
       return false
     }
@@ -374,7 +389,7 @@ Use these when the author asks about "today", "now", freshness, or dated content
     if (!low.startsWith('/site/') || !low.endsWith('.xml')) {
       return false
     }
-    def v = stripStudioInjectedPromptBlocks((fullOrUserPrompt ?: '').toString())?.trim()
+    def v = stripStudioInjectedPromptBlocks((authorVisibleText ?: '').toString())?.trim()
     if (!v) {
       return false
     }
@@ -417,8 +432,11 @@ Use these when the author asks about "today", "now", freshness, or dated content
       return false
     }
     if (authorVisibleSuggestsWebResearch(fullOrUserPrompt) ||
-      authorVisibleSuggestsPageSummarize(fullOrUserPrompt) ||
-      authorVisibleSuggestsOpenPageInquiry(fullOrUserPrompt)) {
+      authorVisibleSuggestsPageSummarize(fullOrUserPrompt)) {
+      return false
+    }
+    String authorSlice = extractAuthorCurrentRequestVisible(fullOrUserPrompt)?.trim() ?: v
+    if (authorVisibleSuggestsOpenPageInquiryForAuthorText(fullOrUserPrompt, authorSlice)) {
       return false
     }
     return LLM_RESEARCH_SIGNAL.matcher(v).find()

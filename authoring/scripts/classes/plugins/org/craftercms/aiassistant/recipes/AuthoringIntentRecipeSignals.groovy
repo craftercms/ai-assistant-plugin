@@ -13,8 +13,21 @@ final class AuthoringIntentRecipeSignals {
 
   private AuthoringIntentRecipeSignals() {}
 
-  /** Full wire prompt when present (anchor blocks); else author-visible slice only. */
+  /** Current-turn author text for pattern signals (not full wire prompt with prior conversation). */
   private static String signalPrompt(Map ctx) {
+    String visible = (ctx.routerVisible ?: '').toString().trim()
+    if (visible) {
+      return visible
+    }
+    String cand = (ctx.cand ?: '').toString()
+    String current = AuthoringPreviewContext.extractAuthorCurrentRequestVisible(cand)
+    if (current?.trim()) {
+      return current.trim()
+    }
+    return AuthoringPreviewContext.stripStudioInjectedPromptBlocks(cand) ?: ''
+  }
+
+  private static String anchorCarrierPrompt(Map ctx) {
     String cand = (ctx.cand ?: '').toString().trim()
     if (cand) {
       return cand
@@ -33,7 +46,7 @@ final class AuthoringIntentRecipeSignals {
     StudioToolOperations ops = (ctx.ops instanceof StudioToolOperations) ? (StudioToolOperations) ctx.ops : null
     switch (sig) {
       case 'image_only_generate':
-        return AuthoringPreviewContext.authorVisibleSuggestsIntentRecipeGenerateImage(cand)
+        return AuthoringPreviewContext.authorVisibleSuggestsIntentRecipeGenerateImage(prompt)
       case 'web_research':
         return AuthoringPreviewContext.authorVisibleSuggestsWebResearch(prompt)
       case 'site_content_research':
@@ -61,7 +74,10 @@ final class AuthoringIntentRecipeSignals {
         Closure ex = ctx.evaluateExternalContentFieldEdit as Closure
         return ex != null ? Boolean.TRUE.equals(ex.call()) : false
       case 'open_page_inquiry':
-        return AuthoringPreviewContext.authorVisibleSuggestsOpenPageInquiry(prompt)
+        return AuthoringPreviewContext.authorVisibleSuggestsOpenPageInquiryForAuthorText(
+          anchorCarrierPrompt(ctx),
+          prompt
+        )
       case 'publish_site_bulk':
         return AuthoringPreviewContext.authorVisibleSuggestsPublishSiteBulk(prompt)
       default:

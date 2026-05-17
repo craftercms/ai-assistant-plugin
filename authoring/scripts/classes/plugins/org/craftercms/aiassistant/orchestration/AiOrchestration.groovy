@@ -3419,6 +3419,84 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
    * Pass-2 expansion when pass-1 recipe routing missed: restate author goal toward a catalog {@code recipeId}
    * (see {@link ToolPrompts#getLlm_AUTHORING_INTENT_EXPANSION_RECIPE_REMATCH_SYSTEM}).
    */
+  static String parseAuthoringIntentTightenedLine(String raw) {
+    String s = (raw ?: '').toString().trim()
+    if (!s) {
+      return ''
+    }
+    def lineMatch = (s =~ /(?is)^\s*Tightened\s+intent\s*:\s*(.+)\s*$/)
+    if (lineMatch.find()) {
+      return lineMatch.group(1)?.toString()?.trim() ?: ''
+    }
+    for (String line : s.split(/\r?\n/)) {
+      String t = (line ?: '').trim()
+      if (t) {
+        return t
+      }
+    }
+    return ''
+  }
+
+  /**
+   * When deterministic routing matches multiple recipes, LLM restates the author's current-turn goal; orchestration
+   * retries deterministic signals on that text before the JSON recipe router.
+   */
+  static String generateAuthoringIntentTighteningText(
+    List<Map> ambiguousMatches,
+    String routerVisible,
+    String apiKey,
+    String model,
+    String wireBaseUrl,
+    Map toolsLoopSessionBundle
+  ) {
+    String visible = (routerVisible ?: '').toString().trim()
+    if (!visible || ambiguousMatches == null || ambiguousMatches.size() < 2) {
+      return ''
+    }
+    def key = (apiKey ?: '').toString().trim()
+    if (!key) {
+      return ''
+    }
+    if (aiAssistantPipelineCancelEffective()) {
+      return ''
+    }
+    def mdl = (model ?: '').toString().trim()
+    if (!mdl) {
+      log.warn('generateAuthoringIntentTighteningText: missing model id, skipping')
+      return ''
+    }
+    String tableMd = AuthoringIntentRecipeCatalog.formatAmbiguousDeterministicMatchesMarkdown(ambiguousMatches)
+    String userMsg =
+      '## Pattern-matched workflows (ambiguous — more than one)\n\n' +
+        tableMd +
+        '\n\n## Author message (this turn only)\n\n' +
+        visible
+    try {
+      String raw = toolsLoopSimpleCompletionAssistantText(
+        key,
+        mdl,
+        ToolPrompts.getLlm_AUTHORING_INTENT_TIGHTEN_DISAMBIGUATION_SYSTEM(),
+        userMsg,
+        256,
+        120_000,
+        'AuthoringIntentTighten',
+        wireBaseUrl,
+        toolsLoopSessionBundle
+      )
+      String tightened = parseAuthoringIntentTightenedLine(raw)
+      if (!tightened || tightened.length() > 2_000) {
+        return ''
+      }
+      return tightened
+    } catch (InterruptedException ie) {
+      Thread.currentThread().interrupt()
+      return ''
+    } catch (Throwable t) {
+      log.warn('generateAuthoringIntentTighteningText skipped: {}', t.message)
+      return ''
+    }
+  }
+
   static String generateAuthoringIntentExpansionTextForRecipeRematch(
     String bodyPromptForCandidate,
     String recipeCatalogMarkdown,
@@ -3555,20 +3633,47 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     String authorFieldLabelEarly
   ) {
     Map out = [matched: false]
-    Map detMatch = AuthoringIntentRecipeCatalog.findDeterministicRecipeMatch(recipes, detCtx)
-    if (detMatch != null) {
+    String visible = (routerVisible ?: '').toString().trim()
+    Map routeCtx = detCtx instanceof Map ? new LinkedHashMap(detCtx) : [:]
+    routeCtx.routerVisible = visible
+    List detMatches = AuthoringIntentRecipeCatalog.findDeterministicRecipeMatches(recipes, routeCtx)
+    boolean intentTightened = false
+    if (detMatches.size() > 1) {
+      log.info(
+        'Intent recipe routing: deterministic ambiguous ({} recipes: {}) — LLM intent tighten + retest',
+        detMatches.size(),
+        detMatches.collect { it.recipeId?.toString() }.findAll { it }.join(', ')
+      )
+      String tightened =
+        generateAuthoringIntentTighteningText(detMatches, visible, apiKey, model, wireBaseUrl, toolsLoopSessionBundle)
+      if (tightened?.trim()) {
+        intentTightened = true
+        visible = tightened.trim()
+        routeCtx.routerVisible = visible
+        detMatches = AuthoringIntentRecipeCatalog.findDeterministicRecipeMatches(recipes, routeCtx)
+        log.info(
+          'Intent recipe routing: retest after intent tighten (matches={}, tightenedChars={})',
+          detMatches.size(),
+          visible.length()
+        )
+      }
+    }
+    out.intentTightened = intentTightened
+    out.deterministicMatchCount = detMatches.size()
+    if (detMatches.size() == 1) {
+      Map detMatch = detMatches[0]
       out.matched = true
       out.recipe = detMatch.recipe
       out.recipeId = detMatch.recipeId?.toString()?.trim()
       out.confidence = 1.0d
       out.routerReason = detMatch.routerReason?.toString()
       out.skipRecipePrefetch = Boolean.TRUE.equals(detMatch.skipPrefetch)
-      out.matchPass = 'deterministic'
+      out.matchPass = intentTightened ? 'deterministic_after_intent_tighten' : 'deterministic'
       return out
     }
-    List routerRecipes = AuthoringIntentRecipeCatalog.filterRecipesEligibleForRouter(recipes, routerVisible)
+    List routerRecipes = AuthoringIntentRecipeCatalog.filterRecipesEligibleForRouter(recipes, visible)
     String catalogMd = AuthoringIntentRecipeCatalog.toRouterCatalogMarkdown(routerRecipes)
-    String userRouter = '## Recipe catalog\n\n' + catalogMd + '\n\n## Author message\n\n' + routerVisible
+    String userRouter = '## Recipe catalog\n\n' + catalogMd + '\n\n## Author message\n\n' + visible
     String rawJson = toolsLoopSimpleCompletionAssistantText(
       apiKey,
       model,
@@ -3593,7 +3698,7 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     }
     String rid = decision.recipeId?.toString()?.trim()
     Map recipe = rid ? AuthoringIntentRecipeCatalog.findRecipeById(recipes, rid) : null
-    if (recipe != null && AuthoringIntentRecipeCatalog.recipeExcludedByDontMatchHints(recipe, routerVisible)) {
+    if (recipe != null && AuthoringIntentRecipeCatalog.recipeExcludedByDontMatchHints(recipe, visible)) {
       recipe = null
       rid = null
     }
@@ -3609,7 +3714,7 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       out.catalogMd = catalogMd
       return out
     }
-    Map fbDet = AuthoringIntentRecipeCatalog.findDeterministicRecipeMatch(recipes, detCtx)
+    Map fbDet = AuthoringIntentRecipeCatalog.findDeterministicRecipeMatch(recipes, routeCtx)
     if (fbDet != null) {
       out.matched = true
       out.recipe = fbDet.recipe
