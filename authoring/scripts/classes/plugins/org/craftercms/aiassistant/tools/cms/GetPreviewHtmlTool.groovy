@@ -20,6 +20,9 @@ class GetPreviewHtmlTool extends AbstractStudioAiTool {
   String pipelineStage() { 'verification' }
 
   @Override
+  boolean recipeEngineReadOnly() { true }
+
+  @Override
   Map execute(Map input, StudioAiToolContext ctx) {
     def m = (Map) (input ?: [:])
     def abs = m.url?.toString()?.trim() ?: m.previewUrl?.toString()?.trim()

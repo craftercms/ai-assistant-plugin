@@ -24,36 +24,25 @@ class StudioAiToolContext {
   final String imageGeneratorParam
   final Collection agentEnabledBuiltInTools
 
-  StudioAiToolContext(
-    Object converter,
-    StudioToolOperations ops,
-    Closure toolProgressListener,
-    String apiKeyForImages,
-    String imageModel,
-    boolean fullSuppressRepoWrites,
-    String normProtectedFormItemPath,
-    boolean pathProtectFormItem,
-    Map aiProjectToolCfg,
-    List<Map> expertSkillSpecs,
-    String textModel,
-    String llmNormalized,
-    String imageGeneratorParam,
-    Collection agentEnabledBuiltInTools
-  ) {
-    this.converter = converter
-    this.ops = ops
-    this.toolProgressListener = toolProgressListener
-    this.apiKeyForImages = apiKeyForImages
-    this.imageModel = imageModel
-    this.fullSuppressRepoWrites = fullSuppressRepoWrites
-    this.normProtectedFormItemPath = normProtectedFormItemPath
-    this.pathProtectFormItem = pathProtectFormItem
-    this.aiProjectToolCfg = aiProjectToolCfg
-    this.expertSkillSpecs = expertSkillSpecs
-    this.textModel = textModel
-    this.llmNormalized = llmNormalized
-    this.imageGeneratorParam = imageGeneratorParam
-    this.agentEnabledBuiltInTools = agentEnabledBuiltInTools
+  private StudioAiToolContext(Builder b) {
+    this.converter = b.converter
+    this.ops = b.ops
+    this.toolProgressListener = b.toolProgressListener
+    this.apiKeyForImages = b.apiKeyForImages
+    this.imageModel = b.imageModel
+    this.fullSuppressRepoWrites = b.fullSuppressRepoWrites
+    this.normProtectedFormItemPath = b.normProtectedFormItemPath
+    this.pathProtectFormItem = b.pathProtectFormItem
+    this.aiProjectToolCfg = b.aiProjectToolCfg ?: [:]
+    this.expertSkillSpecs = b.expertSkillSpecs ?: []
+    this.textModel = b.textModel
+    this.llmNormalized = b.llmNormalized
+    this.imageGeneratorParam = b.imageGeneratorParam
+    this.agentEnabledBuiltInTools = b.agentEnabledBuiltInTools
+  }
+
+  static Builder builder() {
+    return new Builder()
   }
 
   static StudioAiToolContext fromBuildParams(
@@ -81,21 +70,71 @@ class StudioAiToolContext {
         }
       }
     }
-    return new StudioAiToolContext(
-      converter,
-      ops,
-      toolProgressListener,
-      apiKeyForImages,
-      imageModel,
-      fullSuppressRepoWrites,
-      normProtected,
-      pathProtect,
-      cfg,
-      experts,
-      textModel,
-      llmNormalized,
-      imageGeneratorParam,
-      agentEnabledBuiltInTools
-    )
+    return builder()
+      .converter(converter)
+      .ops(ops)
+      .toolProgressListener(toolProgressListener)
+      .apiKeyForImages(apiKeyForImages)
+      .imageModel(imageModel)
+      .fullSuppressRepoWrites(fullSuppressRepoWrites)
+      .normProtectedFormItemPath(normProtected)
+      .pathProtectFormItem(pathProtect)
+      .aiProjectToolCfg(cfg)
+      .expertSkillSpecs(experts)
+      .textModel(textModel)
+      .llmNormalized(llmNormalized)
+      .imageGeneratorParam(imageGeneratorParam)
+      .agentEnabledBuiltInTools(agentEnabledBuiltInTools)
+      .build()
+  }
+
+  /** Minimal context for recipe-engine prefetch (read-only SPI tools only). */
+  static StudioAiToolContext forRecipeEngine(StudioToolOperations ops) {
+    if (ops == null) {
+      throw new IllegalArgumentException('ops is required')
+    }
+    return builder()
+      .converter({ Object result, java.lang.reflect.Type rt -> result })
+      .ops(ops)
+      .build()
+  }
+
+  static final class Builder {
+    Object converter
+    StudioToolOperations ops
+    Closure toolProgressListener
+    String apiKeyForImages
+    String imageModel
+    boolean fullSuppressRepoWrites
+    String normProtectedFormItemPath
+    boolean pathProtectFormItem
+    Map aiProjectToolCfg
+    List<Map> expertSkillSpecs
+    String textModel
+    String llmNormalized
+    String imageGeneratorParam
+    Collection agentEnabledBuiltInTools
+
+    Builder converter(Object v) { this.converter = v; return this }
+    Builder ops(StudioToolOperations v) { this.ops = v; return this }
+    Builder toolProgressListener(Closure v) { this.toolProgressListener = v; return this }
+    Builder apiKeyForImages(String v) { this.apiKeyForImages = v; return this }
+    Builder imageModel(String v) { this.imageModel = v; return this }
+    Builder fullSuppressRepoWrites(boolean v) { this.fullSuppressRepoWrites = v; return this }
+    Builder normProtectedFormItemPath(String v) { this.normProtectedFormItemPath = v; return this }
+    Builder pathProtectFormItem(boolean v) { this.pathProtectFormItem = v; return this }
+    Builder aiProjectToolCfg(Map v) { this.aiProjectToolCfg = v; return this }
+    Builder expertSkillSpecs(List<Map> v) { this.expertSkillSpecs = v; return this }
+    Builder textModel(String v) { this.textModel = v; return this }
+    Builder llmNormalized(String v) { this.llmNormalized = v; return this }
+    Builder imageGeneratorParam(String v) { this.imageGeneratorParam = v; return this }
+    Builder agentEnabledBuiltInTools(Collection v) { this.agentEnabledBuiltInTools = v; return this }
+
+    StudioAiToolContext build() {
+      if (ops == null) {
+        throw new IllegalArgumentException('ops is required')
+      }
+      return new StudioAiToolContext(this)
+    }
   }
 }

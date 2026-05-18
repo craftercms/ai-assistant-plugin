@@ -18,6 +18,9 @@ class ListStudioContentTypesTool extends AbstractStudioAiTool {
   String inputSchemaJson() { StudioAiToolSchemas.LIST_STUDIO_CONTENT_TYPES }
 
   @Override
+  boolean recipeEngineReadOnly() { true }
+
+  @Override
   Map execute(Map input, StudioAiToolContext ctx) {
     def siteId = ctx.ops.resolveEffectiveSiteId(input?.siteId?.toString()?.trim())
     if (!siteId) throw new IllegalArgumentException('Missing required field: siteId')

@@ -5,7 +5,6 @@ import groovy.json.JsonSlurper
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import plugins.org.craftercms.aiassistant.config.StudioAiAssistantProjectConfig
-import plugins.org.craftercms.aiassistant.content.ContentSubgraphAggregator
 import plugins.org.craftercms.aiassistant.tools.AiOrchestrationTools
 import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
 
@@ -29,15 +28,8 @@ final class AuthoringIntentRecipeEngine {
 
   private AuthoringIntentRecipeEngine() {}
 
-  private static final Set<String> READ_ONLY_TOOLS = [
-    'GetContent',
-    'GetContentTypeFormDefinition',
-    'ListContentTranslationScope',
-    'ListContentDependencyScope',
-    'ListStudioContentTypes',
-    'GetContentVersionHistory',
-    'GetPreviewHtml'
-  ] as Set
+  private static final Set<String> READ_ONLY_TOOLS =
+    plugins.org.craftercms.aiassistant.tools.catalog.StudioAiToolRegistry.recipeEngineReadOnlyWireNames()
 
   /**
    * @return map keys: {@code markdown}, {@code prefetchSteps}, {@code prefetchEnvelopeTruncated}
@@ -237,87 +229,11 @@ final class AuthoringIntentRecipeEngine {
   }
 
   private static Map executeReadOnlyTool(StudioToolOperations ops, String tool, Map input) {
-    String siteId = ops.resolveEffectiveSiteId(input?.siteId?.toString()?.trim() ?: '')
-    switch (tool) {
-      case 'GetContent':
-        String path = AiOrchestrationTools.repoPathFromToolInput(input)
-        if (!path) {
-          throw new IllegalArgumentException('Missing path/contentPath for GetContent')
-        }
-        String commitRef = input?.commitId?.toString()?.trim() ?: input?.commitRef?.toString()?.trim()
-        return ops.getContent(siteId, path, commitRef)
-      case 'GetContentTypeFormDefinition':
-        if (!siteId) {
-          throw new IllegalArgumentException('Missing siteId')
-        }
-        String contentPath = input?.contentPath?.toString()?.trim()
-        String contentTypeId = input?.contentTypeId?.toString()?.trim()
-        if (contentPath) {
-          Map item = ops.getContent(siteId, contentPath)
-          String xml = item?.contentXml?.toString()
-          String fromXml = AiOrchestrationTools.extractContentTypeIdFromItemXml(xml)
-          if (fromXml) {
-            contentTypeId = fromXml
-          } else if (!contentTypeId) {
-            throw new IllegalArgumentException("No <content-type> in XML at '${contentPath}'")
-          }
-        }
-        if (!contentTypeId) {
-          throw new IllegalArgumentException('Provide contentPath or contentTypeId for GetContentTypeFormDefinition')
-        }
-        return ops.getContentTypeFormDefinition(siteId, contentTypeId)
-      case 'ListContentDependencyScope':
-      case 'ListContentTranslationScope':
-        String cp = input?.contentPath?.toString()?.trim() ?: input?.path?.toString()?.trim()
-        if (!siteId || !cp) {
-          throw new IllegalArgumentException('Missing siteId or contentPath for ListContentTranslationScope')
-        }
-        Integer maxItems = parsePositiveIntOrNull(input?.maxItems)
-        Integer maxDepth = parsePositiveIntOrNull(input?.maxDepth)
-        Integer chunkSize = parsePositiveIntOrNull(input?.chunkSize)
-        return ContentSubgraphAggregator.buildTranslationScopeTree(ops, siteId, cp, maxItems, maxDepth, chunkSize)
-      case 'ListStudioContentTypes':
-        if (!siteId) {
-          throw new IllegalArgumentException('Missing siteId')
-        }
-        boolean searchable = plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext.isTruthy(input?.searchable)
-        String ctp = input?.contentPath?.toString()?.trim() ?: input?.path?.toString()?.trim()
-        return ops.listStudioContentTypes(siteId, searchable, ctp)
-      case 'GetContentVersionHistory':
-        String vp = AiOrchestrationTools.repoPathFromToolInput(input)
-        if (!siteId || !vp) {
-          throw new IllegalArgumentException('Missing siteId or path for GetContentVersionHistory')
-        }
-        List<Map> versions = ops.getContentVersionHistory(siteId, vp)
-        return [
-          action  : 'get_content_version_history',
-          siteId  : siteId,
-          path    : vp,
-          versions: versions
-        ]
-      case 'GetPreviewHtml':
-        String abs = input?.url?.toString()?.trim() ?: input?.previewUrl?.toString()?.trim()
-        if (!abs) {
-          throw new IllegalArgumentException('Missing url/previewUrl for GetPreviewHtml')
-        }
-        String tok = input?.previewToken?.toString()?.trim()
-        String sid = input?.siteId?.toString()?.trim()
-        return ops.fetchPreviewRenderedHtml(abs, tok, sid)
-      default:
-        throw new IllegalArgumentException('Unsupported tool: ' + tool)
-    }
-  }
-
-  private static Integer parsePositiveIntOrNull(Object v) {
-    if (v == null) {
-      return null
-    }
-    try {
-      int n = (v instanceof Number) ? ((Number) v).intValue() : Integer.parseInt(v.toString().trim())
-      return n > 0 ? Integer.valueOf(n) : null
-    } catch (Throwable ignored) {
-      return null
-    }
+    return plugins.org.craftercms.aiassistant.tools.catalog.StudioAiToolRegistry.executeRecipePrefetchTool(
+      tool,
+      (Map) (input ?: [:]),
+      ops
+    )
   }
 
   private static Map shrinkToolResultForPrefetch(Map raw, int maxField) {

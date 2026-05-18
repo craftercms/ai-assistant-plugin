@@ -20,6 +20,11 @@ abstract class AbstractStudioAiTool implements StudioAiOrchestrationTool {
     return null
   }
 
+  @Override
+  boolean recipeEngineReadOnly() {
+    return false
+  }
+
   /** Builds a Spring AI {@link FunctionToolCallback} for this tool. */
   Object toFunctionToolCallback(StudioAiToolContext ctx) {
     final String name = wireName()
@@ -28,6 +33,7 @@ abstract class AbstractStudioAiTool implements StudioAiOrchestrationTool {
       @Override
       Map apply(Map input) {
         return AiOrchestrationTools.runWithToolProgress(name, input, buildCtx.toolProgressListener, {
+          AiOrchestrationTools.logToolInvocationPublic(name, (Map) (input ?: [:]))
           execute((Map) (input ?: [:]), buildCtx)
         })
       }

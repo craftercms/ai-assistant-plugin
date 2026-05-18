@@ -17,4 +17,10 @@ interface StudioAiOrchestrationTool {
 
   /** Optional recipe-router phase hint ({@code verification}, etc.). */
   String pipelineStage()
+
+  /**
+   * When {@code true}, {@link plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeEngine}
+   * may invoke this tool during recipe prefetch (no LLM tool-call).
+   */
+  boolean recipeEngineReadOnly()
 }

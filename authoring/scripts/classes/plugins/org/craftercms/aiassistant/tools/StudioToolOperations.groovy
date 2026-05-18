@@ -1,6 +1,7 @@
 package plugins.org.craftercms.aiassistant.tools
 
 import plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext
+import plugins.org.craftercms.aiassistant.tools.operations.StudioToolOperationsSupport
 import plugins.org.craftercms.aiassistant.prompt.ToolPrompts
 
 import org.craftercms.studio.api.v2.event.site.SyncFromRepoEvent
@@ -256,277 +257,30 @@ class StudioToolOperations {
     }
   }
 
-  /**
-   * Decodes only {@code %HH} percent-escapes as UTF-8 bytes. Does not treat {@code +} as space
-   * (unlike {@link URLDecoder#decode(String, String)}), so Experience Builder {@code crafterPreview} tickets keep
-   * literal plus signs — matching browser {@code curl -b} behavior.
-   */
-  private static String decodePercentEscapesUtf8PreservePlus(String s) {
-    if (s == null || s.isEmpty()) return s
-    ByteArrayOutputStream out = new ByteArrayOutputStream(Math.max(16, s.length()))
-    for (int i = 0; i < s.length();) {
-      char c = s.charAt(i)
-      if (c == '%' && i + 2 < s.length()) {
-        int d1 = Character.digit(s.charAt(i + 1), 16)
-        int d2 = Character.digit(s.charAt(i + 2), 16)
-        if (d1 >= 0 && d2 >= 0) {
-          out.write((d1 << 4) | d2)
-          i += 3
-          continue
-        }
-      }
-      out.write(s.substring(i, i + 1).getBytes(StandardCharsets.UTF_8))
-      i++
-    }
-    return new String(out.toByteArray(), StandardCharsets.UTF_8)
-  }
+  // Preview/HTTP URL helpers: plugins.org.craftercms.aiassistant.tools.operations.StudioToolOperationsSupport
 
-  /**
-   * Reads {@code crafterPreview} from the servlet request: first {@code aiassistant.previewToken} attribute
-   * (POST body from the UI), then the {@code crafterPreview} cookie. HttpOnly cookies are invisible to
-   * {@code document.cookie} but are still sent on same-origin POSTs and appear here.
-   */
+  /** @deprecated use {@link StudioToolOperationsSupport#readCrafterPreviewTokenFromServletRequest} */
   static String readCrafterPreviewTokenFromServletRequest(def request) {
-    if (!request) return ''
-    try {
-      def a = request.getAttribute('aiassistant.previewToken')
-      if (a != null) {
-        def s = a.toString()?.trim()
-        if (s) return s
-      }
-    } catch (Throwable ignored) {}
-    try {
-      def cookies = request.getCookies()
-      if (cookies) {
-        for (def c : cookies) {
-          if (c?.name && 'crafterPreview'.equalsIgnoreCase(c.name as String)) {
-            def v = c.value?.toString()?.trim()
-            if (v) {
-              try {
-                return decodePercentEscapesUtf8PreservePlus(v)
-              } catch (Throwable ignored2) {
-                return v
-              }
-            }
-          }
-        }
-      }
-    } catch (Throwable ignored) {}
-    try {
-      def raw = request?.getHeader('Cookie')?.toString()
-      if (raw?.trim()) {
-        for (String part : raw.split(';')) {
-          def p = part.trim()
-          if (!p) continue
-          int eq = p.indexOf('=')
-          if (eq <= 0) continue
-          def name = p.substring(0, eq).trim()
-          if (!name || !'crafterPreview'.equalsIgnoreCase(name)) continue
-          def v = eq + 1 < p.length() ? p.substring(eq + 1).trim() : ''
-          if (v.startsWith('"') && v.endsWith('"') && v.length() >= 2) {
-            v = v.substring(1, v.length() - 1).replace('\\"', '"').replace('\\\\', '\\')
-          }
-          if (v) {
-            try {
-              return decodePercentEscapesUtf8PreservePlus(v)
-            } catch (Throwable ignored2) {
-              return v
-            }
-          }
-        }
-      }
-    } catch (Throwable ignored) {}
-    return ''
+    return StudioToolOperationsSupport.readCrafterPreviewTokenFromServletRequest(request)
   }
 
-
-  /**
-   * RFC 6265-style attribute value: quote when needed for {@code Cookie} request header.
-   */
-  private static String formatCookieAttributeValue(String val) {
-    if (val == null) return ''
-    boolean needQuotes = false
-    for (int i = 0; i < val.length(); i++) {
-      char c = val.charAt(i)
-      int cp = (int) c
-      if (c == ';' || c == '"' || c == '\\' || c == '#' || Character.isWhitespace(c) || cp < 0x21 || cp == 0x7f) {
-        needQuotes = true
-        break
-      }
-    }
-    if (!needQuotes) return val
-    return '"' + val.replace('\\', '\\\\').replace('"', '\\"') + '"'
-  }
-
-  /**
-   * Studio session cookies on the same host can be sent with the plugin POST; forwarding {@code JSESSIONID} to
-   * Engine often makes Engine treat the request as an invalid app session and return **401** before validating
-   * {@code crafterPreview}. Strip those; keep preview/site and optional JVM-configured names.
-   */
-  private static boolean stripCookieNameForPreviewEngineFetch(String cookieName) {
-    if (!cookieName) return false
-    String n = cookieName.trim().toLowerCase(Locale.ROOT)
-    if ('jsessionid'.equals(n)) return true
-    if ('refresh_token'.equals(n)) return true
-    try {
-      def extra = System.getProperty('aiassistant.preview.fetch.stripCookieNames')?.toString()?.trim()
-      if (extra) {
-        for (String part : extra.split(',')) {
-          def p = part.trim().toLowerCase(Locale.ROOT)
-          if (p && p == n) return true
-        }
-      }
-    } catch (Throwable ignored) {}
-    return false
-  }
-
-  /**
-   * Cookie header for Engine preview GET: start from the frozen {@code Cookie} snapshot (servlet thread), drop
-   * Studio-only session cookies, strip {@code crafterPreview} / {@code crafterSite}, then append resolved preview token
-   * and site. Engine also accepts {@code crafterPreview} as a query param — see {@link #fetchPreviewRenderedHtml}.
-   */
-  private String buildPreviewFetchCookieHeader(String crafterPreviewTokenResolved, String siteIdForCookie) {
-    def tok = (crafterPreviewTokenResolved ?: '').toString().trim()
-    if (!tok) return ''
-    String site = (siteIdForCookie ?: '').toString().trim()
-    String raw = (frozenCookieHeaderFromRequest ?: '').trim()
-    if (!raw) {
-      try {
-        raw = request?.getHeader('Cookie')?.toString()?.trim() ?: ''
-      } catch (Throwable ignored) {}
-    }
-    List<String> segments = []
-    if (raw) {
-      for (String part : raw.split(';')) {
-        def p = part.trim()
-        if (!p) continue
-        int eq = p.indexOf('=')
-        String name = eq > 0 ? p.substring(0, eq).trim() : ''
-        if (name && stripCookieNameForPreviewEngineFetch(name)) continue
-        if (name && 'crafterPreview'.equalsIgnoreCase(name)) continue
-        if (site && 'crafterSite'.equalsIgnoreCase(name)) continue
-        segments.add(p)
-      }
-    }
-    segments.add('crafterPreview=' + formatCookieAttributeValue(tok))
-    if (site) {
-      segments.add('crafterSite=' + formatCookieAttributeValue(site))
-    }
-    return segments.join('; ')
-  }
-
-  /**
-   * Studio XB address bar often looks like {@code …/studio/preview/#/?page=/&site=my-site}; HTTP GETs must not use
-   * that URL (the fragment is never sent to the server). Rewrites to the Engine origin + {@code page} + {@code crafterSite=}.
-   */
-  static String rewriteStudioPreviewShellUrlForEngineFetch(String fullUrl, String siteIdFallback) {
-    def u = (fullUrl ?: '').toString().trim()
-    if (!u || !u.contains('#')) return u
-    int hash = u.indexOf('#')
-    String before = u.substring(0, hash)
-    String frag = u.substring(hash + 1)
-    if (!before.toLowerCase(Locale.ROOT).contains('/studio/preview')) return u
-    String q = frag
-    if (q.startsWith('/?')) {
-      q = q.substring(2)
-    } else if (q.startsWith('?')) {
-      q = q.substring(1)
-    } else {
-      return u
-    }
-    Map<String, String> qp = parseAmpQueryString(q)
-    String pageVal = (qp.page ?: qp.path ?: '/').toString().trim()
-    if (!pageVal.startsWith('/')) pageVal = '/' + pageVal
-    String siteVal = (qp.site ?: qp.crafterSite ?: siteIdFallback ?: '').toString().trim()
-    try {
-      URI bu = new URI(before)
-      String scheme = bu.scheme ?: 'http'
-      String host = bu.host
-      if (!host) return u
-      int p = bu.port
-      boolean defP = p < 0 ||
-        (scheme.equalsIgnoreCase('https') && p == 443) ||
-        (scheme.equalsIgnoreCase('http') && p == 80)
-      String origin = scheme + '://' + host + (defP ? '' : ":${p}")
-      if (!siteVal) return u
-      String encSite = URLEncoder.encode(siteVal, 'UTF-8')
-      if (pageVal == '/' || pageVal.isEmpty()) {
-        return "${origin}/?crafterSite=${encSite}"
-      }
-      return "${origin}${pageVal}?crafterSite=${encSite}"
-    } catch (Throwable ignored) {
-      return u
-    }
-  }
-
-  private static Map<String, String> parseAmpQueryString(String q) {
-    Map<String, String> m = [:]
-    if (!q) return m
-    for (String part : q.split('&')) {
-      int eq = part.indexOf('=')
-      if (eq < 0) continue
-      String k = part.substring(0, eq).trim()
-      String v = eq + 1 < part.length() ? part.substring(eq + 1) : ''
-      try {
-        k = URLDecoder.decode(k, 'UTF-8')
-        v = URLDecoder.decode(v, 'UTF-8')
-      } catch (Throwable ignored) {}
-      if (k) m[k] = v
-    }
-    return m
-  }
-
-  /**
-   * Removes query parameters matching {@code paramNames} (case-insensitive keys). Preserves URL fragment ({@code #…})
-   * and only rewrites the query segment before it.
-   */
-  private static String removeQueryParamsCaseInsensitive(String url, Collection<String> paramNames) {
-    def full = (url ?: '').toString()
-    if (!full) return full
-    int hash = full.indexOf('#')
-    String beforeHash = hash >= 0 ? full.substring(0, hash) : full
-    String frag = hash >= 0 ? full.substring(hash) : ''
-    int q = beforeHash.indexOf('?')
-    if (q < 0) return full
-    String base = beforeHash.substring(0, q)
-    String query = beforeHash.substring(q + 1)
-    if (!query) return base + frag
-    Set<String> drop = [] as Set
-    for (String n : paramNames) {
-      if (n) drop.add(n.toLowerCase(Locale.ROOT))
-    }
-    List<String> kept = []
-    for (String part : query.split('&')) {
-      int eq = part.indexOf('=')
-      String key = (eq >= 0 ? part.substring(0, eq) : part).trim()
-      String keyLc = key.toLowerCase(Locale.ROOT)
-      if (!drop.contains(keyLc)) {
-        kept.add(part)
-      }
-    }
-    if (kept.isEmpty()) {
-      return base + frag
-    }
-    return base + '?' + String.join('&', kept) + frag
-  }
-
-  private final def request
-  private final def applicationContext
+  final def request
+  final def applicationContext
   /** Plugin script params (may include siteId from query string). */
-  private final def params
+  final def params
   /** Copy of {@link org.springframework.security.core.context.SecurityContext} from the Studio HTTP request thread. */
-  private final def securityContextForTools
+  final def securityContextForTools
   /**
    * Studio Experience Builder preview cookie value ({@code crafterPreview}), set on the HTTP request as attribute
    * {@code aiassistant.previewToken} by the chat/stream REST scripts when the UI POSTs it.
    */
-  private final String resolvedPreviewTokenFromRequest
+  final String resolvedPreviewTokenFromRequest
   /**
    * Snapshot of {@code Cookie} from the Studio chat/stream servlet request at {@code StudioToolOperations} construction
    * (servlet thread). Tool callbacks run on worker threads where {@code request.getHeader("Cookie")} can be empty; Engine
    * preview GET still needs forwarded non-session cookies (e.g. other Studio cookies), plus {@code crafterPreview} / {@code crafterSite}.
    */
-  private final String frozenCookieHeaderFromRequest
+  final String frozenCookieHeaderFromRequest
   /** Resolved once: v2 {@code contentService} (reads/history only on studio {@code support/4.x} — no {@code write} there). */
   final Object contentServiceBean
   /** Resolved once for support/4.x direct calls. */
@@ -558,7 +312,7 @@ class StudioToolOperations {
       frozenCookie = request?.getHeader('Cookie')?.toString()?.trim() ?: ''
     } catch (Throwable ignored) {}
     this.frozenCookieHeaderFromRequest = frozenCookie
-    this.resolvedPreviewTokenFromRequest = readCrafterPreviewTokenFromServletRequest(request)
+    this.resolvedPreviewTokenFromRequest = StudioToolOperationsSupport.readCrafterPreviewTokenFromServletRequest(request)
     this.contentServiceBean = resolveRequiredBean('contentService',
       'Studio bean contentService not found. The AI Assistant expects the same in-process content service Crafter Studio registers (support/4.x).')
     this.configurationServiceBean = resolveRequiredBean('configurationService',
@@ -779,6 +533,8 @@ class StudioToolOperations {
    * Reads file bytes at {@code path} for {@code commitOrRef} (default {@code HEAD}).
    * Use a concrete Git commit id only when inspecting history; normal editing uses {@code HEAD}.
    */
+  // --- Content operations (repository read/write, form defs, version history, revert, research) ---
+
   Map getContent(String siteId, String path, String commitOrRef = null) {
     withStudioRequestSecurity {
       siteId = resolveEffectiveSiteId(siteId)
@@ -1901,6 +1657,8 @@ class StudioToolOperations {
   /**
    * Publishes all pending changes for the site (v2 {@code PublishService#publishAll}) — use for first publish / publish everything.
    */
+  // --- Publish operations (deployment packages, bulk go-live, publish-all) ---
+
   Map publishAllSiteChanges(String siteId, String publishingTarget, String submissionComment = null) {
     if (publishServiceBean == null) {
       throw new IllegalStateException('Studio publishService bean not found; publishScope=all requires PublishService.')
@@ -3064,6 +2822,47 @@ class StudioToolOperations {
     return 400_000
   }
 
+  private String buildPreviewFetchCookieHeader(String crafterPreviewTokenResolved, String siteIdForCookie) {
+    def tok = (crafterPreviewTokenResolved ?: '').toString().trim()
+    if (!tok) {
+      return ''
+    }
+    String site = (siteIdForCookie ?: '').toString().trim()
+    String raw = (frozenCookieHeaderFromRequest ?: '').trim()
+    if (!raw) {
+      try {
+        raw = request?.getHeader('Cookie')?.toString()?.trim() ?: ''
+      } catch (Throwable ignored) {
+      }
+    }
+    List<String> segments = []
+    if (raw) {
+      for (String part : raw.split(';')) {
+        def p = part.trim()
+        if (!p) {
+          continue
+        }
+        int eq = p.indexOf('=')
+        String name = eq > 0 ? p.substring(0, eq).trim() : ''
+        if (name && StudioToolOperationsSupport.stripCookieNameForPreviewEngineFetch(name)) {
+          continue
+        }
+        if (name && 'crafterPreview'.equalsIgnoreCase(name)) {
+          continue
+        }
+        if (site && 'crafterSite'.equalsIgnoreCase(name)) {
+          continue
+        }
+        segments.add(p)
+      }
+    }
+    segments.add('crafterPreview=' + StudioToolOperationsSupport.formatCookieAttributeValue(tok))
+    if (site) {
+      segments.add('crafterSite=' + StudioToolOperationsSupport.formatCookieAttributeValue(site))
+    }
+    return segments.join('; ')
+  }
+
   private boolean previewFetchHostAllowed(String host) {
     if (!host) return false
     String h = host.toLowerCase(Locale.ROOT)
@@ -3088,6 +2887,8 @@ class StudioToolOperations {
    * Host must match the Studio request server name, {@code localhost}, {@code 127.0.0.1}, {@code [::1]}, or
    * {@code aiassistant.preview.fetch.allowedHosts} (comma-separated). Redirects are not followed.
    */
+  // --- Preview operations (Engine HTML fetch with crafterPreview) ---
+
   Map fetchPreviewRenderedHtml(String absoluteUrl, String toolPreviewToken, String siteIdOpt) {
     def urlStr = (absoluteUrl ?: '').toString().trim()
     if (!urlStr) {
@@ -3101,10 +2902,10 @@ class StudioToolOperations {
         siteForQuery = ''
       }
     }
-    urlStr = rewriteStudioPreviewShellUrlForEngineFetch(urlStr, siteForQuery)
+    urlStr = StudioToolOperationsSupport.rewriteStudioPreviewShellUrlForEngineFetch(urlStr, siteForQuery)
     String token = (toolPreviewToken ?: '').toString().trim()
     if (!token) token = resolvedPreviewTokenFromRequest ?: ''
-    if (!token) token = readCrafterPreviewTokenFromServletRequest(request) ?: ''
+    if (!token) token = StudioToolOperationsSupport.readCrafterPreviewTokenFromServletRequest(request) ?: ''
     if (!token) {
       return [
         ok     : false,
@@ -3115,7 +2916,7 @@ class StudioToolOperations {
     }
     // Tool/UI may echo crafterPreview in the URL with literal '+' (base64); form-style query parsing treats '+' as
     // space and corrupts the ticket → HTTP 401. Always drop caller-supplied crafterPreview and append URLEncoder output.
-    String u = removeQueryParamsCaseInsensitive(urlStr, ['crafterPreview'])
+    String u = StudioToolOperationsSupport.removeQueryParamsCaseInsensitive(urlStr, ['crafterPreview'])
     if (siteForQuery && !u.toLowerCase(Locale.ROOT).contains('craftersite=')) {
       u += (u.contains('?') ? '&' : '?') + 'crafterSite=' + URLEncoder.encode(siteForQuery, 'UTF-8')
     }
@@ -3261,6 +3062,8 @@ class StudioToolOperations {
   /**
    * When {@code false} (JVM {@code aiassistant.httpFetch.enabled=false}), {@link #fetchHttpUrl} refuses all requests.
    */
+  // --- HTTP / web search operations (outbound fetch, DuckDuckGo) ---
+
   boolean httpFetchGloballyEnabled() {
     !'false'.equalsIgnoreCase(System.getProperty('aiassistant.httpFetch.enabled', 'true')?.toString()?.trim())
   }

@@ -18,6 +18,9 @@ class GetContentVersionHistoryTool extends AbstractStudioAiTool {
   String inputSchemaJson() { StudioAiToolSchemas.GET_CONTENT_VERSION_HISTORY }
 
   @Override
+  boolean recipeEngineReadOnly() { true }
+
+  @Override
   Map execute(Map input, StudioAiToolContext ctx) {
     def siteId = ctx.ops.resolveEffectiveSiteId(input?.siteId?.toString()?.trim())
     if (!siteId) throw new IllegalArgumentException('Missing required field: siteId')

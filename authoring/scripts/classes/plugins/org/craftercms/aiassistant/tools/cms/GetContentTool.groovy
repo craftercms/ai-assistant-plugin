@@ -18,6 +18,9 @@ class GetContentTool extends AbstractStudioAiTool {
   String inputSchemaJson() { StudioAiToolSchemas.GET_CONTENT }
 
   @Override
+  boolean recipeEngineReadOnly() { true }
+
+  @Override
   Map execute(Map input, StudioAiToolContext ctx) {
     def commitRef = input?.commitId?.toString()?.trim() ?: input?.commitRef?.toString()?.trim()
     def path = StudioAiToolSupport.repoPathFromToolInput(input)

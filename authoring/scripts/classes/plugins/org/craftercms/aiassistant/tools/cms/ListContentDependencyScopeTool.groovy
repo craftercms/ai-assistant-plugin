@@ -18,6 +18,9 @@ class ListContentDependencyScopeTool extends AbstractStudioAiTool {
   String inputSchemaJson() { StudioAiToolSchemas.LIST_CONTENT_DEPENDENCY_SCOPE }
 
   @Override
+  boolean recipeEngineReadOnly() { true }
+
+  @Override
   Map execute(Map input, StudioAiToolContext ctx) {
     def siteId = ctx.ops.resolveEffectiveSiteId(input?.siteId?.toString()?.trim())
     def contentPath = input?.contentPath?.toString()?.trim() ?: input?.path?.toString()?.trim()

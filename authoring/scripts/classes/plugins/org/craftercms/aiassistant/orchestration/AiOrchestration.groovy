@@ -4017,6 +4017,11 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     if (orchPrelude) {
       prelude = orchPrelude + '\n\n' + prelude
     }
+    String catalogSiteId = ''
+    try {
+      catalogSiteId = ops?.resolveEffectiveSiteId('')?.toString()?.trim() ?: ''
+    } catch (Throwable ignoredSite) {
+    }
     Map matchedTelExtra = new LinkedHashMap<>()
     matchedTelExtra.putAll(AuthoringIntentRecipeCatalog.orchestrationTelemetryExtras(recipe))
     matchedTelExtra.putAll([
@@ -4032,7 +4037,8 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       prefetchResolvedFieldId                      : prefetchResolvedFieldId,
       prefetchResolvedFieldLabel                   : prefetchResolvedFieldLabel,
       routerReason                                 : (routerReason ?: '').toString().trim(),
-      recipeChatLine                               : AuthoringIntentRecipeCatalog.formatIntentRecipeChatLine(recipe)
+      siteId                                       : catalogSiteId,
+      recipeChatLine                               : AuthoringIntentRecipeCatalog.formatIntentRecipeChatLine(recipe, catalogSiteId)
     ])
     if ('open_page_inquiry'.equals(rid) && prefetchSkipRedundantGetForListedPath && !prefetchEnvTrunc) {
       matchedTelExtra.toolsLoopDisable = Boolean.TRUE
@@ -4121,7 +4127,7 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       if (recipes == null || recipes.isEmpty()) {
         log.warn('Intent recipe routing skipped: recipe catalog is empty after bundled + site custom merge.')
         result.userTextForToolsLoop =
-          '[Studio — intent recipe catalog is empty after merge (site override removed all recipes, or custom JSON invalid). Use normal CMS judgement **with strict content-vs-code discipline**:\n' +
+          '[Studio — intent recipe catalog is empty (bundled JSON not loaded, site override removed all recipes, or custom JSON invalid). **CMS tools are still available** — use normal CMS judgement **with strict content-vs-code discipline**:\n' +
           '- When **Current content item repository path** or **Request anchor** is **`/site/.../*.xml`** and the author asks to change **copy, field values, or tone** without naming **FTL**, **template**, or **CSS**: **GetContent** then **WriteContent** (or **update_content** then **WriteContent**) on **that same repository .xml path** — preserve **`<page>` / `<component>`** structure and existing field tag names from the file you read; map labels to element ids via **GetContentTypeFormDefinition** when needed.\n' +
           '- **Do not** call **update_template** for that scenario; **do not** **WriteContent** a **`.ftl`** path with page/component XML bodies; **do not** invent **`/static-assets/styles.css`** or other asset paths unless the author explicitly asked for stylesheet/asset work **or** **GetContent** on the item you edit already referenced that exact path and the task requires editing that file.\n' +
           '- If copy still looks wrong after XML saves, **analyze_template** / **GetContent** on **display-template** is **read-only diagnosis** — explain findings; **do not** patch FTL for a **content-only** goal.\n\n' +
@@ -7487,7 +7493,8 @@ Your last assistant message had a **plan-style heading** (## Plan, ## Revised Pl
         chatLine = telemetry.recipeChatLine?.toString()?.trim() ?: ''
         if (!chatLine) {
           String title = telemetry.recipeTitle?.toString()?.trim() ?: rid
-          chatLine = AuthoringIntentRecipeCatalog.formatIntentRecipeChatLine([id: rid, title: title])
+          String catalogSiteId = telemetry.siteId?.toString()?.trim() ?: ''
+          chatLine = AuthoringIntentRecipeCatalog.formatIntentRecipeChatLine([id: rid, title: title], catalogSiteId)
         }
       }
       synchronized (o) {

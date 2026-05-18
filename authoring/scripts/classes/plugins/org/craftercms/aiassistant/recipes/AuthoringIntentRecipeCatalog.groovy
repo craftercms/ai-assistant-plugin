@@ -15,6 +15,7 @@ import java.util.LinkedHashMap
 import java.util.List
 import java.util.Locale
 import java.util.Map
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Loads bundled + optional site **authoring intent recipes** for the intent-router pass.
@@ -35,8 +36,15 @@ final class AuthoringIntentRecipeCatalog {
   /** Optional JVM override: absolute path to bundled recipes JSON (hotfix without redeploy). */
   private static final String SYSPROP_BUNDLED_PATH = 'aiassistant.authoringIntentRecipesDefault.path'
 
-  /** Loaded from recipe catalog {@code chatDefaults} (site override merges at load). */
-  private static volatile Map<String, String> catalogChatDefaultsRef = defaultCatalogChatDefaults()
+  /** Site sandbox path after {@code install-plugin.sh} copies {@code authoring/scripts/classes}. */
+  private static final String BUNDLED_SANDBOX_REPO_PATH =
+    "/config/studio/scripts/classes/${PACKAGE_RESOURCE_PREFIX}${BUNDLED_RELATIVE}"
+
+  /** Key for bundled catalog {@code chatDefaults} (not a real site id). */
+  static final String BUNDLED_CHAT_DEFAULTS_SITE_KEY = '__bundled__'
+
+  private static final ConcurrentHashMap<String, Map<String, String>> CATALOG_CHAT_DEFAULTS_BY_SITE =
+    new ConcurrentHashMap<>()
 
   private static Map<String, String> defaultCatalogChatDefaults() {
     Map d = new LinkedHashMap<>()
@@ -46,16 +54,37 @@ final class AuthoringIntentRecipeCatalog {
     return Collections.unmodifiableMap(d)
   }
 
-  static Map<String, String> catalogChatDefaults() {
-    Map<String, String> d = catalogChatDefaultsRef
-    return d != null ? d : defaultCatalogChatDefaults()
+  static {
+    CATALOG_CHAT_DEFAULTS_BY_SITE.put(BUNDLED_CHAT_DEFAULTS_SITE_KEY, defaultCatalogChatDefaults())
   }
 
-  /** Installs merged {@code chatDefaults} from a parsed catalog document (see {@link #parseCatalogDocument}). */
-  static void installCatalogChatDefaults(Map<String, String> chatDefaults) {
-    if (chatDefaults instanceof Map && !chatDefaults.isEmpty()) {
-      catalogChatDefaultsRef = Collections.unmodifiableMap(new LinkedHashMap<>(chatDefaults))
+  /**
+   * @param siteId Crafter site id when known; otherwise bundled defaults apply
+   */
+  static Map<String, String> catalogChatDefaults(String siteId = null) {
+    String key = normalizeChatDefaultsSiteKey(siteId)
+    Map<String, String> perSite = CATALOG_CHAT_DEFAULTS_BY_SITE.get(key)
+    if (perSite != null) {
+      return perSite
     }
+    Map<String, String> bundled = CATALOG_CHAT_DEFAULTS_BY_SITE.get(BUNDLED_CHAT_DEFAULTS_SITE_KEY)
+    return bundled != null ? bundled : defaultCatalogChatDefaults()
+  }
+
+  private static String normalizeChatDefaultsSiteKey(String siteId) {
+    String s = siteId?.toString()?.trim()
+    return s ? s : BUNDLED_CHAT_DEFAULTS_SITE_KEY
+  }
+
+  /**
+   * Installs {@code chatDefaults} for a site (or bundled key when {@code siteId} is blank).
+   */
+  static void installCatalogChatDefaults(Map<String, String> chatDefaults, String siteId = null) {
+    if (!(chatDefaults instanceof Map) || chatDefaults.isEmpty()) {
+      return
+    }
+    String key = normalizeChatDefaultsSiteKey(siteId)
+    CATALOG_CHAT_DEFAULTS_BY_SITE.put(key, Collections.unmodifiableMap(new LinkedHashMap<>(chatDefaults)))
   }
 
 
@@ -65,7 +94,7 @@ final class AuthoringIntentRecipeCatalog {
   static List<Map> loadRecipes(StudioToolOperations ops, Map projectCfg) {
     List<Map> merged = new ArrayList<>()
     Set<String> seen = new LinkedHashSet<>()
-    for (Map r : parseBundledRecipes()) {
+    for (Map r : parseBundledRecipes(ops)) {
       String id = r?.id?.toString()?.trim()
       if (!id) {
         continue
@@ -73,7 +102,7 @@ final class AuthoringIntentRecipeCatalog {
       merged.add(new LinkedHashMap<>(r))
       seen.add(id)
     }
-    List<String> catalogOrder = parseBundledRecipeOrder()
+    List<String> catalogOrder = parseBundledRecipeOrder(ops)
     List<String> siteOrder = []
     String sitePath = StudioAiAssistantProjectConfig.intentRecipeCustomRecipesPath(projectCfg)
     if (ops != null && sitePath?.trim()) {
@@ -84,7 +113,7 @@ final class AuthoringIntentRecipeCatalog {
           siteOrder = parseRecipeOrderFromJsonText(raw)
           Map siteDoc = parseCatalogDocument(raw)
           if (siteDoc?.chatDefaults instanceof Map) {
-            installCatalogChatDefaults((Map) siteDoc.chatDefaults)
+            installCatalogChatDefaults((Map) siteDoc.chatDefaults, siteId)
           }
           for (Map r : (siteDoc?.recipes ?: []) as List<Map>) {
             String id = r?.id?.toString()?.trim()
@@ -112,8 +141,39 @@ final class AuthoringIntentRecipeCatalog {
     Collections.unmodifiableList(applyRecipeOrder(merged, effectiveOrder))
   }
 
-  private static List<String> parseBundledRecipeOrder() {
-    return parseRecipeOrderFromJsonText(loadBundledRecipesJsonText())
+  /**
+   * Operator diagnostic: bundled catalog load, merged recipe count, chatDefaults keys, prefetch allowlist size.
+   */
+  static Map catalogHealthCheck(StudioToolOperations ops, Map projectCfg) {
+    String bundledRaw = loadBundledRecipesJsonText(ops)
+    boolean bundledLoaded = bundledRaw?.trim()?.length() > 0
+    List<Map> bundledOnly = parseBundledRecipes(ops)
+    List<Map> merged = (ops != null && projectCfg != null) ? loadRecipes(ops, projectCfg) : bundledOnly
+    String siteId = ''
+    if (ops != null) {
+      try {
+        siteId = ops.resolveEffectiveSiteId('')?.toString()?.trim() ?: ''
+      } catch (Throwable ignored) {
+      }
+    }
+    Map<String, String> chatDefs = catalogChatDefaults(siteId)
+    Set<String> prefetchTools =
+      plugins.org.craftercms.aiassistant.tools.catalog.StudioAiToolRegistry.recipeEngineReadOnlyWireNames()
+    return [
+      ok                 : bundledLoaded && !merged.isEmpty(),
+      bundledJsonLoaded  : bundledLoaded,
+      bundledRecipeCount : bundledOnly?.size() ?: 0,
+      mergedRecipeCount  : merged?.size() ?: 0,
+      siteId             : siteId,
+      chatDefaultsKeys   : chatDefs ? new ArrayList<>(chatDefs.keySet()) : [],
+      prefetchToolCount  : prefetchTools?.size() ?: 0,
+      prefetchTools      : prefetchTools ? new ArrayList<>(prefetchTools) : [],
+      coreToolCount      : plugins.org.craftercms.aiassistant.tools.catalog.StudioAiToolRegistry.coreTools()?.size() ?: 0
+    ]
+  }
+
+  private static List<String> parseBundledRecipeOrder(StudioToolOperations ops = null) {
+    return parseRecipeOrderFromJsonText(loadBundledRecipesJsonText(ops))
   }
 
   private static List<String> parseRecipeOrderFromJsonText(String raw) {
@@ -171,8 +231,8 @@ final class AuthoringIntentRecipeCatalog {
     out
   }
 
-  private static List<Map> parseBundledRecipes() {
-    String raw = loadBundledRecipesJsonText()
+  private static List<Map> parseBundledRecipes(StudioToolOperations ops = null) {
+    String raw = loadBundledRecipesJsonText(ops)
     if (!raw?.trim()) {
       log.warn(
         'AuthoringIntentRecipeCatalog: missing bundled {} — no default recipes loaded (deploy {} under config/studio/scripts/classes/{}/ or set JVM {} to override)',
@@ -185,7 +245,7 @@ final class AuthoringIntentRecipeCatalog {
     }
     Map doc = parseCatalogDocument(raw)
     if (doc?.chatDefaults instanceof Map) {
-      installCatalogChatDefaults((Map) doc.chatDefaults)
+      installCatalogChatDefaults((Map) doc.chatDefaults, BUNDLED_CHAT_DEFAULTS_SITE_KEY)
     }
     return doc?.recipes ?: []
   }
@@ -195,7 +255,7 @@ final class AuthoringIntentRecipeCatalog {
    * {@code authoring/scripts/classes/plugins/org/craftercms/aiassistant/recipes/authoring-intent-recipes-default.json}).
    * Studio deploys the whole {@code authoring/scripts/classes} tree; try classpath stream, resource URL, and code-source peer file.
    */
-  private static String loadBundledRecipesJsonText() {
+  private static String loadBundledRecipesJsonText(StudioToolOperations ops = null) {
     String override = System.getProperty(SYSPROP_BUNDLED_PATH)?.toString()?.trim()
     if (override) {
       try {
@@ -245,6 +305,10 @@ final class AuthoringIntentRecipeCatalog {
     try {
       def loc = AuthoringIntentRecipeCatalog.class.protectionDomain?.codeSource?.location
       if (loc != null) {
+        String fromCodeSource = readBundledJsonBesideCodeSource(loc)
+        if (fromCodeSource?.trim()) {
+          return fromCodeSource
+        }
         File base = new File(loc.toURI())
         if (base.isFile()) {
           base = base.parentFile
@@ -262,7 +326,65 @@ final class AuthoringIntentRecipeCatalog {
       log.debug('AuthoringIntentRecipeCatalog: code-source directory load failed: {}', t.message)
     }
 
+    String fromSandbox = loadBundledRecipesJsonFromSiteSandbox(ops)
+    if (fromSandbox?.trim()) {
+      log.debug(
+        'AuthoringIntentRecipeCatalog: loaded bundled {} from site sandbox {} (classpath/code-source miss)',
+        BUNDLED_RELATIVE,
+        BUNDLED_SANDBOX_REPO_PATH
+      )
+      return fromSandbox
+    }
+
     return ''
+  }
+
+  /**
+   * Studio Groovy often loads this class from a classpath that does not include sibling JSON; the site sandbox
+   * copy under {@link #BUNDLED_SANDBOX_REPO_PATH} is authoritative after {@code install-plugin.sh}.
+   */
+  private static String loadBundledRecipesJsonFromSiteSandbox(StudioToolOperations ops) {
+    if (ops == null) {
+      return ''
+    }
+    try {
+      String siteId = ops.resolveEffectiveSiteId('')?.toString()?.trim()
+      if (!siteId) {
+        return ''
+      }
+      Map item = ops.getContent(siteId, BUNDLED_SANDBOX_REPO_PATH) as Map
+      String raw = item?.contentXml?.toString()?.trim()
+      return raw ?: ''
+    } catch (Throwable t) {
+      log.trace('AuthoringIntentRecipeCatalog: sandbox bundled JSON not readable: {}', t.message)
+      return ''
+    }
+  }
+
+  /** Peer {@link #BUNDLED_RELATIVE} next to this class code-source (handles Studio {@code file:/config/...} URLs). */
+  private static String readBundledJsonBesideCodeSource(def codeSourceLocation) {
+    if (codeSourceLocation == null) {
+      return ''
+    }
+    try {
+      URL codeUrl = (codeSourceLocation instanceof URL) ?
+        (URL) codeSourceLocation :
+        codeSourceLocation.toURI()?.toURL()
+      if (codeUrl == null) {
+        return ''
+      }
+      String path = codeUrl.path ?: ''
+      if (!path) {
+        return ''
+      }
+      int slash = path.lastIndexOf('/')
+      String dir = slash >= 0 ? path.substring(0, slash + 1) : ''
+      URL jsonUrl = new URL(codeUrl.protocol, codeUrl.host, codeUrl.port, "${dir}${BUNDLED_RELATIVE}")
+      return readUtf8FromResourceUrl(jsonUrl)
+    } catch (Throwable t) {
+      log.debug('AuthoringIntentRecipeCatalog: code-source peer JSON load failed: {}', t.message)
+      return ''
+    }
   }
 
   private static String readUtf8FromResourceUrl(URL url) {
@@ -271,7 +393,14 @@ final class AuthoringIntentRecipeCatalog {
     }
     try {
       if ('file'.equalsIgnoreCase(url.protocol)) {
-        return new File(url.toURI()).getText('UTF-8')
+        try {
+          File f = new File(url.toURI())
+          if (f.isFile()) {
+            return f.getText('UTF-8')
+          }
+        } catch (Throwable ignored) {
+        }
+        return readUtf8FromResourceStream(url.openStream())
       }
       return readUtf8FromResourceStream(url.openStream())
     } catch (Throwable t) {
@@ -348,6 +477,9 @@ final class AuthoringIntentRecipeCatalog {
   /**
    * All recipes whose {@code deterministicMatch} signals evaluate true for {@code ctx} (deduped by {@code recipeId},
    * highest priority per id). Used when more than one row matches — orchestration may LLM-tighten and retest.
+   * <p><strong>Note:</strong> {@code dontMatchHints} are applied only in {@link #filterRecipesEligibleForRouter}
+   * (LLM router pass), not here — a deterministic signal can still match a recipe whose hints would exclude it
+   * from the router table. That is intentional: hard signals override soft exclusion hints.</p>
    */
   static List<Map> findDeterministicRecipeMatches(List<Map> recipes, Map ctx) {
     if (recipes == null || recipes.isEmpty() || !(ctx instanceof Map)) {
@@ -875,11 +1007,11 @@ final class AuthoringIntentRecipeCatalog {
    * Chat workflow line from recipe catalog fields ({@code chatEmoji}, {@code title}, {@code chatLineSuffix})
    * and root {@code chatDefaults} — orchestration must not hardcode per-recipe presentation.
    */
-  static String formatIntentRecipeChatLine(Map recipe) {
+  static String formatIntentRecipeChatLine(Map recipe, String siteId = null) {
     if (!(recipe instanceof Map) || recipe.isEmpty()) {
       return ''
     }
-    Map<String, String> defs = catalogChatDefaults()
+    Map<String, String> defs = catalogChatDefaults(siteId)
     String prefix = recipe.chatPrefixEmoji?.toString()?.trim() ?: defs.prefixEmoji ?: '🥗'
     String emoji = recipe.chatEmoji?.toString()?.trim() ?: defs.fallbackEmoji ?: '📋'
     String suffix = recipe.chatLineSuffix?.toString()?.trim() ?: defs.lineSuffix ?: 'workflow'

@@ -23,6 +23,9 @@ class GetContentTypeFormDefinitionTool extends AbstractStudioAiTool {
   String inputSchemaJson() { StudioAiToolSchemas.GET_CONTENT_TYPE }
 
   @Override
+  boolean recipeEngineReadOnly() { true }
+
+  @Override
   Map execute(Map input, StudioAiToolContext ctx) {
     def siteId = ctx.ops.resolveEffectiveSiteId(input?.siteId?.toString()?.trim())
     if (!siteId) throw new IllegalArgumentException('Missing required field: siteId')
