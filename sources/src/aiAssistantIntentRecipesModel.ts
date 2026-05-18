@@ -386,6 +386,15 @@ export function cloneRecipe(recipe: IntentRecipe): IntentRecipe {
   return JSON.parse(JSON.stringify(recipe)) as IntentRecipe;
 }
 
+export function cloneIntentRecipesFile(file: IntentRecipesFile): IntentRecipesFile {
+  return {
+    version: file.version,
+    recipes: file.recipes.map((r) => cloneRecipe(r)),
+    ...(file.recipeOrder?.length ? { recipeOrder: [...file.recipeOrder] } : {}),
+    ...(file.chatDefaults ? { chatDefaults: { ...file.chatDefaults } } : {})
+  };
+}
+
 export function emptyRecipe(id: string): IntentRecipe {
   return {
     id: id.trim() || 'new_recipe',

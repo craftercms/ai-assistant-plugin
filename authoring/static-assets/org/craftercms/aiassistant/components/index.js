@@ -70,6 +70,7 @@ const SaveRounded = craftercms.utils.constants.components.get('@mui/icons-materi
 const DownloadRounded = craftercms.utils.constants.components.get('@mui/icons-material/DownloadRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/DownloadRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/DownloadRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/DownloadRounded');
 const RestartAltRounded = craftercms.utils.constants.components.get('@mui/icons-material/RestartAltRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/RestartAltRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/RestartAltRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/RestartAltRounded');
 const AutoFixHighRounded = craftercms.utils.constants.components.get('@mui/icons-material/AutoFixHighRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/AutoFixHighRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/AutoFixHighRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/AutoFixHighRounded');
+const BuildRounded = craftercms.utils.constants.components.get('@mui/icons-material/BuildRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/BuildRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/BuildRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/BuildRounded');
 const ArrowForwardRounded = craftercms.utils.constants.components.get('@mui/icons-material/ArrowForwardRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/ArrowForwardRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/ArrowForwardRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/ArrowForwardRounded');
 const FormatListBulletedRounded = craftercms.utils.constants.components.get('@mui/icons-material/FormatListBulletedRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/FormatListBulletedRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/FormatListBulletedRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/FormatListBulletedRounded');
 const Autocomplete$1 = craftercms.libs.MaterialUI.Autocomplete && Object.prototype.hasOwnProperty.call(craftercms.libs.MaterialUI.Autocomplete, 'default') ? craftercms.libs.MaterialUI.Autocomplete['default'] : craftercms.libs.MaterialUI.Autocomplete;
@@ -37630,6 +37631,14 @@ function phaseEngineSteps(recipe, key) {
 function cloneRecipe(recipe) {
     return JSON.parse(JSON.stringify(recipe));
 }
+function cloneIntentRecipesFile(file) {
+    return {
+        version: file.version,
+        recipes: file.recipes.map((r) => cloneRecipe(r)),
+        ...(file.recipeOrder?.length ? { recipeOrder: [...file.recipeOrder] } : {}),
+        ...(file.chatDefaults ? { chatDefaults: { ...file.chatDefaults } } : {})
+    };
+}
 function emptyRecipe(id) {
     return {
         id: id.trim() || 'new_recipe',
@@ -37835,57 +37844,121 @@ function parseActionFlowHint(hint) {
     };
 }
 
-const PHASE_LABELS$1 = {
-    context: 'Context',
-    action: 'Action',
-    confirmation: 'Confirmation'
-};
-function AiAssistantIntentRecipePhaseHintsField(props) {
-    const { phaseKey, hintsLines, bindingNames = [], onChange } = props;
-    const hintChips = useMemo(() => hintLinesToArray(hintsLines), [hintsLines]);
-    const templates = INTENT_RECIPE_HINT_TEMPLATES[phaseKey];
-    const [flowTools, setFlowTools] = useState([]);
-    const [flowMiddle, setFlowMiddle] = useState('revise XML');
-    const [flowSuffix, setFlowSuffix] = useState('preserve <page>/<component> structure and node-selector shapes.');
-    useEffect(() => {
-        if (phaseKey !== 'action' || hintChips.length === 0)
-            return;
-        const parsed = parseActionFlowHint(hintChips[0]);
-        if (parsed.tools.length > 0) {
-            setFlowTools(parsed.tools);
-            setFlowMiddle(parsed.middleStep);
-            setFlowSuffix(parsed.suffix);
-        }
-    }, [phaseKey, hintChips[0]]);
-    const setHintChips = useCallback((next) => onChange(hintArrayToLines(next)), [onChange]);
-    const appendToolToNewHint = (tool) => {
-        const t = tool.trim();
-        if (!t)
-            return;
-        const last = hintChips[hintChips.length - 1] ?? '';
-        if (!last) {
-            setHintChips([`Use ${t}`]);
-            return;
-        }
-        if (last.includes('→')) {
-            setHintChips([...hintChips.slice(0, -1), `${last} → ${t}`]);
-        }
-        else if (/\bUse\b/i.test(last)) {
-            setHintChips([...hintChips.slice(0, -1), `${last} or ${t}`]);
-        }
-        else {
-            setHintChips([...hintChips, `Use ${t}`]);
+const EXTRA_SUGGESTED_EMOJIS = ['📋', '🛠️', '✨', '⚙️', '📝', '🔗', '🎯', '⏪', '🔄', '✅'];
+function suggestedRecipeEmojis() {
+    const seen = new Set();
+    const out = [];
+    const push = (e) => {
+        const n = normalizeChatEmoji(e);
+        if (n && !seen.has(n)) {
+            seen.add(n);
+            out.push(n);
         }
     };
-    const applyActionFlow = () => {
-        const generated = buildActionFlowHint(flowTools, flowMiddle, flowSuffix);
-        const rest = hintChips.slice(1);
-        setHintChips([generated, ...rest]);
+    for (const r of bundledIntentRecipesCatalog().recipes) {
+        push(String(r.chatEmoji ?? ''));
+    }
+    for (const e of EXTRA_SUGGESTED_EMOJIS) {
+        push(e);
+    }
+    push(INTENT_RECIPE_CHAT_FALLBACK_EMOJI);
+    return out;
+}
+function AiAssistantIntentRecipeEmojiField(props) {
+    const { emoji, title, recipeId, onChange, disabled } = props;
+    const [anchor, setAnchor] = useState(null);
+    const suggestions = useMemo(() => suggestedRecipeEmojis(), []);
+    const display = normalizeChatEmoji(emoji) || INTENT_RECIPE_CHAT_FALLBACK_EMOJI;
+    const preview = formatIntentRecipeChatLineFromRecipe({
+        id: recipeId,
+        title: title || recipeId,
+        chatEmoji: display
+    });
+    return (jsxs(Stack$1, { spacing: 0.75, sx: { flex: '0 0 auto' }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Workflow emoji" }), jsxs(Stack$1, { direction: "row", spacing: 1, alignItems: "center", children: [jsx$1(Button, { variant: "outlined", disabled: disabled, onClick: (e) => setAnchor(e.currentTarget), "aria-label": "Pick workflow emoji", sx: {
+                            minWidth: 52,
+                            width: 52,
+                            height: 40,
+                            fontSize: '1.35rem',
+                            lineHeight: 1,
+                            px: 0
+                        }, children: display }), jsx$1(TextField, { label: "Emoji", value: emoji, onChange: (e) => onChange(normalizeChatEmoji(e.target.value)), size: "small", disabled: disabled, placeholder: INTENT_RECIPE_CHAT_FALLBACK_EMOJI, inputProps: { maxLength: 8, 'aria-label': 'Workflow emoji character' }, sx: { width: 88 } })] }), jsxs(Typography, { variant: "caption", color: "text.secondary", sx: { fontFamily: 'inherit', whiteSpace: 'pre-wrap' }, children: ["Chat preview: ", preview.trim()] }), jsx$1(Popover, { open: Boolean(anchor), anchorEl: anchor, onClose: () => setAnchor(null), anchorOrigin: { vertical: 'bottom', horizontal: 'left' }, children: jsxs(Box, { sx: { p: 1.5, maxWidth: 280 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", sx: { display: 'block', mb: 1 }, children: "Pick an emoji" }), jsx$1(Box, { sx: {
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(8, 1fr)',
+                                gap: 0.5
+                            }, children: suggestions.map((e) => (jsx$1(Button, { size: "small", onClick: () => {
+                                    onChange(e);
+                                    setAnchor(null);
+                                }, sx: { minWidth: 36, fontSize: '1.2rem', lineHeight: 1, p: 0.5 }, children: e }, e))) })] }) })] }));
+}
+
+function isRuleArray(rules) {
+    return Array.isArray(rules);
+}
+function defaultRule() {
+    return {
+        priority: 50,
+        routerReason: '',
+        authorFromMatchHints: true,
+        respectDontMatchHints: true
     };
-    return (jsxs(Stack$1, { spacing: 1.5, children: [jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: templates, value: hintChips, onChange: (_, v) => setHintChips(v.map(String).map((s) => s.trim()).filter(Boolean)), filterSelectedOptions: true, renderTags: (value, getTagProps) => value.map((option, index) => (createElement(Chip, { ...getTagProps({ index }), key: `${option}-${index}`, label: option.length > 72 ? `${option.slice(0, 69)}…` : option, size: "small", sx: { maxWidth: '100%', height: 'auto', '& .MuiChip-label': { whiteSpace: 'normal', py: 0.5 } } }))), renderInput: (params) => (jsx$1(TextField, { ...params, label: `${PHASE_LABELS$1[phaseKey]} hints`, size: "small", placeholder: "Pick a template or type a hint and press Enter", helperText: "One hint per line. Pick a template or type your own." })) }), bindingNames.length > 0 ? (jsxs(Box, { children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 0.75 }, children: "Insert placeholder" }), jsx$1(Box, { sx: { display: 'flex', flexWrap: 'wrap', gap: 0.5 }, children: bindingNames.flatMap((name) => [
-                            jsx$1(Chip, { label: `{{initial.${name}}}`, size: "small", variant: "outlined", onClick: () => setHintChips([...hintChips, `{{initial.${name}}}`]), sx: { fontFamily: 'monospace', fontSize: 11, cursor: 'pointer' } }, `initial-${name}`),
-                            jsx$1(Chip, { label: `{{current.${name}}}`, size: "small", variant: "outlined", onClick: () => setHintChips([...hintChips, `{{current.${name}}}`]), sx: { fontFamily: 'monospace', fontSize: 11, cursor: 'pointer' } }, `current-${name}`)
-                        ]) })] })) : null, jsxs(Box, { children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 0.75 }, children: "Insert CMS tool name" }), jsx$1(Box, { sx: { display: 'flex', flexWrap: 'wrap', gap: 0.5 }, children: INTENT_RECIPE_WIRE_TOOL_OPTIONS.map((tool) => (jsx$1(Chip, { label: tool, size: "small", variant: "outlined", onClick: () => appendToolToNewHint(tool), sx: { fontFamily: 'monospace', fontSize: 11, cursor: 'pointer' } }, tool))) })] }), phaseKey === 'action' ? (jsxs(Paper, { variant: "outlined", sx: { p: 1.5, bgcolor: 'action.hover' }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Action tool flow" }), jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 1.5 }, children: ["Build hints like", ' ', jsx$1("em", { children: "Use update_content or GetContent \u2192 revise XML \u2192 WriteContent; preserve structure\u2026" }), ". Tools are ordered chips; click Generate to update the first hint line."] }), jsxs(Stack$1, { spacing: 1.5, children: [jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [...INTENT_RECIPE_WIRE_TOOL_OPTIONS], value: flowTools, onChange: (_, v) => setFlowTools(v.map(String).filter(Boolean)), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Tools in flow (ordered)", size: "small", placeholder: "update_content, GetContent, WriteContent" })), renderTags: (value, getTagProps) => value.map((option, index) => (createElement(Chip, { ...getTagProps({ index }), key: `${option}-${index}`, label: option, size: "small", sx: { fontFamily: 'monospace', fontSize: 11 } }))) }), jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 1, children: [jsx$1(TextField, { label: "After \u2192", value: flowMiddle, onChange: (e) => setFlowMiddle(e.target.value), size: "small", fullWidth: true, placeholder: "revise XML" }), jsx$1(TextField, { label: "After ;", value: flowSuffix, onChange: (e) => setFlowSuffix(e.target.value), size: "small", fullWidth: true, placeholder: "preserve <page>/<component> structure\u2026" })] }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(AutoFixHighRounded, {}), onClick: applyActionFlow, sx: { alignSelf: 'flex-start' }, children: "Generate action hint from tools" }), flowTools.length > 0 ? (jsxs(Typography, { variant: "body2", sx: { fontSize: 12, color: 'text.secondary' }, children: ["Preview: ", buildActionFlowHint(flowTools, flowMiddle, flowSuffix)] })) : null] })] })) : null] }));
+}
+function normalizeSingleRule(rules) {
+    if (!rules)
+        return defaultRule();
+    if (isRuleArray(rules))
+        return rules[0] ?? defaultRule();
+    return { ...defaultRule(), ...rules };
+}
+function AiAssistantIntentRecipeMatchRulesField(props) {
+    const { label, value, onChange, matchHints } = props;
+    const [advancedJson, setAdvancedJson] = useState('');
+    const multi = isRuleArray(value);
+    const rule = useMemo(() => normalizeSingleRule(value), [value]);
+    const patchRule = (partial) => {
+        onChange({ ...rule, ...partial });
+    };
+    const enabled = value != null && (!isRuleArray(value) || value.length > 0);
+    return (jsx$1(Paper, { variant: "outlined", sx: { p: 2 }, children: jsxs(Stack$1, { spacing: 1.5, children: [jsx$1(Typography, { variant: "subtitle2", children: label }), jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "Routing rules live in recipe JSON \u2014 the server evaluates `when` / shorthands generically (no per-recipe Java). Match hints can drive matching via \"Use match hints as phrases\"." }), jsx$1(FormControlLabel, { control: jsx$1(Checkbox, { size: "small", checked: enabled, onChange: (_, c) => onChange(c ? defaultRule() : undefined) }), label: "Enable rules for this recipe" }), enabled && multi ? (jsx$1(TextField, { label: "Rules (JSON array)", value: advancedJson || JSON.stringify(value, null, 2), onChange: (e) => {
+                        setAdvancedJson(e.target.value);
+                        try {
+                            const parsed = JSON.parse(e.target.value);
+                            if (Array.isArray(parsed))
+                                onChange(parsed);
+                        }
+                        catch {
+                            /* keep typing */
+                        }
+                    }, fullWidth: true, multiline: true, minRows: 6, size: "small", InputProps: { sx: { fontFamily: 'monospace', fontSize: 12 } }, helperText: "Multiple rules (e.g. llm_research). Edit JSON directly." })) : null, enabled && !multi ? (jsxs(Stack$1, { spacing: 1.5, children: [jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 1, children: [jsx$1(TextField, { label: "Priority", type: "number", size: "small", value: rule.priority ?? '', onChange: (e) => patchRule({ priority: e.target.value === '' ? undefined : Number(e.target.value) }), sx: { width: 120 } }), jsx$1(TextField, { label: "Router reason", size: "small", value: rule.routerReason ?? '', onChange: (e) => patchRule({ routerReason: e.target.value }), fullWidth: true, InputProps: { sx: { fontFamily: 'monospace' } } })] }), jsx$1(FormControlLabel, { control: jsx$1(Checkbox, { size: "small", checked: Boolean(rule.skipPrefetch), onChange: (_, c) => patchRule({ skipPrefetch: c || undefined }) }), label: "Skip prefetch" }), jsx$1(FormControlLabel, { control: jsx$1(Checkbox, { size: "small", checked: Boolean(rule.requiresAnchoredSiteXml), onChange: (_, c) => patchRule({ requiresAnchoredSiteXml: c || undefined }) }), label: "Requires anchored /site/\u2026/*.xml" }), jsx$1(FormControlLabel, { control: jsx$1(Checkbox, { size: "small", checked: Boolean(rule.authorFromMatchHints), onChange: (_, c) => patchRule({ authorFromMatchHints: c || undefined }) }), label: `Use match hints as author phrases (${matchHints.length})` }), jsx$1(FormControlLabel, { control: jsx$1(Checkbox, { size: "small", checked: Boolean(rule.respectDontMatchHints), onChange: (_, c) => patchRule({ respectDontMatchHints: c || undefined }) }), label: "Respect don't-match hints" }), jsx$1(Autocomplete, { freeSolo: true, size: "small", options: [...INTENT_RECIPE_WHEN_LEAF_OPTIONS], value: typeof rule.when === 'string' ? rule.when : '', onChange: (_, v) => patchRule({ when: (v || '').trim() || undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "When (leaf predicate or leave empty)", helperText: "Built-in predicates: translateIntent, concreteFieldEdit, \u2026 \u2014 or use advanced JSON for allOf/regex." })) }), jsx$1(TextField, { label: "When (advanced JSON, optional)", size: "small", fullWidth: true, multiline: true, minRows: 3, placeholder: '{"allOf":["anchoredSiteXml",{"authorMatchesRegex":"..."}]}', value: rule.when != null && typeof rule.when !== 'string'
+                                ? JSON.stringify(rule.when, null, 2)
+                                : '', onChange: (e) => {
+                                const t = e.target.value.trim();
+                                if (!t) {
+                                    patchRule({ when: undefined });
+                                    return;
+                                }
+                                try {
+                                    patchRule({ when: JSON.parse(t) });
+                                }
+                                catch {
+                                    /* typing */
+                                }
+                            }, InputProps: { sx: { fontFamily: 'monospace', fontSize: 12 } } })] })) : null] }) }));
+}
+/** Deterministic + optional ambiguity blocks on the recipe editor. */
+function AiAssistantIntentRecipeRoutingRulesSection(props) {
+    const { recipe, onChange } = props;
+    return (jsx$1(Box, { children: jsxs(Stack$1, { spacing: 2, children: [jsx$1(AiAssistantIntentRecipeMatchRulesField, { label: "Deterministic match", value: recipe.deterministicMatch, matchHints: recipe.matchHints ?? [], onChange: (deterministicMatch) => onChange({ ...recipe, deterministicMatch }) }), jsx$1(AiAssistantIntentRecipeMatchRulesField, { label: "Ambiguity match (optional)", value: recipe.ambiguityMatch, matchHints: recipe.matchHints ?? [], onChange: (ambiguityMatch) => onChange({ ...recipe, ambiguityMatch }) })] }) }));
+}
+
+/** Recipe metadata, match rules, and tools-loop policy (editor General tab). */
+function AiAssistantIntentRecipeGeneralFields(props) {
+    const { recipe, onChange, idReadOnly } = props;
+    const patchRecipe = (partial) => {
+        onChange({ ...recipe, ...partial });
+    };
+    return (jsxs(Stack$1, { spacing: 2, children: [jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 2, alignItems: "flex-start", children: [jsx$1(AiAssistantIntentRecipeEmojiField, { emoji: recipe.chatEmoji ?? '', title: recipe.title ?? '', recipeId: recipe.id, onChange: (chatEmoji) => patchRecipe({ chatEmoji: chatEmoji || undefined }) }), jsx$1(TextField, { label: "Recipe id", value: recipe.id, onChange: (e) => patchRecipe({ id: e.target.value.trim() }), size: "small", disabled: idReadOnly, sx: { flex: '0 0 220px' }, InputProps: { sx: { fontFamily: 'monospace' } } }), jsx$1(TextField, { label: "Title", value: recipe.title ?? '', onChange: (e) => patchRecipe({ title: e.target.value }), size: "small", fullWidth: true })] }), jsx$1(TextField, { label: "Description (router)", value: recipe.description ?? '', onChange: (e) => patchRecipe({ description: e.target.value }), size: "small", fullWidth: true, multiline: true, minRows: 2 }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.matchHints ?? [], onChange: (_, v) => patchRecipe({ matchHints: v.map(String) }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Match hints", size: "small", placeholder: "translate, publish, \u2026" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.dontMatchHints ?? [], onChange: (_, v) => patchRecipe({ dontMatchHints: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Don't match hints", size: "small", placeholder: "translate, publish, \u2026" })) }), jsx$1(AiAssistantIntentRecipeRoutingRulesSection, { recipe: recipe, onChange: onChange }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [...INTENT_RECIPE_READ_ONLY_TOOLS, 'GenerateImage', 'WriteContent', 'update_content'], value: recipe.toolsLoopAllowlist ?? [], onChange: (_, v) => patchRecipe({ toolsLoopAllowlist: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Tools-loop allowlist (optional)", size: "small" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.toolsLoopAllowlistBypassIfAuthorMentions ?? [], onChange: (_, v) => patchRecipe({
+                    toolsLoopAllowlistBypassIfAuthorMentions: v.length ? v.map(String) : undefined
+                }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Allowlist bypass keywords (optional)", size: "small" })) })] }));
 }
 
 /**
@@ -38031,110 +38104,93 @@ function AiAssistantIntentRecipePrefetchBindingsHelp() {
     return (jsxs(Box, { children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", gutterBottom: true, children: "Placeholders for prefetch step arguments" }), jsxs(Table$1, { size: "small", sx: { '& td, & th': { py: 0.5, px: 1 } }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Token" }), jsx$1(TableCell, { children: "Meaning" })] }) }), jsx$1(TableBody, { children: PREFETCH_BINDING_TOKENS.map((b) => (jsxs(TableRow, { children: [jsx$1(TableCell, { sx: { fontFamily: 'monospace', fontSize: 12 }, children: b.token }), jsx$1(TableCell, { children: b.description })] }, b.token))) })] })] }));
 }
 
-const EXTRA_SUGGESTED_EMOJIS = ['📋', '🛠️', '✨', '⚙️', '📝', '🔗', '🎯', '⏪', '🔄', '✅'];
-function suggestedRecipeEmojis() {
-    const seen = new Set();
-    const out = [];
-    const push = (e) => {
-        const n = normalizeChatEmoji(e);
-        if (n && !seen.has(n)) {
-            seen.add(n);
-            out.push(n);
+const PHASE_LABELS$1 = {
+    context: 'Context',
+    action: 'Action',
+    confirmation: 'Confirmation'
+};
+function AiAssistantIntentRecipePhaseHintsField(props) {
+    const { phaseKey, hintsLines, bindingNames = [], onChange } = props;
+    const hintChips = useMemo(() => hintLinesToArray(hintsLines), [hintsLines]);
+    const templates = INTENT_RECIPE_HINT_TEMPLATES[phaseKey];
+    const [helperFlyoutAnchor, setHelperFlyoutAnchor] = useState(null);
+    const [templatePick, setTemplatePick] = useState(null);
+    const [flowTools, setFlowTools] = useState([]);
+    const [flowMiddle, setFlowMiddle] = useState('revise XML');
+    const [flowSuffix, setFlowSuffix] = useState('preserve <page>/<component> structure and node-selector shapes.');
+    useEffect(() => {
+        if (phaseKey !== 'action' || hintChips.length === 0)
+            return;
+        const parsed = parseActionFlowHint(hintChips[0]);
+        if (parsed.tools.length > 0) {
+            setFlowTools(parsed.tools);
+            setFlowMiddle(parsed.middleStep);
+            setFlowSuffix(parsed.suffix);
+        }
+    }, [phaseKey, hintChips[0]]);
+    const setHintChips = useCallback((next) => onChange(hintArrayToLines(next)), [onChange]);
+    const appendToolToNewHint = (tool) => {
+        const t = tool.trim();
+        if (!t)
+            return;
+        const last = hintChips[hintChips.length - 1] ?? '';
+        if (!last) {
+            setHintChips([`Use ${t}`]);
+            return;
+        }
+        if (last.includes('→')) {
+            setHintChips([...hintChips.slice(0, -1), `${last} → ${t}`]);
+        }
+        else if (/\bUse\b/i.test(last)) {
+            setHintChips([...hintChips.slice(0, -1), `${last} or ${t}`]);
+        }
+        else {
+            setHintChips([...hintChips, `Use ${t}`]);
         }
     };
-    for (const r of bundledIntentRecipesCatalog().recipes) {
-        push(String(r.chatEmoji ?? ''));
-    }
-    for (const e of EXTRA_SUGGESTED_EMOJIS) {
-        push(e);
-    }
-    push(INTENT_RECIPE_CHAT_FALLBACK_EMOJI);
-    return out;
-}
-function AiAssistantIntentRecipeEmojiField(props) {
-    const { emoji, title, recipeId, onChange, disabled } = props;
-    const [anchor, setAnchor] = useState(null);
-    const suggestions = useMemo(() => suggestedRecipeEmojis(), []);
-    const display = normalizeChatEmoji(emoji) || INTENT_RECIPE_CHAT_FALLBACK_EMOJI;
-    const preview = formatIntentRecipeChatLineFromRecipe({
-        id: recipeId,
-        title: title || recipeId,
-        chatEmoji: display
-    });
-    return (jsxs(Stack$1, { spacing: 0.75, sx: { flex: '0 0 auto' }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Workflow emoji" }), jsxs(Stack$1, { direction: "row", spacing: 1, alignItems: "center", children: [jsx$1(Button, { variant: "outlined", disabled: disabled, onClick: (e) => setAnchor(e.currentTarget), "aria-label": "Pick workflow emoji", sx: {
-                            minWidth: 52,
-                            width: 52,
-                            height: 40,
-                            fontSize: '1.35rem',
-                            lineHeight: 1,
-                            px: 0
-                        }, children: display }), jsx$1(TextField, { label: "Emoji", value: emoji, onChange: (e) => onChange(normalizeChatEmoji(e.target.value)), size: "small", disabled: disabled, placeholder: INTENT_RECIPE_CHAT_FALLBACK_EMOJI, inputProps: { maxLength: 8, 'aria-label': 'Workflow emoji character' }, sx: { width: 88 } })] }), jsxs(Typography, { variant: "caption", color: "text.secondary", sx: { fontFamily: 'inherit', whiteSpace: 'pre-wrap' }, children: ["Chat preview: ", preview.trim()] }), jsx$1(Popover, { open: Boolean(anchor), anchorEl: anchor, onClose: () => setAnchor(null), anchorOrigin: { vertical: 'bottom', horizontal: 'left' }, children: jsxs(Box, { sx: { p: 1.5, maxWidth: 280 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", sx: { display: 'block', mb: 1 }, children: "Pick an emoji" }), jsx$1(Box, { sx: {
-                                display: 'grid',
-                                gridTemplateColumns: 'repeat(8, 1fr)',
-                                gap: 0.5
-                            }, children: suggestions.map((e) => (jsx$1(Button, { size: "small", onClick: () => {
-                                    onChange(e);
-                                    setAnchor(null);
-                                }, sx: { minWidth: 36, fontSize: '1.2rem', lineHeight: 1, p: 0.5 }, children: e }, e))) })] }) })] }));
-}
-
-function isRuleArray(rules) {
-    return Array.isArray(rules);
-}
-function defaultRule() {
-    return {
-        priority: 50,
-        routerReason: '',
-        authorFromMatchHints: true,
-        respectDontMatchHints: true
+    const applyActionFlow = () => {
+        const generated = buildActionFlowHint(flowTools, flowMiddle, flowSuffix);
+        const rest = hintChips.slice(1);
+        setHintChips([generated, ...rest]);
     };
-}
-function normalizeSingleRule(rules) {
-    if (!rules)
-        return defaultRule();
-    if (isRuleArray(rules))
-        return rules[0] ?? defaultRule();
-    return { ...defaultRule(), ...rules };
-}
-function AiAssistantIntentRecipeMatchRulesField(props) {
-    const { label, value, onChange, matchHints } = props;
-    const [advancedJson, setAdvancedJson] = useState('');
-    const multi = isRuleArray(value);
-    const rule = useMemo(() => normalizeSingleRule(value), [value]);
-    const patchRule = (partial) => {
-        onChange({ ...rule, ...partial });
+    const appendTemplateLine = (line) => {
+        const t = line.trim();
+        if (!t)
+            return;
+        const lines = hintLinesToArray(hintsLines);
+        if (lines.includes(t))
+            return;
+        onChange(hintArrayToLines([...lines, t]));
     };
-    const enabled = value != null && (!isRuleArray(value) || value.length > 0);
-    return (jsx$1(Paper, { variant: "outlined", sx: { p: 2 }, children: jsxs(Stack$1, { spacing: 1.5, children: [jsx$1(Typography, { variant: "subtitle2", children: label }), jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "Routing rules live in recipe JSON \u2014 the server evaluates `when` / shorthands generically (no per-recipe Java). Match hints can drive matching via \"Use match hints as phrases\"." }), jsx$1(FormControlLabel, { control: jsx$1(Checkbox, { size: "small", checked: enabled, onChange: (_, c) => onChange(c ? defaultRule() : undefined) }), label: "Enable rules for this recipe" }), enabled && multi ? (jsx$1(TextField, { label: "Rules (JSON array)", value: advancedJson || JSON.stringify(value, null, 2), onChange: (e) => {
-                        setAdvancedJson(e.target.value);
-                        try {
-                            const parsed = JSON.parse(e.target.value);
-                            if (Array.isArray(parsed))
-                                onChange(parsed);
-                        }
-                        catch {
-                            /* keep typing */
-                        }
-                    }, fullWidth: true, multiline: true, minRows: 6, size: "small", InputProps: { sx: { fontFamily: 'monospace', fontSize: 12 } }, helperText: "Multiple rules (e.g. llm_research). Edit JSON directly." })) : null, enabled && !multi ? (jsxs(Stack$1, { spacing: 1.5, children: [jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 1, children: [jsx$1(TextField, { label: "Priority", type: "number", size: "small", value: rule.priority ?? '', onChange: (e) => patchRule({ priority: e.target.value === '' ? undefined : Number(e.target.value) }), sx: { width: 120 } }), jsx$1(TextField, { label: "Router reason", size: "small", value: rule.routerReason ?? '', onChange: (e) => patchRule({ routerReason: e.target.value }), fullWidth: true, InputProps: { sx: { fontFamily: 'monospace' } } })] }), jsx$1(FormControlLabel, { control: jsx$1(Checkbox, { size: "small", checked: Boolean(rule.skipPrefetch), onChange: (_, c) => patchRule({ skipPrefetch: c || undefined }) }), label: "Skip prefetch" }), jsx$1(FormControlLabel, { control: jsx$1(Checkbox, { size: "small", checked: Boolean(rule.requiresAnchoredSiteXml), onChange: (_, c) => patchRule({ requiresAnchoredSiteXml: c || undefined }) }), label: "Requires anchored /site/\u2026/*.xml" }), jsx$1(FormControlLabel, { control: jsx$1(Checkbox, { size: "small", checked: Boolean(rule.authorFromMatchHints), onChange: (_, c) => patchRule({ authorFromMatchHints: c || undefined }) }), label: `Use match hints as author phrases (${matchHints.length})` }), jsx$1(FormControlLabel, { control: jsx$1(Checkbox, { size: "small", checked: Boolean(rule.respectDontMatchHints), onChange: (_, c) => patchRule({ respectDontMatchHints: c || undefined }) }), label: "Respect don't-match hints" }), jsx$1(Autocomplete, { freeSolo: true, size: "small", options: [...INTENT_RECIPE_WHEN_LEAF_OPTIONS], value: typeof rule.when === 'string' ? rule.when : '', onChange: (_, v) => patchRule({ when: (v || '').trim() || undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "When (leaf predicate or leave empty)", helperText: "Built-in predicates: translateIntent, concreteFieldEdit, \u2026 \u2014 or use advanced JSON for allOf/regex." })) }), jsx$1(TextField, { label: "When (advanced JSON, optional)", size: "small", fullWidth: true, multiline: true, minRows: 3, placeholder: '{"allOf":["anchoredSiteXml",{"authorMatchesRegex":"..."}]}', value: rule.when != null && typeof rule.when !== 'string'
-                                ? JSON.stringify(rule.when, null, 2)
-                                : '', onChange: (e) => {
-                                const t = e.target.value.trim();
-                                if (!t) {
-                                    patchRule({ when: undefined });
-                                    return;
-                                }
-                                try {
-                                    patchRule({ when: JSON.parse(t) });
-                                }
-                                catch {
-                                    /* typing */
-                                }
-                            }, InputProps: { sx: { fontFamily: 'monospace', fontSize: 12 } } })] })) : null] }) }));
-}
-/** Deterministic + optional ambiguity blocks on the recipe editor. */
-function AiAssistantIntentRecipeRoutingRulesSection(props) {
-    const { recipe, onChange } = props;
-    return (jsx$1(Box, { children: jsxs(Stack$1, { spacing: 2, children: [jsx$1(AiAssistantIntentRecipeMatchRulesField, { label: "Deterministic match", value: recipe.deterministicMatch, matchHints: recipe.matchHints ?? [], onChange: (deterministicMatch) => onChange({ ...recipe, deterministicMatch }) }), jsx$1(AiAssistantIntentRecipeMatchRulesField, { label: "Ambiguity match (optional)", value: recipe.ambiguityMatch, matchHints: recipe.matchHints ?? [], onChange: (ambiguityMatch) => onChange({ ...recipe, ambiguityMatch }) })] }) }));
+    return (jsxs(Stack$1, { spacing: 2, children: [jsx$1(TextField, { label: `${PHASE_LABELS$1[phaseKey]} hints`, value: hintsLines, onChange: (e) => onChange(e.target.value), placeholder: "One hint per line", helperText: "One hint per line. Edit directly or insert a template below.", fullWidth: true, multiline: true, minRows: 10, maxRows: 18, InputLabelProps: { shrink: true }, sx: {
+                    mt: 0.5,
+                    '& .MuiInputLabel-root': {
+                        zIndex: 1,
+                        bgcolor: 'background.paper',
+                        px: 0.5
+                    },
+                    '& .MuiInputBase-root': {
+                        alignItems: 'flex-start',
+                        py: 1.5,
+                        px: 1.5
+                    },
+                    '& .MuiInputBase-inputMultiline': {
+                        lineHeight: 1.6,
+                        fontSize: '0.9375rem'
+                    }
+                } }), templates.length > 0 ? (jsx$1(Autocomplete, { freeSolo: true, options: templates, value: templatePick, onChange: (_, v) => {
+                    const line = (v ?? '').toString().trim();
+                    if (line) {
+                        appendTemplateLine(line);
+                    }
+                    setTemplatePick(null);
+                }, renderInput: (params) => (jsx$1(TextField, { ...params, size: "small", label: "Insert template line", placeholder: "Pick a bundled hint to append" })) })) : null, jsx$1(Stack$1, { direction: "row", justifyContent: "flex-end", children: jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(BuildRounded, {}), onClick: (e) => setHelperFlyoutAnchor(e.currentTarget), "aria-haspopup": "dialog", "aria-expanded": Boolean(helperFlyoutAnchor), children: "Tools & placeholders\u2026" }) }), jsx$1(Popover, { open: Boolean(helperFlyoutAnchor), anchorEl: helperFlyoutAnchor, onClose: () => setHelperFlyoutAnchor(null), anchorOrigin: { vertical: 'bottom', horizontal: 'right' }, transformOrigin: { vertical: 'top', horizontal: 'right' }, slotProps: { paper: { sx: { maxWidth: 520 } } }, children: jsxs(Box, { sx: { p: 2, maxHeight: 'min(70vh, 560px)', overflow: 'auto' }, children: [jsxs(Typography, { variant: "subtitle2", gutterBottom: true, children: ["Insert into ", PHASE_LABELS$1[phaseKey].toLowerCase(), " hints"] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 2 }, children: "Tool names and placeholders for hints; token reference for prefetch step JSON args below." }), jsxs(Stack$1, { spacing: 2, children: [jsx$1(AiAssistantIntentRecipePrefetchBindingsHelp, {}), jsxs(Box, { children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 0.75 }, children: "CMS tool names (hints)" }), jsx$1(Box, { sx: { display: 'flex', flexWrap: 'wrap', gap: 0.5 }, children: INTENT_RECIPE_WIRE_TOOL_OPTIONS.map((tool) => (jsx$1(Chip, { label: tool, size: "small", variant: "outlined", onClick: () => appendToolToNewHint(tool), sx: { fontFamily: 'monospace', fontSize: 11, cursor: 'pointer' } }, tool))) })] }), bindingNames.length > 0 ? (jsxs(Box, { children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 0.75 }, children: "Prefetch placeholders (from engine step bindings)" }), jsx$1(Box, { sx: { display: 'flex', flexWrap: 'wrap', gap: 0.5 }, children: bindingNames.flatMap((name) => [
+                                                jsx$1(Chip, { label: `{{initial.${name}}}`, size: "small", variant: "outlined", onClick: () => setHintChips([...hintChips, `{{initial.${name}}}`]), sx: { fontFamily: 'monospace', fontSize: 11, cursor: 'pointer' } }, `initial-${name}`),
+                                                jsx$1(Chip, { label: `{{current.${name}}}`, size: "small", variant: "outlined", onClick: () => setHintChips([...hintChips, `{{current.${name}}}`]), sx: { fontFamily: 'monospace', fontSize: 11, cursor: 'pointer' } }, `current-${name}`)
+                                            ]) })] })) : (jsxs(Typography, { variant: "caption", color: "text.secondary", children: ["Add prefetch engine steps below to enable placeholder chips for", ' ', jsx$1("code", { children: '{{initial.name}}' }), " / ", jsx$1("code", { children: '{{current.name}}' }), "."] })), phaseKey === 'action' ? (jsxs(Paper, { variant: "outlined", sx: { p: 1.5, bgcolor: 'action.hover' }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Action tool flow" }), jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 1.5 }, children: ["Build one hint like", ' ', jsx$1("em", { children: "Use update_content or GetContent \u2192 revise XML \u2192 WriteContent; preserve structure\u2026" })] }), jsxs(Stack$1, { spacing: 1.5, children: [jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [...INTENT_RECIPE_WIRE_TOOL_OPTIONS], value: flowTools, onChange: (_, v) => setFlowTools(v.map(String).filter(Boolean)), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Tools in flow (ordered)", size: "small", placeholder: "update_content, GetContent, WriteContent" })), renderTags: (value, getTagProps) => value.map((option, index) => (createElement(Chip, { ...getTagProps({ index }), key: `${option}-${index}`, label: option, size: "small", sx: { fontFamily: 'monospace', fontSize: 11 } }))) }), jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 1, children: [jsx$1(TextField, { label: "After \u2192", value: flowMiddle, onChange: (e) => setFlowMiddle(e.target.value), size: "small", fullWidth: true, placeholder: "revise XML" }), jsx$1(TextField, { label: "After ;", value: flowSuffix, onChange: (e) => setFlowSuffix(e.target.value), size: "small", fullWidth: true, placeholder: "preserve <page>/<component> structure\u2026" })] }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(AutoFixHighRounded, {}), onClick: () => {
+                                                        applyActionFlow();
+                                                        setHelperFlyoutAnchor(null);
+                                                    }, sx: { alignSelf: 'flex-start' }, children: "Generate action hint from tools" }), flowTools.length > 0 ? (jsxs(Typography, { variant: "body2", sx: { fontSize: 12, color: 'text.secondary' }, children: ["Preview: ", buildActionFlowHint(flowTools, flowMiddle, flowSuffix)] })) : null] })] })) : null] })] }) })] }));
 }
 
 const PHASE_LABELS = {
@@ -38192,7 +38248,14 @@ const PHASE_TAB_LABELS = {
     action: 'Action',
     confirmation: 'Confirmation'
 };
-const EDITOR_TABS = [...INTENT_RECIPE_PHASE_KEYS, 'preview'];
+const EDITOR_TABS = ['general', ...INTENT_RECIPE_PHASE_KEYS, 'preview'];
+const EDITOR_TAB_LABEL = {
+    general: 'General',
+    context: PHASE_TAB_LABELS.context,
+    action: PHASE_TAB_LABELS.action,
+    confirmation: PHASE_TAB_LABELS.confirmation,
+    preview: 'Preview'
+};
 function parseArgsJson(text) {
     const t = text.trim();
     if (!t)
@@ -38272,7 +38335,7 @@ function PhaseEditor(props) {
         steps.splice(to, 0, moved);
         onChange({ ...state, engineSteps: steps });
     }, [state, onChange]);
-    return (jsxs(Stack$1, { spacing: 2, children: [jsx$1(AiAssistantIntentRecipePhaseHintsField, { phaseKey: phaseKey, hintsLines: state.hintsLines, bindingNames: bindingNamesForHints, onChange: (hintsLines) => onChange({ ...state, hintsLines }) }), jsxs(Box, { children: [jsxs(Typography, { variant: "subtitle2", sx: { mb: 1 }, children: ["Prefetch steps (", phaseKey, ")"] }), jsx$1(Paper, { variant: "outlined", sx: { p: 1.5, mb: 1.5, bgcolor: 'background.default' }, children: jsx$1(AiAssistantIntentRecipePrefetchBindingsHelp, {}) }), jsx$1(Stack$1, { direction: "row", justifyContent: "flex-end", alignItems: "center", sx: { mb: 1 }, children: jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: () => onChange({
+    return (jsxs(Stack$1, { spacing: 2, children: [jsx$1(AiAssistantIntentRecipePhaseHintsField, { phaseKey: phaseKey, hintsLines: state.hintsLines, bindingNames: bindingNamesForHints, onChange: (hintsLines) => onChange({ ...state, hintsLines }) }), jsxs(Box, { children: [jsxs(Typography, { variant: "subtitle2", sx: { mb: 1 }, children: ["Prefetch steps (", phaseKey, ")"] }), jsx$1(Stack$1, { direction: "row", justifyContent: "flex-end", alignItems: "center", sx: { mb: 1 }, children: jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: () => onChange({
                                 ...state,
                                 engineSteps: [...state.engineSteps, { tool: 'GetContent', args: { siteId: '$siteId', path: '$contentPath' } }]
                             }), children: "Add step" }) }), jsx$1(Stack$1, { spacing: 1, children: state.engineSteps.length === 0 ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No engine steps \u2014 hints only for this phase." })) : (state.engineSteps.map((step, i) => (jsx$1(EngineStepRow, { step: step, index: i, dragging: dragIndex === i, onChange: (next) => {
@@ -38293,25 +38356,22 @@ function PhaseEditor(props) {
                             } }, `step-${i}`)))) })] })] }));
 }
 function AiAssistantIntentRecipeEditor(props) {
-    const { recipe, onChange, idReadOnly, saveHint, onDone } = props;
-    const [editorTab, setEditorTab] = useState('context');
+    const { recipe, onChange, idReadOnly, immersive } = props;
+    const [editorTab, setEditorTab] = useState('general');
     const [phaseEdits, setPhaseEdits] = useState(() => recipeToPhaseEdits(recipe));
     useEffect(() => {
         setPhaseEdits(recipeToPhaseEdits(recipe));
     }, [recipe.id]);
     const previewRecipe = useMemo(() => recipeFromPhaseEdits(recipe, phaseEdits), [recipe, phaseEdits]);
     const bindingNamesForHints = useMemo(() => declaredBindingNames(previewRecipe), [previewRecipe]);
-    const patchRecipe = (partial) => {
-        onChange({ ...recipe, ...partial });
-    };
     const patchPhase = (key, next) => {
         const merged = { ...phaseEdits, [key]: next };
         setPhaseEdits(merged);
         onChange(recipeFromPhaseEdits(recipe, merged));
     };
-    return (jsxs(Stack$1, { spacing: 2, children: [jsxs(Stack$1, { direction: "row", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", useFlexGap: true, children: [saveHint ? (jsx$1(Typography, { variant: "caption", color: "text.secondary", children: saveHint })) : (jsx$1(Box, {})), onDone ? (jsx$1(Button, { size: "small", variant: "outlined", onClick: onDone, children: "Done editing" })) : null] }), jsxs(Stack$1, { spacing: 2, children: [jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 2, alignItems: "flex-start", children: [jsx$1(AiAssistantIntentRecipeEmojiField, { emoji: recipe.chatEmoji ?? '', title: recipe.title ?? '', recipeId: recipe.id, onChange: (chatEmoji) => patchRecipe({ chatEmoji: chatEmoji || undefined }) }), jsx$1(TextField, { label: "Recipe id", value: recipe.id, onChange: (e) => patchRecipe({ id: e.target.value.trim() }), size: "small", disabled: idReadOnly, sx: { flex: '0 0 220px' }, InputProps: { sx: { fontFamily: 'monospace' } } }), jsx$1(TextField, { label: "Title", value: recipe.title ?? '', onChange: (e) => patchRecipe({ title: e.target.value }), size: "small", fullWidth: true })] }), jsx$1(TextField, { label: "Description (router)", value: recipe.description ?? '', onChange: (e) => patchRecipe({ description: e.target.value }), size: "small", fullWidth: true, multiline: true, minRows: 2 }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.matchHints ?? [], onChange: (_, v) => patchRecipe({ matchHints: v.map(String) }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Match hints", size: "small", placeholder: "translate, publish, \u2026" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.dontMatchHints ?? [], onChange: (_, v) => patchRecipe({ dontMatchHints: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Don't match hints", size: "small", placeholder: "translate, publish, \u2026" })) }), jsx$1(AiAssistantIntentRecipeRoutingRulesSection, { recipe: recipe, onChange: onChange }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [...INTENT_RECIPE_READ_ONLY_TOOLS, 'GenerateImage', 'WriteContent', 'update_content'], value: recipe.toolsLoopAllowlist ?? [], onChange: (_, v) => patchRecipe({ toolsLoopAllowlist: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Tools-loop allowlist (optional)", size: "small" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.toolsLoopAllowlistBypassIfAuthorMentions ?? [], onChange: (_, v) => patchRecipe({
-                            toolsLoopAllowlistBypassIfAuthorMentions: v.length ? v.map(String) : undefined
-                        }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Allowlist bypass keywords (optional)", size: "small" })) })] }), jsx$1(Tabs, { value: editorTab, onChange: (_, v) => setEditorTab(v), variant: "scrollable", scrollButtons: "auto", children: EDITOR_TABS.map((k) => (jsx$1(Tab, { label: k === 'preview' ? 'Preview' : PHASE_TAB_LABELS[k], value: k }, k))) }), INTENT_RECIPE_PHASE_KEYS.map((k) => editorTab === k ? (jsx$1(PhaseEditor, { phaseKey: k, state: phaseEdits[k], bindingNamesForHints: bindingNamesForHints, onChange: (n) => patchPhase(k, n) }, k)) : null), editorTab === 'preview' ? jsx$1(AiAssistantIntentRecipeSwimlane, { recipe: previewRecipe }) : null] }));
+    return (jsxs(Stack$1, { spacing: 2, sx: immersive
+            ? { height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }
+            : undefined, children: [jsx$1(Tabs, { value: editorTab, onChange: (_, v) => setEditorTab(v), variant: "scrollable", scrollButtons: "auto", sx: immersive ? { flexShrink: 0, borderBottom: 1, borderColor: 'divider' } : undefined, children: EDITOR_TABS.map((k) => (jsx$1(Tab, { label: EDITOR_TAB_LABEL[k], value: k }, k))) }), jsxs(Box, { sx: immersive ? { flex: '1 1 auto', minHeight: 0, overflow: 'visible' } : undefined, children: [editorTab === 'general' ? (jsx$1(AiAssistantIntentRecipeGeneralFields, { recipe: recipe, onChange: onChange, idReadOnly: idReadOnly })) : null, INTENT_RECIPE_PHASE_KEYS.map((k) => editorTab === k ? (jsx$1(PhaseEditor, { phaseKey: k, state: phaseEdits[k], bindingNamesForHints: bindingNamesForHints, onChange: (n) => patchPhase(k, n) }, k)) : null), editorTab === 'preview' ? jsx$1(AiAssistantIntentRecipeSwimlane, { recipe: previewRecipe }) : null] })] }));
 }
 
 /**
@@ -72787,12 +72847,17 @@ const AiAssistantIntentRecipesConfiguration = forwardRef(function AiAssistantInt
     const [draftSyncToken, setDraftSyncToken] = useState(0);
     /** Full recipe editor vs read-only swimlane visualization. */
     const [editingRecipe, setEditingRecipe] = useState(false);
+    /** Site routing settings vs recipe catalog (hidden while editing a recipe). */
+    const [recipesSectionTab, setRecipesSectionTab] = useState('catalog');
     const [pendingNavigate, setPendingNavigate] = useState(null);
     const [navigateSaveBusy, setNavigateSaveBusy] = useState(false);
     const [recipeDragIndex, setRecipeDragIndex] = useState(null);
     const [recipeDropIndex, setRecipeDropIndex] = useState(null);
     const [pendingRevertId, setPendingRevertId] = useState(null);
     const [revertBusy, setRevertBusy] = useState(false);
+    /** Project recipes file snapshot when a recipe edit session starts (Cancel restores this). */
+    const [editSessionCustomFile, setEditSessionCustomFile] = useState(null);
+    const dirtyBeforeRecipeEditRef = useRef(false);
     const recipeOrder = useMemo(() => {
         if (customFile.recipeOrder?.length) {
             return customFile.recipeOrder;
@@ -72884,7 +72949,7 @@ const AiAssistantIntentRecipesConfiguration = forwardRef(function AiAssistantInt
         setToolsPolicy((p) => ({ ...p, intentRecipeRouting }));
         setDirty(true);
     };
-    const upsertCustomRecipe = useCallback((recipe) => {
+    useCallback((recipe) => {
         const v = validateRecipe(recipe);
         if (!v.ok) {
             setSaveError(v.message);
@@ -72903,10 +72968,45 @@ const AiAssistantIntentRecipesConfiguration = forwardRef(function AiAssistantInt
         setSelectedId(recipe.id);
         return true;
     }, []);
-    const commitRecipeDraft = useCallback((recipe) => {
+    const patchRecipeDraft = useCallback((recipe) => {
         setRecipeDraft(cloneRecipe(recipe));
-        upsertCustomRecipe(recipe);
-    }, [upsertCustomRecipe]);
+    }, []);
+    const beginRecipeEditSession = useCallback(() => {
+        dirtyBeforeRecipeEditRef.current = dirty;
+        setEditSessionCustomFile(cloneIntentRecipesFile(customFile));
+        setEditingRecipe(true);
+    }, [customFile, dirty]);
+    const finishRecipeEdit = useCallback(() => {
+        if (recipeDraft) {
+            const v = validateRecipe(recipeDraft);
+            if (!v.ok) {
+                setSaveError(v.message);
+                return;
+            }
+            setCustomFile((f) => {
+                const recipes = [...f.recipes];
+                const idx = recipes.findIndex((r) => r.id === recipeDraft.id);
+                if (idx >= 0)
+                    recipes[idx] = cloneRecipe(recipeDraft);
+                else
+                    recipes.push(cloneRecipe(recipeDraft));
+                return { ...f, recipes };
+            });
+            setDirty(true);
+            setSelectedId(recipeDraft.id);
+        }
+        setEditSessionCustomFile(null);
+        setEditingRecipe(false);
+    }, [recipeDraft]);
+    const cancelRecipeEdit = useCallback(() => {
+        if (editSessionCustomFile) {
+            setCustomFile(editSessionCustomFile);
+            setDirty(dirtyBeforeRecipeEditRef.current);
+        }
+        setEditSessionCustomFile(null);
+        setEditingRecipe(false);
+        setDraftSyncToken((t) => t + 1);
+    }, [editSessionCustomFile]);
     const applyPendingNavigate = useCallback((p) => {
         switch (p.kind) {
             case 'selectRecipe':
@@ -72915,7 +73015,7 @@ const AiAssistantIntentRecipesConfiguration = forwardRef(function AiAssistantInt
                 setDraftSyncToken((t) => t + 1);
                 break;
             case 'leaveEdit':
-                setEditingRecipe(false);
+                cancelRecipeEdit();
                 break;
             case 'openJson':
                 setJsonDraft(serializeIntentRecipesFile(customFile));
@@ -72934,6 +73034,8 @@ const AiAssistantIntentRecipesConfiguration = forwardRef(function AiAssistantInt
                 break;
             }
             case 'newRecipe': {
+                dirtyBeforeRecipeEditRef.current = dirty;
+                setEditSessionCustomFile(cloneIntentRecipesFile(customFile));
                 const id = `recipe_${Date.now()}`;
                 const recipe = emptyRecipe(id);
                 setCustomFile((f) => {
@@ -72948,14 +73050,18 @@ const AiAssistantIntentRecipesConfiguration = forwardRef(function AiAssistantInt
                 break;
             }
         }
-    }, [bundled, customFile, entries, recipeOrder, upsertCustomRecipe]);
+    }, [bundled, cancelRecipeEdit, customFile, entries, recipeOrder]);
     const requestNavigate = useCallback((p) => {
+        if (editingRecipe) {
+            setPendingNavigate(p);
+            return;
+        }
         if (!dirty) {
             applyPendingNavigate(p);
             return;
         }
         setPendingNavigate(p);
-    }, [applyPendingNavigate, dirty]);
+    }, [applyPendingNavigate, dirty, editingRecipe]);
     const cancelPendingNavigate = useCallback(() => {
         setPendingNavigate(null);
         setNavigateSaveBusy(false);
@@ -72967,13 +73073,19 @@ const AiAssistantIntentRecipesConfiguration = forwardRef(function AiAssistantInt
         setPendingNavigate(null);
         setNavigateSaveBusy(true);
         try {
-            await reload();
-            applyPendingNavigate(p);
+            if (editingRecipe) {
+                cancelRecipeEdit();
+                applyPendingNavigate(p);
+            }
+            else {
+                await reload();
+                applyPendingNavigate(p);
+            }
         }
         finally {
             setNavigateSaveBusy(false);
         }
-    }, [applyPendingNavigate, pendingNavigate, reload]);
+    }, [applyPendingNavigate, cancelRecipeEdit, editingRecipe, pendingNavigate, reload]);
     const removeCustomRecipe = (id) => {
         requestNavigate({ kind: 'deleteRecipe', id });
     };
@@ -73128,6 +73240,12 @@ const AiAssistantIntentRecipesConfiguration = forwardRef(function AiAssistantInt
         const p = pendingNavigate;
         setNavigateSaveBusy(true);
         try {
+            if (editingRecipe) {
+                finishRecipeEdit();
+                setPendingNavigate(null);
+                applyPendingNavigate(p);
+                return;
+            }
             const ok = await saveToRepository();
             if (ok) {
                 setPendingNavigate(null);
@@ -73137,15 +73255,24 @@ const AiAssistantIntentRecipesConfiguration = forwardRef(function AiAssistantInt
         finally {
             setNavigateSaveBusy(false);
         }
-    }, [applyPendingNavigate, pendingNavigate, saveToRepository]);
+    }, [applyPendingNavigate, editingRecipe, finishRecipeEdit, pendingNavigate, saveToRepository]);
     const save = async () => {
         await saveToRepository();
     };
-    const selectedIsSiteStored = selectedEntry?.source === 'custom' || selectedEntry?.source === 'override';
-    const selectedIsBundledOnly = selectedEntry?.source === 'bundled';
     const idReadOnly = selectedEntry?.source !== 'custom';
-    const saveHint = selectedIsBundledOnly || selectedIsSiteStored ? 'Save to keep your changes for this project.' : undefined;
-    return (jsxs(Stack$1, { spacing: 2.5, sx: { pb: 3 }, children: [jsxs(Box, { children: [jsx$1(Typography, { variant: "h6", gutterBottom: true, children: "Intent recipes" }), jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "Recipes guide the assistant through common authoring tasks\u2014editing content, translating, generating images, publishing, and more. Built-in recipes are included; customize and save changes for your project." })] }), loadError ? jsx$1(Alert, { severity: "error", children: loadError }) : null, saveError ? jsx$1(Alert, { severity: "error", onClose: () => setSaveError(null), children: saveError }) : null, dirty ? (jsx$1(Alert, { severity: "warning", children: "You have unsaved changes. Save or discard before you leave." })) : null, jsx$1(AiAssistantIntentRecipeRoutingFields, { value: toolsPolicy.intentRecipeRouting, onChange: patchToolsRouting }), jsxs(Stack$1, { direction: "row", spacing: 1, flexWrap: "wrap", useFlexGap: true, alignItems: "center", children: [jsx$1(Button, { variant: "contained", startIcon: jsx$1(SaveRounded, {}), disabled: !dirty || saving || !siteId, onClick: () => void save(), children: saving ? 'Saving…' : 'Save routing and project recipes' }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(AddRounded, {}), onClick: addNewRecipe, disabled: !loaded, children: "New recipe" }), jsx$1(Button, { size: "small", variant: "outlined", onClick: openJsonEditor, disabled: !loaded, children: "Edit project JSON" }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(DownloadRounded, {}), onClick: exportSiteFile, disabled: !loaded, children: "Export project file" }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(DownloadRounded, {}), onClick: exportMergedCatalog, disabled: !loaded, children: "Export merged catalog" }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(ContentCopyRounded, {}), onClick: () => void copySiteJson(), disabled: !loaded, children: "Copy project JSON" }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(ContentCopyRounded, {}), onClick: () => void copyMergedJson(), disabled: !loaded, children: "Copy merged JSON" })] }), jsxs(Box, { sx: {
+    const saveToolbar = (jsxs(Stack$1, { direction: "row", spacing: 1, flexWrap: "wrap", useFlexGap: true, alignItems: "center", children: [jsx$1(Button, { variant: "contained", startIcon: jsx$1(SaveRounded, {}), disabled: !dirty || saving || !siteId, onClick: () => void save(), children: saving ? 'Saving…' : 'Save routing and project recipes' }), !editingRecipe ? (jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(AddRounded, {}), onClick: addNewRecipe, disabled: !loaded, children: "New recipe" })) : null, !editingRecipe ? (jsx$1(Button, { size: "small", variant: "outlined", onClick: openJsonEditor, disabled: !loaded, children: "Edit project JSON" })) : null, !editingRecipe ? (jsxs(Fragment, { children: [jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(DownloadRounded, {}), onClick: exportSiteFile, disabled: !loaded, children: "Export project file" }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(DownloadRounded, {}), onClick: exportMergedCatalog, disabled: !loaded, children: "Export merged catalog" }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(ContentCopyRounded, {}), onClick: () => void copySiteJson(), disabled: !loaded, children: "Copy project JSON" }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(ContentCopyRounded, {}), onClick: () => void copyMergedJson(), disabled: !loaded, children: "Copy merged JSON" })] })) : null] }));
+    return (jsxs(Stack$1, { spacing: 2.5, sx: {
+            pb: 3,
+            ...(editingRecipe
+                ? { height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }
+                : {})
+        }, children: [!editingRecipe ? (jsxs(Box, { children: [jsx$1(Typography, { variant: "h6", gutterBottom: true, children: "Intent recipes" }), jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "Recipes guide the assistant through common authoring tasks\u2014editing content, translating, generating images, publishing, and more. Built-in recipes are included; customize and save changes for your project." })] })) : null, loadError ? jsx$1(Alert, { severity: "error", children: loadError }) : null, saveError ? jsx$1(Alert, { severity: "error", onClose: () => setSaveError(null), children: saveError }) : null, dirty && !editingRecipe ? (jsx$1(Alert, { severity: "warning", children: "You have unsaved changes. Save or discard before you leave." })) : null, !editingRecipe ? saveToolbar : null, !editingRecipe ? (jsxs(Tabs, { value: recipesSectionTab, onChange: (_, v) => setRecipesSectionTab(v), sx: { borderBottom: 1, borderColor: 'divider' }, children: [jsx$1(Tab, { label: "Recipes", value: "catalog" }), jsx$1(Tab, { label: "Routing", value: "routing" })] })) : null, !editingRecipe && recipesSectionTab === 'routing' ? (jsx$1(AiAssistantIntentRecipeRoutingFields, { value: toolsPolicy.intentRecipeRouting, onChange: patchToolsRouting })) : null, editingRecipe && selectedEntry && recipeDraft ? (jsxs(Paper, { variant: "outlined", sx: {
+                    flex: '1 1 auto',
+                    minHeight: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    overflow: 'hidden'
+                }, children: [jsxs(Stack$1, { direction: "row", spacing: 1, alignItems: "center", flexWrap: "wrap", useFlexGap: true, sx: { flexShrink: 0, px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider' }, children: [jsx$1(Typography, { component: "span", sx: { fontSize: '1.35rem', lineHeight: 1 }, "aria-hidden": true, children: selectedEntry.chatEmoji }), jsx$1(Typography, { variant: "subtitle1", sx: { flex: '1 1 auto', minWidth: 0 }, children: recipeDraft.title || recipeDraft.id }), sourceChip(selectedEntry), selectedEntry.source === 'override' ? (jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(RestartAltRounded, {}), onClick: () => resetBuiltInToBundled(selectedEntry.id), children: "Reset to built-in" })) : null, selectedEntry.source === 'custom' ? (jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), onClick: () => removeCustomRecipe(selectedEntry.id), children: "Delete project recipe" })) : null] }), jsx$1(Box, { sx: { flex: '1 1 auto', minHeight: 0, overflow: 'auto', p: 2, pt: 2.5 }, children: jsx$1(AiAssistantIntentRecipeEditor, { recipe: recipeDraft, onChange: patchRecipeDraft, idReadOnly: idReadOnly, immersive: true }, selectedEntry.id) }), jsxs(Stack$1, { direction: "row", justifyContent: "flex-end", spacing: 1, sx: { flexShrink: 0, px: 2, py: 1.5, borderTop: 1, borderColor: 'divider' }, children: [jsx$1(Button, { onClick: cancelRecipeEdit, children: "Cancel" }), jsx$1(Button, { variant: "contained", onClick: finishRecipeEdit, children: "Done" })] })] })) : null, !editingRecipe && recipesSectionTab === 'catalog' ? (jsxs(Box, { sx: {
                     display: 'grid',
                     gridTemplateColumns: { xs: '1fr', md: 'minmax(220px, 280px) 1fr' },
                     gap: 2,
@@ -73176,7 +73303,11 @@ const AiAssistantIntentRecipesConfiguration = forwardRef(function AiAssistantInt
                                         opacity: recipeDragIndex === index ? 0.55 : 1,
                                         cursor: 'grab',
                                         alignItems: 'flex-start'
-                                    }, children: [jsx$1(DragIndicatorRounded, { sx: { color: 'text.disabled', mt: 0.75, mr: 0.5, flexShrink: 0 }, fontSize: "small" }), jsx$1(Typography, { component: "span", "aria-hidden": true, sx: { fontSize: '1.15rem', lineHeight: 1, mt: 0.85, mr: 1, flexShrink: 0, width: 24, textAlign: 'center' }, children: entry.chatEmoji }), jsx$1(ListItemText, { primary: entry.title, secondary: entry.id, primaryTypographyProps: { variant: 'body2', fontWeight: entry.id === selectedEntry?.id ? 600 : 400 }, secondaryTypographyProps: { variant: 'caption', fontFamily: 'monospace' } }), jsx$1(Box, { sx: { ml: 1, flexShrink: 0 }, children: sourceChip(entry) })] }, entry.id))) })] }), jsx$1(Paper, { variant: "outlined", sx: { p: 2, minWidth: 0, overflow: 'auto', maxHeight: { md: '78vh' } }, children: !selectedEntry || !recipeDraft ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", children: loaded ? 'Select or create a recipe.' : 'Loading…' })) : (jsxs(Stack$1, { spacing: 2, children: [jsxs(Stack$1, { direction: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 1, flexWrap: "wrap", children: [jsxs(Stack$1, { direction: "row", spacing: 1, alignItems: "center", flexWrap: "wrap", useFlexGap: true, children: [jsx$1(Typography, { component: "span", sx: { fontSize: '1.35rem', lineHeight: 1 }, "aria-hidden": true, children: selectedEntry.chatEmoji }), jsx$1(Typography, { variant: "subtitle1", children: recipeDraft.title || recipeDraft.id }), sourceChip(selectedEntry)] }), jsxs(Stack$1, { direction: "row", spacing: 1, flexWrap: "wrap", useFlexGap: true, children: [selectedEntry.source === 'override' ? (jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(RestartAltRounded, {}), onClick: () => resetBuiltInToBundled(selectedEntry.id), children: "Reset to built-in" })) : null, selectedEntry.source === 'custom' ? (jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), onClick: () => removeCustomRecipe(selectedEntry.id), children: "Delete project recipe" })) : null] })] }), editingRecipe ? (jsx$1(AiAssistantIntentRecipeEditor, { recipe: recipeDraft, onChange: commitRecipeDraft, idReadOnly: idReadOnly, saveHint: saveHint, onDone: () => requestNavigate({ kind: 'leaveEdit' }) }, selectedEntry.id)) : (jsx$1(AiAssistantIntentRecipeView, { recipe: recipeDraft, entry: selectedEntry, onEdit: () => setEditingRecipe(true) }))] })) })] }), jsxs(Dialog, { open: pendingRevertId != null, onClose: cancelPendingRevert, maxWidth: "sm", fullWidth: true, children: [jsx$1(DialogTitle, { children: "Revert to built-in?" }), jsx$1(DialogContent, { children: jsxs(Typography, { variant: "body2", paragraph: true, children: ["This removes your project customization for", ' ', jsx$1("strong", { children: pendingRevertId ?? '' }), " and restores the built-in recipe. The change is saved to your project file immediately (no override entry is kept)."] }) }), jsxs(DialogActions, { children: [jsx$1(Button, { onClick: cancelPendingRevert, disabled: revertBusy || saving, children: "Cancel" }), jsx$1(Button, { variant: "contained", color: "warning", onClick: () => void confirmRevertToBuiltIn(), disabled: revertBusy || saving || !siteId, children: revertBusy || saving ? 'Saving…' : 'Revert and save' })] })] }), jsxs(Dialog, { open: pendingNavigate != null, onClose: cancelPendingNavigate, maxWidth: "sm", fullWidth: true, children: [jsx$1(DialogTitle, { children: "Unsaved changes" }), jsx$1(DialogContent, { children: jsxs(Typography, { variant: "body2", paragraph: true, children: ["Save your changes, discard them, or stay here", pendingNavigate ? ` before you ${pendingNavigateDescription(pendingNavigate)}` : '', "."] }) }), jsxs(DialogActions, { children: [jsx$1(Button, { onClick: cancelPendingNavigate, disabled: navigateSaveBusy || saving, children: "Stay" }), jsx$1(Button, { color: "warning", onClick: () => void discardPendingNavigate(), disabled: navigateSaveBusy || saving, children: "Discard changes" }), jsx$1(Button, { variant: "contained", onClick: () => void saveAndPendingNavigate(), disabled: navigateSaveBusy || saving, children: navigateSaveBusy || saving ? 'Saving…' : 'Save and continue' })] })] }), jsxs(Dialog, { open: jsonDialogOpen, onClose: () => setJsonDialogOpen(false), maxWidth: "md", fullWidth: true, children: [jsx$1(DialogTitle, { children: "Project intent recipes" }), jsxs(DialogContent, { children: [jsonError ? (jsx$1(Alert, { severity: "error", sx: { mb: 2 }, children: jsonError })) : null, jsx$1(AiAssistantStudioCodeEditor, { value: jsonDraft, onChange: setJsonDraft, language: "json", minHeight: 360 })] }), jsxs(DialogActions, { children: [jsx$1(Button, { onClick: () => setJsonDialogOpen(false), children: "Cancel" }), jsx$1(Button, { onClick: () => {
+                                    }, children: [jsx$1(DragIndicatorRounded, { sx: { color: 'text.disabled', mt: 0.75, mr: 0.5, flexShrink: 0 }, fontSize: "small" }), jsx$1(Typography, { component: "span", "aria-hidden": true, sx: { fontSize: '1.15rem', lineHeight: 1, mt: 0.85, mr: 1, flexShrink: 0, width: 24, textAlign: 'center' }, children: entry.chatEmoji }), jsx$1(ListItemText, { primary: entry.title, secondary: entry.id, primaryTypographyProps: { variant: 'body2', fontWeight: entry.id === selectedEntry?.id ? 600 : 400 }, secondaryTypographyProps: { variant: 'caption', fontFamily: 'monospace' } }), jsx$1(Box, { sx: { ml: 1, flexShrink: 0 }, children: sourceChip(entry) })] }, entry.id))) })] }), jsx$1(Paper, { variant: "outlined", sx: { p: 2, minWidth: 0, overflow: 'auto', maxHeight: { md: '78vh' } }, children: !selectedEntry || !recipeDraft ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", children: loaded ? 'Select or create a recipe.' : 'Loading…' })) : (jsxs(Stack$1, { spacing: 2, children: [jsxs(Stack$1, { direction: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 1, flexWrap: "wrap", children: [jsxs(Stack$1, { direction: "row", spacing: 1, alignItems: "center", flexWrap: "wrap", useFlexGap: true, children: [jsx$1(Typography, { component: "span", sx: { fontSize: '1.35rem', lineHeight: 1 }, "aria-hidden": true, children: selectedEntry.chatEmoji }), jsx$1(Typography, { variant: "subtitle1", children: recipeDraft.title || recipeDraft.id }), sourceChip(selectedEntry)] }), jsxs(Stack$1, { direction: "row", spacing: 1, flexWrap: "wrap", useFlexGap: true, children: [selectedEntry.source === 'override' ? (jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(RestartAltRounded, {}), onClick: () => resetBuiltInToBundled(selectedEntry.id), children: "Reset to built-in" })) : null, selectedEntry.source === 'custom' ? (jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), onClick: () => removeCustomRecipe(selectedEntry.id), children: "Delete project recipe" })) : null] })] }), jsx$1(AiAssistantIntentRecipeView, { recipe: recipeDraft, entry: selectedEntry, onEdit: beginRecipeEditSession })] })) })] })) : null, jsxs(Dialog, { open: pendingRevertId != null, onClose: cancelPendingRevert, maxWidth: "sm", fullWidth: true, children: [jsx$1(DialogTitle, { children: "Revert to built-in?" }), jsx$1(DialogContent, { children: jsxs(Typography, { variant: "body2", paragraph: true, children: ["This removes your project customization for", ' ', jsx$1("strong", { children: pendingRevertId ?? '' }), " and restores the built-in recipe. The change is saved to your project file immediately (no override entry is kept)."] }) }), jsxs(DialogActions, { children: [jsx$1(Button, { onClick: cancelPendingRevert, disabled: revertBusy || saving, children: "Cancel" }), jsx$1(Button, { variant: "contained", color: "warning", onClick: () => void confirmRevertToBuiltIn(), disabled: revertBusy || saving || !siteId, children: revertBusy || saving ? 'Saving…' : 'Revert and save' })] })] }), jsxs(Dialog, { open: pendingNavigate != null, onClose: cancelPendingNavigate, maxWidth: "sm", fullWidth: true, children: [jsx$1(DialogTitle, { children: "Unsaved changes" }), jsx$1(DialogContent, { children: jsxs(Typography, { variant: "body2", paragraph: true, children: ["Save your changes, discard them, or stay here", pendingNavigate ? ` before you ${pendingNavigateDescription(pendingNavigate)}` : '', "."] }) }), jsxs(DialogActions, { children: [jsx$1(Button, { onClick: cancelPendingNavigate, disabled: navigateSaveBusy || saving, children: "Stay" }), jsx$1(Button, { color: "warning", onClick: () => void discardPendingNavigate(), disabled: navigateSaveBusy || saving, children: "Discard changes" }), jsx$1(Button, { variant: "contained", onClick: () => void saveAndPendingNavigate(), disabled: navigateSaveBusy || saving, children: navigateSaveBusy || saving
+                                    ? 'Saving…'
+                                    : editingRecipe
+                                        ? 'Done and continue'
+                                        : 'Save and continue' })] })] }), jsxs(Dialog, { open: jsonDialogOpen, onClose: () => setJsonDialogOpen(false), maxWidth: "md", fullWidth: true, children: [jsx$1(DialogTitle, { children: "Project intent recipes" }), jsxs(DialogContent, { children: [jsonError ? (jsx$1(Alert, { severity: "error", sx: { mb: 2 }, children: jsonError })) : null, jsx$1(AiAssistantStudioCodeEditor, { value: jsonDraft, onChange: setJsonDraft, language: "json", minHeight: 360 })] }), jsxs(DialogActions, { children: [jsx$1(Button, { onClick: () => setJsonDialogOpen(false), children: "Cancel" }), jsx$1(Button, { onClick: () => {
                                     void copyTextToClipboard(jsonDraft).then((ok) => setToast(ok ? 'Copied.' : 'Could not copy.'));
                                 }, children: "Copy" }), jsx$1(Button, { variant: "contained", onClick: applyJsonEditor, children: "Apply to draft" })] })] }), jsx$1(Snackbar, { open: Boolean(toast), autoHideDuration: 4000, onClose: () => setToast(null), message: toast ?? '', anchorOrigin: { vertical: 'bottom', horizontal: 'center' } })] }));
 });

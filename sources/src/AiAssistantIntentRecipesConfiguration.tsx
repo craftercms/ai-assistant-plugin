@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import useActiveSiteId from '@craftercms/studio-ui/hooks/useActiveSiteId';
 import { writeConfiguration } from '@craftercms/studio-ui/services/configuration';
 import { firstValueFrom } from 'rxjs';
@@ -24,6 +24,8 @@ import {
   Paper,
   Snackbar,
   Stack,
+  Tab,
+  Tabs,
   Typography
 } from '@mui/material';
 import AiAssistantIntentRecipeEditor from './AiAssistantIntentRecipeEditor';
@@ -39,6 +41,7 @@ import {
 } from './aiAssistantToolsMcpUiModel';
 import {
   bundledIntentRecipesCatalog,
+  cloneIntentRecipesFile,
   cloneRecipe,
   copyTextToClipboard,
   defaultIntentRecipesFile,
@@ -162,12 +165,17 @@ const AiAssistantIntentRecipesConfiguration = forwardRef<
   const [draftSyncToken, setDraftSyncToken] = useState(0);
   /** Full recipe editor vs read-only swimlane visualization. */
   const [editingRecipe, setEditingRecipe] = useState(false);
+  /** Site routing settings vs recipe catalog (hidden while editing a recipe). */
+  const [recipesSectionTab, setRecipesSectionTab] = useState<'catalog' | 'routing'>('catalog');
   const [pendingNavigate, setPendingNavigate] = useState<PendingNavigate | null>(null);
   const [navigateSaveBusy, setNavigateSaveBusy] = useState(false);
   const [recipeDragIndex, setRecipeDragIndex] = useState<number | null>(null);
   const [recipeDropIndex, setRecipeDropIndex] = useState<number | null>(null);
   const [pendingRevertId, setPendingRevertId] = useState<string | null>(null);
   const [revertBusy, setRevertBusy] = useState(false);
+  /** Project recipes file snapshot when a recipe edit session starts (Cancel restores this). */
+  const [editSessionCustomFile, setEditSessionCustomFile] = useState<IntentRecipesFile | null>(null);
+  const dirtyBeforeRecipeEditRef = useRef(false);
 
   const recipeOrder = useMemo(() => {
     if (customFile.recipeOrder?.length) {
@@ -310,13 +318,46 @@ const AiAssistantIntentRecipesConfiguration = forwardRef<
     return true;
   }, []);
 
-  const commitRecipeDraft = useCallback(
-    (recipe: IntentRecipe) => {
-      setRecipeDraft(cloneRecipe(recipe));
-      upsertCustomRecipe(recipe);
-    },
-    [upsertCustomRecipe]
-  );
+  const patchRecipeDraft = useCallback((recipe: IntentRecipe) => {
+    setRecipeDraft(cloneRecipe(recipe));
+  }, []);
+
+  const beginRecipeEditSession = useCallback(() => {
+    dirtyBeforeRecipeEditRef.current = dirty;
+    setEditSessionCustomFile(cloneIntentRecipesFile(customFile));
+    setEditingRecipe(true);
+  }, [customFile, dirty]);
+
+  const finishRecipeEdit = useCallback(() => {
+    if (recipeDraft) {
+      const v = validateRecipe(recipeDraft);
+      if (!v.ok) {
+        setSaveError(v.message);
+        return;
+      }
+      setCustomFile((f) => {
+        const recipes = [...f.recipes];
+        const idx = recipes.findIndex((r) => r.id === recipeDraft.id);
+        if (idx >= 0) recipes[idx] = cloneRecipe(recipeDraft);
+        else recipes.push(cloneRecipe(recipeDraft));
+        return { ...f, recipes };
+      });
+      setDirty(true);
+      setSelectedId(recipeDraft.id);
+    }
+    setEditSessionCustomFile(null);
+    setEditingRecipe(false);
+  }, [recipeDraft]);
+
+  const cancelRecipeEdit = useCallback(() => {
+    if (editSessionCustomFile) {
+      setCustomFile(editSessionCustomFile);
+      setDirty(dirtyBeforeRecipeEditRef.current);
+    }
+    setEditSessionCustomFile(null);
+    setEditingRecipe(false);
+    setDraftSyncToken((t) => t + 1);
+  }, [editSessionCustomFile]);
 
   const applyPendingNavigate = useCallback(
     (p: PendingNavigate) => {
@@ -327,7 +368,7 @@ const AiAssistantIntentRecipesConfiguration = forwardRef<
           setDraftSyncToken((t) => t + 1);
           break;
         case 'leaveEdit':
-          setEditingRecipe(false);
+          cancelRecipeEdit();
           break;
         case 'openJson':
           setJsonDraft(serializeIntentRecipesFile(customFile));
@@ -346,6 +387,8 @@ const AiAssistantIntentRecipesConfiguration = forwardRef<
           break;
         }
         case 'newRecipe': {
+          dirtyBeforeRecipeEditRef.current = dirty;
+          setEditSessionCustomFile(cloneIntentRecipesFile(customFile));
           const id = `recipe_${Date.now()}`;
           const recipe = emptyRecipe(id);
           setCustomFile((f) => {
@@ -363,18 +406,22 @@ const AiAssistantIntentRecipesConfiguration = forwardRef<
           break;
       }
     },
-    [bundled, customFile, entries, recipeOrder, upsertCustomRecipe]
+    [bundled, cancelRecipeEdit, customFile, entries, recipeOrder]
   );
 
   const requestNavigate = useCallback(
     (p: PendingNavigate) => {
+      if (editingRecipe) {
+        setPendingNavigate(p);
+        return;
+      }
       if (!dirty) {
         applyPendingNavigate(p);
         return;
       }
       setPendingNavigate(p);
     },
-    [applyPendingNavigate, dirty]
+    [applyPendingNavigate, dirty, editingRecipe]
   );
 
   const cancelPendingNavigate = useCallback(() => {
@@ -388,12 +435,17 @@ const AiAssistantIntentRecipesConfiguration = forwardRef<
     setPendingNavigate(null);
     setNavigateSaveBusy(true);
     try {
-      await reload();
-      applyPendingNavigate(p);
+      if (editingRecipe) {
+        cancelRecipeEdit();
+        applyPendingNavigate(p);
+      } else {
+        await reload();
+        applyPendingNavigate(p);
+      }
     } finally {
       setNavigateSaveBusy(false);
     }
-  }, [applyPendingNavigate, pendingNavigate, reload]);
+  }, [applyPendingNavigate, cancelRecipeEdit, editingRecipe, pendingNavigate, reload]);
 
   const removeCustomRecipe = (id: string) => {
     requestNavigate({ kind: 'deleteRecipe', id });
@@ -575,6 +627,12 @@ const AiAssistantIntentRecipesConfiguration = forwardRef<
     const p = pendingNavigate;
     setNavigateSaveBusy(true);
     try {
+      if (editingRecipe) {
+        finishRecipeEdit();
+        setPendingNavigate(null);
+        applyPendingNavigate(p);
+        return;
+      }
       const ok = await saveToRepository();
       if (ok) {
         setPendingNavigate(null);
@@ -583,68 +641,181 @@ const AiAssistantIntentRecipesConfiguration = forwardRef<
     } finally {
       setNavigateSaveBusy(false);
     }
-  }, [applyPendingNavigate, pendingNavigate, saveToRepository]);
+  }, [applyPendingNavigate, editingRecipe, finishRecipeEdit, pendingNavigate, saveToRepository]);
 
   const save = async () => {
     await saveToRepository();
   };
 
-  const selectedIsSiteStored =
-    selectedEntry?.source === 'custom' || selectedEntry?.source === 'override';
-  const selectedIsBundledOnly = selectedEntry?.source === 'bundled';
   const idReadOnly = selectedEntry?.source !== 'custom';
 
-  const saveHint = selectedIsBundledOnly || selectedIsSiteStored ? 'Save to keep your changes for this project.' : undefined;
-
-  return (
-    <Stack spacing={2.5} sx={{ pb: 3 }}>
-      <Box>
-        <Typography variant="h6" gutterBottom>
-          Intent recipes
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Recipes guide the assistant through common authoring tasks—editing content, translating, generating images,
-          publishing, and more. Built-in recipes are included; customize and save changes for your project.
-        </Typography>
-      </Box>
-
-      {loadError ? <Alert severity="error">{loadError}</Alert> : null}
-      {saveError ? <Alert severity="error" onClose={() => setSaveError(null)}>{saveError}</Alert> : null}
-      {dirty ? (
-        <Alert severity="warning">You have unsaved changes. Save or discard before you leave.</Alert>
-      ) : null}
-
-      <AiAssistantIntentRecipeRoutingFields value={toolsPolicy.intentRecipeRouting} onChange={patchToolsRouting} />
-
-      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
-        <Button
-          variant="contained"
-          startIcon={<SaveRounded />}
-          disabled={!dirty || saving || !siteId}
-          onClick={() => void save()}
-        >
-          {saving ? 'Saving…' : 'Save routing and project recipes'}
-        </Button>
+  const saveToolbar = (
+    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
+      <Button
+        variant="contained"
+        startIcon={<SaveRounded />}
+        disabled={!dirty || saving || !siteId}
+        onClick={() => void save()}
+      >
+        {saving ? 'Saving…' : 'Save routing and project recipes'}
+      </Button>
+      {!editingRecipe ? (
         <Button size="small" variant="outlined" startIcon={<AddRounded />} onClick={addNewRecipe} disabled={!loaded}>
           New recipe
         </Button>
+      ) : null}
+      {!editingRecipe ? (
         <Button size="small" variant="outlined" onClick={openJsonEditor} disabled={!loaded}>
           Edit project JSON
         </Button>
-        <Button size="small" variant="outlined" startIcon={<DownloadRounded />} onClick={exportSiteFile} disabled={!loaded}>
-          Export project file
-        </Button>
-        <Button size="small" variant="outlined" startIcon={<DownloadRounded />} onClick={exportMergedCatalog} disabled={!loaded}>
-          Export merged catalog
-        </Button>
-        <Button size="small" variant="outlined" startIcon={<ContentCopyRounded />} onClick={() => void copySiteJson()} disabled={!loaded}>
-          Copy project JSON
-        </Button>
-        <Button size="small" variant="outlined" startIcon={<ContentCopyRounded />} onClick={() => void copyMergedJson()} disabled={!loaded}>
-          Copy merged JSON
-        </Button>
-      </Stack>
+      ) : null}
+      {!editingRecipe ? (
+        <>
+          <Button size="small" variant="outlined" startIcon={<DownloadRounded />} onClick={exportSiteFile} disabled={!loaded}>
+            Export project file
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<DownloadRounded />}
+            onClick={exportMergedCatalog}
+            disabled={!loaded}
+          >
+            Export merged catalog
+          </Button>
+          <Button size="small" variant="outlined" startIcon={<ContentCopyRounded />} onClick={() => void copySiteJson()} disabled={!loaded}>
+            Copy project JSON
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<ContentCopyRounded />}
+            onClick={() => void copyMergedJson()}
+            disabled={!loaded}
+          >
+            Copy merged JSON
+          </Button>
+        </>
+      ) : null}
+    </Stack>
+  );
 
+  return (
+    <Stack
+      spacing={2.5}
+      sx={{
+        pb: 3,
+        ...(editingRecipe
+          ? { height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }
+          : {})
+      }}
+    >
+      {!editingRecipe ? (
+        <Box>
+          <Typography variant="h6" gutterBottom>
+            Intent recipes
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Recipes guide the assistant through common authoring tasks—editing content, translating, generating images,
+            publishing, and more. Built-in recipes are included; customize and save changes for your project.
+          </Typography>
+        </Box>
+      ) : null}
+
+      {loadError ? <Alert severity="error">{loadError}</Alert> : null}
+      {saveError ? <Alert severity="error" onClose={() => setSaveError(null)}>{saveError}</Alert> : null}
+      {dirty && !editingRecipe ? (
+        <Alert severity="warning">You have unsaved changes. Save or discard before you leave.</Alert>
+      ) : null}
+
+      {!editingRecipe ? saveToolbar : null}
+
+      {!editingRecipe ? (
+        <Tabs
+          value={recipesSectionTab}
+          onChange={(_, v) => setRecipesSectionTab(v)}
+          sx={{ borderBottom: 1, borderColor: 'divider' }}
+        >
+          <Tab label="Recipes" value="catalog" />
+          <Tab label="Routing" value="routing" />
+        </Tabs>
+      ) : null}
+
+      {!editingRecipe && recipesSectionTab === 'routing' ? (
+        <AiAssistantIntentRecipeRoutingFields value={toolsPolicy.intentRecipeRouting} onChange={patchToolsRouting} />
+      ) : null}
+
+      {editingRecipe && selectedEntry && recipeDraft ? (
+        <Paper
+          variant="outlined"
+          sx={{
+            flex: '1 1 auto',
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden'
+          }}
+        >
+          <Stack
+            direction="row"
+            spacing={1}
+            alignItems="center"
+            flexWrap="wrap"
+            useFlexGap
+            sx={{ flexShrink: 0, px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider' }}
+          >
+            <Typography component="span" sx={{ fontSize: '1.35rem', lineHeight: 1 }} aria-hidden>
+              {selectedEntry.chatEmoji}
+            </Typography>
+            <Typography variant="subtitle1" sx={{ flex: '1 1 auto', minWidth: 0 }}>
+              {recipeDraft.title || recipeDraft.id}
+            </Typography>
+            {sourceChip(selectedEntry)}
+            {selectedEntry.source === 'override' ? (
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<RestartAltRounded />}
+                onClick={() => resetBuiltInToBundled(selectedEntry.id)}
+              >
+                Reset to built-in
+              </Button>
+            ) : null}
+            {selectedEntry.source === 'custom' ? (
+              <Button
+                size="small"
+                color="error"
+                startIcon={<DeleteOutlineRounded />}
+                onClick={() => removeCustomRecipe(selectedEntry.id)}
+              >
+                Delete project recipe
+              </Button>
+            ) : null}
+          </Stack>
+          <Box sx={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto', p: 2, pt: 2.5 }}>
+            <AiAssistantIntentRecipeEditor
+              key={selectedEntry.id}
+              recipe={recipeDraft}
+              onChange={patchRecipeDraft}
+              idReadOnly={idReadOnly}
+              immersive
+            />
+          </Box>
+          <Stack
+            direction="row"
+            justifyContent="flex-end"
+            spacing={1}
+            sx={{ flexShrink: 0, px: 2, py: 1.5, borderTop: 1, borderColor: 'divider' }}
+          >
+            <Button onClick={cancelRecipeEdit}>Cancel</Button>
+            <Button variant="contained" onClick={finishRecipeEdit}>
+              Done
+            </Button>
+          </Stack>
+        </Paper>
+      ) : null}
+
+      {!editingRecipe && recipesSectionTab === 'catalog' ? (
       <Box
         sx={{
           display: 'grid',
@@ -757,26 +928,16 @@ const AiAssistantIntentRecipesConfiguration = forwardRef<
                 </Stack>
               </Stack>
 
-              {editingRecipe ? (
-                <AiAssistantIntentRecipeEditor
-                  key={selectedEntry.id}
-                  recipe={recipeDraft}
-                  onChange={commitRecipeDraft}
-                  idReadOnly={idReadOnly}
-                  saveHint={saveHint}
-                  onDone={() => requestNavigate({ kind: 'leaveEdit' })}
-                />
-              ) : (
-                <AiAssistantIntentRecipeView
-                  recipe={recipeDraft}
-                  entry={selectedEntry}
-                  onEdit={() => setEditingRecipe(true)}
-                />
-              )}
+              <AiAssistantIntentRecipeView
+                recipe={recipeDraft}
+                entry={selectedEntry}
+                onEdit={beginRecipeEditSession}
+              />
             </Stack>
           )}
         </Paper>
       </Box>
+      ) : null}
 
       <Dialog open={pendingRevertId != null} onClose={cancelPendingRevert} maxWidth="sm" fullWidth>
         <DialogTitle>Revert to built-in?</DialogTitle>
@@ -822,7 +983,11 @@ const AiAssistantIntentRecipesConfiguration = forwardRef<
             onClick={() => void saveAndPendingNavigate()}
             disabled={navigateSaveBusy || saving}
           >
-            {navigateSaveBusy || saving ? 'Saving…' : 'Save and continue'}
+            {navigateSaveBusy || saving
+              ? 'Saving…'
+              : editingRecipe
+                ? 'Done and continue'
+                : 'Save and continue'}
           </Button>
         </DialogActions>
       </Dialog>

@@ -27,12 +27,9 @@ import {
   recipeFromPhaseEdits,
   recipeToPhaseEdits
 } from './aiAssistantIntentRecipesModel';
+import AiAssistantIntentRecipeGeneralFields from './AiAssistantIntentRecipeGeneralFields';
 import AiAssistantIntentRecipePhaseHintsField from './AiAssistantIntentRecipePhaseHintsField';
-import AiAssistantIntentRecipePrefetchArgsHelp, {
-  AiAssistantIntentRecipePrefetchBindingsHelp
-} from './AiAssistantIntentRecipePrefetchArgsHelp';
-import AiAssistantIntentRecipeEmojiField from './AiAssistantIntentRecipeEmojiField';
-import { AiAssistantIntentRecipeRoutingRulesSection } from './AiAssistantIntentRecipeMatchRulesField';
+import AiAssistantIntentRecipePrefetchArgsHelp from './AiAssistantIntentRecipePrefetchArgsHelp';
 import AiAssistantIntentRecipeSwimlane from './AiAssistantIntentRecipeSwimlane';
 import { defaultPrefetchArgsJsonForTool } from './intentRecipePrefetchToolReference';
 
@@ -42,9 +39,17 @@ const PHASE_TAB_LABELS: Record<IntentRecipePhaseKey, string> = {
   confirmation: 'Confirmation'
 };
 
-type EditorTab = IntentRecipePhaseKey | 'preview';
+type EditorTab = 'general' | IntentRecipePhaseKey | 'preview';
 
-const EDITOR_TABS: EditorTab[] = [...INTENT_RECIPE_PHASE_KEYS, 'preview'];
+const EDITOR_TABS: EditorTab[] = ['general', ...INTENT_RECIPE_PHASE_KEYS, 'preview'];
+
+const EDITOR_TAB_LABEL: Record<EditorTab, string> = {
+  general: 'General',
+  context: PHASE_TAB_LABELS.context,
+  action: PHASE_TAB_LABELS.action,
+  confirmation: PHASE_TAB_LABELS.confirmation,
+  preview: 'Preview'
+};
 
 function parseArgsJson(text: string): Record<string, string> | undefined {
   const t = text.trim();
@@ -213,9 +218,6 @@ function PhaseEditor(props: {
         <Typography variant="subtitle2" sx={{ mb: 1 }}>
           Prefetch steps ({phaseKey})
         </Typography>
-        <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5, bgcolor: 'background.default' }}>
-          <AiAssistantIntentRecipePrefetchBindingsHelp />
-        </Paper>
         <Stack direction="row" justifyContent="flex-end" alignItems="center" sx={{ mb: 1 }}>
           <Button
             size="small"
@@ -276,13 +278,13 @@ export interface AiAssistantIntentRecipeEditorProps {
   onChange: (recipe: IntentRecipe) => void;
   /** When true, recipe id cannot change (built-in override keeps stable id). */
   idReadOnly?: boolean;
-  saveHint?: string;
-  onDone?: () => void;
+  /** Fills parent panel height (recipe edit takeover in project settings). */
+  immersive?: boolean;
 }
 
 export default function AiAssistantIntentRecipeEditor(props: AiAssistantIntentRecipeEditorProps) {
-  const { recipe, onChange, idReadOnly, saveHint, onDone } = props;
-  const [editorTab, setEditorTab] = useState<EditorTab>('context');
+  const { recipe, onChange, idReadOnly, immersive } = props;
+  const [editorTab, setEditorTab] = useState<EditorTab>('general');
   const [phaseEdits, setPhaseEdits] = useState(() => recipeToPhaseEdits(recipe));
 
   useEffect(() => {
@@ -292,10 +294,6 @@ export default function AiAssistantIntentRecipeEditor(props: AiAssistantIntentRe
   const previewRecipe = useMemo(() => recipeFromPhaseEdits(recipe, phaseEdits), [recipe, phaseEdits]);
   const bindingNamesForHints = useMemo(() => declaredBindingNames(previewRecipe), [previewRecipe]);
 
-  const patchRecipe = (partial: Partial<IntentRecipe>) => {
-    onChange({ ...recipe, ...partial });
-  };
-
   const patchPhase = (key: IntentRecipePhaseKey, next: IntentRecipePhaseEditState) => {
     const merged = { ...phaseEdits, [key]: next };
     setPhaseEdits(merged);
@@ -303,127 +301,42 @@ export default function AiAssistantIntentRecipeEditor(props: AiAssistantIntentRe
   };
 
   return (
-    <Stack spacing={2}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" useFlexGap>
-        {saveHint ? (
-          <Typography variant="caption" color="text.secondary">
-            {saveHint}
-          </Typography>
-        ) : (
-          <Box />
-        )}
-        {onDone ? (
-          <Button size="small" variant="outlined" onClick={onDone}>
-            Done editing
-          </Button>
-        ) : null}
-      </Stack>
-
-      <Stack spacing={2}>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start">
-          <AiAssistantIntentRecipeEmojiField
-            emoji={recipe.chatEmoji ?? ''}
-            title={recipe.title ?? ''}
-            recipeId={recipe.id}
-            onChange={(chatEmoji) => patchRecipe({ chatEmoji: chatEmoji || undefined })}
-          />
-          <TextField
-            label="Recipe id"
-            value={recipe.id}
-            onChange={(e) => patchRecipe({ id: e.target.value.trim() })}
-            size="small"
-            disabled={idReadOnly}
-            sx={{ flex: '0 0 220px' }}
-            InputProps={{ sx: { fontFamily: 'monospace' } }}
-          />
-          <TextField
-            label="Title"
-            value={recipe.title ?? ''}
-            onChange={(e) => patchRecipe({ title: e.target.value })}
-            size="small"
-            fullWidth
-          />
-        </Stack>
-        <TextField
-          label="Description (router)"
-          value={recipe.description ?? ''}
-          onChange={(e) => patchRecipe({ description: e.target.value })}
-          size="small"
-          fullWidth
-          multiline
-          minRows={2}
-        />
-        <Autocomplete
-          multiple
-          freeSolo
-          options={[]}
-          value={recipe.matchHints ?? []}
-          onChange={(_, v) => patchRecipe({ matchHints: v.map(String) })}
-          renderInput={(params) => (
-            <TextField {...params} label="Match hints" size="small" placeholder="translate, publish, …" />
-          )}
-        />
-        <Autocomplete
-          multiple
-          freeSolo
-          options={[]}
-          value={recipe.dontMatchHints ?? []}
-          onChange={(_, v) =>
-            patchRecipe({ dontMatchHints: v.length ? v.map(String) : undefined })
-          }
-          renderInput={(params) => (
-            <TextField
-              {...params}
-              label="Don't match hints"
-              size="small"
-              placeholder="translate, publish, …"
-            />
-          )}
-        />
-        <AiAssistantIntentRecipeRoutingRulesSection recipe={recipe} onChange={onChange} />
-        <Autocomplete
-          multiple
-          freeSolo
-          options={[...INTENT_RECIPE_READ_ONLY_TOOLS, 'GenerateImage', 'WriteContent', 'update_content']}
-          value={recipe.toolsLoopAllowlist ?? []}
-          onChange={(_, v) => patchRecipe({ toolsLoopAllowlist: v.length ? v.map(String) : undefined })}
-          renderInput={(params) => (
-            <TextField {...params} label="Tools-loop allowlist (optional)" size="small" />
-          )}
-        />
-        <Autocomplete
-          multiple
-          freeSolo
-          options={[]}
-          value={recipe.toolsLoopAllowlistBypassIfAuthorMentions ?? []}
-          onChange={(_, v) =>
-            patchRecipe({
-              toolsLoopAllowlistBypassIfAuthorMentions: v.length ? v.map(String) : undefined
-            })
-          }
-          renderInput={(params) => (
-            <TextField {...params} label="Allowlist bypass keywords (optional)" size="small" />
-          )}
-        />
-      </Stack>
-
-      <Tabs value={editorTab} onChange={(_, v) => setEditorTab(v)} variant="scrollable" scrollButtons="auto">
+    <Stack
+      spacing={2}
+      sx={
+        immersive
+          ? { height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }
+          : undefined
+      }
+    >
+      <Tabs
+        value={editorTab}
+        onChange={(_, v) => setEditorTab(v)}
+        variant="scrollable"
+        scrollButtons="auto"
+        sx={immersive ? { flexShrink: 0, borderBottom: 1, borderColor: 'divider' } : undefined}
+      >
         {EDITOR_TABS.map((k) => (
-          <Tab key={k} label={k === 'preview' ? 'Preview' : PHASE_TAB_LABELS[k]} value={k} />
+          <Tab key={k} label={EDITOR_TAB_LABEL[k]} value={k} />
         ))}
       </Tabs>
-      {INTENT_RECIPE_PHASE_KEYS.map((k) =>
-        editorTab === k ? (
-          <PhaseEditor
-            key={k}
-            phaseKey={k}
-            state={phaseEdits[k]}
-            bindingNamesForHints={bindingNamesForHints}
-            onChange={(n) => patchPhase(k, n)}
-          />
-        ) : null
-      )}
-      {editorTab === 'preview' ? <AiAssistantIntentRecipeSwimlane recipe={previewRecipe} /> : null}
+      <Box sx={immersive ? { flex: '1 1 auto', minHeight: 0, overflow: 'visible' } : undefined}>
+        {editorTab === 'general' ? (
+          <AiAssistantIntentRecipeGeneralFields recipe={recipe} onChange={onChange} idReadOnly={idReadOnly} />
+        ) : null}
+        {INTENT_RECIPE_PHASE_KEYS.map((k) =>
+          editorTab === k ? (
+            <PhaseEditor
+              key={k}
+              phaseKey={k}
+              state={phaseEdits[k]}
+              bindingNamesForHints={bindingNamesForHints}
+              onChange={(n) => patchPhase(k, n)}
+            />
+          ) : null
+        )}
+        {editorTab === 'preview' ? <AiAssistantIntentRecipeSwimlane recipe={previewRecipe} /> : null}
+      </Box>
     </Stack>
   );
 }
