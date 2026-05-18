@@ -866,11 +866,12 @@ function navigateStudioPreviewToRepoPath(repoPath: string): void {
  * {@code WriteContent} covers templates (.ftl), scripts (.groovy), Studio config XML, content-type form
  * definitions, and content items; for a written {@code /site/website/.../index.xml} path, preview also runs
  * {@link fetchGuestModel} so the frame tracks the new page.
+ * {@code GenerateImage} is intentionally omitted — it returns inline/data URLs for chat only unless a future
+ * tool result includes {@code metadata.repoPath} from an actual repository write.
  */
 const PREVIEW_RELOAD_TOOL_NAMES_ON_DONE = new Set<string>([
   'WriteContent',
   'revert_change',
-  'GenerateImage',
   'publish_content',
   'update_content',
   'update_template',

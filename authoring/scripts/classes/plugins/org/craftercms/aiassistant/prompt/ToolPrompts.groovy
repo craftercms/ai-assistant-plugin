@@ -645,6 +645,30 @@ Tightened intent: <one sentence>'''
   }
 
   /**
+   * When **no** deterministic recipe pattern matched, restate the author's **current-turn** goal for a second match pass.
+   */
+  static String getLlm_AUTHORING_INTENT_CLARIFY_ENRICH_SYSTEM() {
+    p(
+      'GENERAL_LLM_AUTHORING_INTENT_CLARIFY_ENRICH_SYSTEM',
+      '''No Crafter Studio **workflow pattern** matched the author's **current message** on the first pass. State what they want **this turn only** in one clear sentence — you are **not** picking a recipe id.
+
+You receive:
+- Optional **Recent turn memory** (previous user message + assistant reply).
+- A **recipe catalog** table (titles and ids for context only).
+- The **author message** for **this turn** (may include Studio **Repository path:** metadata).
+
+Rules:
+- When **Recent turn memory** is present, use it for follow-ups ("make it shorter", "that story", "put it in the hero").
+- If the turn has **multiple distinct goals** (e.g. research on the web **and** edit a CMS field), say that explicitly in one sentence listing each goal — the server will use **## Plan** with one step per goal.
+- Creative writing, fiction, jokes, or revising a prior chat reply: say that explicitly — **do not** reinterpret as "describe the open page" unless they asked about the page.
+- Do **not** invent repository paths, field ids, or tool names.
+
+Output **exactly one line** (no bullets, no JSON):
+Tightened intent: <one sentence>'''
+    )
+  }
+
+  /**
    * System prompt for the optional **intent recipe router** completion (no CMS tools). User message carries the
    * recipe catalog table + stripped author text — see {@code AiOrchestration#intentRecipeRoutingPrelude}.
    */

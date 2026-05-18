@@ -35,6 +35,7 @@ import java.util.Set
  *     "engineMaxTotalChars": 200000,
  *     "engineMaxFieldChars": 120000,
  *     "requestClarificationOnUnmatched": false,
+ *     "wholeTurnJsonRouterEnabled": false,
  *     "minConfidence": 0.55,
  *     "customRecipesPath": "/scripts/aiassistant/config/intent-recipes.json"
  *   }
@@ -213,6 +214,18 @@ final class StudioAiAssistantProjectConfig {
 
   static boolean intentRecipeRequestClarificationOnUnmatched(Map cfg) {
     Boolean.TRUE.equals(intentRecipeRoutingSection(cfg).get('requestClarificationOnUnmatched'))
+  }
+
+  /**
+   * When {@code true}: after clarify/enrich, zero deterministic matches may use the JSON whole-turn recipe router LLM.
+   * Default {@code false} — unmatched turns defer to the tools loop **## Plan** (multi-intent / ambiguous whole-turn).
+   */
+  static boolean intentRecipeWholeTurnJsonRouterEnabled(Map cfg) {
+    Map m = intentRecipeRoutingSection(cfg)
+    if (!m.containsKey('wholeTurnJsonRouterEnabled')) {
+      return false
+    }
+    Boolean.TRUE.equals(m.get('wholeTurnJsonRouterEnabled'))
   }
 
   static double intentRecipeMinConfidence(Map cfg) {

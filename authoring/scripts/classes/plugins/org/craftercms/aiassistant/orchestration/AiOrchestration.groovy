@@ -3476,11 +3476,12 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
   }
 
   /**
-   * When deterministic routing matches multiple recipes, LLM restates the author's current-turn goal; orchestration
-   * retries deterministic signals on that text before the JSON recipe router.
+   * LLM restates the author's current-turn goal for a second deterministic match pass (disambiguate or enrich).
    */
-  static String generateAuthoringIntentTighteningText(
-    List<Map> ambiguousMatches,
+  static String generateAuthoringIntentRoutingClarifyText(
+    List<Map> candidateRows,
+    String recipeCatalogMarkdown,
+    boolean enrichMode,
     String routerVisible,
     String wirePrompt,
     String apiKey,
@@ -3489,7 +3490,7 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     Map toolsLoopSessionBundle
   ) {
     String visible = (routerVisible ?: '').toString().trim()
-    if (!visible || ambiguousMatches == null || ambiguousMatches.size() < 2) {
+    if (!visible) {
       return ''
     }
     def key = (apiKey ?: '').toString().trim()
@@ -3501,26 +3502,37 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     }
     def mdl = (model ?: '').toString().trim()
     if (!mdl) {
-      log.warn('generateAuthoringIntentTighteningText: missing model id, skipping')
+      log.warn('generateAuthoringIntentRoutingClarifyText: missing model id, skipping')
       return ''
     }
-    String tableMd = AuthoringIntentRecipeCatalog.formatAmbiguousDeterministicMatchesMarkdown(ambiguousMatches)
+    String catalogMd = (recipeCatalogMarkdown ?: '').toString().trim()
+    if (!catalogMd) {
+      catalogMd = '(no recipes configured)'
+    }
+    String tableSection
+    if (enrichMode) {
+      tableSection = '## Recipe catalog (no single pattern matched)\n\n' + catalogMd
+    } else {
+      String tableMd = AuthoringIntentRecipeCatalog.formatAmbiguousDeterministicMatchesMarkdown(candidateRows ?: [])
+      tableSection = '## Pattern-matched workflows (ambiguous — more than one)\n\n' + tableMd
+    }
     String userMsg = authoringIntentRefineUserMessage(
-      '## Pattern-matched workflows (ambiguous — more than one)\n\n' +
-        tableMd +
-        '\n\n## Author message (this turn only)\n\n' +
-        visible,
+      tableSection + '\n\n## Author message (this turn only)\n\n' + visible,
       wirePrompt
     )
+    String system = enrichMode ?
+      ToolPrompts.getLlm_AUTHORING_INTENT_CLARIFY_ENRICH_SYSTEM() :
+      ToolPrompts.getLlm_AUTHORING_INTENT_TIGHTEN_DISAMBIGUATION_SYSTEM()
+    String phase = enrichMode ? 'AuthoringIntentClarifyEnrich' : 'AuthoringIntentTighten'
     try {
       String raw = toolsLoopSimpleCompletionAssistantText(
         key,
         mdl,
-        ToolPrompts.getLlm_AUTHORING_INTENT_TIGHTEN_DISAMBIGUATION_SYSTEM(),
+        system,
         userMsg,
         256,
         120_000,
-        'AuthoringIntentTighten',
+        phase,
         wireBaseUrl,
         toolsLoopSessionBundle
       )
@@ -3533,9 +3545,38 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       Thread.currentThread().interrupt()
       return ''
     } catch (Throwable t) {
-      log.warn('generateAuthoringIntentTighteningText skipped: {}', t.message)
+      log.warn('generateAuthoringIntentRoutingClarifyText skipped: {}', t.message)
       return ''
     }
+  }
+
+  /**
+   * When deterministic routing matches multiple recipes, LLM restates the author's current-turn goal; orchestration
+   * retries deterministic signals on that text.
+   */
+  static String generateAuthoringIntentTighteningText(
+    List<Map> ambiguousMatches,
+    String routerVisible,
+    String wirePrompt,
+    String apiKey,
+    String model,
+    String wireBaseUrl,
+    Map toolsLoopSessionBundle
+  ) {
+    if (ambiguousMatches == null || ambiguousMatches.size() < 2) {
+      return ''
+    }
+    return generateAuthoringIntentRoutingClarifyText(
+      ambiguousMatches,
+      '',
+      false,
+      routerVisible,
+      wirePrompt,
+      apiKey,
+      model,
+      wireBaseUrl,
+      toolsLoopSessionBundle
+    )
   }
 
   static String generateAuthoringIntentExpansionTextForRecipeRematch(
@@ -3649,6 +3690,35 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     return formatAuthoringIntentExpansionWirePrefix(expanded) + guard
   }
 
+  private static void maybeLogPlanStepDeterministicRecipeMatches(
+    List recipes,
+    Map toolsLoopSessionBundle,
+    String assistantContent
+  ) {
+    if (!(toolsLoopSessionBundle instanceof Map) || recipes == null || recipes.isEmpty()) {
+      return
+    }
+    Map tel = (Map) toolsLoopSessionBundle.get('intentRecipeRoutingTelemetry')
+    if (!(tel instanceof Map) || !Boolean.TRUE.equals(tel.get('deferToPlanLoop'))) {
+      return
+    }
+    List<Map> steps = PlanOrchestration.parseOrchestrationSteps((assistantContent ?: '').toString())
+    if (steps.isEmpty()) {
+      return
+    }
+    String wireCand = toolsLoopSessionBundle.intentRecipeRoutingWireCand?.toString() ?: ''
+    Map ctx = [cand: wireCand]
+    List<Map> hits = AuthoringIntentRecipeCatalog.matchRecipesForPlanSteps(recipes, ctx, steps)
+    if (hits.isEmpty()) {
+      return
+    }
+    log.info(
+      'Intent recipe routing: plan-step deterministic hints (deferToPlanLoop): {}',
+      hits.collect { "${it.stepId ?: '?'}:${it.recipeId}" }.join(', ')
+    )
+    toolsLoopSessionBundle.planStepRecipeMatches = hits
+  }
+
   private static String intentRecipeRematchRouterVisible(String expansionText, String originalRouterVisible) {
     String exp = (expansionText ?: '').toString().trim()
     String orig = (originalRouterVisible ?: '').toString().trim()
@@ -3662,7 +3732,8 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
   }
 
   /**
-   * One routing pass: deterministic signals, JSON router, deterministic fallback after router miss.
+   * One routing pass: deterministic signals → clarify/enrich LLM → retest; single hit binds whole turn.
+   * Multiple hits or zero hits (by default) defer to the tools-loop **## Plan** instead of forcing one JSON-router recipe.
    * @return map with {@code matched} (boolean) and match fields when true
    */
   private static Map intentRecipeRoutingMatchPass(
@@ -3680,26 +3751,40 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     String visible = (routerVisible ?: '').toString().trim()
     Map routeCtx = detCtx instanceof Map ? new LinkedHashMap(detCtx) : [:]
     routeCtx.routerVisible = visible
+    String wireForMemory = (routeCtx.cand ?: '').toString()
     List detMatches = AuthoringIntentRecipeCatalog.findDeterministicRecipeMatches(recipes, routeCtx)
-    List ambiguousCandidates =
-      AuthoringIntentRecipeCatalog.findAmbiguousRecipeCandidates(recipes, routeCtx, visible)
-    boolean intentTightened = false
-    if (ambiguousCandidates.size() > 1) {
-      String wireForMemory = (routeCtx.cand ?: '').toString()
-      if (!AuthoringPreviewContext.authorCurrentRequestSuggestsCmsTooling(wireForMemory)) {
+    if (detMatches.size() == 1) {
+      Map detMatch = detMatches[0]
+      out.matched = true
+      out.recipe = detMatch.recipe
+      out.recipeId = detMatch.recipeId?.toString()?.trim()
+      out.confidence = 1.0d
+      out.routerReason = detMatch.routerReason?.toString()
+      out.skipRecipePrefetch = Boolean.TRUE.equals(detMatch.skipPrefetch)
+      out.matchPass = 'deterministic'
+      out.deterministicMatchCount = 1
+      return out
+    }
+    List routerRecipes = AuthoringIntentRecipeCatalog.filterRecipesEligibleForRouter(recipes, visible)
+    String catalogMd = AuthoringIntentRecipeCatalog.toRouterCatalogMarkdown(routerRecipes)
+    boolean intentClarified = false
+    if (detMatches.size() != 1) {
+      List ambiguousCandidates =
+        AuthoringIntentRecipeCatalog.findAmbiguousRecipeCandidates(recipes, routeCtx, visible)
+      List clarifyRows = detMatches.size() > 1 ?
+        detMatches :
+        (ambiguousCandidates.size() > 1 ? ambiguousCandidates : [])
+      boolean enrichMode = detMatches.isEmpty() && clarifyRows.isEmpty()
+      if (enrichMode || clarifyRows.size() > 1) {
         log.info(
-          'Intent recipe routing: {} ambiguous candidates but no CMS signal on current turn — skip intent tighten (defer to recipe router)',
-          ambiguousCandidates.size()
+          'Intent recipe routing: clarify/enrich before retest (detMatches={}, enrichMode={})',
+          detMatches.size(),
+          enrichMode
         )
-      } else {
-      log.info(
-        'Intent recipe routing: ambiguous workflows ({} recipes: {}) — LLM intent tighten + retest',
-        ambiguousCandidates.size(),
-        ambiguousCandidates.collect { it.recipeId?.toString() }.findAll { it }.join(', ')
-      )
-      String tightened =
-        generateAuthoringIntentTighteningText(
-          ambiguousCandidates,
+        String clarified = generateAuthoringIntentRoutingClarifyText(
+          clarifyRows,
+          catalogMd,
+          enrichMode,
           visible,
           wireForMemory,
           apiKey,
@@ -3707,23 +3792,23 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
           wireBaseUrl,
           toolsLoopSessionBundle
         )
-      if (tightened?.trim()) {
-        intentTightened = true
-        visible = tightened.trim()
-        routeCtx.routerVisible = visible
-        detMatches = AuthoringIntentRecipeCatalog.findDeterministicRecipeMatches(recipes, routeCtx)
-        ambiguousCandidates =
-          AuthoringIntentRecipeCatalog.findAmbiguousRecipeCandidates(recipes, routeCtx, visible)
-        log.info(
-          'Intent recipe routing: retest after intent tighten (detMatches={}, ambiguous={}, tightenedChars={})',
-          detMatches.size(),
-          ambiguousCandidates.size(),
-          visible.length()
-        )
-      }
+        if (clarified?.trim()) {
+          intentClarified = true
+          visible = clarified.trim()
+          routeCtx.routerVisible = visible
+          routerRecipes = AuthoringIntentRecipeCatalog.filterRecipesEligibleForRouter(recipes, visible)
+          catalogMd = AuthoringIntentRecipeCatalog.toRouterCatalogMarkdown(routerRecipes)
+          detMatches = AuthoringIntentRecipeCatalog.findDeterministicRecipeMatches(recipes, routeCtx)
+          log.info(
+            'Intent recipe routing: retest after clarify/enrich (detMatches={}, clarifiedChars={})',
+            detMatches.size(),
+            visible.length()
+          )
+        }
       }
     }
-    out.intentTightened = intentTightened
+    out.intentClarified = intentClarified
+    out.intentTightened = intentClarified
     out.deterministicMatchCount = detMatches.size()
     if (detMatches.size() == 1) {
       Map detMatch = detMatches[0]
@@ -3733,14 +3818,30 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       out.confidence = 1.0d
       out.routerReason = detMatch.routerReason?.toString()
       out.skipRecipePrefetch = Boolean.TRUE.equals(detMatch.skipPrefetch)
-      out.matchPass = intentTightened ? 'deterministic_after_intent_tighten' : 'deterministic'
+      out.matchPass = intentClarified ? 'deterministic_after_clarify' : 'deterministic'
       return out
     }
-    List routerRecipes = AuthoringIntentRecipeCatalog.filterRecipesEligibleForRouter(recipes, visible)
-    String catalogMd = AuthoringIntentRecipeCatalog.toRouterCatalogMarkdown(routerRecipes)
+    if (detMatches.size() > 1) {
+      log.info(
+        'Intent recipe routing: {} deterministic matches after clarify — defer to plan loop (no whole-turn recipe)',
+        detMatches.size()
+      )
+      out.deferToPlanLoop = true
+      out.ambiguousMultiRecipe = true
+      out.matchPass = 'ambiguous_multi_defer_plan'
+      out.catalogMd = catalogMd
+      return out
+    }
+    if (!StudioAiAssistantProjectConfig.intentRecipeWholeTurnJsonRouterEnabled(cfg)) {
+      log.info('Intent recipe routing: no deterministic match after clarify — defer to plan loop (wholeTurnJsonRouterEnabled=false)')
+      out.deferToPlanLoop = true
+      out.matchPass = 'no_deterministic_defer_plan'
+      out.catalogMd = catalogMd
+      return out
+    }
     String userRouter = authoringIntentRefineUserMessage(
       '## Recipe catalog\n\n' + catalogMd + '\n\n## Author message (this turn)\n\n' + visible,
-      (routeCtx.cand ?: '').toString()
+      wireForMemory
     )
     String rawJson = toolsLoopSimpleCompletionAssistantText(
       apiKey,
@@ -3797,13 +3898,14 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       out.routerConfidence = conf
       return out
     }
+    out.deferToPlanLoop = true
     out.minConfidence = minC
     out.catalogMd = catalogMd
     out.routerDecision = decision
     out.routerConfidence = conf
     out.routerRecipeId = rid
     out.routerRecipeFound = recipe != null
-    out.matchPass = 'no_match'
+    out.matchPass = 'no_match_defer_plan'
     return out
   }
 
@@ -3844,10 +3946,10 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
   }
 
   /**
-   * Optional pre-tools **intent recipe** routing: **pass 1** match only (deterministic → JSON router → deterministic
-   * fallback). When pass 1 misses and {@code allowExpansionRematch}, run LLM intent expansion then **pass 2** rematch on
-   * expanded author-visible text. Matched or unmatched outcomes may prepend the expansion wire block once (no separate
-   * post-routing expansion prepend).
+   * Optional pre-tools **intent recipe** routing: deterministic match → clarify/enrich LLM → retest. Exactly one
+   * deterministic hit binds the whole turn. Zero or multiple hits defer to the tools-loop **## Plan** (JSON whole-turn
+   * router only when {@code wholeTurnJsonRouterEnabled} is true). When pass 1 defers and {@code allowExpansionRematch},
+   * CMS-biased intent expansion may run pass 2. Matched or unmatched outcomes may prepend the expansion wire block once.
    * <p>Eligibility matches {@link AuthoringPreviewContext#intentRecipeRouterEligibilitySkipReason}.</p>
    *
    * @return keys: {@code clarificationOnly} (Boolean), {@code userTextForToolsLoop} (String), {@code clarificationUserText} (String body for tools-off clarification when clarificationOnly), {@code intentRecipeRoutingTelemetry} (Map with at least {@code outcome})
@@ -4121,7 +4223,9 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
             cand,
             currentAuthorVisible ?: ''
           )
-      if (!Boolean.TRUE.equals(pass1.matched) && allowExpansionRematch && expansionBiasOk) {
+      boolean deferPlanAfterPass1 =
+        Boolean.TRUE.equals(pass1.deferToPlanLoop) || Boolean.TRUE.equals(pass1.ambiguousMultiRecipe)
+      if (!Boolean.TRUE.equals(pass1.matched) && !deferPlanAfterPass1 && allowExpansionRematch && expansionBiasOk) {
         List routerRecipesForExpansion =
           AuthoringIntentRecipeCatalog.filterRecipesEligibleForRouter(recipes, routerVisible)
         String catalogMdForExpansion =
@@ -4238,7 +4342,14 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
         )
       }
       String noMatchHint
-      if (AuthoringPreviewContext.authorCurrentRequestSuggestsCmsTooling(cand)) {
+      boolean deferPlan =
+        Boolean.TRUE.equals(activePass.deferToPlanLoop) || Boolean.TRUE.equals(activePass.ambiguousMultiRecipe)
+      if (deferPlan) {
+        noMatchHint =
+          '[Studio — intent routing: **no single workflow** for the whole turn (multiple goals or no pattern match). ' +
+          'Start with **## Plan** — **one step per distinct goal**, then run tools in that order. ' +
+          'Do **not** treat the entire turn as one recipe when steps differ (e.g. web research **and** a CMS field edit).]\n\n'
+      } else if (AuthoringPreviewContext.authorCurrentRequestSuggestsCmsTooling(cand)) {
         noMatchHint =
           AuthoringPreviewContext.authorRefersToAnchoredOpenStudioItemForAuthorText(
             cand,
@@ -4254,13 +4365,16 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
           '[Studio — recipe intent router: no confident recipe match; proceed with normal judgement and only use CMS tools when **this turn** clearly requires repository work.]\n\n'
       }
       result.userTextForToolsLoop = expansionWirePrefix + noMatchHint + (userTextAfterGuard ?: '')
+      result.intentRecipeRoutingWireCand = cand
       Map noMatchTel = [
         recipeId               : rid,
         confidence             : conf,
         minConfidence          : minC,
         recipeFoundInCatalog   : recipeFound,
         routerReason           : (decision.reason?.toString()?.trim() ?: ''),
-        intentExpansionRematch : expansionWirePrefix ? Boolean.TRUE : Boolean.FALSE
+        intentExpansionRematch : expansionWirePrefix ? Boolean.TRUE : Boolean.FALSE,
+        deferToPlanLoop        : deferPlan ? Boolean.TRUE : Boolean.FALSE,
+        matchPass              : activePass.matchPass?.toString()
       ]
       noMatchTel.putAll(catalogTel)
       return intentRecipeAttachTelemetry(ops, cfg, result, 'no_match', noMatchTel)
@@ -5964,6 +6078,15 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
               agentId
             )
           }
+          if (round == 0 && ops != null && toolsLoopSessionBundle instanceof Map) {
+            Map stepCfg = StudioAiAssistantProjectConfig.load(ops)
+            List stepRecipes = AuthoringIntentRecipeCatalog.loadRecipes(ops, stepCfg)
+            maybeLogPlanStepDeterministicRecipeMatches(
+              stepRecipes,
+              (Map) toolsLoopSessionBundle,
+              assistantRawForOrchestration
+            )
+          }
         }
       }
       mutateAssistantContentStripOrchestratorBlock(msgCopy)
@@ -7020,6 +7143,9 @@ Your last assistant message had a **plan-style heading** (## Plan, ## Revised Pl
         if (route?.intentRecipeRoutingTelemetry instanceof Map) {
           springAi.intentRecipeRoutingTelemetry = route.intentRecipeRoutingTelemetry
         }
+        if (route?.intentRecipeRoutingWireCand != null) {
+          springAi.intentRecipeRoutingWireCand = route.intentRecipeRoutingWireCand.toString()
+        }
         applyIntentRecipeRouteEffects(springAi, route)
         if (route.clarificationOnly) {
           String clar = toolsLoopSimpleCompletionAssistantText(
@@ -7859,6 +7985,9 @@ Your last assistant message had a **plan-style heading** (## Plan, ## Revised Pl
         if (route?.intentRecipeRoutingTelemetry instanceof Map) {
           springAi.intentRecipeRoutingTelemetry = route.intentRecipeRoutingTelemetry
           emitIntentRecipeRoutingTelemetrySse(out, (Map) route.intentRecipeRoutingTelemetry)
+        }
+        if (route?.intentRecipeRoutingWireCand != null) {
+          springAi.intentRecipeRoutingWireCand = route.intentRecipeRoutingWireCand.toString()
         }
         applyIntentRecipeRouteEffects(springAi, route)
         if (route.clarificationOnly) {

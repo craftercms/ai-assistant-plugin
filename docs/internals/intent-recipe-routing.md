@@ -16,6 +16,54 @@ Companion to **[`chat-and-tools-runtime.md`](chat-and-tools-runtime.md)** and **
 
 ---
 
+## Routing at a glance (default)
+
+One turn, tools-loop LLM, `intentRecipeRouting.enabled: true`, shipped defaults (`eligibilityGateEnabled: false`, `wholeTurnJsonRouterEnabled: false`).
+
+```mermaid
+flowchart TD
+  A([Author message this turn]) --> B{Prechecks OK?}
+  B -->|no| Bskip[Skip routing — tools loop or error]
+  B -->|yes| C{Deterministic patterns:<br/>how many recipes match?}
+
+  C -->|exactly 1| M[Whole-turn recipe]
+  C -->|0 or 2+| D[LLM clarify / enrich<br/>one sentence, current turn only]
+  D --> E{Retest patterns}
+  E -->|exactly 1| M
+  E -->|2 or more| P[Defer to plan loop]
+  E -->|0| F{wholeTurnJsonRouterEnabled?}
+  F -->|false default| P
+  F -->|true| R[JSON recipe router]
+  R -->|confident match| M
+  R -->|no match| P
+
+  M --> G[Prefetch + recipe prelude on prompt]
+  G --> H{Recipe disables tools?}
+  H -->|yes e.g. llm_research| I[Prose reply only]
+  H -->|no| J[Tools loop]
+
+  P --> K[## Plan hint on prompt]
+  K --> J
+  J --> L[Model writes ## Plan + tool_calls]
+  L --> M2[Optional: per-step recipe hints<br/>from plan step summaries]
+  M2 --> N[Execute tools round by round]
+
+  Bskip --> J
+```
+
+**Read the diagram left to right, top to bottom.**
+
+| Branch | Meaning |
+|--------|---------|
+| **Whole-turn recipe** | One workflow fits the **entire** current message — server runs that recipe’s prefetch and guidance before (or instead of) tools. |
+| **Clarify / enrich** | No single pattern yet — small LLM pass restates what the author wants **this turn**; patterns are tried again. |
+| **Defer to plan loop** | Still ambiguous or unmatched — **do not** force one recipe for the whole turn; the main tools loop uses **## Plan** (one step per goal). |
+| **JSON recipe router** | **Optional** (`wholeTurnJsonRouterEnabled: true`) — legacy whole-turn classifier when zero patterns match after clarify. **Off by default.** |
+
+The box diagram in **[Default flow](#default-flow-shipped--preview-chat-tools-loop-llms)** below adds prelude letters (A–E), expansion rematch, and eligibility-gate hooks for maintainers.
+
+---
+
 ## Default flow (shipped — preview chat, tools-loop LLMs)
 
 This is what runs **out of the box** when intent recipe routing is on and the agent uses a **tools-loop** LLM (`openAI`, `xAI`, `deepSeek`, `llama`, `gemini` / `genesis`, or `script:{id}` with tools-loop wire). Optional branches are in **[Optional paths](#optional-paths-not-default)** below.
@@ -28,7 +76,8 @@ This is what runs **out of the box** when intent recipe routing is on and the ag
 | `eligibilityGateEnabled` | **`false`** | **No** early message filter — every non-empty turn reaches recipe match |
 | `engineEnabled` | `true` | Prefetch engine runs on match |
 | `requestClarificationOnUnmatched` | `false` | On `no_match`, tools loop runs (no tools-off clarification turn) |
-| `minConfidence` | `0.55` | Router must meet this to match |
+| `wholeTurnJsonRouterEnabled` | **`false`** | When off, zero/multiple deterministic hits defer to **## Plan** (no JSON router forcing one recipe) |
+| `minConfidence` | `0.55` | Whole-turn JSON router must meet this when `wholeTurnJsonRouterEnabled: true` |
 
 **Wire in:** `Repository path` / Request anchor + optional `[Prior conversation …]` + **`Current request:`** (current-turn text for routing).
 
@@ -50,17 +99,18 @@ This is what runs **out of the box** when intent recipe routing is on and the ag
     ┌───────────────────────────────┴───────────────────────────────┐
     │ C  Recipe match — intentRecipeRoutingMatchPass                 │
     │                                                                 │
-    │    C1  Deterministic signals (bundled + site custom recipes)    │
-    │         one hit → matched (e.g. open_page_inquiry,              │
-    │         creative_llm_only → llm_research, modify_page_content)  │
+    │    C1  Deterministic signals → exactly one hit → matched        │
     │                                                                 │
-    │    C2  Else JSON recipe router LLM (catalog + Current request)  │
-    │         conf ≥ minConfidence → matched                          │
+    │    C2  Else clarify/enrich LLM (disambiguate or zero-match)     │
+    │         → retest deterministic → one hit → matched              │
     │                                                                 │
-    │    C3  Else deterministic fallback → still none → no_match    │
+    │    C3  Still multiple hits → deferToPlanLoop (no whole-turn     │
+    │         recipe); tools loop uses ## Plan per step               │
     │                                                                 │
-    │    If no_match and current turn has CMS / field-placement bias: │
-    │         LLM intent expansion → repeat C (expansion rematch)     │
+    │    C4  Still zero hits → deferToPlanLoop (default) OR optional  │
+    │         wholeTurnJsonRouterEnabled → JSON router → matched      │
+    │                                                                 │
+    │    If defer/no_match and CMS bias: expansion rematch → C       │
     └───────────────────────────────┬─────────────────────────────────┘
                                     │
     ┌───────────────────────────────┴───────────────────────────────┐
@@ -88,7 +138,8 @@ This is what runs **out of the box** when intent recipe routing is on and the ag
 | What is this page about? | B → C1 `open_page_inquiry` → D prefetch → **no E** (tools off) |
 | Write a short story about … | B → C1 `creative_llm_only` / `llm_research` → D tools off → **no E** |
 | Update the hero text to … | B → C1/C2 `modify_page_content` → D prefetch → **E** WriteContent |
-| Multi-intent / odd wording | B → C2 router or C3 `no_match` → D hint → **E** (model + custom tools/recipes) |
+| Multi-intent / odd wording | B → C2 clarify → C3 `deferToPlanLoop` → D plan hint → **E** (## Plan + tools per step) |
+| Look up … on the web (single goal) | B → C1 `web_research` → D prefetch → **E** WebSearch |
 | Long paste, no URL | B → C (no eligibility gate) → often `no_match` → **E** |
 
 ### Telemetry outcomes (default prelude)
@@ -96,7 +147,7 @@ This is what runs **out of the box** when intent recipe routing is on and the ag
 | `outcome` | Meaning |
 |-----------|---------|
 | `matched` | Recipe chosen; prefetch + prelude applied |
-| `no_match` | No recipe; hint prepended; **tools loop runs** |
+| `no_match` | No whole-turn recipe; plan hint when `deferToPlanLoop`; **tools loop runs** |
 | `skipped_empty_prompt` / `skipped_no_api_key` / `skipped_no_model` / `skipped_no_recipes` | Preconditions failed |
 | `skipped_disabled` | `intentRecipeRouting.enabled: false` |
 
@@ -132,6 +183,10 @@ See **[Phase 2 — Eligibility gate](#phase-2--eligibility-gate-optional-off-by-
 ### Optional: disable routing entirely
 
 `intentRecipeRouting.enabled: false` → prelude skipped; chat goes straight to **E** with no recipe/prefetch.
+
+### Optional: whole-turn JSON router (`wholeTurnJsonRouterEnabled: true`)
+
+**Off by default.** When **on**, a turn with **zero** deterministic hits after clarify/enrich may still bind one recipe via the JSON classifier (legacy behavior). When **off**, those turns get `deferToPlanLoop` and the tools loop **## Plan** instead of forcing one recipe for the entire message.
 
 ---
 
@@ -203,6 +258,8 @@ When skip reason is **non-null**, prelude returns `outcome: skipped_eligibility`
 
 ## Phase 3 — Match pass and outcomes (inside prelude)
 
+See **[Routing at a glance](#routing-at-a-glance-default)** for the simplified decision flow (deterministic → clarify → whole-turn match vs plan loop).
+
 **Class:** `AiOrchestration`  
 **Method:** `intentRecipeRoutingPrelude` → `intentRecipeRoutingMatchPass` after Phase 1 (and optional Phase 2 eligibility gate)
 
@@ -214,18 +271,18 @@ When skip reason is **non-null**, prelude returns `outcome: skipped_eligibility`
 
 ### Pass 1 — `intentRecipeRoutingMatchPass`
 
-1. **Deterministic matches** — `AuthoringIntentRecipeCatalog.findDeterministicRecipeMatches` against JSON recipes (`deterministicMatch` entries) and `AuthoringIntentRecipeSignals` (e.g. `creative_llm_only`, `chat_artifact_followup`, `open_page_inquiry`, field-edit signals).
+1. **Deterministic matches** — `findDeterministicRecipeMatches` (bundled + site recipes, `AuthoringIntentRecipeSignals`). **Exactly one** hit → whole-turn `matched` (`matchPass: deterministic`).
 
-2. **Ambiguous competitors** — If multiple recipes match:
-   - **Structural competitors** (`findStructuralRecipeCompetitors`): only when **current turn** has CMS signals (`authorCurrentRequestSuggestsCmsTooling`). Chat pivot adds `llm_research` only; does **not** add `modify_page_content` from anchor alone.
-   - **Intent tighten** (LLM): only when ambiguous **and** CMS on current turn; rewrites one sentence, retests deterministic match.
-   - If ambiguous but **no** CMS on current turn: skip tighten; defer to JSON router (+ optional recent-turn memory in router user message).
+2. **Clarify / enrich** — When hits ≠ 1: LLM restates current-turn intent (`generateAuthoringIntentRoutingClarifyText`):
+   - **Disambiguate** when multiple pattern or structural competitors match.
+   - **Enrich** when zero patterns matched (catalog table for context).
+   - Retest deterministic signals on clarified text → one hit → `deterministic_after_clarify`.
 
-3. **JSON recipe router** — Catalog markdown + `routerVisible` → LLM returns `{ recipeId, confidence, reason }`. Must meet `intentRecipeMinConfidence` and pass `dontMatchHints`.
+3. **Defer to plan loop** (default) — Still **multiple** hits → `deferToPlanLoop`, `ambiguous_multi_defer_plan` (no JSON router). Still **zero** hits → `deferToPlanLoop`, `no_deterministic_defer_plan`. Prelude prepends a **## Plan** hint; tools loop may log per-step deterministic hints from `CRAFTERRQ_ORCH` step summaries (`matchRecipesForPlanSteps`).
 
-4. **Deterministic fallback** — After router miss, one more `findDeterministicRecipeMatch`.
+4. **Optional JSON whole-turn router** — Only when `wholeTurnJsonRouterEnabled: true` and zero hits after clarify: legacy catalog classifier + `minConfidence` + deterministic fallback.
 
-**Single deterministic match** → `matchPass: deterministic` (or `deterministic_after_intent_tighten`), confidence 1.0, often `skipPrefetch` per recipe.
+**Expansion rematch** (prelude pass 2) runs only when pass 1 did **not** `deferToPlanLoop` and CMS/expansion bias applies.
 
 ### Pass 2 — Expansion rematch (optional)
 

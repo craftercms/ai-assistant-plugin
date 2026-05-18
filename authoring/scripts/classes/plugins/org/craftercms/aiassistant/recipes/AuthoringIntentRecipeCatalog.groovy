@@ -517,6 +517,40 @@ final class AuthoringIntentRecipeCatalog {
   }
 
   /**
+   * Per-step deterministic recipe hits for plan orchestration (step {@code summary} as {@code routerVisible}).
+   * @return list of maps with {@code stepId}, {@code summary}, {@code recipeId}, {@code routerReason}
+   */
+  static List<Map> matchRecipesForPlanSteps(List<Map> recipes, Map baseCtx, List<Map> planSteps) {
+    if (recipes == null || recipes.isEmpty() || planSteps == null || planSteps.isEmpty()) {
+      return Collections.emptyList()
+    }
+    Map base = baseCtx instanceof Map ? new LinkedHashMap<>((Map) baseCtx) : [:]
+    List<Map> out = new ArrayList<>()
+    for (Map step : planSteps) {
+      if (!(step instanceof Map)) {
+        continue
+      }
+      String summary = step.summary?.toString()?.trim()
+      if (!summary) {
+        continue
+      }
+      Map ctx = new LinkedHashMap<>(base)
+      ctx.routerVisible = summary
+      Map hit = findDeterministicRecipeMatch(recipes, ctx)
+      if (hit == null) {
+        continue
+      }
+      out.add([
+        stepId      : step.id,
+        summary     : summary,
+        recipeId    : hit.recipeId?.toString()?.trim(),
+        routerReason: hit.routerReason?.toString()
+      ])
+    }
+    return out
+  }
+
+  /**
    * Optional competitors when the **current turn** already signals CMS/research — not when Studio metadata alone
    * anchors {@code /site/.../*.xml} (that bias is deferred to deterministic signals + the LLM recipe router).
    */
