@@ -9,22 +9,34 @@ import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSupport
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
+/**
+ * LLM tool that returns a content type's {@code form-definition.xml} so the model can map author field labels
+ * to element ids before editing XML.
+ */
 class GetContentTypeFormDefinitionTool extends AbstractStudioAiTool {
 
   private static final Logger log = LoggerFactory.getLogger(GetContentTypeFormDefinitionTool)
 
+  /** Returns the Spring AI wire name {@code GetContentTypeFormDefinition}. */
   @Override
   String wireName() { 'GetContentTypeFormDefinition' }
 
+  /** Site-overridable tool description from {@link ToolPrompts}. */
   @Override
   String description() { ToolPrompts.getDESC_GET_CONTENT_TYPE_FORM_DEFINITION() }
 
+  /** JSON Schema for {@code contentPath} and/or {@code contentTypeId}. */
   @Override
   String inputSchemaJson() { StudioAiToolSchemas.GET_CONTENT_TYPE }
 
+  /** Permitted during recipe-engine prefetch (read-only). */
   @Override
   boolean recipeEngineReadOnly() { true }
 
+  /**
+   * Resolves {@code contentTypeId} from the item XML at {@code contentPath} when provided, warns on mismatched
+   * explicit ids, then loads the form definition via {@link plugins.org.craftercms.aiassistant.tools.StudioToolOperations#getContentTypeFormDefinition}.
+   */
   @Override
   Map execute(Map input, StudioAiToolContext ctx) {
     def siteId = ctx.ops.resolveEffectiveSiteId(input?.siteId?.toString()?.trim())

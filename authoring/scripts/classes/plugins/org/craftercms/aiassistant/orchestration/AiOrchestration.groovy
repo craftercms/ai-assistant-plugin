@@ -159,6 +159,11 @@ class AiOrchestration {
    */
   private static final ThreadLocal<AtomicBoolean> AIASSISTANT_PIPELINE_CANCEL_REQUESTED = new ThreadLocal<>()
 
+  /**
+   * Installs (or clears when null) the per-thread AtomicBoolean orchestration uses for Stop/disconnect.
+   * Delegates to ThreadLocal storage shared with AiOrchestrationTools callbacks.
+   * Swallows Throwable so cancellation wiring never breaks chat startup.
+   */
   static void aiAssistantPipelineCancelBindingSet(AtomicBoolean cancelRequestedRef) {
     try {
       if (cancelRequestedRef != null) {
@@ -170,6 +175,11 @@ class AiOrchestration {
     }
   }
 
+  /**
+   * Removes the cancellability ThreadLocal after a tools-loop completes.
+   * Prevents later unrelated worker threads from inheriting stale cancel flags.
+   * Matches AiOrchestrationTools.runWithToolProgress lifecycle expectations.
+   */
   static void aiAssistantPipelineCancelBindingClear() {
     try {
       AIASSISTANT_PIPELINE_CANCEL_REQUESTED.remove()
@@ -211,6 +221,11 @@ class AiOrchestration {
     }
   }
 
+  /**
+   * Clears the worker-thread session id bound for SSE heartbeat diagnostics.
+   * Runs when native-tools workers tear down.
+   * Avoids leaking ids across pooled executor threads.
+   */
   static void aiAssistantToolWorkerDiagSessionEnd() {
     try {
       String sid = AIASSISTANT_TOOL_WORKER_DIAG_SESSION_ID.get()
@@ -257,6 +272,11 @@ class AiOrchestration {
     return ''
   }
 
+  /**
+   * Deletes diagnostic phase strings keyed by streaming session id.
+   * Invoked after flux completion so heartbeat maps stay bounded.
+   * Pairs with servlet-thread reads while awaiting Futures.
+   */
   static void aiAssistantToolWorkerDiagPhaseClear() {
     try {
       String sid = AIASSISTANT_TOOL_WORKER_DIAG_SESSION_ID.get()
@@ -343,6 +363,11 @@ class AiOrchestration {
     return 'Organizing the next step…'
   }
 
+  /**
+   * Reads JVM property aiassistant.chatFluxAwaitMs when numeric between bounds.
+   * Defaults to a ten-minute ceiling aligned with Studio UI SSE timeouts.
+   * Feeds reactor/blocking awaits for Spring AI responses.
+   */
   private static long resolveChatFluxAwaitMs() {
     try {
       def p = System.getProperty('aiassistant.chatFluxAwaitMs')
@@ -394,6 +419,11 @@ class AiOrchestration {
     return (int) Math.min(1_260_000L, CHAT_FLUX_AWAIT_MS + 30_000L)
   }
 
+  /**
+   * Builds SimpleClientHttpRequestFactory honoring aiassistant.openai.restReadTimeoutMs defaults.
+   * Adds sane connect timeouts so hung upstream chats surface quickly.
+   * Shared by RestClient native-tools transports.
+   */
   private static SimpleClientHttpRequestFactory chatCompletionsRestRequestFactory() {
     def rf = new SimpleClientHttpRequestFactory()
     rf.setReadTimeout(resolveChatCompletionsRestReadTimeoutMs())
@@ -438,6 +468,11 @@ class AiOrchestration {
    */
   private static final AtomicBoolean springAiVerboseHttpLoggingArmed = new AtomicBoolean(false)
 
+  /**
+   * Reflectively lowers Spring AI HTTP client logger levels once per JVM.
+   * Guards duplicate initialization via AtomicBoolean latch.
+   * Helps operators trace RestClient failures during native-tools loops.
+   */
   private static void ensureVerboseSpringAiHttpLogging() {
     String raw = System.getProperty('aiassistant.springAiHttpDebug', 'false')
     if (!Boolean.parseBoolean((raw != null ? raw.trim() : 'false') ?: 'false')) {
@@ -481,6 +516,11 @@ class AiOrchestration {
     this.pluginConfig = pluginConfig
   }
 
+  /**
+   * Scans collapsed lowercase prompts for phrases implying mandatory CMS/tool usage.
+   * Used before injecting guardrails into model-facing text.
+   * Keeps suppression logic deterministic without another LLM hop.
+   */
   private static boolean isToolRequiredIntent(String prompt) {
     def p = (prompt ?: '').toLowerCase()
     if (!p) return false
@@ -528,6 +568,11 @@ The author is in Studio's **legacy content form**. When the UI attaches **Curren
 ''' + tail
   }
 
+  /**
+   * Prepends or appends compact English reminders when prompts imply tooling obligations.
+   * Honors fullSuppressRepoWrites to gate repository mutation wording separately.
+   * Leaves benign prompts untouched via early exits.
+   */
   private static String addToolRequiredGuard(String prompt, boolean fullSuppressRepoWrites = false, String protectedFormItemPathNormalized = null) {
     def p = (prompt ?: '').toString()
     if (!isToolRequiredIntent(p)) return p
@@ -707,6 +752,11 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     return m.toString()
   }
 
+  /**
+   * Walks Spring AI Prompt ChatMessages producing Maps compatible with Chat Completions JSON.
+   * Preserves roles (system/user/assistant/tool) expected by RestClient adapters.
+   * Feeds shrink/truncate helpers before oversized POST bodies.
+   */
   private static List chatMessagesWireShape(Prompt prompt) {
     def out = []
     if (prompt == null) return out
@@ -875,6 +925,11 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     return ''
   }
 
+  /**
+   * Parses vendor JSON bodies heuristically for unknown-model / permission strings.
+   * Uses substring guards across OpenAI-compatible variants.
+   * Lets orchestration normalize models instead of failing opaque 400s.
+   */
   private static boolean responseBodyLooksLikeInvalidModelId(String responseBody) {
     String b = (responseBody ?: '').toLowerCase(Locale.ROOT)
     return b.contains('invalid model')
@@ -925,6 +980,11 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     return rce
   }
 
+  /**
+   * Trims requested chat model ids from widgets or POST bodies.
+   * Aliases neo-* tokens when gateway vendors rename SKUs.
+   * Returns empty string when callers should fall back to agent defaults.
+   */
   static String resolveChatModel(String fromRequest) {
     String base = (fromRequest ?: '').toString().trim() ?: (System.getProperty('crafter.openai.model') ?: '').toString().trim()
     if (!base) {
@@ -1148,6 +1208,11 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     return StudioAiLlmRuntimeFactory.runtimeFor(llmNorm).buildSessionBundle(req)
   }
 
+  /**
+   * Reads servlet attributes / preview flags describing authoringIntentExpansion toggles.
+   * Combines StudioAiAssistantProjectConfig server defaults when unset.
+   * Determines whether compact intent envelopes run before tools loops.
+   */
   private boolean requestAuthoringIntentExpansionEnabled() {
     try {
       def v = request?.getAttribute('aiassistant.authoringIntentExpansion')
@@ -1175,6 +1240,11 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     return AuthoringPreviewContext.isAuthoringIntentExpansionCandidate((bodyPrompt ?: '').toString(), cfg)
   }
 
+  /**
+   * Pulls nested maps from tools-loop session bundles describing recipe router budgets.
+   * Returns immutable-ish defaults when bundle lacks recipe metadata.
+   * Feeds AuthoringIntentRecipeRouter guards without Groovy casts leaking outward.
+   */
   private static Map intentRecipeProjectConfigFromToolsLoopBundle(Map toolsLoopSessionBundle) {
     if (toolsLoopSessionBundle?.studioOps instanceof StudioToolOperations) {
       try {
@@ -1367,6 +1437,11 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     return content != null ? content.toString() : ''
   }
 
+  /**
+   * Extracts finish_reason deltas from streamed ChatCompletion chunk maps.
+   * Handles both snake_case and camelCase vendor quirks.
+   * Signals stop/tool_calls transitions to native-tools iterators.
+   */
   private static String streamChunkFinishReason(Object root) {
     if (!(root instanceof Map)) {
       return ''
@@ -1383,6 +1458,11 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     return fr != null ? fr.toString() : ''
   }
 
+  /**
+   * Pulls provider error payloads from streamed chunk roots.
+   * Looks under error/message/refusal mirrors depending on vendor JSON.
+   * Surfaces actionable strings to SSE clients without dumping entire payloads.
+   */
   private static String streamChunkProviderErrorMessage(Object root) {
     if (!(root instanceof Map)) {
       return ''
@@ -1479,6 +1559,11 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     }
   }
 
+  /**
+   * Maps Spring AI ChatCompletionMessage records into LinkedHashMaps RestClient expects.
+   * Copies tool_calls/content/refusal metadata faithfully.
+   * Keeps JSON serializers deterministic across vendors.
+   */
   private static Map wireMessageFromChatCompletionMessage(ChatCompletionMessage cm) {
     if (cm == null) {
       return [:]
@@ -1492,6 +1577,11 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     return [role: roleStr, content: text]
   }
 
+  /**
+   * Serializes Spring FunctionToolCallback metadata into Chat Completions tool slots.
+   * Includes sanitized JSON schemas when callbacks expose structured inputs.
+   * Produces stable ordering so replay/debug traces remain readable.
+   */
   private static List<Map> buildWireToolsFromCallbacks(List tools) {
     def out = []
     if (!tools) {
@@ -1527,6 +1617,11 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     out
   }
 
+  /**
+   * Indexes callbacks by wire-safe tool names for O(1) dispatch.
+   * Throws when duplicates appear to prevent ambiguous executions.
+   * Feeds parallel Anthropic/OpenAI bridging layers.
+   */
   private static Map<String, FunctionToolCallback> toolCallbacksByName(List tools) {
     Map<String, FunctionToolCallback> m = new LinkedHashMap<>()
     if (!tools) {

@@ -7,11 +7,20 @@ import java.util.Locale
 
 /**
  * Shared static helpers for preview URL/cookie handling (extracted from {@link plugins.org.craftercms.aiassistant.tools.StudioToolOperations}).
+ * Decodes {@code crafterPreview} fragments, trims dangerous cookies before Engine GETs, and rewrites Studio shell hash URLs into plain Engine preview URLs.
  */
 final class StudioToolOperationsSupport {
 
+  /**
+   * Blocks direct instantiation — every entry point is {@code static}.
+   */
   private StudioToolOperationsSupport() {}
 
+  /**
+   * Performs cautious percent-decoding on arbitrary cookie/header fragments without mangling {@code '+'}.
+   * Walks the string code-unit-wise emitting UTF-8 bytes for valid {@code %HH} escapes.
+   * Falls back to copying untouched characters when escapes are malformed.
+   */
   static String decodePercentEscapesUtf8PreservePlus(String s) {
     if (s == null || s.isEmpty()) {
       return s
@@ -34,6 +43,11 @@ final class StudioToolOperationsSupport {
     return new String(out.toByteArray(), StandardCharsets.UTF_8)
   }
 
+  /**
+   * Resolves {@code crafterPreview} from servlet attributes first, then cookie arrays, finally raw {@code Cookie} headers.
+   * Applies {@link #decodePercentEscapesUtf8PreservePlus} when decoding succeeds.
+   * Returns empty string when Studio never forwarded preview material for this request.
+   */
   static String readCrafterPreviewTokenFromServletRequest(def request) {
     if (!request) {
       return ''
@@ -100,6 +114,11 @@ final class StudioToolOperationsSupport {
     return ''
   }
 
+  /**
+   * Quotes RFC6265-ish cookie attribute values when separators or CTL characters appear.
+   * Escapes embedded quotes/backslashes when quoting is required.
+   * Leaves simple tokens untouched for compact headers.
+   */
   static String formatCookieAttributeValue(String val) {
     if (val == null) {
       return ''
@@ -119,6 +138,11 @@ final class StudioToolOperationsSupport {
     return '"' + val.replace('\\', '\\\\').replace('"', '\\"') + '"'
   }
 
+  /**
+   * Denylists cookie names that must never reach Engine preview fetches (session hijack vectors).
+   * Always strips {@code JSESSIONID} and refresh tokens plus JVM-provided comma lists.
+   * Keeps forwarded Studio cookies minimal yet sufficient for Experience Builder shells.
+   */
   static boolean stripCookieNameForPreviewEngineFetch(String cookieName) {
     if (!cookieName) {
       return false
@@ -145,6 +169,11 @@ final class StudioToolOperationsSupport {
     return false
   }
 
+  /**
+   * Converts Studio preview shell URLs ({@code /studio/preview#/…}) into Engine-compatible absolute URLs.
+   * Parses hash-query fragments for {@code page} / {@code url} plus {@code crafterSite}.
+   * Leaves non-hash URLs untouched so callers can pass already-normalized Engine links.
+   */
   static String rewriteStudioPreviewShellUrlForEngineFetch(String fullUrl, String siteIdFallback) {
     def u = (fullUrl ?: '').toString().trim()
     if (!u || !u.contains('#')) {
@@ -180,6 +209,11 @@ final class StudioToolOperationsSupport {
     return out.toString()
   }
 
+  /**
+   * Parses {@code application/x-www-form-urlencoded} style query strings using {@code &} separators.
+   * URL-decodes keys/values best-effort while ignoring malformed segments.
+   * Returns a mutable map mirroring Groovy-friendly {@code [:]} semantics.
+   */
   static Map<String, String> parseAmpQueryString(String q) {
     Map<String, String> m = [:]
     if (!q) {
@@ -204,6 +238,11 @@ final class StudioToolOperationsSupport {
     return m
   }
 
+  /**
+   * Removes named query parameters case-insensitively while preserving hash fragments.
+   * Rebuilds the query string only when surviving parameters remain.
+   * Used to strip preview tokens duplicated between cookies and URLs.
+   */
   static String removeQueryParamsCaseInsensitive(String url, Collection<String> paramNames) {
     def full = (url ?: '').toString()
     if (!full) {

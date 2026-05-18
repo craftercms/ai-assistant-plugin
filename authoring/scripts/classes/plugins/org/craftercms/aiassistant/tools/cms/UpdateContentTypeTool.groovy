@@ -5,17 +5,28 @@ import plugins.org.craftercms.aiassistant.tools.spi.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolContext
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSchemas
 
+/**
+ * LLM "planning" tool: loads a content type form definition and returns guidance for editing it in Studio
+ * (form-forward when repository writes are suppressed).
+ */
 class UpdateContentTypeTool extends AbstractStudioAiTool {
 
+  /** Returns the Spring AI wire name {@code update_content_type}. */
   @Override
   String wireName() { 'update_content_type' }
 
+  /** Site-overridable tool description from {@link ToolPrompts}. */
   @Override
   String description() { ToolPrompts.DESC_UPDATE_CONTENT_TYPE }
 
+  /** JSON Schema for site, content type id, and {@code instructions}. */
   @Override
   String inputSchemaJson() { StudioAiToolSchemas.CMS_LOOSE }
 
+  /**
+   * Loads {@code form-definition.xml} for {@code contentType}, attaches XML well-formedness hints when present,
+   * and returns next-step guidance for the model (does not write the config file itself).
+   */
   @Override
   Map execute(Map input, StudioAiToolContext ctx) {
     def siteId = ctx.ops.resolveEffectiveSiteId(input?.siteId?.toString()?.trim() ?: (input?.site_id?.toString()?.trim()))

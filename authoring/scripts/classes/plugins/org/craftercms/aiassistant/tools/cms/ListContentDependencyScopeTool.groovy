@@ -6,20 +6,32 @@ import plugins.org.craftercms.aiassistant.tools.spi.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolContext
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSchemas
 
+/**
+ * LLM tool that walks dependent/embedded content from an anchor path (translation / dependency scope tree).
+ * Wire alias {@code ListContentTranslationScope} is accepted by the recipe engine.
+ */
 class ListContentDependencyScopeTool extends AbstractStudioAiTool {
 
+  /** Returns the Spring AI wire name {@code ListContentDependencyScope}. */
   @Override
   String wireName() { 'ListContentDependencyScope' }
 
+  /** Site-overridable tool description from {@link ToolPrompts}. */
   @Override
   String description() { ToolPrompts.getDESC_LIST_CONTENT_DEPENDENCY_SCOPE() }
 
+  /** JSON Schema for anchor path, site, and optional depth/item limits. */
   @Override
   String inputSchemaJson() { StudioAiToolSchemas.LIST_CONTENT_DEPENDENCY_SCOPE }
 
+  /** Permitted during recipe-engine prefetch (read-only). */
   @Override
   boolean recipeEngineReadOnly() { true }
 
+  /**
+   * Parses optional numeric limits, then builds the scope tree via
+   * {@link ContentSubgraphAggregator#buildTranslationScopeTree}.
+   */
   @Override
   Map execute(Map input, StudioAiToolContext ctx) {
     def siteId = ctx.ops.resolveEffectiveSiteId(input?.siteId?.toString()?.trim())
@@ -32,6 +44,7 @@ class ListContentDependencyScopeTool extends AbstractStudioAiTool {
     return ContentSubgraphAggregator.buildTranslationScopeTree(ctx.ops, siteId, contentPath, maxItems, maxDepth, chunkSize)
   }
 
+  /** Parses an optional integer tool argument; returns null when missing or invalid. */
   private static Integer parseOptionalInt(Object v) {
     if (v == null) return null
     try {

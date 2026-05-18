@@ -46,6 +46,7 @@ final class AuthoringIntentRecipeCatalog {
   private static final ConcurrentHashMap<String, Map<String, String>> CATALOG_CHAT_DEFAULTS_BY_SITE =
     new ConcurrentHashMap<>()
 
+  /** Built-in emoji / line suffix defaults before any catalog JSON is loaded. */
   private static Map<String, String> defaultCatalogChatDefaults() {
     Map d = new LinkedHashMap<>()
     d.put('prefixEmoji', '🥗')
@@ -64,13 +65,16 @@ final class AuthoringIntentRecipeCatalog {
   static Map<String, String> catalogChatDefaults(String siteId = null) {
     String key = normalizeChatDefaultsSiteKey(siteId)
     Map<String, String> perSite = CATALOG_CHAT_DEFAULTS_BY_SITE.get(key)
+
     if (perSite != null) {
       return perSite
     }
+
     Map<String, String> bundled = CATALOG_CHAT_DEFAULTS_BY_SITE.get(BUNDLED_CHAT_DEFAULTS_SITE_KEY)
     return bundled != null ? bundled : defaultCatalogChatDefaults()
   }
 
+  /** Maps blank site id to the bundled {@code __bundled__} chat-defaults cache key. */
   private static String normalizeChatDefaultsSiteKey(String siteId) {
     String s = siteId?.toString()?.trim()
     return s ? s : BUNDLED_CHAT_DEFAULTS_SITE_KEY
@@ -83,6 +87,7 @@ final class AuthoringIntentRecipeCatalog {
     if (!(chatDefaults instanceof Map) || chatDefaults.isEmpty()) {
       return
     }
+
     String key = normalizeChatDefaultsSiteKey(siteId)
     CATALOG_CHAT_DEFAULTS_BY_SITE.put(key, Collections.unmodifiableMap(new LinkedHashMap<>(chatDefaults)))
   }
@@ -96,32 +101,40 @@ final class AuthoringIntentRecipeCatalog {
     Set<String> seen = new LinkedHashSet<>()
     for (Map r : parseBundledRecipes(ops)) {
       String id = r?.id?.toString()?.trim()
+
       if (!id) {
         continue
       }
       merged.add(new LinkedHashMap<>(r))
       seen.add(id)
     }
+
     List<String> catalogOrder = parseBundledRecipeOrder(ops)
     List<String> siteOrder = []
     // Site override is optional: bundled recipes (classpath / in-memory) are always loaded above.
     // readStudioConfigurationUtf8 probes contentExists first so a missing intent-recipes.json does not ERROR-log.
     String sitePath = StudioAiAssistantProjectConfig.intentRecipeCustomRecipesPath(projectCfg)
+
     if (ops != null && sitePath?.trim()) {
       try {
         String siteId = ops.resolveEffectiveSiteId('')
         String raw = ops.readStudioConfigurationUtf8(siteId, sitePath.trim())
+
         if (raw?.trim()) {
           siteOrder = parseRecipeOrderFromJsonText(raw)
           Map siteDoc = parseCatalogDocument(raw)
+
           if (siteDoc?.chatDefaults instanceof Map) {
             installCatalogChatDefaults((Map) siteDoc.chatDefaults, siteId)
           }
+
           for (Map r : (siteDoc?.recipes ?: []) as List<Map>) {
             String id = r?.id?.toString()?.trim()
+
             if (!id) {
               continue
             }
+
             if (seen.contains(id)) {
               for (int i = 0; i < merged.size(); i++) {
                 if (id == merged.get(i)?.get('id')?.toString()?.trim()) {
@@ -139,6 +152,7 @@ final class AuthoringIntentRecipeCatalog {
         log.warn('AuthoringIntentRecipeCatalog: site recipes read failed path={}: {}', sitePath, t.message)
       }
     }
+
     List<String> effectiveOrder = siteOrder.isEmpty() ? catalogOrder : siteOrder
     Collections.unmodifiableList(applyRecipeOrder(merged, effectiveOrder))
   }
@@ -152,12 +166,14 @@ final class AuthoringIntentRecipeCatalog {
     List<Map> bundledOnly = parseBundledRecipes(ops)
     List<Map> merged = (ops != null && projectCfg != null) ? loadRecipes(ops, projectCfg) : bundledOnly
     String siteId = ''
+
     if (ops != null) {
       try {
         siteId = ops.resolveEffectiveSiteId('')?.toString()?.trim() ?: ''
       } catch (Throwable ignored) {
       }
     }
+
     Map<String, String> chatDefs = catalogChatDefaults(siteId)
     Set<String> prefetchTools =
       plugins.org.craftercms.aiassistant.tools.catalog.StudioAiToolRegistry.recipeEngineReadOnlyWireNames()
@@ -174,58 +190,78 @@ final class AuthoringIntentRecipeCatalog {
     ]
   }
 
+  /** Reads {@code recipeOrder} from the bundled catalog JSON on the classpath or sandbox. */
   private static List<String> parseBundledRecipeOrder(StudioToolOperations ops = null) {
     return parseRecipeOrderFromJsonText(loadBundledRecipesJsonText(ops))
   }
 
+  /** Parses the top-level {@code recipeOrder} string array from a catalog JSON document. */
   private static List<String> parseRecipeOrderFromJsonText(String raw) {
     if (!raw?.trim()) {
       return []
     }
+
     try {
       Object root = new JsonSlurper().parseText(raw.trim())
+
       if (!(root instanceof Map)) {
         return []
       }
+
       Object order = ((Map) root).get('recipeOrder')
+
       if (!(order instanceof List)) {
         return []
       }
+
       List<String> out = []
+
       for (Object o : (List) order) {
         String id = o?.toString()?.trim()
+
         if (id) {
           out.add(id)
         }
       }
+
       return out
     } catch (Throwable ignored) {
       return []
     }
   }
 
+  /**
+   * Reorders merged recipes per {@code recipeOrder}, then appends any recipes not listed
+   * (stable relative order for unlisted ids).
+   */
   private static List<Map> applyRecipeOrder(List<Map> merged, List<String> recipeOrder) {
     if (merged == null || merged.isEmpty() || recipeOrder == null || recipeOrder.isEmpty()) {
       return merged ?: []
     }
+
     Map<String, Map> byId = new LinkedHashMap<>()
     for (Map r : merged) {
       String id = r?.get('id')?.toString()?.trim()
+
       if (id) {
         byId.put(id, r)
       }
     }
+
     List<Map> out = new ArrayList<>()
     Set<String> seen = new LinkedHashSet<>()
     for (String id : recipeOrder) {
       Map r = byId.get(id)
+
       if (r != null) {
         out.add(r)
         seen.add(id)
       }
     }
+
     for (Map r : merged) {
       String id = r?.get('id')?.toString()?.trim()
+
       if (id && !seen.contains(id)) {
         out.add(r)
       }
@@ -233,8 +269,10 @@ final class AuthoringIntentRecipeCatalog {
     out
   }
 
+  /** Loads bundled catalog JSON, installs bundled {@code chatDefaults}, and returns the {@code recipes} array. */
   private static List<Map> parseBundledRecipes(StudioToolOperations ops = null) {
     String raw = loadBundledRecipesJsonText(ops)
+
     if (!raw?.trim()) {
       log.warn(
         'AuthoringIntentRecipeCatalog: missing bundled {} — no default recipes loaded (deploy {} under config/studio/scripts/classes/{}/ or set JVM {} to override)',
@@ -245,10 +283,13 @@ final class AuthoringIntentRecipeCatalog {
       )
       return []
     }
+
     Map doc = parseCatalogDocument(raw)
+
     if (doc?.chatDefaults instanceof Map) {
       installCatalogChatDefaults((Map) doc.chatDefaults, BUNDLED_CHAT_DEFAULTS_SITE_KEY)
     }
+
     return doc?.recipes ?: []
   }
 
@@ -259,9 +300,11 @@ final class AuthoringIntentRecipeCatalog {
    */
   private static String loadBundledRecipesJsonText(StudioToolOperations ops = null) {
     String override = System.getProperty(SYSPROP_BUNDLED_PATH)?.toString()?.trim()
+
     if (override) {
       try {
         File f = new File(override)
+
         if (f.isFile()) {
           return f.getText('UTF-8')
         }
@@ -273,51 +316,67 @@ final class AuthoringIntentRecipeCatalog {
 
     String pkgPath = "${PACKAGE_RESOURCE_PREFIX}${BUNDLED_RELATIVE}"
     String fromResource = readUtf8FromResourceUrl(AuthoringIntentRecipeCatalog.class.getResource(BUNDLED_RELATIVE))
+
     if (fromResource?.trim()) {
       return fromResource
     }
+
     fromResource = readUtf8FromResourceUrl(AuthoringIntentRecipeCatalog.class.getResource("/${pkgPath}"))
+
     if (fromResource?.trim()) {
       return fromResource
     }
 
     ClassLoader cl = AuthoringIntentRecipeCatalog.class.classLoader
     fromResource = readUtf8FromResourceUrl(cl?.getResource(pkgPath))
+
     if (fromResource?.trim()) {
       return fromResource
     }
+
     fromResource = readUtf8FromResourceUrl(Thread.currentThread().contextClassLoader?.getResource(pkgPath))
+
     if (fromResource?.trim()) {
       return fromResource
     }
 
     String fromStream = readUtf8FromResourceStream(AuthoringIntentRecipeCatalog.class.getResourceAsStream(BUNDLED_RELATIVE))
+
     if (fromStream?.trim()) {
       return fromStream
     }
+
     fromStream = readUtf8FromResourceStream(cl?.getResourceAsStream(pkgPath))
+
     if (fromStream?.trim()) {
       return fromStream
     }
+
     fromStream = readUtf8FromResourceStream(Thread.currentThread().contextClassLoader?.getResourceAsStream(pkgPath))
+
     if (fromStream?.trim()) {
       return fromStream
     }
 
     try {
       def loc = AuthoringIntentRecipeCatalog.class.protectionDomain?.codeSource?.location
+
       if (loc != null) {
         String fromCodeSource = readBundledJsonBesideCodeSource(loc)
+
         if (fromCodeSource?.trim()) {
           return fromCodeSource
         }
         File base = new File(loc.toURI())
+
         if (base.isFile()) {
           base = base.parentFile
         }
+
         if (base != null && base.isDirectory()) {
           for (String rel : [BUNDLED_RELATIVE, pkgPath]) {
             File candidate = new File(base, rel)
+
             if (candidate.isFile()) {
               return candidate.getText('UTF-8')
             }
@@ -329,6 +388,7 @@ final class AuthoringIntentRecipeCatalog {
     }
 
     String fromSandbox = loadBundledRecipesJsonFromSiteSandbox(ops)
+
     if (fromSandbox?.trim()) {
       log.debug(
         'AuthoringIntentRecipeCatalog: loaded bundled {} from site sandbox {} (classpath/code-source miss)',
@@ -349,11 +409,14 @@ final class AuthoringIntentRecipeCatalog {
     if (ops == null) {
       return ''
     }
+
     try {
       String siteId = ops.resolveEffectiveSiteId('')?.toString()?.trim()
+
       if (!siteId) {
         return ''
       }
+
       Map item = ops.getContent(siteId, BUNDLED_SANDBOX_REPO_PATH) as Map
       String raw = item?.contentXml?.toString()?.trim()
       return raw ?: ''
@@ -368,6 +431,7 @@ final class AuthoringIntentRecipeCatalog {
     if (codeSourceLocation == null) {
       return ''
     }
+
     try {
       URL codeUrl = (codeSourceLocation instanceof URL) ?
         (URL) codeSourceLocation :
@@ -375,10 +439,13 @@ final class AuthoringIntentRecipeCatalog {
       if (codeUrl == null) {
         return ''
       }
+
       String path = codeUrl.path ?: ''
+
       if (!path) {
         return ''
       }
+
       int slash = path.lastIndexOf('/')
       String dir = slash >= 0 ? path.substring(0, slash + 1) : ''
       URL jsonUrl = new URL(codeUrl.protocol, codeUrl.host, codeUrl.port, "${dir}${BUNDLED_RELATIVE}")
@@ -389,21 +456,26 @@ final class AuthoringIntentRecipeCatalog {
     }
   }
 
+  /** Reads a classpath or file URL as UTF-8 text (file protocol uses direct file read when possible). */
   private static String readUtf8FromResourceUrl(URL url) {
     if (url == null) {
       return ''
     }
+
     try {
       if ('file'.equalsIgnoreCase(url.protocol)) {
         try {
           File f = new File(url.toURI())
+
           if (f.isFile()) {
             return f.getText('UTF-8')
           }
         } catch (Throwable ignored) {
         }
+
         return readUtf8FromResourceStream(url.openStream())
       }
+
       return readUtf8FromResourceStream(url.openStream())
     } catch (Throwable t) {
       log.debug('AuthoringIntentRecipeCatalog: resource URL read failed {}: {}', url, t.message)
@@ -411,10 +483,12 @@ final class AuthoringIntentRecipeCatalog {
     }
   }
 
+  /** Reads an input stream to a UTF-8 string and closes the stream. */
   private static String readUtf8FromResourceStream(InputStream is) {
     if (is == null) {
       return ''
     }
+
     try {
       return new String(is.readAllBytes(), StandardCharsets.UTF_8)
     } finally {
@@ -424,6 +498,7 @@ final class AuthoringIntentRecipeCatalog {
     }
   }
 
+  /** Convenience: returns only the {@code recipes} list from {@link #parseCatalogDocument}. */
   static List<Map> parseRecipesArrayFromJsonText(String raw) {
     return parseCatalogDocument(raw)?.recipes ?: []
   }
@@ -435,22 +510,29 @@ final class AuthoringIntentRecipeCatalog {
     if (!raw?.trim()) {
       return null
     }
+
     try {
       Object root = new JsonSlurper().parseText(raw.trim())
+
       if (!(root instanceof Map)) {
         return null
       }
+
       Map<String, String> chatDefaults = Collections.unmodifiableMap(mergeChatDefaults((Map) root))
       Object arr = ((Map) root).get('recipes')
+
       if (!(arr instanceof List)) {
         return [recipes: [], chatDefaults: chatDefaults]
       }
+
       List<Map> out = []
+
       for (Object o : (List) arr) {
         if (o instanceof Map) {
           out.add(new LinkedHashMap<>((Map) o))
         }
       }
+
       return [recipes: out, chatDefaults: chatDefaults]
     } catch (Throwable t) {
       log.warn('AuthoringIntentRecipeCatalog: JSON parse failed: {}', t.message)
@@ -458,17 +540,22 @@ final class AuthoringIntentRecipeCatalog {
     }
   }
 
+  /** Overlays catalog {@code chatDefaults} onto bundled defaults ({@code prefixEmoji}, {@code fallbackEmoji}, {@code lineSuffix}). */
   private static Map<String, String> mergeChatDefaults(Map root) {
     Map<String, String> d = new LinkedHashMap<>(defaultCatalogChatDefaults())
     Object cd = root?.get('chatDefaults')
+
     if (cd instanceof Map) {
       Map m = (Map) cd
+
       if (m.prefixEmoji != null) {
         d.put('prefixEmoji', m.prefixEmoji.toString())
       }
+
       if (m.fallbackEmoji != null) {
         d.put('fallbackEmoji', m.fallbackEmoji.toString())
       }
+
       if (m.lineSuffix != null) {
         d.put('lineSuffix', m.lineSuffix.toString())
       }
@@ -485,20 +572,25 @@ final class AuthoringIntentRecipeCatalog {
     if (recipes == null || recipes.isEmpty() || !(ctx instanceof Map)) {
       return Collections.emptyList()
     }
+
     Map<String, Map> byId = new LinkedHashMap<>()
     String visible = deterministicRoutingPrompt(ctx)
     for (Map recipe : recipes) {
       if (!(recipe instanceof Map)) {
         continue
       }
+
       String rid = recipe.id?.toString()?.trim()
+
       if (!rid) {
         continue
       }
+
       for (Map entry : deterministicMatchEntries(recipe)) {
         if (!AuthoringIntentRecipeWhen.evaluateMatchEntry(entry, recipe, ctx)) {
           continue
         }
+
         int priority = entry.priority instanceof Number ? ((Number) entry.priority).intValue() : 0
         String reason = (entry.routerReason ?: "deterministic_${rid}").toString()
         Map match = [
@@ -509,19 +601,23 @@ final class AuthoringIntentRecipeCatalog {
           visible     : visible,
           priority    : priority
         ]
+
         Map existing = byId.get(rid)
+
         if (existing == null || priority > (existing.priority instanceof Number ?
           ((Number) existing.priority).intValue() : 0)) {
           byId.put(rid, match)
         }
       }
     }
+
     List<Map> out = new ArrayList<>(byId.values())
     out.sort { a, b ->
       int pa = a.priority instanceof Number ? ((Number) a.priority).intValue() : 0
       int pb = b.priority instanceof Number ? ((Number) b.priority).intValue() : 0
       pb <=> pa
     }
+
     return out
   }
 
@@ -542,19 +638,25 @@ final class AuthoringIntentRecipeCatalog {
     if (recipes == null || recipes.isEmpty() || planSteps == null || planSteps.isEmpty()) {
       return Collections.emptyList()
     }
+
     Map base = baseCtx instanceof Map ? new LinkedHashMap<>((Map) baseCtx) : [:]
+
     List<Map> out = new ArrayList<>()
     for (Map step : planSteps) {
       if (!(step instanceof Map)) {
         continue
       }
+
       String summary = step.summary?.toString()?.trim()
+
       if (!summary) {
         continue
       }
+
       Map ctx = new LinkedHashMap<>(base)
       ctx.routerVisible = summary
       Map hit = findDeterministicRecipeMatch(recipes, ctx)
+
       if (hit == null) {
         continue
       }
@@ -565,6 +667,7 @@ final class AuthoringIntentRecipeCatalog {
         routerReason: hit.routerReason?.toString()
       ])
     }
+
     return out
   }
 
@@ -576,24 +679,32 @@ final class AuthoringIntentRecipeCatalog {
     if (recipes == null || recipes.isEmpty() || !(ctx instanceof Map)) {
       return Collections.emptyList()
     }
+
     Map routeCtx = ctx instanceof Map ? new LinkedHashMap<>((Map) ctx) : [:]
+
     if (routerVisible?.trim()) {
       routeCtx.routerVisible = routerVisible.trim()
     }
+
     List<Map> out = []
+
     String visible = deterministicRoutingPrompt(routeCtx)
     for (Map recipe : recipes) {
       if (!(recipe instanceof Map)) {
         continue
       }
+
       String rid = recipe.id?.toString()?.trim()
+
       if (!rid) {
         continue
       }
+
       for (Map entry : ambiguityMatchEntries(recipe)) {
         if (!AuthoringIntentRecipeWhen.evaluateMatchEntry(entry, recipe, routeCtx)) {
           continue
         }
+
         int priority = entry.priority instanceof Number ? ((Number) entry.priority).intValue() : 0
         out.add([
           recipe      : recipe,
@@ -610,29 +721,39 @@ final class AuthoringIntentRecipeCatalog {
       int pb = b.priority instanceof Number ? ((Number) b.priority).intValue() : 0
       pb <=> pa
     }
+
     return out
   }
 
+  /**
+   * Unions deterministic and structural recipe candidate maps by {@code recipeId}, keeping the higher-priority
+   * entry when both lists contain the same id.
+   */
   private static List<Map> mergeRecipeCandidateLists(List<Map> primary, List<Map> additional) {
     Map<String, Map> byId = new LinkedHashMap<>()
     for (Map m : (primary ?: [])) {
       String rid = m?.recipeId?.toString()?.trim()
+
       if (rid) {
         byId.put(rid, m)
       }
     }
+
     for (Map m : (additional ?: [])) {
       String rid = m?.recipeId?.toString()?.trim()
+
       if (rid && !byId.containsKey(rid)) {
         byId.put(rid, m)
       }
     }
+
     List<Map> out = new ArrayList<>(byId.values())
     out.sort { a, b ->
       int pa = a.priority instanceof Number ? ((Number) a.priority).intValue() : 0
       int pb = b.priority instanceof Number ? ((Number) b.priority).intValue() : 0
       pb <=> pa
     }
+
     return out
   }
 
@@ -643,25 +764,31 @@ final class AuthoringIntentRecipeCatalog {
   static List<Map> findAmbiguousRecipeCandidates(List<Map> recipes, Map ctx, String routerVisible) {
     List<Map> det = findDeterministicRecipeMatches(recipes, ctx)
     List<Map> structural = findStructuralRecipeCompetitors(recipes, ctx, routerVisible)
+
     if (det.size() > 1) {
       return det
     }
+
     return mergeRecipeCandidateLists(det, structural)
   }
 
+  /** Renders a markdown table of ambiguous deterministic recipe matches for operator / LLM clarify prompts. */
   static String formatAmbiguousDeterministicMatchesMarkdown(List<Map> matches) {
     if (matches == null || matches.isEmpty()) {
       return '(none)'
     }
+
     StringBuilder sb = new StringBuilder()
     sb.append('| recipeId | title | routerReason |\n|---|---|---|\n')
     for (Map m : matches) {
       Map recipe = m.recipe instanceof Map ? (Map) m.recipe : [:]
+
       String rid = (m.recipeId ?: recipe.id ?: '').toString()
       String title = (recipe.title ?: rid).toString().replace('|', '/')
       String reason = (m.routerReason ?: '').toString().replace('|', '/')
       sb.append('| `').append(rid).append('` | ').append(title).append(' | `').append(reason).append('` |\n')
     }
+
     return sb.toString()
   }
 
@@ -670,21 +797,29 @@ final class AuthoringIntentRecipeCatalog {
     if (!(ctx instanceof Map)) {
       return ''
     }
+
     String visible = (ctx.routerVisible ?: '').toString().trim()
+
     if (visible) {
       return visible
     }
+
     String cand = (ctx.cand ?: '').toString()
     String current = AuthoringPreviewContext.extractAuthorCurrentRequestVisible(cand)
+
     if (current?.trim()) {
       return current.trim()
     }
+
     return AuthoringPreviewContext.stripStudioInjectedPromptBlocks(cand) ?: ''
   }
 
+  /** Normalizes {@code deterministicMatch} on a recipe to a list of match entry maps. */
   private static List<Map> deterministicMatchEntries(Map recipe) {
     List<Map> out = []
+
     Object dm = recipe?.get('deterministicMatch')
+
     if (dm instanceof Map) {
       out.add(new LinkedHashMap<>((Map) dm))
     } else if (dm instanceof List) {
@@ -697,9 +832,12 @@ final class AuthoringIntentRecipeCatalog {
     out
   }
 
+  /** Normalizes {@code ambiguityMatch} on a recipe to a list of structural competitor entry maps. */
   private static List<Map> ambiguityMatchEntries(Map recipe) {
     List<Map> out = []
+
     Object am = recipe?.get('ambiguityMatch')
+
     if (am instanceof Map) {
       out.add(new LinkedHashMap<>((Map) am))
     } else if (am instanceof List) {
@@ -719,6 +857,7 @@ final class AuthoringIntentRecipeCatalog {
     if (recipes == null || recipes.isEmpty()) {
       return '(no recipes configured)'
     }
+
     StringBuilder sb = new StringBuilder()
     sb.append('| recipeId | title | description (short) | match if | do not match if |\n')
     sb.append('|----------|-------|----------------------|----------|----------------|\n')
@@ -751,9 +890,11 @@ final class AuthoringIntentRecipeCatalog {
     if (recipes == null || recipes.isEmpty()) {
       return recipes ?: []
     }
+
     if (!authorVisible?.trim()) {
       return recipes
     }
+
     List<Map> out = new ArrayList<>()
     for (Map r : recipes) {
       if (!recipeExcludedByDontMatchHints(r, authorVisible)) {
@@ -763,30 +904,38 @@ final class AuthoringIntentRecipeCatalog {
     out
   }
 
+  /** True when any {@code dontMatchHints} phrase appears in the author-visible message. */
   static boolean recipeExcludedByDontMatchHints(Map recipe, String authorVisible) {
     List<String> dont = dontMatchHintsList(recipe)
     return !dont.isEmpty() && authorVisibleMatchesKeywordList(authorVisible, dont)
   }
 
+  /** Delegates substring keyword matching to {@link #authorVisibleMatchesOrchestrationBypass}. */
   static boolean authorVisibleMatchesKeywordList(String authorVisible, List<String> keywords) {
     authorVisibleMatchesOrchestrationBypass(authorVisible, keywords)
   }
 
+  /** Returns trimmed {@code matchHints} strings from a recipe map. */
   static List<String> matchHintsList(Map recipe) {
     hintStringList(recipe?.get('matchHints'))
   }
 
+  /** Returns trimmed {@code dontMatchHints} strings from a recipe map. */
   private static List<String> dontMatchHintsList(Map recipe) {
     hintStringList(recipe?.get('dontMatchHints'))
   }
 
+  /** Coerces a JSON list of hint strings to a trimmed, non-empty {@link List}. */
   static List<String> hintStringList(Object raw) {
     if (!(raw instanceof List)) {
       return Collections.emptyList()
     }
+
     List<String> out = []
+
     for (Object o : (List) raw) {
       String n = o?.toString()?.trim()
+
       if (n) {
         out.add(n)
       }
@@ -794,33 +943,43 @@ final class AuthoringIntentRecipeCatalog {
     out
   }
 
+  /** Joins hint strings for a router catalog table cell, truncating with ellipsis when over {@code maxChars}. */
   private static String formatHintListForRouterCell(List<String> hints, int maxChars) {
     if (hints == null || hints.isEmpty()) {
       return '—'
     }
+
     String joined = hints.join(', ')
+
     if (joined.length() <= maxChars) {
       return joined
     }
+
     return joined.substring(0, maxChars) + '…'
   }
 
+  /** Sanitizes a string for markdown table cells (pipes and newlines). */
   private static String escMdCell(String s) {
     (s ?: '').replace('|', '/').replace('\n', ' ').trim()
   }
 
+  /** Truncates a recipe description for the router catalog column. */
   private static String trimDesc(String s, int max) {
     String t = (s ?: '').replace('\n', ' ').trim()
+
     if (t.length() <= max) {
       return t
     }
+
     return t.substring(0, max) + '…'
   }
 
+  /** Linear search for a recipe map by {@code id}. */
   static Map findRecipeById(List<Map> recipes, String id) {
     if (!id?.trim() || recipes == null) {
       return null
     }
+
     for (Map r : recipes) {
       if (id == r?.get('id')?.toString()?.trim()) {
         return r
@@ -836,6 +995,7 @@ final class AuthoringIntentRecipeCatalog {
    */
   static List<Map> collectEngineSteps(Map recipe) {
     List<Map> out = new ArrayList<>()
+
     if (!(recipe instanceof Map)) {
       return Collections.unmodifiableList(out)
     }
@@ -843,6 +1003,7 @@ final class AuthoringIntentRecipeCatalog {
     appendEngineStepsFromPhase(recipe.get('phases'), 'action', out)
     appendEngineStepsFromPhase(recipe.get('phases'), 'confirmation', out)
     Object legacy = recipe.get('engineSteps')
+
     if (legacy instanceof List) {
       for (Object o : (List) legacy) {
         if (o instanceof Map) {
@@ -850,21 +1011,28 @@ final class AuthoringIntentRecipeCatalog {
         }
       }
     }
+
     Collections.unmodifiableList(out)
   }
 
+  /** Appends {@code engineSteps} from one recipe phase ({@code context}, {@code action}, or {@code confirmation}). */
   private static void appendEngineStepsFromPhase(Object phases, String phaseKey, List<Map> sink) {
     if (!(phases instanceof Map)) {
       return
     }
+
     Object phaseVal = ((Map) phases).get(phaseKey)
+
     if (!(phaseVal instanceof Map)) {
       return
     }
+
     Object es = ((Map) phaseVal).get('engineSteps')
+
     if (!(es instanceof List)) {
       return
     }
+
     for (Object o : (List) es) {
       if (o instanceof Map) {
         sink.add(new LinkedHashMap<>((Map) o))
@@ -880,27 +1048,36 @@ final class AuthoringIntentRecipeCatalog {
     if (!(recipe instanceof Map) || recipe.isEmpty()) {
       return ''
     }
+
     Map<String, String> defs = catalogChatDefaults(siteId)
     String prefix = recipe.chatPrefixEmoji?.toString()?.trim() ?: defs.prefixEmoji ?: '🥗'
     String emoji = recipe.chatEmoji?.toString()?.trim() ?: defs.fallbackEmoji ?: '📋'
     String suffix = recipe.chatLineSuffix?.toString()?.trim() ?: defs.lineSuffix ?: 'workflow'
     String title = recipe.title?.toString()?.trim() ?: recipe.id?.toString()?.trim() ?: ''
+
     if (!title) {
       return ''
     }
+
     return prefix + ' ' + emoji + ' **' + title + '** ' + suffix + '\n'
   }
 
   /** @deprecated use {@link #formatIntentRecipeChatLine(Map)} with the matched recipe row */
   static String formatIntentRecipeChatLine(String recipeId, String recipeTitle) {
     Map recipe = [id: recipeId, title: recipeTitle]
+
     return formatIntentRecipeChatLine(recipe)
   }
 
+  /** Builds the matched-recipe prelude without binding expansion (empty initial/current maps). */
   static String formatMatchedRecipePrelude(Map recipe, String recipeId, double confidence, String reason) {
     return formatMatchedRecipePrelude(recipe, recipeId, confidence, reason, [:], [:])
   }
 
+  /**
+   * Builds the Studio user-message prelude after a recipe match: metadata, binding names, and phase hints
+   * with {@code {{initial.*}}}/{@code {{current.*}}} template expansion.
+   */
   static String formatMatchedRecipePrelude(
     Map recipe,
     String recipeId,
@@ -917,7 +1094,9 @@ final class AuthoringIntentRecipeCatalog {
     if (reason?.trim()) {
       sb.append('routerNote: ').append(reason.trim().replace('\n', ' ')).append('\n')
     }
+
     List<String> bindingNames = AuthoringIntentRecipeBindings.declaredBindingNames(recipe)
+
     if (!bindingNames.isEmpty()) {
       sb.append('bindings: ').append(bindingNames.join(', ')).append('\n')
       sb.append('(Prefetch snapshots: initial.* at turn start; current.* updates after WriteContent on the same path.)\n')
@@ -930,18 +1109,25 @@ final class AuthoringIntentRecipeCatalog {
     sb.toString()
   }
 
+  /** Optional extra author-facing prelude text from the recipe row ({@code matchedUserPrelude}). */
   static String matchedUserPrelude(Map recipe) {
     String p = recipe?.get('matchedUserPrelude')?.toString()?.trim()
     return p ?: ''
   }
 
+  /**
+   * Case-insensitive substring check: true when any bypass keyword appears in the author-visible text
+   * (tools-loop allowlist bypass, match hints, etc.).
+   */
   static boolean authorVisibleMatchesOrchestrationBypass(String authorVisible, List<String> bypassKeywords) {
     if (!authorVisible?.trim() || bypassKeywords == null || bypassKeywords.isEmpty()) {
       return false
     }
+
     String a = authorVisible.toLowerCase(Locale.ROOT)
     for (String kw : bypassKeywords) {
       String k = (kw ?: '').trim().toLowerCase(Locale.ROOT)
+
       if (k && a.contains(k)) {
         return true
       }
@@ -949,44 +1135,62 @@ final class AuthoringIntentRecipeCatalog {
     false
   }
 
+  /**
+   * Collects per-recipe tools-loop overrides ({@code allowlist}, bypass keywords, disable, force tool, hotpath flags)
+   * for orchestration telemetry and runtime enforcement.
+   */
   static Map orchestrationTelemetryExtras(Map recipe) {
     List<String> allow = toolsLoopAllowlistNames(recipe)
     List<String> bypass = toolsLoopAllowlistBypassKeywords(recipe)
     boolean toolsOff = Boolean.TRUE.equals(recipe?.get('toolsLoopDisable'))
     String forceTool = recipe?.toolsLoopForceTool?.toString()?.trim() ?: ''
+
     if (allow.isEmpty() && bypass.isEmpty() && !toolsOff && !forceTool) {
       return Collections.emptyMap()
     }
+
     Map extra = new LinkedHashMap<>()
+
     if (!allow.isEmpty()) {
       extra.put('toolsLoopAllowlist', allow)
     }
+
     if (!bypass.isEmpty()) {
       extra.put('toolsLoopAllowlistBypassIfAuthorMentions', bypass)
     }
+
     if (toolsOff) {
       extra.put('toolsLoopDisable', Boolean.TRUE)
     }
+
     if (forceTool) {
       extra.put('toolsLoopForceTool', forceTool)
     }
+
     if (Boolean.TRUE.equals(recipe?.get('prefetchHotpathForceWrite'))) {
       extra.put('prefetchHotpathForceWrite', Boolean.TRUE)
     }
+
     if (Boolean.TRUE.equals(recipe?.get('serverHotpathExternalContent'))) {
       extra.put('serverHotpathExternalContent', Boolean.TRUE)
     }
+
     Collections.unmodifiableMap(extra)
   }
 
+  /** Parses {@code toolsLoopAllowlist} wire names from a recipe map. */
   private static List<String> toolsLoopAllowlistNames(Map recipe) {
     Object raw = recipe?.get('toolsLoopAllowlist')
+
     if (!(raw instanceof List)) {
       return Collections.emptyList()
     }
+
     List<String> out = []
+
     for (Object o : (List) raw) {
       String n = o?.toString()?.trim()
+
       if (n) {
         out.add(n)
       }
@@ -994,14 +1198,19 @@ final class AuthoringIntentRecipeCatalog {
     out
   }
 
+  /** Parses {@code toolsLoopAllowlistBypassIfAuthorMentions} keywords from a recipe map. */
   private static List<String> toolsLoopAllowlistBypassKeywords(Map recipe) {
     Object raw = recipe?.get('toolsLoopAllowlistBypassIfAuthorMentions')
+
     if (!(raw instanceof List)) {
       return Collections.emptyList()
     }
+
     List<String> out = []
+
     for (Object o : (List) raw) {
       String n = o?.toString()?.trim()
+
       if (n) {
         out.add(n)
       }
@@ -1009,6 +1218,10 @@ final class AuthoringIntentRecipeCatalog {
     out
   }
 
+  /**
+   * Appends one phase section (Context / Action / Confirmation) to the matched-recipe prelude, expanding
+   * hint templates when binding maps are present.
+   */
   private static void appendPhase(
     StringBuilder sb,
     String label,
@@ -1021,26 +1234,33 @@ final class AuthoringIntentRecipeCatalog {
     if (!(phases instanceof Map)) {
       return
     }
+
     Object raw = ((Map) phases).get(key)
+
     if (raw == null) {
       return
     }
+
     if (raw instanceof List) {
       appendPhaseHintLines(sb, label, (List) raw, initialBindings, currentBindings, maxExpandChars)
       return
     }
+
     if (raw instanceof Map) {
       Map pm = (Map) raw
       Object hints = pm.get('hints')
+
       if (!(hints instanceof List) || ((List) hints).isEmpty()) {
         hints = pm.get('lines')
       }
+
       if (hints instanceof List && !((List) hints).isEmpty()) {
         appendPhaseHintLines(sb, label, (List) hints, initialBindings, currentBindings, maxExpandChars)
       }
     }
   }
 
+  /** Renders bullet hint lines for a phase, running each through {@link AuthoringIntentRecipeBindings#expandHintTemplates}. */
   private static void appendPhaseHintLines(
     StringBuilder sb,
     String label,
@@ -1055,6 +1275,7 @@ final class AuthoringIntentRecipeCatalog {
     sb.append('**').append(label).append(":**\n")
     for (Object line : lines) {
       String s = line?.toString()?.trim()
+
       if (s) {
         String expanded = AuthoringIntentRecipeBindings.expandHintTemplates(
           s,

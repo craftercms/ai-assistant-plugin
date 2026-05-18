@@ -63,6 +63,11 @@ class AiOrchestrationTools {
   private static final Pattern DISPLAY_TEMPLATE_COMPONENTS = Pattern.compile('(?i)/templates/web/components/([^./\\s]+)\\.ftl')
   private static final Pattern DISPLAY_TEMPLATE_FLAT_WEB = Pattern.compile('(?i)^/templates/web/([^./\\s]+)\\.ftl$')
 
+  /**
+   * Constructs DocumentBuilderFactory with XXE-hardening flags best-effort.
+   * Disables external DTD expansion where supported.
+   * Feeds parseXmlDocument with safer DOM parses.
+   */
   private static DocumentBuilderFactory newSecureDocumentBuilderFactory() {
     def factory = DocumentBuilderFactory.newInstance()
     try {
@@ -77,6 +82,11 @@ class AiOrchestrationTools {
     return factory
   }
 
+  /**
+   * Parses XML strings via hardened DOM builders.
+   * Throws IllegalArgumentException with short context when malformed.
+   * Centralizes parser configuration for authoring transforms.
+   */
   private static Document parseXmlDocument(String xml) {
     if (!xml?.trim()) return null
     def factory = newSecureDocumentBuilderFactory()
@@ -84,6 +94,11 @@ class AiOrchestrationTools {
       new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)))
   }
 
+  /**
+   * Strips DOM namespaces / prefixes from QName-like strings.
+   * Returns lowercase local fragments for comparisons.
+   * Avoids brittle equality checks across Xerces variants.
+   */
   private static String xmlElementLocalName(String nodeName) {
     if (nodeName == null) return null
     int i = nodeName.indexOf(':')
@@ -316,6 +331,11 @@ class AiOrchestrationTools {
     }
   }
 
+  /**
+   * Lowercases, trims, collapses whitespace on author-supplied labels.
+   * Removes punctuation noise before catalog lookups.
+   * Feeds deterministic mapping from UI labels to field ids.
+   */
   static String normalizeFormFieldLabelForMatch(String raw) {
     if (!raw?.trim()) {
       return ''
@@ -537,6 +557,11 @@ class AiOrchestrationTools {
     }
   }
 
+  /**
+   * Recognizes Crafter `<page>` vs `<component>` roots quickly.
+   * Uses substring guards safe for partial reads.
+   * Inform tooling hints without fully unmarshalling XML.
+   */
   private static String cqDetectItemRootKind(String xml) {
     if (!xml?.trim()) {
       return null
@@ -1129,6 +1154,11 @@ class AiOrchestrationTools {
     return out
   }
 
+  /**
+   * Normalizes translate-batch maps into deduped `/site/...` lists.
+   * Honors aliases such as paths/contentPaths/items.
+   * Prepares AiOrchestration translate workers.
+   */
   private static List<String> collectTranslateBatchPaths(Map input) {
     LinkedHashSet<String> ordered = new LinkedHashSet<>()
     if (input == null) {
@@ -1174,6 +1204,11 @@ class AiOrchestrationTools {
     return new ArrayList<>(ordered)
   }
 
+  /**
+   * Reads tool/project/JVM knobs governing parallel translate rows.
+   * Bounds values between safe minimums and ceilings.
+   * Protects Studio CPUs during TranslateContentBatch storms.
+   */
   private static int resolveTranslateBatchMaxConcurrency(Map input, StudioToolOperations ops) {
     int d = ops != null ? ops.resolveTranslateBatchDefaultMaxConcurrency() : 25
     try {
@@ -1188,6 +1223,11 @@ class AiOrchestrationTools {
     return Math.max(1, Math.min(64, d))
   }
 
+  /**
+   * Reads per-row Maps for cancellation markers set by SSE Stop handlers.
+   * Treats missing keys as active rows.
+   * Lets inner completions skip redundant writes quickly.
+   */
   private static boolean translateBatchRowCancelled(Map row) {
     return row instanceof Map && Boolean.TRUE.equals(((Map) row).cancelled)
   }
@@ -1210,6 +1250,11 @@ class AiOrchestrationTools {
     return isToolResultWarning(m)
   }
 
+  /**
+   * Formats human-readable failure codes from translate-batch rows.
+   * Suppresses noisy stack traces for authors.
+   * Feeds aggregated summaries returned to orchestration.
+   */
   private static String translateBatchRowReason(Map row) {
     if (!(row instanceof Map)) {
       return 'non-map result'
@@ -1219,6 +1264,11 @@ class AiOrchestrationTools {
     return s.length() > 600 ? s.substring(0, 597) + '…' : s
   }
 
+  /**
+   * Shrinks verbose attempt structs into telemetry-friendly Maps.
+   * Keeps only timings/status/error summaries.
+   * Avoids leaking huge prompts back through SSE metadata.
+   */
   private static Map translateBatchCompactAttempt(Map row) {
     if (!(row instanceof Map)) {
       return [message: 'non-map']
@@ -1632,6 +1682,11 @@ class AiOrchestrationTools {
     logToolInvocation(toolName, input)
   }
 
+  /**
+   * Debug-traces tool names plus scrubbed JSON arguments.
+   * Rate-limited semantics delegated to SLF4J logger.
+   * Supports ops investigations without println noise.
+   */
   private static void logToolInvocation(String toolName, Map input) {
     try {
       def j = JsonOutput.toJson(input ?: [:])

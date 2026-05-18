@@ -13,10 +13,15 @@ final class AuthoringIntentRecipeWhen {
 
   private AuthoringIntentRecipeWhen() {}
 
+  /**
+   * Evaluates one {@code deterministicMatch} / {@code ambiguityMatch} entry: builds a {@code when} spec from shorthands,
+   * runs {@link #evaluate}, then optionally rejects the recipe when {@code dontMatchHints} hit the author text.
+   */
   static boolean evaluateMatchEntry(Map entry, Map recipe, Map ctx) {
     if (!(entry instanceof Map) || !(ctx instanceof Map)) {
       return false
     }
+
     Object whenSpec = buildWhenSpec(entry, recipe)
     if (whenSpec == null) {
       return false
@@ -24,18 +29,25 @@ final class AuthoringIntentRecipeWhen {
     if (!evaluate(whenSpec, recipe, ctx)) {
       return false
     }
+
     if (Boolean.TRUE.equals(entry.respectDontMatchHints)) {
       String author = AuthoringIntentRecipeCatalog.deterministicRoutingPrompt(ctx)
       if (AuthoringIntentRecipeCatalog.recipeExcludedByDontMatchHints(recipe, author)) {
         return false
       }
     }
+
     return true
   }
 
+  /**
+   * Merges explicit {@code when}, anchor flags, {@code authorFromMatchHints}, and per-entry hint lists into one
+   * {@code when} object ({@code allOf} when multiple predicates apply).
+   */
   private static Object buildWhenSpec(Map entry, Map recipe) {
     List<Object> allOf = []
     Object explicit = entry.get('when')
+
     if (explicit != null) {
       allOf.add(explicit)
     }
@@ -51,27 +63,36 @@ final class AuthoringIntentRecipeWhen {
         allOf.add([authorContainsAny: hints])
       }
     }
+
     List<String> any = AuthoringIntentRecipeCatalog.hintStringList(entry.get('authorContainsAny'))
     if (!any.isEmpty()) {
       allOf.add([authorContainsAny: any])
     }
+
     List<String> none = AuthoringIntentRecipeCatalog.hintStringList(entry.get('authorContainsNone'))
     if (!none.isEmpty()) {
       allOf.add([authorContainsNone: none])
     }
+
     Object regex = entry.get('authorMatchesRegex')
     if (regex != null) {
       allOf.add([authorMatchesRegex: regex])
     }
+
     if (allOf.isEmpty()) {
       return null
     }
     if (allOf.size() == 1) {
       return allOf[0]
     }
+
     return [allOf: allOf]
   }
 
+  /**
+   * Recursively evaluates a {@code when} spec: leaf string ids, {@code allOf}/{@code anyOf}/{@code not}, or
+   * author keyword / regex maps against the deterministic routing prompt in {@code ctx}.
+   */
   static boolean evaluate(Object whenSpec, Map recipe, Map ctx) {
     if (whenSpec == null) {
       return false
@@ -85,7 +106,9 @@ final class AuthoringIntentRecipeWhen {
     if (!(whenSpec instanceof Map)) {
       return false
     }
+
     Map w = (Map) whenSpec
+
     if (w.containsKey('allOf')) {
       return evaluateAll(w.allOf, recipe, ctx)
     }
@@ -104,41 +127,54 @@ final class AuthoringIntentRecipeWhen {
     if (w.containsKey('authorMatchesRegex')) {
       return authorMatchesRegex(w.authorMatchesRegex, ctx)
     }
+
     return false
   }
 
+  /** True when every child {@code when} fragment in the list evaluates true. */
   private static boolean evaluateAll(Object raw, Map recipe, Map ctx) {
     if (!(raw instanceof List) || ((List) raw).isEmpty()) {
       return false
     }
+
     for (Object part : (List) raw) {
       if (!evaluate(part, recipe, ctx)) {
         return false
       }
     }
+
     return true
   }
 
+  /** True when at least one child {@code when} fragment in the list evaluates true. */
   private static boolean evaluateAny(Object raw, Map recipe, Map ctx) {
     if (!(raw instanceof List) || ((List) raw).isEmpty()) {
       return false
     }
+
     for (Object part : (List) raw) {
       if (evaluate(part, recipe, ctx)) {
         return true
       }
     }
+
     return false
   }
 
+  /**
+   * Dispatches a single predicate id ({@code anchoredSiteXml}, {@code translateIntent}, {@code concreteFieldEdit}, etc.)
+   * using closures on {@code ctx} and {@link AuthoringPreviewContext} probes.
+   */
   private static boolean evaluateLeaf(String leaf, Map ctx) {
     String id = (leaf ?: '').trim()
     if (!id) {
       return false
     }
+
     String wire = anchorCarrier(ctx)
     String author = AuthoringIntentRecipeCatalog.deterministicRoutingPrompt(ctx)
     String probe = AuthoringPreviewContext.intentRoutingProbe(wire, author)
+
     switch (id) {
       case 'anchoredSiteXml':
         return hasAnchoredSiteXml(wire, author)
@@ -164,6 +200,7 @@ final class AuthoringIntentRecipeWhen {
     }
   }
 
+  /** True when wire or author text contains a {@code /site/.../*.xml} repository anchor path. */
   private static boolean hasAnchoredSiteXml(String wire, String author) {
     String anchor = AuthoringPreviewContext.extractAnchoredRepositoryPath(wire)
     if (!anchor?.trim()) {
@@ -172,36 +209,50 @@ final class AuthoringIntentRecipeWhen {
     if (!anchor?.trim()) {
       return false
     }
+
     String low = anchor.toLowerCase(Locale.ROOT)
+
     return low.startsWith('/site/') && low.endsWith('.xml')
   }
 
+  /** Prefers {@code ctx.cand} for anchor extraction; falls back to {@code ctx.routerVisible}. */
   private static String anchorCarrier(Map ctx) {
     String cand = (ctx.cand ?: '').toString().trim()
     if (cand) {
       return cand
     }
+
     return (ctx.routerVisible ?: '').toString()
   }
 
+  /** True when any configured phrase appears in the deterministic routing prompt (case-insensitive substring). */
   private static boolean authorContainsAny(Object raw, Map ctx) {
     List<String> phrases = AuthoringIntentRecipeCatalog.hintStringList(raw)
     if (phrases.isEmpty()) {
       return false
     }
+
     String author = AuthoringIntentRecipeCatalog.deterministicRoutingPrompt(ctx)
+
     return AuthoringIntentRecipeCatalog.authorVisibleMatchesKeywordList(author, phrases)
   }
 
+  /** True when none of the configured phrases appear in the deterministic routing prompt. */
   private static boolean authorContainsNone(Object raw, Map ctx) {
     List<String> phrases = AuthoringIntentRecipeCatalog.hintStringList(raw)
     if (phrases.isEmpty()) {
       return true
     }
+
     String author = AuthoringIntentRecipeCatalog.deterministicRoutingPrompt(ctx)
+
     return !AuthoringIntentRecipeCatalog.authorVisibleMatchesKeywordList(author, phrases)
   }
 
+  /**
+   * True when any configured regex finds a match in the stripped author-visible routing text;
+   * invalid patterns are skipped.
+   */
   private static boolean authorMatchesRegex(Object raw, Map ctx) {
     String author = AuthoringPreviewContext.stripStudioInjectedPromptBlocks(
       AuthoringIntentRecipeCatalog.deterministicRoutingPrompt(ctx)
@@ -209,6 +260,7 @@ final class AuthoringIntentRecipeWhen {
     if (!author) {
       return false
     }
+
     List<String> patterns = []
     if (raw instanceof String) {
       String p = raw.toString().trim()
@@ -223,9 +275,11 @@ final class AuthoringIntentRecipeWhen {
         }
       }
     }
+
     if (patterns.isEmpty()) {
       return false
     }
+
     for (String p : patterns) {
       try {
         if (Pattern.compile(p).matcher(author).find()) {
@@ -235,6 +289,7 @@ final class AuthoringIntentRecipeWhen {
         // invalid site override pattern — skip
       }
     }
+
     return false
   }
 }

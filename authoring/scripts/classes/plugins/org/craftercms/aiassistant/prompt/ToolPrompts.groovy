@@ -225,8 +225,18 @@ For **this path only**, do **not** call **WriteContent**, **publish_content**, o
 For **any other repository path**, you may use **WriteContent**, **publish_content**, and **revert_change** as usual after **update_*** tools."""
   }
 
+  /**
+   * Delegates directly to `getLlm_AUTHORING_INSTRUCTIONS()` for backwards-compatible aliases.
+   * Keeps legacy imports stable without duplicating markdown blobs.
+   * Returns identical authoring policy text.
+   */
   static String getDEFAULT_AUTHORING_INSTRUCTIONS() { return getLlm_AUTHORING_INSTRUCTIONS() }
 
+  /**
+   * Returns `getUPDATE_CONTENT` authoring markdown describing how models must mutate artifacts.
+   * Uses CMS_* keys mapped beside CrafterStudio policies for updates vs reads.
+   * Keeps parity between orchestration appendix and Wire tool prompts.
+   */
   static String getUPDATE_CONTENT() {
     p('CMS_CONTENT_UPDATE_CONTENT', '''Apply the author's instructions to the **existing** content item XML shown in this tool result (contentXml).
 
@@ -256,6 +266,11 @@ Return only the **full** updated XML document suitable for WriteContent (same pa
 **Author chat:** Summarize what changed; do **not** paste the full XML unless the author asks.''')
   }
 
+  /**
+   * Returns `getANALYZE_TEMPLATE` authoring markdown describing how models must mutate artifacts.
+   * Uses CMS_* keys mapped beside CrafterStudio policies for updates vs reads.
+   * Keeps parity between orchestration appendix and Wire tool prompts.
+   */
   static String getANALYZE_TEMPLATE() {
     p('CMS_DEVELOPMENT_ANALYZE_TEMPLATE', '''You are an expert in CrafterCMS FreeMarker templates and content modeling.
 If asked to identify placeholders, inspect every contentModel.* / model.* variable.
@@ -267,6 +282,11 @@ Remind authors: static URLs belong under **`/static-assets/`**, not `/static/`.
 **Author chat:** Describe structure and placeholders in prose or a small table; do **not** dump the full template into the conversational reply unless the author asks to see the code.''')
   }
 
+  /**
+   * Returns `getUPDATE_TEMPLATE` authoring markdown describing how models must mutate artifacts.
+   * Uses CMS_* keys mapped beside CrafterStudio policies for updates vs reads.
+   * Keeps parity between orchestration appendix and Wire tool prompts.
+   */
   static String getUPDATE_TEMPLATE() {
     p('CMS_DEVELOPMENT_UPDATE_TEMPLATE', '''When updating templates:
 - Use contentModel placeholders with safe defaults.
@@ -291,6 +311,11 @@ If the author's request only affects **content form fields**, ignore template pe
 If they truly need a template file change, explain that they must apply it in Studio or use preview/XB assistant — you cannot save FTL from this chat turn. Do **not** paste full FTL in chat unless asked.''')
   }
 
+  /**
+   * Returns `getUPDATE_CONTENT_TYPE` authoring markdown describing how models must mutate artifacts.
+   * Uses CMS_* keys mapped beside CrafterStudio policies for updates vs reads.
+   * Keeps parity between orchestration appendix and Wire tool prompts.
+   */
   static String getUPDATE_CONTENT_TYPE() {
     p('CMS_DEVELOPMENT_UPDATE_CONTENT_TYPE', '''When updating form-definition.xml:
 - Return XML only.
@@ -309,62 +334,137 @@ For **content-only** tasks, use **`aiassistantFormFieldUpdates`** in your final 
   }
 
   // Tool descriptions
+  /**
+   * Loads CMS/general markdown describing `GET_CONTENT` tool invocation contracts.
+   * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.
+   * Returns trimmed prose injected into Spring AI tool registrations.
+   */
   static String getDESC_GET_CONTENT() {
     p('CMS_CONTENT_DESC_GET_CONTENT', 'Get the XML (or text) body of a Crafter CMS repository file by siteId and path (must start with /). Pass path or contentPath (same repository path). Reads sandbox content at Git ref HEAD by default. Optional commitId: pass a Git commit hash only when comparing versions or inspecting history; otherwise omit. Use for page/component XML, templates (`.ftl`), **Groovy** sources under `/scripts/` (e.g. REST, controllers) when they drive page data, and other repo text you discover from FTL or preview analysis. For **`/site/.../*.xml`** content items, the result may include **contentTypeIdFromXml** (first `<content-type>` in the file) and **contentTypeCatalogHint** — use that **`contentTypeIdFromXml`** as **GetContentTypeFormDefinition.contentTypeId** when working on **that same file** (do **not** guess **`/page/page_generic`** after reading a **`/site/components/...`** path). For paths ending in `.xml`, the result may also include **xmlWellFormed** (boolean), **xmlParseError**, and **xmlRepairReminder** when the on-disk text is not well-formed XML — you must repair structure in the document you pass to WriteContent. **One file per call:** **path** must be a **single repository file** (e.g. **`.xml`**, **`.ftl`**, **`.css`**) — **not** a folder like **`/static-assets/`** (no directory listing; tool fails / empty). Discover real **`.css`** paths by reading **`head.ftl`** and page **`.ftl`** text, not guessed names like **`/static-assets/css/styles.css`**.')
   }
 
+  /**
+   * Loads CMS/general markdown describing `LIST_CONTENT_DEPENDENCY_SCOPE` tool invocation contracts.
+   * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.
+   * Returns trimmed prose injected into Spring AI tool registrations.
+   */
   static String getDESC_LIST_CONTENT_DEPENDENCY_SCOPE() {
     p('CMS_CONTENT_DESC_LIST_CONTENT_DEPENDENCY_SCOPE', '**Discovery only (no XML bodies):** Given a **page or component** `contentPath` under `/site/.../*.xml`, walks node-selector `<key>` references (same closure as the server’s reference subgraph walk) and returns a **nested `tree`** (path, depth, contentType, internalName, children), a flat ordered **`paths`** list (BFS), and **`pathChunks`** — suggested batches for **GetContent** → translate/edit → **WriteContent**. Default **chunkSize is 1** (one repository path per batch; max 50) so multi-item page work stays within LLM context — increase only for very small documents. Optional **maxItems** (default 300, cap 2000), **maxDepth** (default 40, cap 100). Check **truncated**, **maxDepthReached**, **missingReferencedPaths**, **warning**. For **full-page** or **multi-referenced** authoring (translate, copy, tone, or coordinated edits), **call this first**, then process **pathChunks** sequentially.')
   }
 
+  /**
+   * Loads CMS/general markdown describing `GET_CONTENT_TYPE_FORM_DEFINITION` tool invocation contracts.
+   * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.
+   * Returns trimmed prose injected into Spring AI tool registrations.
+   */
   static String getDESC_GET_CONTENT_TYPE_FORM_DEFINITION() {
     p('CMS_DEVELOPMENT_DESC_GET_CONTENT_TYPE_FORM_DEFINITION', 'Get form-definition.xml for a **known** content type. Required: siteId. When the type id is **not** already known (especially **create** / **new** flows), call **ListStudioContentTypes** (**siteId** only first — full catalog), then use **Exact catalog match beats guessing** (system STUDIO POLICY): **only** if **exactly one** row’s **`label`**, **`name`**, or normalized **`name`** tail **equals** the author’s **type phrase** after the same normalization — pass **contentTypeId** = **that row’s `name`**. **Do not** use **`/page/page_generic`** / **`/page/generic-page`** when that exact match exists. **When creating a new item:** do **not** use **contentPath** of a **listing** `index.xml` if its `<content-type>` differs from the new item’s type. Pass **contentPath** only when the XML file’s `<content-type>` is the **same** item you are editing or cloning. Or pass **contentTypeId** only if it is the exact string from `<content-type>` in the item XML — never infer from filename (index.xml is not /page/index). The returned form XML may include **xmlWellFormed** / **xmlParseError** / **xmlRepairReminder** if the configuration text fails XML parse — fix before WriteContent.')
   }
 
+  /**
+   * Loads CMS/general markdown describing `LIST_STUDIO_CONTENT_TYPES` tool invocation contracts.
+   * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.
+   * Returns trimmed prose injected into Spring AI tool registrations.
+   */
   static String getDESC_LIST_STUDIO_CONTENT_TYPES() {
     p('CMS_DEVELOPMENT_DESC_LIST_STUDIO_CONTENT_TYPES', '**List Studio content types** for the site (the type **catalog**, not a list of content items). Required: **siteId**. **Prefer omitting `contentPath`** on the first call: returns the **full** catalog (`mode` **all** in the response) so you and the author can see every **`label`** / **`name`**; you may paste a short table in chat. **Optional `contentPath`**: when set, Studio returns types **allowed** under that path’s parent folder (`mode` **allowedForPath**, or **all_fallback_no_allowed** if empty) — a **subset**, useful only when you already know the create parent and must validate folder rules; **do not** pass a hub **`index.xml`** as the default first call. **`/page/...` rows are listed before** **`/component/...`**. After listing, apply **Exact catalog match beats guessing** (system STUDIO POLICY): **`contentTypeId` = that row’s `name`** only when **exactly one** row matches — **never** default to **`/page/page_generic`** when that exact match exists. Optional **searchable** (boolean). Response includes **`hint`** explaining **`mode`**. Then **GetContentTypeFormDefinition(siteId, contentTypeId=chosen name)** — **do not** request form defs for every **component** type. If **ok:false**, fall back to **GetContent** on a sibling item + **GetContentTypeFormDefinition** with exact **contentTypeId** from that XML.')
   }
 
+  /**
+   * Loads CMS/general markdown describing `WRITE_CONTENT` tool invocation contracts.
+   * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.
+   * Returns trimmed prose injected into Spring AI tool registrations.
+   */
   static String getDESC_WRITE_CONTENT() {
     p('CMS_CONTENT_DESC_WRITE_CONTENT', 'Persists XML or FTL to the repository (the only tool that saves file bodies). Requires siteId, path or contentPath (must start with /), and full contentXml string. **Never** send an empty or whitespace-only contentXml (or a body that becomes empty after illegal characters are stripped) — that corrupts the repo and breaks Engine with Premature end of file. contentXml must match the existing file type: for pages/components, preserve the <page>/<component> tree and field element names from the content type — do not invent a new XML structure. The body must be well-formed XML 1.0 UTF-8: never embed NUL (U+0000) or other disallowed control characters in element text or attributes (they break Studio parse); for large HTML snippets prefer CDATA sections. **Node-selector <item> children:** spell tags exactly as in the source file — the correct element is <disableFlattening>false</disableFlattening> (a common model typo </disableFlattenening> breaks the whole write). **Shared node-selector refs:** when **GetContent** shows **<include>/site/...xml</include>** on an **<item>** (same path as **<key>** for shared components), your **WriteContent** body **must** keep that **<include>** — dropping it breaks XB/Engine and often yields **HTTP 500** in preview. **Inline embedded <component>** items use a different shape — copy the **exact** child set from the source **GetContent** for each item you keep. **Image / asset paths (`*_s`, etc.):** only use paths you verified with **GetContent** or that you **WriteContent**’d in this flow — never placeholder images. Optional unlock (default true). Call after update_content / update_template when you have the complete file. Returns ok:false with a hint if there was no git commit (usually identical body vs current file). Templates must reference static files under /static-assets/, not /static/.')
   }
 
+  /**
+   * Loads CMS/general markdown describing `LIST_PAGES_AND_COMPONENTS` tool invocation contracts.
+   * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.
+   * Returns trimmed prose injected into Spring AI tool registrations.
+   */
   static String getDESC_LIST_PAGES_AND_COMPONENTS() {
     p('CMS_CONTENT_DESC_LIST_PAGES_AND_COMPONENTS', 'List **existing** pages and components in a site via OpenSearch (content **items**, not content-type definitions). Requires siteId; optional size (default 1000 — **prefer a small size** unless the author asked for a broad inventory). Use for **targeted** discovery (path prefix, matching titles) when finding **already-written** items. **Never** use this tool to list or guess **content types** — use **ListStudioContentTypes** instead. **Do not** call this after **ListStudioContentTypes** + **GetContentTypeFormDefinition** already resolved the **create** target type — **no benefit**; use **one sibling GetContent** or **WriteContent**. **Do not** use large **size** (e.g. 200–1000) to “explore” for a simple **create a …** ask — that wastes turns and does not replace a **sibling** template read.')
   }
 
+  /**
+   * Loads CMS/general markdown describing `UPDATE_TEMPLATE` tool invocation contracts.
+   * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.
+   * Returns trimmed prose injected into Spring AI tool registrations.
+   */
   static String getDESC_UPDATE_TEMPLATE() {
     p('CMS_DEVELOPMENT_DESC_UPDATE_TEMPLATE', 'Prepare an update to a FreeMarker **display template** (.ftl). Requires **siteId** + **instructions** (**non-empty string**) + either **templatePath** or **contentPath** (page/component `.xml` resolves **display-template**; **do not** pass a `.ftl` as contentPath alone). Returns current template text for the model to edit and pass to **WriteContent** — do not paste full FTL in chat. **Order:** Prefer **GetContent** on the **page or component `.xml`** first to learn **`<display-template>`** (and follow **`sections_o`** keys when the listing is a component); **do not** use this tool as **round 1 discovery** on **contentPath** alone — that wastes tool turns. When **templatePath** is already known (from XML or Studio metadata), pass **templatePath** directly. **Do not use** to "finish" a **content-only** task — **inform the author** instead. Reserve for when the author wants **template / layout / FTL** edits.')
   }
 
+  /**
+   * Loads CMS/general markdown describing `UPDATE_CONTENT` tool invocation contracts.
+   * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.
+   * Returns trimmed prose injected into Spring AI tool registrations.
+   */
   static String getDESC_UPDATE_CONTENT() {
     p('CMS_CONTENT_DESC_UPDATE_CONTENT', 'Prepare an update to a **content item** (page or component **XML** — author copy, fields, titles, media references in the item, not FreeMarker or Groovy). Requires siteId + instructions + contentPath. Returns current contentXml plus contentTypeId and form-definition hints — preserve field element names; then call WriteContent with the full updated XML. When **xmlWellFormed** is false, the repo item text failed XML parse — follow **xmlRepairReminder** and emit a corrected full document on WriteContent. For **page-level** copy/translate/tone/rewrite (author did not limit to one block), call this tool **per repository path** that holds visible text: the page **and** each item referenced from it (`sections_o`, `header_o` / `footer_o` / `left_rail_o`, etc.), not the page file alone. For **pages**, when the task depends on linked body copy, also **GetContent** on paths in node-selectors / `sections_o` (and preview when needed). **Node-selector `<item>` blocks:** keep the **exact** XML shape returned (especially **`<include>`** matching **`<key>`** for shared refs) — do not strip children to “summarize” or relabel layout in page XML.')
   }
 
+  /**
+   * Loads CMS/general markdown describing `UPDATE_CONTENT_TYPE` tool invocation contracts.
+   * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.
+   * Returns trimmed prose injected into Spring AI tool registrations.
+   */
   static String getDESC_UPDATE_CONTENT_TYPE() {
     p('CMS_DEVELOPMENT_DESC_UPDATE_CONTENT_TYPE', 'Prepare an update to a content type model (form-definition.xml). Requires siteId + instructions + contentType. Returns current form-definition.xml so the model can generate an updated version and then call WriteContent. When **xmlWellFormed** is false, repair XML per **xmlRepairReminder** before persisting.')
   }
 
+  /**
+   * Loads CMS/general markdown describing `ANALYZE_TEMPLATE` tool invocation contracts.
+   * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.
+   * Returns trimmed prose injected into Spring AI tool registrations.
+   */
   static String getDESC_ANALYZE_TEMPLATE() {
     p('CMS_DEVELOPMENT_DESC_ANALYZE_TEMPLATE', 'Fetch a FreeMarker template for **read-only analysis** (no save). Requires **siteId** + **instructions** (**mandatory non-empty string** every call — the server rejects missing instructions) + either **templatePath** or **contentPath** (page/component `.xml` that resolves **display-template**; **do not** pass a `.ftl` path as contentPath alone). Use to trace how a page pulls **referenced** or **query-driven** content, or to **verify** why preview still disagrees with a **content-only** goal after XML edits (e.g. hardcoded strings or defaults in FTL). After diagnosis, use **update_content** for item XML fixes; **do not** use **update_template** for a **content-only** task unless the author explicitly asked to edit the template — **report** template issues to the author instead.')
   }
 
+  /**
+   * Loads CMS/general markdown describing `PUBLISH_CONTENT` tool invocation contracts.
+   * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.
+   * Returns trimmed prose injected into Spring AI tool registrations.
+   */
   static String getDESC_PUBLISH_CONTENT() {
     p('CMS_CONTENT_DESC_PUBLISH_CONTENT', "Submit a Studio publish/deploy. Requires siteId. Scope via publishScope: item (path or contentPath), paths (paths/contentPaths array — one deploy, multiple items), bulk (bulkRootPath, default /site — bulk go-live subtree), all (entire site / first publish — PublishService.publishAll; use when site never published or author asked for everything). Aliases: publishEntireSite/publishAll=true → all. Optional: date (ISO-8601 schedule), publishingTarget (live/staging), submissionComment. Never claim entire site published if result publishScope is item or pathCount is 1.")
   }
 
+  /**
+   * Loads CMS/general markdown describing `GET_CONTENT_VERSION_HISTORY` tool invocation contracts.
+   * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.
+   * Returns trimmed prose injected into Spring AI tool registrations.
+   */
   static String getDESC_GET_CONTENT_VERSION_HISTORY() {
     p('CMS_CONTENT_DESC_GET_CONTENT_VERSION_HISTORY', 'List Studio version history for a repository file (v2 getContentVersionHistory). Requires siteId and path or contentPath. Returns versionNumber, modifiedDate, revertible, etc. Use a versionNumber with revert_change.')
   }
 
+  /**
+   * Loads CMS/general markdown describing `GET_PREVIEW_HTML` tool invocation contracts.
+   * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.
+   * Returns trimmed prose injected into Spring AI tool registrations.
+   */
   static String getDESC_GET_PREVIEW_HTML() {
     p('CMS_CONTENT_DESC_GET_PREVIEW_HTML', 'Fetches rendered preview HTML from the Engine for an absolute **Engine** preview URL (GET). Studio sends **x-crafter-preview**, **crafterPreview** (cookie + query, query value always re-encoded server-side), and **crafterSite** — you do not set those manually. **Authorization** is not forwarded to Engine unless JVM **aiassistant.preview.fetch.forwardAuthorization=true** (Studio JWT is not Engine auth and can cause 401). **After substantive page/template/referenced-item writes**, call to **verify** assembled output (default workflow when URL and previewToken are available). Use only the prompt’s **“Engine preview URL (GetPreviewHtml tool only)”** line as **url** — bare `http(s)://host/locale/path?crafterSite=…` style. For **telling the author where to click** in Studio, use the separate **“Studio preview URL”** shell (`/studio/preview#/?page=…&site=…`); **never** pass that hash URL to this tool (fragments are not sent on GET). Studio-shell URLs are rewritten server-side when needed, but prefer the ready Engine URL from the prompt. The server reads crafterPreview from the **incoming chat request cookies** when previewToken is omitted (HttpOnly-safe). Optional previewToken: full crafterPreview cookie value when not sent with the chat request. Optional siteId: adds crafterSite= when missing from the URL. Host must be this Studio server, localhost, 127.0.0.1, [::1], or aiassistant.preview.fetch.allowedHosts (JVM). Response html may be truncated (default 400k chars); check truncated flag.')
   }
 
+  /**
+   * Loads CMS/general markdown describing `FETCH_HTTP_URL` tool invocation contracts.
+   * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.
+   * Returns trimmed prose injected into Spring AI tool registrations.
+   */
   static String getDESC_FETCH_HTTP_URL() {
     p('GENERAL_DESC_FETCH_HTTP_URL', 'GET a public **http(s)** URL and return the response **body as UTF-8 text** (HTML page, CSS file, JSON, etc.) for redesign or “make my site look like this” workflows. **Not** for Crafter Engine preview tickets — use **GetPreviewHtml** for your site preview. SSRF protections: blocks localhost/private IPs/metadata hosts; follows up to **5** redirects and re-validates each target. Optional **maxChars** caps returned size (JVM **aiassistant.httpFetch.maxChars** still applies, default 400000). Disable entirely with **aiassistant.httpFetch.enabled=false**. Restrict hosts with comma suffix list **aiassistant.httpFetch.allowedHostSuffixes** (e.g. `example.com,cdn.example.net`). No Studio cookies or Authorization are sent. Remind the author about **copyright and terms** of third-party pages.')
   }
 
+  /**
+   * Loads CMS/general markdown describing `WEB_SEARCH` tool invocation contracts.
+   * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.
+   * Returns trimmed prose injected into Spring AI tool registrations.
+   */
   static String getDESC_WEB_SEARCH() {
     p(
       'GENERAL_DESC_WEB_SEARCH',
@@ -372,6 +472,11 @@ For **content-only** tasks, use **`aiassistantFormFieldUpdates`** in your final 
     )
   }
 
+  /**
+   * Loads CMS/general markdown describing `RESEARCH_SITE_CONTENT` tool invocation contracts.
+   * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.
+   * Returns trimmed prose injected into Spring AI tool registrations.
+   */
   static String getDESC_RESEARCH_SITE_CONTENT() {
     p(
       'CMS_DESC_RESEARCH_SITE_CONTENT',
@@ -379,22 +484,47 @@ For **content-only** tasks, use **`aiassistantFormFieldUpdates`** in your final 
     )
   }
 
+  /**
+   * Loads CMS/general markdown describing `QUERY_EXPERT_GUIDANCE` tool invocation contracts.
+   * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.
+   * Returns trimmed prose injected into Spring AI tool registrations.
+   */
   static String getDESC_QUERY_EXPERT_GUIDANCE() {
     p('GENERAL_DESC_QUERY_EXPERT_GUIDANCE', 'Semantic search over a **configured expert skill** markdown corpus (Spring AI in-memory vector store + embeddings). First load fetches the skill URL server-side (same SSRF rules as FetchHttpUrl). Required: **skillId** from the system “Expert guidance skills” table, **query** (what to retrieve). Optional **topK** (1–20, default 8). Returns ranked text chunks with scores — use them to ground answers before large CMS edits. Does not write the repository. Injected tool-progress lines use **🤓** after **🛠️** so authors recognize expert-instruction work; mention **🤓** in your own prose when you summarize this tool.')
   }
 
+  /**
+   * Loads CMS/general markdown describing `REVERT_CHANGE` tool invocation contracts.
+   * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.
+   * Returns trimmed prose injected into Spring AI tool registrations.
+   */
   static String getDESC_REVERT_CHANGE() {
     p('CMS_CONTENT_DESC_REVERT_CHANGE', 'Revert a content item to a prior Studio version (v1 revertContentItem). Requires siteId and path or contentPath. Pass version=<versionNumber> from GetContentVersionHistory, revertToInitial:true for the oldest revertible version (e.g. “initial commit”, “first version”), or revertToPrevious:true for one step back. For a specific historical body, call GetContentVersionHistory first, then pass contentContains (distinct phrases from that version) and optional contentFieldId from GetContentTypeFormDefinition — do not guess field ids. Do not pass content/template/contentType as a version.')
   }
 
+  /**
+   * Loads CMS/general markdown describing `GET_CRAFTERIZING_PLAYBOOK` tool invocation contracts.
+   * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.
+   * Returns trimmed prose injected into Spring AI tool registrations.
+   */
   static String getDESC_GET_CRAFTERIZING_PLAYBOOK() {
     p('CMS_DEVELOPMENT_DESC_GET_CRAFTERIZING_PLAYBOOK', 'Returns the CrafterCMS “crafterization” playbook markdown: phases and critical rules for converting a static HTML template into a Crafter site (content types, pages, components, FTL, XB, content items). No site write access. Optional topic is reserved for future filtering; today the full playbook is returned. Edit the file CrafterizingPlaybook.md next to the plugin classes to customize. Injected tool-progress uses **🤓** after **🛠️**; include **🤓** in chat when you summarize this call.')
   }
 
+  /**
+   * Loads CMS/general markdown describing `GENERATE_IMAGE` tool invocation contracts.
+   * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.
+   * Returns trimmed prose injected into Spring AI tool registrations.
+   */
   static String getDESC_GENERATE_IMAGE() {
     p('CMS_CONTENT_DESC_GENERATE_IMAGE', 'Generates an image using the **configured image backend** for this Studio site/agent (default: built-in **POST /v1/images/generations** wire when an API key and **imageModel** are set; **script:{id}** uses **`/scripts/aiassistant/imagegen/{id}/generate.groovy`**; **none** / **off** / **disabled** removes the tool). Same key material as chat when using the default tools-loop image path. Default image model is the agent **imageModel** (ui.xml) or chat request **imageModel** only — no JVM default; optional tool argument **model** overrides per call on the wire path. Required: **prompt**. Optional: **size** (GPT Image only: **auto**, **1024x1024**, **1024x1536**, **1536x1024** — **omit** unless the author asked for aspect ratio; never use legacy sizes like **1024x768**), **quality** (low, medium, high, auto). **Do not** pass **response_format** on the GPT Image Images path; the server never sends it. When the backend returns base64, the **tool result wire** uses a short **`inlineImageRef`** (not a multi‑megabyte `data:` URL). When the author asked for an image, **call this tool** — do not answer with a text-only “concept” or ask them to approve a concept first. Studio shows the generated bitmap in the **chat image strip**; your **author-visible** reply is **plain prose** only (subject, style, how to use the image)—**do not** stream markdown `![…](…)` lines, 📋 steps about “present as markdown”, or raw `data:image/...;base64,...` blobs (context limit). The server may attach image metadata for the UI; authors drag from the strip when they need to persist bytes.')
   }
 
+  /**
+   * Provides `getTRANSFORM_CONTENT_SUBGRAPH_SYSTEM` system markdown for translation/transform subgraph workers.
+   * Hydrates ToolPrompts keys referenced only by batched authoring flows.
+   * Ensures nested completions reuse identical guardrails as interactive chat.
+   */
   static String getTRANSFORM_CONTENT_SUBGRAPH_SYSTEM() {
     p('CMS_CONTENT_TRANSFORM_SUBGRAPH_SYSTEM', '''You are a CrafterCMS Studio server worker. You receive ONE XML bundle:
 - Root element MUST stay `<aiassistant-content-subgraph root="..." version="1">` with the same `root` attribute as the input.
@@ -457,6 +587,11 @@ If unsure about a field, leave it unchanged.'''
     )
   }
 
+  /**
+   * Provides `getTRANSLATE_CONTENT_ITEM_INNER_USER_APPENDIX_RAW` system markdown for translation/transform subgraph workers.
+   * Hydrates ToolPrompts keys referenced only by batched authoring flows.
+   * Ensures nested completions reuse identical guardrails as interactive chat.
+   */
   static String getTRANSLATE_CONTENT_ITEM_INNER_USER_APPENDIX_RAW() {
     p('CMS_CONTENT_TRANSLATE_ITEM_INNER_USER_APPENDIX_RAW',
       '''## Reply contract
@@ -465,6 +600,11 @@ If unsure about a field, leave it unchanged.'''
     )
   }
 
+  /**
+   * Loads CMS/general markdown describing `TRANSFORM_CONTENT_SUBGRAPH` tool invocation contracts.
+   * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.
+   * Returns trimmed prose injected into Spring AI tool registrations.
+   */
   static String getDESC_TRANSFORM_CONTENT_SUBGRAPH() {
     p('CMS_CONTENT_DESC_TRANSFORM_CONTENT_SUBGRAPH', '''**Batch page/component transform (server-side LLM) — prefer this first for full-page translate** when you have the root **page** path: loads the **content subgraph** (root `/site/.../*.xml` plus referenced `/site/.../*.xml` via `<key>`), sends **only that bundle plus your instructions** to OpenAI in **one** inner completion, then **writes each path** with the same pipeline as **WriteContent** — **much faster** than listing the tree and calling **GetContent**/**WriteContent** per file in the main chat.
 
@@ -475,35 +615,75 @@ Optional: **writeResults** (boolean, default **true**) — persist all documents
 If the bundle exceeds ~280k characters, the tool fails — narrow **maxDepth**/scope or use **ListContentDependencyScope** + per-path **GetContent**/**WriteContent**. After writes, use **GetPreviewHtml** when a preview URL exists.''')
   }
 
+  /**
+   * Loads CMS/general markdown describing `TRANSLATE_CONTENT_ITEM` tool invocation contracts.
+   * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.
+   * Returns trimmed prose injected into Spring AI tool registrations.
+   */
   static String getDESC_TRANSLATE_CONTENT_ITEM() {
     p('CMS_CONTENT_DESC_TRANSLATE_CONTENT_ITEM', '''**Cross-language translate / localize OR parallel inner rewrite — one XML path (server inner LLM)** — adds **a second OpenAI completion** on the server for this path (slow). **Do not use** for **same-language-only** edits on **one** path — use **GetContent** + **WriteContent** in the main chat instead. **One** inner request **per** `contentPath` / `path`: the server loads **only** that file’s XML (`maxItems: 1` — **no** bundled referenced components). Inner completion receives **raw** `<page>` / `<component>` XML and expects the same back (no `<document>` / subgraph wrapper); the server writes to the requested path. Pass **instructions** that preserve structure (`internal-name`, `file-name`, `objectId`, `<key>` paths, element names). Uses the **same-family** smaller model when **llmModel** is omitted. Default max output tokens **8192** — JVM **-Daiassistant.translateContentItemMaxOutTokens=** if a rare item truncates. Typical use: **after ListContentDependencyScope** per path for **localization**, or when batching many paths. Required: **siteId**, **contentPath** (or **path**), **instructions**. Optional: **writeResults**, **unlock**, **llmModel** / **model**, **readTimeoutMs**.''')
   }
 
+  /**
+   * Loads CMS/general markdown describing `TRANSLATE_CONTENT_BATCH` tool invocation contracts.
+   * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.
+   * Returns trimmed prose injected into Spring AI tool registrations.
+   */
   static String getDESC_TRANSLATE_CONTENT_BATCH() {
     p('CMS_CONTENT_DESC_TRANSLATE_CONTENT_BATCH', '''**Parallel cross-language translate OR parallel inner rewrite — many XML paths (same instructions)** — **one extra inner OpenAI request per path** on the server (same cost model as **TranslateContentItem**). **Do not use** for **same-language** work on **one** path — use **GetContent** + **WriteContent**. For **same-language** jobs with **few** paths, prefer **GetContent**/**WriteContent** per path in the main chat to avoid dozens of seconds of inner latency per file. Runs **concurrently** (default **25** workers; per-agent **<translateBatchConcurrency>** in ui.xml **1–64**; optional tool arg **maxConcurrency**; hard cap **64**). **After the first pass**, the server **automatically retries each failing path once**, then returns **`initialFailures`**, **`serverRetryAttempted`**, **`serverRetryRecoveredCount`**, **`serverRetryStillFailingCount`**, and per-path **`firstPass`** / **`recoveredOnServerRetry`** / **`guidanceAfterFailedRetry`**. **Do not** call **TranslateContentBatch** again for the same paths — use **TranslateContentItem** or **GetContent**/**WriteContent** on remaining failures. Pass **paths** / **contentPaths** or **pathChunks** from **ListContentDependencyScope**. Max **100** paths per call. Required: **siteId**, **instructions**, plus **paths** / **contentPaths** / **pathChunks**. Optional: **maxConcurrency**, **writeResults**, **unlock**, **llmModel** / **model**, **readTimeoutMs**.''')
   }
 
   // nextStep templates
+  /**
+   * Builds `nextStepUpdateTemplate` continuation snippets referencing concrete repository/template paths.
+   * Embeds Markdown hints guiding models toward WriteContent/update_* sequencing.
+   * Called after intermediate tools succeed during multi-phase edits.
+   */
   static String nextStepUpdateTemplate(String templatePath) {
     return "Generate the updated FreeMarker template content (FTL). Then call `WriteContent` with: `siteId` (same siteId as this tool call), `path='${templatePath}'`, `contentXml='UPDATED_FTL_TEXT'` (replace with your generated FTL), and `unlock='true'` (or omit to use default)."
   }
 
+  /**
+   * Builds `nextStepUpdateContent` continuation snippets referencing concrete repository/template paths.
+   * Embeds Markdown hints guiding models toward WriteContent/update_* sequencing.
+   * Called after intermediate tools succeed during multi-phase edits.
+   */
   static String nextStepUpdateContent(String contentPath) {
     return "Edit the **full** `contentXml` from this result in place: keep the same root and field element names (`formFieldIds` / form definition). Then call `WriteContent` with: `siteId` (same as this call), `path='${contentPath}'`, `contentXml=` the **entire** updated document (not a fragment or empty string — empty XML corrupts the repo), `unlock='true'` (or omit). **Do not** invent partial XML (e.g. `<hero><title>…</title></hero>`) — copy the full `<page>` or `<component>` from this tool result, change one field, then write."
   }
 
+  /**
+   * Builds `nextStepUpdateContentType` continuation snippets referencing concrete repository/template paths.
+   * Embeds Markdown hints guiding models toward WriteContent/update_* sequencing.
+   * Called after intermediate tools succeed during multi-phase edits.
+   */
   static String nextStepUpdateContentType(String configPath) {
     return "Generate the updated form-definition.xml (content type model). Then call `WriteContent` with: `siteId` (same siteId as this tool call), `path='${configPath}'`, `contentXml='UPDATED_XML'` (replace with your generated XML), and `unlock='true'` (or omit to use default)."
   }
 
+  /**
+   * Builds `nextStepUpdateContentFormForward` continuation snippets referencing concrete repository/template paths.
+   * Embeds Markdown hints guiding models toward WriteContent/update_* sequencing.
+   * Called after intermediate tools succeed during multi-phase edits.
+   */
   static String nextStepUpdateContentFormForward(String contentPath) {
     return "Do **not** call WriteContent (unavailable). Using `contentXml`, `formFieldIds`, and the form definition, produce field-level updates as **`aiassistantFormFieldUpdates`** in your final JSON (field id → string). Align with the live form payload in the user message when present. Repo path for context: `${contentPath}`."
   }
 
+  /**
+   * Builds `nextStepUpdateTemplateFormForward` continuation snippets referencing concrete repository/template paths.
+   * Embeds Markdown hints guiding models toward WriteContent/update_* sequencing.
+   * Called after intermediate tools succeed during multi-phase edits.
+   */
   static String nextStepUpdateTemplateFormForward(String templatePath) {
     return "WriteContent is unavailable. If the task maps to form fields, output **`aiassistantFormFieldUpdates`** only. If a real FTL change is required, say the author must save the template in Studio or use the XB/preview assistant. Template path for context: `${templatePath}`."
   }
 
+  /**
+   * Builds `nextStepUpdateContentTypeFormForward` continuation snippets referencing concrete repository/template paths.
+   * Embeds Markdown hints guiding models toward WriteContent/update_* sequencing.
+   * Called after intermediate tools succeed during multi-phase edits.
+   */
   static String nextStepUpdateContentTypeFormForward(String configPath) {
     return "WriteContent is unavailable. For schema work, direct the author to Studio content types or the preview assistant. For field values, use **`aiassistantFormFieldUpdates`**. Config path for context: `${configPath}`."
   }
@@ -609,6 +789,11 @@ Keep total output under **~600 words**.'''
     )
   }
 
+  /**
+   * Loads GENERAL_LLM_PLAN_GATE_ASSISTANT_ACK markdown via `p(...)`.
+   * Shapes assistant acknowledgements after PlanGate retries.
+   * Pairs with user-role companion prompts defined beside plan workflows.
+   */
   static String getLlm_PLAN_GATE_ASSISTANT_ACK() {
     p('GENERAL_LLM_PLAN_GATE_ASSISTANT_ACK',
       'Understood — I will expand **## Plan** into **ordered 📋 steps** (each line = one verifiable outcome for the author) before continuing.'

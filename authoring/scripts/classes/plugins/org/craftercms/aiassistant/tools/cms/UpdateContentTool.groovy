@@ -10,19 +10,30 @@ import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSupport
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
+/**
+ * LLM "planning" tool: loads item XML and form definition, then returns instructions for the model to edit and
+ * apply via {@link WriteContentTool} or form-engine JSON (no direct write in this tool).
+ */
 class UpdateContentTool extends AbstractStudioAiTool {
 
   private static final Logger log = LoggerFactory.getLogger(UpdateContentTool)
 
+  /** Returns the Spring AI wire name {@code update_content}. */
   @Override
   String wireName() { 'update_content' }
 
+  /** Site-overridable tool description from {@link ToolPrompts}. */
   @Override
   String description() { ToolPrompts.DESC_UPDATE_CONTENT }
 
+  /** JSON Schema for site, path, and natural-language {@code instructions}. */
   @Override
   String inputSchemaJson() { StudioAiToolSchemas.CMS_LOOSE }
 
+  /**
+   * Loads content and form definition, chooses form-forward vs repository-write guidance from context flags,
+   * and returns a payload the model uses on subsequent turns (not a repository mutation).
+   */
   @Override
   Map execute(Map input, StudioAiToolContext ctx) {
     def siteId = ctx.ops.resolveEffectiveSiteId(input?.siteId?.toString()?.trim() ?: (input?.site_id?.toString()?.trim()))

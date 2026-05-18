@@ -10,24 +10,37 @@ import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSupport
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
+/**
+ * LLM tool that restores a repository item to a prior Studio/git version using flags such as
+ * {@code revertToPrevious}, explicit {@code version}, or {@code contentContains} resolved server-side.
+ */
 class RevertChangeTool extends AbstractStudioAiTool {
 
   private static final Logger log = LoggerFactory.getLogger(RevertChangeTool)
 
+  /** Returns the Spring AI wire name {@code revert_change}. */
   @Override
   String wireName() { 'revert_change' }
 
+  /** Site-overridable tool description from {@link ToolPrompts}. */
   @Override
   String description() { ToolPrompts.DESC_REVERT_CHANGE }
 
+  /** JSON Schema for path, site, and version-selection arguments. */
   @Override
   String inputSchemaJson() { StudioAiToolSchemas.CMS_LOOSE }
 
+  /** Disabled when orchestration sets {@code fullSuppressRepoWrites} on the tool context. */
   @Override
   boolean enabled(StudioAiToolContext ctx) {
     return !ctx.fullSuppressRepoWrites
   }
 
+  /**
+   * Blocks revert on the protected form item path, resolves the target version via
+   * {@link plugins.org.craftercms.aiassistant.tools.StudioToolOperations#resolveRevertChangeVersionSelection},
+   * then calls {@code revertContentItem} and returns a structured ok/message payload.
+   */
   @Override
   Map execute(Map input, StudioAiToolContext ctx) {
     def siteId = ctx.ops.resolveEffectiveSiteId(input?.siteId?.toString()?.trim() ?: (input?.site_id?.toString()?.trim()))

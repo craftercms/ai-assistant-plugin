@@ -1,14 +1,15 @@
 package plugins.org.craftercms.aiassistant.prompt
 
 /**
- * Keys accepted for site overrides {@code /scripts/aiassistant/prompts/&lt;KEY&gt;.md}
- * (must match {@link ToolPrompts} {@code p('KEY', ...)} usages).
- * <p>Prefixes: {@code GENERAL_} (cross-cutting Studio / LLM policy), {@code CMS_CONTENT_} (repository content,
- * translate, preview, publish), {@code CMS_DEVELOPMENT_} (templates, content types, analyze).</p>
- * <p>When adding a new {@code p('NEW_KEY', ...)} in {@link ToolPrompts}, append here.</p>
+ * Central catalog of ToolPrompts {@code p('KEY', …)} keys eligible for `/scripts/aiassistant/prompts/&lt;KEY&gt;.md` overrides.
+ * Maintainers append here whenever new markdown bundles ship so operators know valid filenames.
+ * Prefix groups ({@code GENERAL_}, {@code CMS_CONTENT_}, {@code CMS_DEVELOPMENT_}) mirror ToolPrompts domains.
  */
 final class ToolPromptsOverrideCatalog {
 
+  /**
+   * Prevents instantiation — catalog state is carried solely by {@link #KEYS}.
+   */
   private ToolPromptsOverrideCatalog() {}
 
   static final List<String> KEYS = [

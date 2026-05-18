@@ -64,11 +64,20 @@ final class StudioAiLlmKind {
 
   private static final Pattern SAFE_SCRIPT_LLM_ID = Pattern.compile('^[a-z0-9_-]{1,64}$')
 
+  /**
+   * Detects normalized kinds produced from {@code script:…} agent configuration.
+   * Treats null/blank tokens as empty strings before prefix comparison.
+   * Used to branch script-hosted Groovy LLM bundles vs built-in transports.
+   */
   static boolean isScriptHostedLlm(String normalizedKind) {
     return (normalizedKind ?: '').toString().startsWith(SCRIPT_LLM_PREFIX)
   }
 
-  /** Lowercase id segment after {@link #SCRIPT_LLM_PREFIX}; empty if not a script LLM token. */
+  /**
+   * Strips {@link #SCRIPT_LLM_PREFIX} when present and lowercases the remainder for filesystem lookups.
+   * Returns empty string when the token is not script-hosted.
+   * Keeps ids aligned with `/scripts/aiassistant/llm/{id}/` folder naming rules.
+   */
   static String scriptLlmIdFromNormalized(String normalizedKind) {
     String s = (normalizedKind ?: '').toString()
     if (!s.startsWith(SCRIPT_LLM_PREFIX)) {
@@ -77,12 +86,21 @@ final class StudioAiLlmKind {
     return s.substring(SCRIPT_LLM_PREFIX.length()).trim().toLowerCase(Locale.US)
   }
 
-  /** Built-in kinds that use the tools-loop RestClient path (no script bundle inspection). */
+  /**
+   * Enumerates first-party vendor constants wired to the OpenAI-compatible RestClient loop.
+   * Compares normalized strings exactly (already lowercase canonical ids).
+   * Avoids probing script bundles—call {@link #useToolsLoopChatRestClient} for those merges.
+   */
   static boolean useToolsLoopChatRestClientBuiltInKinds(String normalizedKind) {
     String n = (normalizedKind ?: '').toString()
     return OPENAI_NATIVE == n || XAI_NATIVE == n || DEEPSEEK_NATIVE == n || LLAMA_NATIVE == n || GEMINI_NATIVE == n
   }
 
+  /**
+   * Reads {@link #BUNDLE_TOOLS_LOOP_CHAT_API_KEY} from Spring AI session bundles when scripts embed secrets.
+   * Returns trimmed text or empty string for absent keys.
+   * Feeds credential resolution without logging the raw secret.
+   */
   static String toolsLoopChatApiKeyFromBundle(Map bundle) {
     if (bundle == null) {
       return ''
@@ -90,6 +108,11 @@ final class StudioAiLlmKind {
     return (bundle.get(BUNDLE_TOOLS_LOOP_CHAT_API_KEY) ?: '').toString().trim()
   }
 
+  /**
+   * Extracts {@link #BUNDLE_TOOLS_LOOP_CHAT_BASE_URL} for script LLM sessions that reuse the RestClient stack.
+   * Trims whitespace so trailing slashes remain author-controlled downstream.
+   * Returns empty string when undefined to let callers fall back to hosted defaults.
+   */
   static String toolsLoopChatBaseUrlFromBundle(Map bundle) {
     if (bundle == null) {
       return ''
@@ -97,7 +120,11 @@ final class StudioAiLlmKind {
     return (bundle.get(BUNDLE_TOOLS_LOOP_CHAT_BASE_URL) ?: '').toString().trim()
   }
 
-  /** Script/vendor: prefer {@code max_completion_tokens} on {@code /v1/chat/completions} for this session. */
+  /**
+   * Coerces {@link #BUNDLE_TOOLS_LOOP_CHAT_PREFER_MAX_COMPLETION_TOKENS} flags from script maps.
+   * Accepts Boolean boxes or textual true/false tokens.
+   * Drives serializer differences for vendors that reject legacy max_tokens fields.
+   */
   static boolean toolsLoopChatPreferMaxCompletionTokensFromBundle(Map bundle) {
     if (bundle == null) {
       return false
@@ -112,7 +139,11 @@ final class StudioAiLlmKind {
     return Boolean.parseBoolean(v.toString().trim())
   }
 
-  /** Script/vendor: optional positive cap on completion output tokens for tools-loop + simple wire completions. */
+  /**
+   * Parses optional completion output caps for tools-loop POST bodies.
+   * Accepts Numbers or numeric strings, ignoring non-positive values.
+   * Swallows parse errors to keep script bundles permissive during experiments.
+   */
   static Integer toolsLoopChatMaxCompletionOutTokensFromBundle(Map bundle) {
     if (bundle == null) {
       return null
@@ -133,7 +164,11 @@ final class StudioAiLlmKind {
     }
   }
 
-  /** Script/vendor: optional char budget for tools-loop POST JSON; {@code 0} = do not shrink. */
+  /**
+   * Reads whole-request JSON shrinking budgets before each tools-loop POST.
+   * Coerces negatives to zero meaning “disabled”.
+   * Protects strict chat hosts from oversized message+tool schemas in one shot.
+   */
   static int toolsLoopChatMaxWirePayloadCharsFromBundle(Map bundle) {
     if (bundle == null) {
       return 0
@@ -152,6 +187,11 @@ final class StudioAiLlmKind {
     }
   }
 
+  /**
+   * Compares {@code nativeToolTransport} hints case-insensitively against {@link #NATIVE_TRANSPORT_TOOLS_LOOP_WIRE}.
+   * Treats blank tokens as false.
+   * Lets script bundles opt into RestClient wiring without renaming normalized llm ids.
+   */
   static boolean nativeToolTransportIsToolsLoopWire(String transportToken) {
     String t = (transportToken ?: '').toString().trim()
     if (!t) {
@@ -185,6 +225,11 @@ final class StudioAiLlmKind {
     return useToolsLoopChatRestClientBuiltInKinds(normalizedKind)
   }
 
+  /**
+   * Detects Claude transports via bundle hints or canonical normalized ids.
+   * Checks {@code nativeToolTransport=anthropic} before falling back to {@link #CLAUDE_NATIVE}.
+   * Keeps Anthropic Spring AI adapters separate from tools-loop RestClient code paths.
+   */
   static boolean isAnthropicClaude(String normalizedKind, Map springAiBundle = null) {
     if (springAiBundle != null) {
       String t = springAiBundle.get('nativeToolTransport')?.toString()?.trim()
@@ -195,7 +240,11 @@ final class StudioAiLlmKind {
     return CLAUDE_NATIVE == (normalizedKind ?: '').toString()
   }
 
-  /** Autonomous worker: built-in tools-loop kinds or site script LLM (script must return tools-loop bundle fields for headless tools). */
+  /**
+   * Answers whether autonomous runners may attach native Spring tool callbacks without interactive chat.
+   * Returns true for built-in RestClient vendors or script-hosted Groovy llms advertising compatible bundles.
+   * Keeps incompatible transports from registering tools that cannot execute headlessly.
+   */
   static boolean supportsAutonomousNativeTools(String normalizedKind) {
     return useToolsLoopChatRestClientBuiltInKinds(normalizedKind) || isScriptHostedLlm(normalizedKind)
   }

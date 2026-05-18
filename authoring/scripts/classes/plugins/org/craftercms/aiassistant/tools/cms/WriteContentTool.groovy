@@ -7,22 +7,34 @@ import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolContext
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSchemas
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSupport
 
+/**
+ * LLM tool that persists full-item {@code contentXml} to a repository path via Studio's write pipeline
+ * (blocked for the protected form item when client-side apply is active).
+ */
 class WriteContentTool extends AbstractStudioAiTool {
 
+  /** Returns the Spring AI wire name {@code WriteContent}. */
   @Override
   String wireName() { 'WriteContent' }
 
+  /** Site-overridable tool description from {@link ToolPrompts}. */
   @Override
   String description() { ToolPrompts.DESC_WRITE_CONTENT }
 
+  /** JSON Schema for path, {@code contentXml}, optional {@code unlock}, and {@code siteId}. */
   @Override
   String inputSchemaJson() { StudioAiToolSchemas.WRITE_CONTENT }
 
+  /** Disabled when orchestration sets {@code fullSuppressRepoWrites} on the tool context. */
   @Override
   boolean enabled(StudioAiToolContext ctx) {
     return !ctx.fullSuppressRepoWrites
   }
 
+  /**
+   * Rejects writes to the form-engine protected path (returns client-apply guidance), then calls
+   * {@link plugins.org.craftercms.aiassistant.tools.StudioToolOperations#writeContent} with resolved site and XML body.
+   */
   @Override
   Map execute(Map input, StudioAiToolContext ctx) {
     def path = StudioAiToolSupport.repoPathFromToolInput(input)

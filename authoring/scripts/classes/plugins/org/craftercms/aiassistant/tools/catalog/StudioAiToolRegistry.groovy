@@ -67,10 +67,12 @@ final class StudioAiToolRegistry {
 
   private static volatile Map<String, AbstractStudioAiTool> coreByWireNameCache
 
+  /** Returns the immutable list of built-in CMS / general orchestration tool instances. */
   static List<AbstractStudioAiTool> coreTools() {
     return CORE_TOOLS
   }
 
+  /** Lazily builds and caches a wire-name → tool instance map for dispatch and prefetch. */
   static Map<String, AbstractStudioAiTool> coreToolsByWireName() {
     Map<String, AbstractStudioAiTool> cached = coreByWireNameCache
     if (cached != null) {
@@ -116,6 +118,10 @@ final class StudioAiToolRegistry {
     return tool.execute((Map) (input ?: [:]), ctx) as Map
   }
 
+  /**
+   * Builds Spring AI {@code FunctionToolCallback} entries for each enabled core tool in the registry
+   * for the current orchestration context.
+   */
   static List buildCoreToolCallbacks(StudioAiToolContext ctx) {
     List out = []
     for (AbstractStudioAiTool tool : CORE_TOOLS) {

@@ -109,6 +109,11 @@ class StudioToolOperations {
     return sb.toString()
   }
 
+  /**
+   * Cheap gate before SAX work on Studio paths.
+   * Returns false when the path is blank.
+   * Otherwise treats lowercase paths ending in `.xml` as likely XML repository files.
+   */
   private static boolean isLikelyXmlRepositoryPath(String fullPath) {
     if (!fullPath) return false
     fullPath.toLowerCase(Locale.ROOT).endsWith('.xml')
@@ -131,6 +136,11 @@ class StudioToolOperations {
     return s
   }
 
+  /**
+   * Allocates dom4j SAXReader with validation disabled.
+   * Turns on disallow-doctype and disables external entities where the parser supports those features.
+   * Returns the reader for one-shot parses used by XML diagnostics and write guards.
+   */
   private static SAXReader newHardenedSaxReader() {
     SAXReader reader = new SAXReader()
     reader.setValidation(false)
@@ -218,6 +228,11 @@ class StudioToolOperations {
     }
   }
 
+  /**
+   * Rejects empty bodies early with a tool-facing IllegalArgumentException.
+   * Parses via hardened SAX reader so malformed XML surfaces before Studio pipeline writes.
+   * Wraps parse failures with the repository path label for author-visible errors.
+   */
   private static void assertWellFormedUtf8Xml(String pathLabel, String xmlUtf8) {
     if (xmlUtf8 == null || !xmlUtf8.toString().trim()) {
       throw new IllegalArgumentException(
@@ -346,6 +361,11 @@ class StudioToolOperations {
     applicationContext
   }
 
+  /**
+   * Looks up a Spring bean by name from the Studio application context.
+   * Throws IllegalStateException with the supplied message when the bean is missing.
+   * Used once from the constructor so downstream CMS calls fail fast with clear diagnostics.
+   */
   private Object resolveRequiredBean(String name, String errorMessage) {
     def s = null
     try {
@@ -490,6 +510,11 @@ class StudioToolOperations {
     }
   }
 
+  /**
+   * Runs a bounded regex over XML text for the first `<tag>...</tag>` fragment.
+   * Returns trimmed inner text when matched.
+   * Swallows Throwable so callers can treat unknown shapes as absent tags.
+   */
   private static String extractFirstTagValue(String xml, String tagName) {
     if (!xml || !tagName) return null
     try {
@@ -521,6 +546,11 @@ class StudioToolOperations {
     )
   }
 
+  /**
+   * Loads HEAD XML for the content item via getContent.
+   * Reads `<display-template>` when present.
+   * Returns an absolute `/templates/...` path or null when unavailable.
+   */
   String resolveTemplatePathFromContent(String siteId, String contentPath) {
     if (!siteId || !contentPath) return null
     def content = getContent(siteId, contentPath)
@@ -535,6 +565,11 @@ class StudioToolOperations {
    */
   // --- Content operations (repository read/write, form defs, version history, revert, research) ---
 
+  /**
+   * Runs under withStudioRequestSecurity with normalized site/path/ref.
+   * Streams bytes from contentServiceBean.getContentByCommitId into UTF-8 text.
+   * Adds XML diagnostics and `<content-type>` hints so tools avoid guessing ids.
+   */
   Map getContent(String siteId, String path, String commitOrRef = null) {
     withStudioRequestSecurity {
       siteId = resolveEffectiveSiteId(siteId)
@@ -683,6 +718,11 @@ class StudioToolOperations {
     return p
   }
 
+  /**
+   * Maps a Studio ContentType metadata object into a small LinkedHashMap.
+   * Copies safe string fields only ; skips null rows.
+   * Feeds sorted catalog responses for ListStudioContentTypes.
+   */
   private static Map briefContentTypeConfigRow(Object ct) {
     Map m = new LinkedHashMap<>()
     if (ct == null) {
@@ -715,6 +755,11 @@ class StudioToolOperations {
     return m
   }
 
+  /**
+   * Resolves site id then asks configurationService for the form-definition XML.
+   * Returns structured hints/errors when Studio rejects unknown ids.
+   * Keeps parsing tolerant so LLMs receive actionable guidance instead of raw stack traces.
+   */
   Map getContentTypeFormDefinition(String siteId, String contentTypeId) {
     withStudioRequestSecurity {
       siteId = resolveEffectiveSiteId(siteId)
@@ -742,6 +787,11 @@ class StudioToolOperations {
     }
   }
 
+  /**
+   * Regex-scans `<content-type>` inside authored item XML.
+   * Trims and validates leading slash convention.
+   * Supports callers wiring content-type-first workflows without OpenSearch.
+   */
   private static String extractContentTypeIdFromItemXml(String xmlUtf8) {
     if (!xmlUtf8) {
       return null
@@ -754,6 +804,11 @@ class StudioToolOperations {
     null
   }
 
+  /**
+   * Walks image-picker property nodes on a dom4j field element.
+   * Treats explicit readonly=true as locked.
+   * Lets write/update tools refuse edits Studio forms mark immutable.
+   */
   private static boolean formFieldImagePickerReadOnly(Element fieldEl) {
     if (fieldEl == null) {
       return false
@@ -774,6 +829,11 @@ class StudioToolOperations {
     false
   }
 
+  /**
+   * Inspects `<constraints>/<constraint>` entries for required=true.
+   * Handles alternate Crafter casing (`Required`).
+   * Feeds validation summaries before attempting destructive writes.
+   */
   private static boolean formFieldHasRequiredConstraint(Element fieldEl) {
     if (fieldEl == null) {
       return false
@@ -802,6 +862,11 @@ class StudioToolOperations {
     false
   }
 
+  /**
+   * Reads checkbox-group properties mirroring Studio form semantics.
+   * Honors explicit readonly toggles.
+   * Pairs with datasource inspection for taxonomy-backed widgets.
+   */
   private static boolean formFieldCheckboxGroupReadOnly(Element fieldEl) {
     if (fieldEl == null) {
       return false
@@ -862,6 +927,11 @@ class StudioToolOperations {
     Math.max(minSz, req)
   }
 
+  /**
+   * Pulls the itemManager datasource reference from checkbox-group properties.
+   * Returns trimmed id or empty string when absent.
+   * Used to locate backing taxonomy datasource metadata.
+   */
   private static String checkboxGroupDatasourceId(Element fieldEl) {
     if (fieldEl == null) {
       return null
@@ -889,6 +959,11 @@ class StudioToolOperations {
     null
   }
 
+  /**
+   * Scans `<datasources>/<datasource>` children under the form root.
+   * Matches dom4j ids case-insensitively.
+   * Returns first hit or null when the datasource does not exist.
+   */
   private static Element findFormDatasourceById(Element formRoot, String datasourceId) {
     if (formRoot == null || !datasourceId) {
       return null
@@ -906,6 +981,11 @@ class StudioToolOperations {
     null
   }
 
+  /**
+   * Finds `<property><name>...</name><value>...</value>` pairs on a datasource element.
+   * Matches requested property names ignoring case.
+   * Returns trimmed text values for taxonomy/repo path extraction.
+   */
   private static String formDatasourcePropertyTrim(Element dsEl, String propName) {
     if (dsEl == null || !propName) {
       return null
@@ -924,6 +1004,11 @@ class StudioToolOperations {
     null
   }
 
+  /**
+   * Checks datasource type markers (`taxonomy`,`keywords`).
+   * Reads booleans like `taxonomy`/`keywords` props when present.
+   * Determines whether checkbox-group updates must honor taxonomy XML.
+   */
   private static boolean isTaxonomyBackedDatasource(Element dsEl) {
     if (dsEl == null) {
       return false
@@ -961,6 +1046,11 @@ class StudioToolOperations {
     'value_smv'
   }
 
+  /**
+   * Reads repository path hints from datasource properties.
+   * Normalizes `/site`-relative conventions.
+   * Feeds expandSiteTaxonomyPathCandidates with the author's configured folder.
+   */
   private static String resolveTaxonomyRepoPathFromDatasource(Element dsEl) {
     if (dsEl == null) {
       return null
@@ -975,6 +1065,11 @@ class StudioToolOperations {
     null
   }
 
+  /**
+   * Generates plausible `/site/...` variants for taxonomy XML paths.
+   * Adds `/site`-prefixed copies when authors omit the prefix.
+   * Lets lookups survive slight Studio mis-configurations.
+   */
   private static List<String> expandSiteTaxonomyPathCandidates(String rawPath) {
     if (!rawPath?.trim()) {
       return []
@@ -995,6 +1090,11 @@ class StudioToolOperations {
     out.toList()
   }
 
+  /**
+   * Depth-first searches Element children ignoring namespaces.
+   * Matches dom4j local names case-sensitively.
+   * Returns first matching element or null.
+   */
   private static Element findFirstDescendantByLocalName(Element root, String local) {
     if (root == null || !local) {
       return null
@@ -1049,6 +1149,11 @@ class StudioToolOperations {
     pairs
   }
 
+  /**
+   * Collects `<value>` tokens already stored under a checkbox-group fragment.
+   * Handles `<item>` wrappers Crafter emits.
+   * Prevents duplicate taxonomy inserts during merges.
+   */
   private static Set<String> existingCheckboxGroupKeys(Element fieldRoot) {
     Set<String> keys = new LinkedHashSet<>()
     if (fieldRoot == null) {
@@ -1290,6 +1395,11 @@ class StudioToolOperations {
     el.elements().each { collectTopLevelRequiredImagePickers(it, insideRepeat, sink) }
   }
 
+  /**
+   * Iterates immediate Element children for a matching local name.
+   * Skips mixed-content noise beyond elements.
+   * Supports surgical DOM edits without full XPath engines.
+   */
   private static Element findDirectChildByLocalName(Element root, String localName) {
     if (root == null || !localName) {
       return null
@@ -1659,6 +1769,11 @@ class StudioToolOperations {
    */
   // --- Publish operations (deployment packages, bulk go-live, publish-all) ---
 
+  /**
+   * Requires publishServiceBean then resolves site/target/comments.
+   * Calls PublishService.publishAll under Studio security.
+   * Summarizes updated/deleted/failed counts for LLM-visible telemetry.
+   */
   Map publishAllSiteChanges(String siteId, String publishingTarget, String submissionComment = null) {
     if (publishServiceBean == null) {
       throw new IllegalStateException('Studio publishService bean not found; publishScope=all requires PublishService.')
@@ -1701,6 +1816,11 @@ class StudioToolOperations {
     }
   }
 
+  /**
+   * Normalizes arguments then forwards to submitPublishPackageList.
+   * Passes a singleton path list so DeploymentService.deploy receives consistent metadata.
+   * Returns null today—compat wrapper for single-path publishes.
+   */
   Long submitPublishPackage(String siteId, String path, String publishingTarget, String optionalScheduleIso = null) {
     submitPublishPackageList(siteId, [path], publishingTarget, optionalScheduleIso)
   }
@@ -1913,6 +2033,11 @@ class StudioToolOperations {
     return result
   }
 
+  /**
+   * Formats human-readable summaries from publish-all counters.
+   * Appends ever-published hints when Boolean provided.
+   * Feeds orchestration SSE metadata after bulk publishes.
+   */
   private static String buildPublishAllMessage(Map summary, Boolean everPublished) {
     def initial = summary?.initialPublish == true
     def updated = summary?.updatedCount ?: 0
@@ -1930,6 +2055,11 @@ class StudioToolOperations {
     return base
   }
 
+  /**
+   * Reads canonical keys (`publishScope`,`publish_scope`).
+   * Maps synonyms (`all`,`bulk`,`site`) onto internal enumerations.
+   * Defaults safely when authors omit explicit scope tokens.
+   */
   private static String normalizePublishScopeFromToolInput(Map input) {
     def raw = (input?.publishScope ?: input?.publishMode ?: '').toString().trim().toLowerCase(Locale.ROOT)
     if (!raw) {
@@ -1950,6 +2080,11 @@ class StudioToolOperations {
     return raw
   }
 
+  /**
+   * Coerces mixed tool payloads (`paths`,`items`,`files`) into normalized repo paths.
+   * Dedupes while preserving order.
+   * Ensures DeploymentService.deploy receives clean `/site/...` strings.
+   */
   static List<String> collectPublishPathsFromToolInput(Map input) {
     LinkedHashSet<String> out = new LinkedHashSet<>()
     if (!(input instanceof Map)) {
@@ -2200,6 +2335,11 @@ class StudioToolOperations {
     }
   }
 
+  /**
+   * Locates `<fieldId>...</fieldId>` fragments inside authored XML.
+   * Strips markup via roughPlainTextFromHtml.
+   * Supports fuzzy duplicate detection during merges.
+   */
   private static String extractXmlFieldRoughPlainText(String contentXml, String fieldId) {
     if (!contentXml?.trim() || !fieldId?.trim()) {
       return ''
@@ -2216,6 +2356,11 @@ class StudioToolOperations {
     return ''
   }
 
+  /**
+   * Removes tags with regex then collapses whitespace.
+   * Decodes a handful of HTML entities.
+   * Produces comparable plain text for substring searches.
+   */
   private static String roughPlainTextFromHtml(String html) {
     if (!html?.trim()) {
       return ''
@@ -2228,6 +2373,11 @@ class StudioToolOperations {
       .trim()
   }
 
+  /**
+   * Lowercases both operands using ROOT locale.
+   * Handles blank needles gracefully.
+   * Feeds guard rails comparing author-supplied snippets.
+   */
   private static boolean plainTextContainsIgnoreCase(String haystackPlain, String needle) {
     if (!needle?.trim() || !haystackPlain) {
       return false
@@ -2411,6 +2561,11 @@ class StudioToolOperations {
     }
   }
 
+  /**
+   * Substitutes Crafter object-id macros inside repository-relative paths.
+   * Keeps `/site`-relative prefixes stable.
+   * Ensures imported binaries land beside their owning items.
+   */
   private static String expandImageImportRepoMacros(String path, String objectId, String objectGroupId) {
     Calendar cal = Calendar.getInstance(TimeZone.getTimeZone('UTC'))
     String y = String.format('%04d', cal.get(Calendar.YEAR))
@@ -2422,6 +2577,11 @@ class StudioToolOperations {
       .replace('{objectId}', oid).replace('{objectGroupId}', ogid)
   }
 
+  /**
+   * Parses URL path segments for the trailing filename.
+   * Decodes percent escapes best-effort.
+   * Falls back to `image.bin` when headers omit filenames.
+   */
   private static String suggestedFileNameFromUrlPath(String path) {
     if (!path) return ''
     int q = path.indexOf('?')
@@ -2432,6 +2592,11 @@ class StudioToolOperations {
     return last?.trim() ?: ''
   }
 
+  /**
+   * Strips dangerous characters from downloaded filenames.
+   * Preserves friendly extensions when sane.
+   * Appends default extension when upstream names lack suffixes.
+   */
   private static String sanitizeImageFileName(String name, String defaultExt) {
     String s = (name ?: 'image').replaceAll(/[^a-zA-Z0-9._-]/, '_')
     if (s.length() > 180) {
@@ -2442,6 +2607,11 @@ class StudioToolOperations {
     return s ?: 'image' + defaultExt
   }
 
+  /**
+   * Splits basename/extension pairs.
+   * Inserts `-uuid` stem before extension when collisions arise.
+   * Keeps filenames deterministic yet unique under `/static-assets`.
+   */
   private static String insertUniqueSuffixBeforeExtension(String fileName) {
     int dot = fileName.lastIndexOf('.')
     String base = dot > 0 ? fileName.substring(0, dot) : fileName
@@ -2450,6 +2620,11 @@ class StudioToolOperations {
     return "${base}-${ts}${ext}"
   }
 
+  /**
+   * Maps common MIME families (png/jpeg/webp/gif/svg) to file suffixes.
+   * Defaults to `.bin` when unknown.
+   * Feeds sanitizeImageFileName when servers omit filenames.
+   */
   private static String extensionForImageContentType(String contentType) {
     if (!contentType) return '.png'
     if (contentType.contains('jpeg') || contentType.contains('jpg')) return '.jpg'
@@ -2460,6 +2635,11 @@ class StudioToolOperations {
     return '.bin'
   }
 
+  /**
+   * Delegates to OpenSearch-style listings via Studio search APIs.
+   * Caps size defaults while honoring overrides.
+   * Returns structured rows so LLMs fetch precise paths without scanning XML manually.
+   */
   Map listPagesAndComponents(String siteId, int size = 1000) {
     def effectiveSite = resolveEffectiveSiteId(siteId)
     if (!effectiveSite?.trim()) {
@@ -2513,10 +2693,20 @@ class StudioToolOperations {
     }
   }
 
+  /**
+   * Loads plugin configuration via StudioAiAssistantProjectConfig.load(this).
+   * Reads boolean siteContentResearch toggles.
+   * Allows orchestration to skip expensive searches when disabled.
+   */
   boolean siteContentResearchGloballyEnabled() {
     !'false'.equalsIgnoreCase(System.getProperty('aiassistant.siteContentResearch.enabled', 'true')?.toString()?.trim())
   }
 
+  /**
+   * Coerces requested integers against JVM/system caps.
+   * Guarantees minimum/maximum sane ranges.
+   * Protects Studio OpenSearch from runaway hits.
+   */
   private static int siteContentResearchMaxSearchHits(Integer requested) {
     int defMax = 12
     try {
@@ -2531,6 +2721,11 @@ class StudioToolOperations {
     return Math.min(30, Math.max(1, r))
   }
 
+  /**
+   * Mirrors fetch concurrency limiting for repository hydration.
+   * Balances throughput vs Studio CPU.
+   * Feeds ResearchSiteContent batch loops.
+   */
   private static int siteContentResearchMaxFetchItems(Integer requested) {
     int defMax = 5
     try {
@@ -2545,6 +2740,11 @@ class StudioToolOperations {
     return Math.min(10, Math.max(0, r))
   }
 
+  /**
+   * Reads excerpt length knobs from plugin configuration.
+   * Provides deterministic defaults.
+   * Keeps SSE payloads bounded while preserving readability.
+   */
   private static int siteContentResearchExcerptChars() {
     try {
       String p = System.getProperty('aiassistant.siteContentResearch.excerptChars')?.toString()?.trim()
@@ -2556,6 +2756,11 @@ class StudioToolOperations {
     return 1800
   }
 
+  /**
+   * Filters `/site/system`, descriptors, binaries via substring checks.
+   * Uses content-type hints when supplied.
+   * Avoids indexing noise during research summaries.
+   */
   private static boolean siteContentResearchSkipPath(String path, String contentType) {
     String p = (path ?: '').toString().trim()
     String ct = (contentType ?: '').toString().trim()
@@ -2784,6 +2989,11 @@ class StudioToolOperations {
     }
   }
 
+  /**
+   * Trims string inputs while preserving Groovy falsy semantics.
+   * Adds leading slash when authors omit it.
+   * Throws descriptive IllegalArgumentException labels referencing fieldName.
+   */
   private static String normalizeLeadingSlash(def value, String fieldName) {
     def normalized = (value ?: '').toString().trim()
     if (!normalized) throw new IllegalArgumentException("Missing required parameter: ${fieldName}")
@@ -2811,6 +3021,11 @@ class StudioToolOperations {
     [dir: dir, file: file]
   }
 
+  /**
+   * Loads plugin/project caps controlling preview HTML downloads.
+   * Subtracts safety margins from configured ceilings.
+   * Ensures fetchPreviewRenderedHtml refuses oversized pages early.
+   */
   private int previewFetchMaxChars() {
     try {
       def p = System.getProperty('aiassistant.preview.fetch.maxChars')?.toString()?.trim()
@@ -2822,6 +3037,11 @@ class StudioToolOperations {
     return 400_000
   }
 
+  /**
+   * Starts from frozen servlet Cookie headers.
+   * Appends crafterPreview + crafterSite when missing.
+   * Filters forbidden cookie names via StudioToolOperationsSupport helpers.
+   */
   private String buildPreviewFetchCookieHeader(String crafterPreviewTokenResolved, String siteIdForCookie) {
     def tok = (crafterPreviewTokenResolved ?: '').toString().trim()
     if (!tok) {
@@ -2863,6 +3083,11 @@ class StudioToolOperations {
     return segments.join('; ')
   }
 
+  /**
+   * Checks host against Studio allowlists / loopback guards.
+   * Reads JVM aiassistant.preview.fetch.allowHosts overrides.
+   * Blocks SSRF-style fetches initiated by tools.
+   */
   private boolean previewFetchHostAllowed(String host) {
     if (!host) return false
     String h = host.toLowerCase(Locale.ROOT)
@@ -2889,6 +3114,11 @@ class StudioToolOperations {
    */
   // --- Preview operations (Engine HTML fetch with crafterPreview) ---
 
+  /**
+   * Validates URL schemes/hosts before opening connections.
+   * Streams response bodies with charset sniffing + byte caps.
+   * Returns metadata maps describing HTTP status, truncation, and parsing hints.
+   */
   Map fetchPreviewRenderedHtml(String absoluteUrl, String toolPreviewToken, String siteIdOpt) {
     def urlStr = (absoluteUrl ?: '').toString().trim()
     if (!urlStr) {
@@ -3064,10 +3294,20 @@ class StudioToolOperations {
    */
   // --- HTTP / web search operations (outbound fetch, DuckDuckGo) ---
 
+  /**
+   * Loads assistant HTTP policy flags from plugin configuration.
+   * Allows administrators to disable outbound GET entirely.
+   * Honored before issuing FetchHttpUrl calls.
+   */
   boolean httpFetchGloballyEnabled() {
     !'false'.equalsIgnoreCase(System.getProperty('aiassistant.httpFetch.enabled', 'true')?.toString()?.trim())
   }
 
+  /**
+   * Coerces requested caps vs defaults.
+   * Ensures positive ceilings for buffered reads.
+   * Feeds streaming guards inside HTTP helpers.
+   */
   private static int httpFetchMaxChars(Integer toolRequested) {
     int cap = 400_000
     try {
@@ -3093,6 +3333,11 @@ class StudioToolOperations {
     return cap
   }
 
+  /**
+   * Detects loopback/link-local/multicast addresses.
+   * Honors ipv6 localhost expansions.
+   * Mitigates internal network probing from prompts.
+   */
   private static boolean httpFetchInetBlocked(InetAddress ia) {
     if (ia == null) {
       return true
@@ -3132,6 +3377,11 @@ class StudioToolOperations {
     return true
   }
 
+  /**
+   * Blocks bare IPs plus localhost synonyms.
+   * Reads aiassistant.http.fetch.blockHosts additions.
+   * Works alongside inet checks for defense in depth.
+   */
   private static boolean httpFetchHostnameBlocked(String host) {
     if (!host) {
       return true
@@ -3466,6 +3716,11 @@ class StudioToolOperations {
     }
   }
 
+  /**
+   * Uses JDK probing via Files.probeContentType when possible.
+   * Falls back to extension heuristics for web assets.
+   * Feeds publish/deploy attachment metadata.
+   */
   private static String mimeTypeForPath(String fullPath) {
     def p = (fullPath ?: '').toLowerCase()
     if (p.endsWith('.xml')) return 'application/xml'
@@ -3487,6 +3742,11 @@ class StudioToolOperations {
     'application/octet-stream'
   }
 
+  /**
+   * Invokes Studio notification hooks after writes.
+   * Logs failures at debug without failing tools outright.
+   * Keeps sidebar/state fresher after AI-assisted edits.
+   */
   private boolean notifyContentEventWithDebug(String siteId, String fullPath, String source) {
     try {
       log.info('notifyContentEvent start: source={} siteId={} path={}', source, siteId, fullPath)
@@ -3556,6 +3816,11 @@ class StudioToolOperations {
     }
   }
 
+  /**
+   * Walks Crafter browse-tree nodes recursively.
+   * Collects immediate child folder labels under `/site` branches.
+   * Feeds authoring hints listing major sections.
+   */
   private static List<String> extractFirstLevelFolderNamesFromContentItemTree(Object root) {
     if (root == null) {
       return []
@@ -3661,6 +3926,11 @@ class StudioToolOperations {
 
   private static final int WEB_SEARCH_DEFAULT_MAX_RESULTS = 8
 
+  /**
+   * Bounds DuckDuckGo scrape counts vs defaults.
+   * Reads aiassistant.webSearch.maxResults overrides.
+   * Protects orchestration from excessive HTML parsing.
+   */
   private static int webSearchMaxResults(Integer toolRequested) {
     int r = (toolRequested != null) ? toolRequested.intValue() : WEB_SEARCH_DEFAULT_MAX_RESULTS
     return Math.min(15, Math.max(1, r))
@@ -3695,6 +3965,11 @@ class StudioToolOperations {
     ]
   }
 
+  /**
+   * Removes script/style blocks before regex tag stripping.
+   * Collapses whitespace for snippet previews.
+   * Feeds ranking heuristics inside Research flows.
+   */
   private static String webSearchStripHtml(String htmlFragment) {
     if (!htmlFragment) {
       return ''
@@ -3705,6 +3980,11 @@ class StudioToolOperations {
     return s.replaceAll('\\s+', ' ').trim()
   }
 
+  /**
+   * Handles common numeric and named entities literally.
+   * Leaves unknown sequences untouched.
+   * Normalizes titles/snippets before comparisons.
+   */
   private static String webSearchDecodeHtmlEntities(String s) {
     if (!s) {
       return ''
@@ -3718,6 +3998,11 @@ class StudioToolOperations {
       .replace('&nbsp;', ' ')
   }
 
+  /**
+   * Filters ads/internal DuckDuckGo links.
+   * Matches lowercase schemes.
+   * Keeps result lists author-useful.
+   */
   private static boolean webSearchSkipResultUrl(String url) {
     String u = (url ?: '').toString().trim().toLowerCase(Locale.ROOT)
     if (!u.startsWith('http://') && !u.startsWith('https://')) {
@@ -3726,6 +4011,11 @@ class StudioToolOperations {
     return u.contains('duckduckgo.com/') || u.contains('duck.com/')
   }
 
+  /**
+   * Anchors searches on lite HTML layouts.
+   * Extracts href/title pairs via regex guards.
+   * Returns Maps consumed by orchestration SSE payloads.
+   */
   private static List<Map> webSearchParseDuckDuckGoLiteHtml(String html, int maxResults) {
     List<Map> results = []
     if (!html?.trim() || maxResults < 1) {
@@ -3752,6 +4042,11 @@ class StudioToolOperations {
     results
   }
 
+  /**
+   * Parses richer DuckDuckGo markup alternate layouts.
+   * Shares normalization rules with lite parser.
+   * Feeds fallback scraping when lite endpoints fail.
+   */
   private static List<Map> webSearchParseDuckDuckGoHtml(String html, int maxResults) {
     List<Map> results = []
     if (!html?.trim() || maxResults < 1) {
@@ -3775,6 +4070,11 @@ class StudioToolOperations {
     results
   }
 
+  /**
+   * Chooses lite vs HTML endpoint based on configuration flags.
+   * Delegates HTML retrieval to webSearchDuckDuckGoPost.
+   * Returns unified List<Map> summaries for tools.
+   */
   private List<Map> webSearchDuckDuckGoResults(String q, int maxResults) {
     List<Map> fromLite = webSearchDuckDuckGoPost('https://lite.duckduckgo.com/lite/', q, maxResults, true)
     if (!fromLite.isEmpty()) {
@@ -3783,6 +4083,11 @@ class StudioToolOperations {
     return webSearchDuckDuckGoPost('https://html.duckduckgo.com/html/', q, maxResults, false)
   }
 
+  /**
+   * Constructs application/x-www-form-urlencoded POST bodies.
+   * Sets browser-like headers respecting Studio outbound policies.
+   * Parses HTML via lite/full parsers depending on flags.
+   */
   private List<Map> webSearchDuckDuckGoPost(String endpoint, String q, int maxResults, boolean liteParser) {
     URI uri = new URI(endpoint)
     String hopErr = httpFetchSsrfErrorForUri(uri)

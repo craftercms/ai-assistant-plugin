@@ -95,6 +95,11 @@ class AuthoringPreviewContext {
     return true
   }
 
+  /**
+   * Normalizes repository anchor strings so comparisons share a leading slash convention.
+   * Trims whitespace and treats blank input as empty string.
+   * Prepends {@code '/'} only when missing so Studio paths stay absolute.
+   */
   static String normalizeRepoPath(String path) {
     def p = (path ?: '').toString().trim()
     if (!p) return ''
@@ -247,11 +252,9 @@ Use these when the author asks about "today", "now", freshness, or dated content
   private static final int PRIOR_TURN_MEMORY_ASSISTANT_MAX_CHARS = 1800
 
   /**
-   * Author text for this turn only (after {@code Current request:}), not abbreviated prior conversation.
-   */
-  /**
-   * Combined wire anchor + current-turn author text for intent {@code deterministicMatch} signals
-   * (so research signals see {@code Repository path:} while patterns run on author wording only).
+   * Builds the probe string intent routing uses for {@code deterministicMatch} signals.
+   * Concatenates anchor carrier metadata (often includes {@code Repository path:}) with the author-visible slice.
+   * Returns whichever side is non-blank when only one is present so probes stay stable during stripping tests.
    */
   static String intentRoutingProbe(String anchorCarrier, String authorVisibleText) {
     String carrier = (anchorCarrier ?: '').toString().trim()
@@ -262,6 +265,11 @@ Use these when the author asks about "today", "now", freshness, or dated content
     return carrier ?: author ?: ''
   }
 
+  /**
+   * Pulls only the author's latest turn text after {@code Current request:} when that section exists.
+   * Falls back to stripping Studio-injected metadata from the entire prompt when the marker is absent.
+   * Ensures greeting/trivial detectors operate on conversational text rather than appended anchors.
+   */
   static String extractAuthorCurrentRequestVisible(String fullPrompt) {
     def s = (fullPrompt ?: '').toString()
     def cm = CURRENT_REQUEST_SECTION.matcher(s)
@@ -637,6 +645,11 @@ ${asstLine}"""
     return authorRefersToAnchoredOpenStudioItemForAuthorText(fullOrUserPrompt, fullOrUserPrompt)
   }
 
+  /**
+   * Requires a {@code /site/.../*.xml} anchor extracted from {@code anchorCarrier}.
+   * Strips injected Studio blocks from {@code authorVisibleText} before regex matching.
+   * Returns true only when phrasing clearly references the anchored Studio item rather than unrelated topics.
+   */
   static boolean authorRefersToAnchoredOpenStudioItemForAuthorText(String anchorCarrier, String authorVisibleText) {
     def anchor = extractAnchoredRepositoryPath((anchorCarrier ?: '').toString())
     if (!anchor?.trim()) {
@@ -841,6 +854,11 @@ This site has **never** been published to the delivery tier. For first go-live o
     return anchoredSiteXmlFieldPlacementIntentForAuthorText(fullPrompt, fullPrompt)
   }
 
+  /**
+   * Validates the anchored path is a {@code /site/.../*.xml} item before interpreting wording.
+   * Strips helper markdown from {@code authorVisibleText} so examples do not trigger false positives.
+   * Matches placement verbs (“add to hero”, “put tips in body”) against curated regex signals.
+   */
   static boolean anchoredSiteXmlFieldPlacementIntentForAuthorText(String anchorCarrier, String authorVisibleText) {
     def anchor = extractAnchoredRepositoryPath((anchorCarrier ?: '').toString())
     if (!anchor || !anchor.toLowerCase(Locale.ROOT).startsWith('/site/') ||

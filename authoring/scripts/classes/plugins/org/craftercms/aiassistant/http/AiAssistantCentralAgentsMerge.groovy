@@ -9,7 +9,9 @@ import plugins.org.craftercms.aiassistant.orchestration.AiOrchestration
 
 /**
  * Merges missing stream/chat POST fields from site {@code config/studio/ai-assistant/agents.json}
- * (Project Tools → Agents). When {@code imageModel} is still absent and transport is OpenAI native,
+ * (Project Tools → Agents). Reads the catalog server-side, picks the matching chat agent row, then copies
+ * catalog defaults into the POST body only when fields were omitted.
+ * When {@code imageModel} is still absent and transport is OpenAI native,
  * applies the same default as the central agents catalog UI ({@code gpt-image-1}).
  */
 final class AiAssistantCentralAgentsMerge {
@@ -22,13 +24,25 @@ final class AiAssistantCentralAgentsMerge {
   /** Default OpenAI Images API model when authors use {@code openAI} and omit {@code imageModel}. */
   static final String DEFAULT_OPENAI_IMAGE_MODEL = 'gpt-image-1'
 
+  /**
+   * Prevents instantiation — merge helpers are {@code static}.
+   */
   private AiAssistantCentralAgentsMerge() {}
 
+  /**
+   * Detects {@code mode: autonomous} rows that should be ignored when merging chat POST defaults.
+   * Trims + lowercases mode tokens for stability.
+   */
   private static boolean isAutonomousEntry(Map entry) {
     String mode = (entry?.mode ?: '').toString().trim().toLowerCase()
     return 'autonomous' == mode
   }
 
+  /**
+   * Locates the catalog row matching {@code wantedAgentId} when provided (legacy + modern id fields).
+   * Skips autonomous rows when searching by id.
+   * Falls back to the first non-autonomous chat row so anonymous POSTs still inherit defaults.
+   */
   private static Map findChatAgentRow(List agents, String wantedAgentId) {
     if (!agents || agents.isEmpty()) {
       return null
@@ -62,6 +76,11 @@ final class AiAssistantCentralAgentsMerge {
     return null
   }
 
+  /**
+   * Loads `/config/studio/ai-assistant/agents.json` via {@link StudioAiSiteModuleText} when present.
+   * Parses JSON into a Map using JsonSlurper leniently.
+   * Logs debug failures without bubbling errors into chat handlers.
+   */
   private static Map readCentralAgentsFile(Object applicationContext, String siteId) {
     String json = StudioAiSiteModuleText.readUtf8IfPresent(applicationContext, siteId, CENTRAL_AGENTS_STUDIO_PATH)
     if (json == null || !json.toString().trim()) {
@@ -76,6 +95,10 @@ final class AiAssistantCentralAgentsMerge {
     }
   }
 
+  /**
+   * Reads string-ish fields from catalog rows defensively.
+   * Returns trimmed text or empty string for missing keys.
+   */
   private static String textField(Map entry, String key) {
     if (!(entry instanceof Map) || !key) {
       return ''

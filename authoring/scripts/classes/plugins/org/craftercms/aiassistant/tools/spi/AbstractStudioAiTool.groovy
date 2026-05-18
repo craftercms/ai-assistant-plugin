@@ -10,22 +10,35 @@ import java.util.function.Function
  */
 abstract class AbstractStudioAiTool implements StudioAiOrchestrationTool {
 
+  /**
+   * Default allow-all implementation; subclasses may disable per context (maintenance flags, MCP health, etc.).
+   */
   @Override
   boolean enabled(StudioAiToolContext ctx) {
     return true
   }
 
+  /**
+   * Defaults to {@code null} so orchestration treats this as an unbucketed CMS tool unless overridden.
+   */
   @Override
   String pipelineStage() {
     return null
   }
 
+  /**
+   * {@code false} for mutating MCP/CMS tools; recipe-engine-safe tools override with {@code true}.
+   */
   @Override
   boolean recipeEngineReadOnly() {
     return false
   }
 
-  /** Builds a Spring AI {@link FunctionToolCallback} for this tool. */
+  /**
+   * Builds a Spring AI {@link FunctionToolCallback} that wraps {@link #execute} identically to CMS peers.
+   * Runs inside {@link AiOrchestrationTools#runWithToolProgress} so SSE listeners observe MCP+CBS timings.
+   * Wires Groovy meta {@code toolCallResultConverter} because Builder lacks a public setter.
+   */
   Object toFunctionToolCallback(StudioAiToolContext ctx) {
     final String name = wireName()
     final StudioAiToolContext buildCtx = ctx

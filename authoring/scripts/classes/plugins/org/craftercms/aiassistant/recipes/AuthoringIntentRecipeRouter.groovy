@@ -19,16 +19,19 @@ final class AuthoringIntentRecipeRouter {
     if (!t) {
       return [recipeId: null, confidence: 0.0d, reason: 'empty router reply']
     }
+
     try {
       Object o = new JsonSlurper().parseText(t)
       if (!(o instanceof Map)) {
         return [recipeId: null, confidence: 0.0d, reason: 'router reply not a JSON object']
       }
+
       Map m = (Map) o
       String rid = m.get('recipeId')?.toString()?.trim()
       if (!rid || 'null'.equalsIgnoreCase(rid)) {
         rid = null
       }
+
       double conf = 0.0d
       try {
         def c = m.get('confidence')
@@ -40,24 +43,29 @@ final class AuthoringIntentRecipeRouter {
       } catch (Throwable ignored) {
         conf = 0.0d
       }
+
       if (conf < 0.0d) {
         conf = 0.0d
       }
       if (conf > 1.0d) {
         conf = 1.0d
       }
+
       String reason = m.get('reason')?.toString()?.trim() ?: ''
+
       [recipeId: rid, confidence: conf, reason: reason]
     } catch (Throwable t2) {
       return [recipeId: null, confidence: 0.0d, reason: 'parse error: ' + (t2.message ?: t2.toString())]
     }
   }
 
+  /** Removes optional markdown ``` fences from the router model JSON reply before parsing. */
   private static String stripFences(String s) {
     String t = s.trim()
     if (!t.startsWith('```')) {
       return t
     }
+
     int nl = t.indexOf('\n')
     if (nl > 0) {
       t = t.substring(nl + 1)
@@ -65,6 +73,7 @@ final class AuthoringIntentRecipeRouter {
     if (t.endsWith('```')) {
       t = t.substring(0, t.length() - 3).trim()
     }
+
     t
   }
 }
