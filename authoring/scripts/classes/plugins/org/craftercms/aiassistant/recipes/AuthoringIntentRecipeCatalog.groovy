@@ -104,6 +104,8 @@ final class AuthoringIntentRecipeCatalog {
     }
     List<String> catalogOrder = parseBundledRecipeOrder(ops)
     List<String> siteOrder = []
+    // Site override is optional: bundled recipes (classpath / in-memory) are always loaded above.
+    // readStudioConfigurationUtf8 probes contentExists first so a missing intent-recipes.json does not ERROR-log.
     String sitePath = StudioAiAssistantProjectConfig.intentRecipeCustomRecipesPath(projectCfg)
     if (ops != null && sitePath?.trim()) {
       try {
@@ -475,38 +477,16 @@ final class AuthoringIntentRecipeCatalog {
   }
 
   /**
-   * All recipes whose {@code deterministicMatch} signals evaluate true for {@code ctx} (deduped by {@code recipeId},
-   * highest priority per id). Used when more than one row matches — orchestration may LLM-tighten and retest.
-   * <p><strong>Note:</strong> {@code dontMatchHints} are applied only in {@link #filterRecipesEligibleForRouter}
-   * (LLM router pass), not here — a deterministic signal can still match a recipe whose hints would exclude it
-   * from the router table. That is intentional: hard signals override soft exclusion hints.</p>
+   * All recipes whose {@code deterministicMatch} rules evaluate true for {@code ctx} (deduped by {@code recipeId},
+   * highest priority per id). Rules come from recipe config ({@code when}, shorthands, {@code matchHints}) — not
+   * recipe-named Java switches.
    */
   static List<Map> findDeterministicRecipeMatches(List<Map> recipes, Map ctx) {
     if (recipes == null || recipes.isEmpty() || !(ctx instanceof Map)) {
       return Collections.emptyList()
     }
     Map<String, Map> byId = new LinkedHashMap<>()
-    Closure addMatch = { Map match ->
-      if (!(match instanceof Map)) {
-        return
-      }
-      String rid = match.recipeId?.toString()?.trim()
-      if (!rid) {
-        return
-      }
-      Map existing = byId.get(rid)
-      if (existing == null) {
-        byId.put(rid, match)
-        return
-      }
-      int pNew = match.priority instanceof Number ? ((Number) match.priority).intValue() : 0
-      int pOld = existing.priority instanceof Number ? ((Number) existing.priority).intValue() : 0
-      if (pNew > pOld) {
-        byId.put(rid, match)
-      }
-    }
-    addMatch.call(tryBuiltinOpenPageInquiryCandidate(recipes, ctx))
-    List<Map> candidates = []
+    String visible = deterministicRoutingPrompt(ctx)
     for (Map recipe : recipes) {
       if (!(recipe instanceof Map)) {
         continue
@@ -516,32 +496,24 @@ final class AuthoringIntentRecipeCatalog {
         continue
       }
       for (Map entry : deterministicMatchEntries(recipe)) {
-        String sig = entry.signal?.toString()?.trim()
-        if (!sig) {
+        if (!AuthoringIntentRecipeWhen.evaluateMatchEntry(entry, recipe, ctx)) {
           continue
         }
-        candidates.add([
+        int priority = entry.priority instanceof Number ? ((Number) entry.priority).intValue() : 0
+        String reason = (entry.routerReason ?: "deterministic_${rid}").toString()
+        Map match = [
           recipe      : recipe,
           recipeId    : rid,
-          signal      : sig,
-          priority    : entry.priority instanceof Number ? ((Number) entry.priority).intValue() : 0,
-          routerReason: (entry.routerReason ?: "deterministic_${sig}").toString(),
-          skipPrefetch: Boolean.TRUE.equals(entry.skipPrefetch)
-        ])
-      }
-    }
-    candidates.sort { a, b -> (b.priority as Integer) <=> (a.priority as Integer) }
-    String visible = deterministicRoutingPrompt(ctx)
-    for (Map c : candidates) {
-      if (AuthoringIntentRecipeSignals.evaluate(c.signal as String, ctx)) {
-        addMatch.call([
-          recipe      : c.recipe,
-          recipeId    : c.recipeId,
-          routerReason: c.routerReason,
-          skipPrefetch: c.skipPrefetch,
+          routerReason: reason,
+          skipPrefetch: Boolean.TRUE.equals(entry.skipPrefetch),
           visible     : visible,
-          priority    : c.priority
-        ])
+          priority    : priority
+        ]
+        Map existing = byId.get(rid)
+        if (existing == null || priority > (existing.priority instanceof Number ?
+          ((Number) existing.priority).intValue() : 0)) {
+          byId.put(rid, match)
+        }
       }
     }
     List<Map> out = new ArrayList<>(byId.values())
@@ -597,98 +569,48 @@ final class AuthoringIntentRecipeCatalog {
   }
 
   /**
-   * Optional competitors when the **current turn** already signals CMS/research — not when Studio metadata alone
-   * anchors {@code /site/.../*.xml} (that bias is deferred to deterministic signals + the LLM recipe router).
+   * Optional {@code ambiguityMatch} rows on recipes (config) for clarify / disambiguation when deterministic
+   * matching is empty or tied.
    */
   static List<Map> findStructuralRecipeCompetitors(List<Map> recipes, Map ctx, String routerVisible) {
     if (recipes == null || recipes.isEmpty() || !(ctx instanceof Map)) {
       return Collections.emptyList()
     }
-    String wire = (ctx.cand ?: '').toString()
-    String visible = (routerVisible ?: '').toString().trim()
-    String scan = deterministicRoutingPrompt(ctx)
-    if (!scan?.trim()) {
-      return Collections.emptyList()
+    Map routeCtx = ctx instanceof Map ? new LinkedHashMap<>((Map) ctx) : [:]
+    if (routerVisible?.trim()) {
+      routeCtx.routerVisible = routerVisible.trim()
     }
-    String anchor = AuthoringPreviewContext.extractAnchoredRepositoryPath(wire)
-    if (!anchor?.trim()) {
-      anchor = AuthoringPreviewContext.extractAnchoredRepositoryPath(visible)
-    }
-    String anchorLc = (anchor ?: '').toLowerCase(Locale.ROOT)
-    boolean anchoredSiteXml =
-      anchorLc.startsWith('/site/') && anchorLc.endsWith('.xml')
-
-    Map<String, Map> byId = new LinkedHashMap<>()
-    Closure add = { String rid, String reason, int priority ->
-      String id = (rid ?: '').trim()
-      if (!id || byId.containsKey(id)) {
-        return
+    List<Map> out = []
+    String visible = deterministicRoutingPrompt(routeCtx)
+    for (Map recipe : recipes) {
+      if (!(recipe instanceof Map)) {
+        continue
       }
-      Map recipe = findRecipeById(recipes, id)
-      if (!recipe) {
-        return
+      String rid = recipe.id?.toString()?.trim()
+      if (!rid) {
+        continue
       }
-      byId.put(id, [
-        recipe      : recipe,
-        recipeId    : id,
-        routerReason: reason,
-        skipPrefetch: false,
-        visible     : scan,
-        priority    : priority
-      ])
+      for (Map entry : ambiguityMatchEntries(recipe)) {
+        if (!AuthoringIntentRecipeWhen.evaluateMatchEntry(entry, recipe, routeCtx)) {
+          continue
+        }
+        int priority = entry.priority instanceof Number ? ((Number) entry.priority).intValue() : 0
+        out.add([
+          recipe      : recipe,
+          recipeId    : rid,
+          routerReason: (entry.routerReason ?: "ambiguity_${rid}").toString(),
+          skipPrefetch: Boolean.TRUE.equals(entry.skipPrefetch),
+          visible     : visible,
+          priority    : priority
+        ])
+      }
     }
-
-    boolean webResearch = AuthoringPreviewContext.authorVisibleSuggestsWebResearch(scan)
-    boolean siteResearch = AuthoringPreviewContext.authorVisibleSuggestsSiteContentResearch(scan)
-    boolean llmResearch = AuthoringPreviewContext.authorVisibleSuggestsLlmResearch(scan)
-    if (webResearch) {
-      add.call('web_research', 'structural_web_research', 40)
+    out.sort { a, b ->
+      int pa = a.priority instanceof Number ? ((Number) a.priority).intValue() : 0
+      int pb = b.priority instanceof Number ? ((Number) b.priority).intValue() : 0
+      pb <=> pa
     }
-    if (siteResearch) {
-      add.call('site_content_research', 'structural_site_content_research', 38)
-    }
-    if (llmResearch) {
-      add.call('llm_research', 'structural_llm_research', 36)
-    }
-
-    if (!anchoredSiteXml) {
-      return new ArrayList<>(byId.values())
-    }
-
-    if (AuthoringPreviewContext.authorConversationPivotedToChatOnlyArtifact(wire)) {
-      add.call('llm_research', 'structural_chat_artifact_followup', 52)
-      return new ArrayList<>(byId.values())
-    }
-
-    boolean cmsOnCurrentTurn = AuthoringPreviewContext.authorCurrentRequestSuggestsCmsTooling(wire)
-    if (!cmsOnCurrentTurn) {
-      return new ArrayList<>(byId.values())
-    }
-
-    boolean editOpenItem =
-      AuthoringPreviewContext.anchoredSiteXmlFieldPlacementIntentForAuthorText(wire, scan) ||
-      (AuthoringPreviewContext.authorRefersToAnchoredOpenStudioItemForAuthorText(wire, scan) &&
-        (scan =~ /(?i)\b(update|change|edit|rewrite|rephrase|shorten|add|put|set)\b/).find())
-
-    boolean newItem =
-      (scan =~ /(?i)\b(new\s+page|new\s+article|add\s+a\s+page)\b/).find() ||
-      ((scan =~ /(?i)\b(create|draft)\b/).find() &&
-        (scan =~ /(?i)\b(page|article|component|item)\b/).find())
-
-    boolean readOnlyPage =
-      AuthoringPreviewContext.authorVisibleSuggestsOpenPageInquiryForAuthorText(anchor, scan)
-
-    if (editOpenItem) {
-      add.call('modify_page_content', 'structural_anchored_copy_or_field_edit', 50)
-    }
-    if (newItem) {
-      add.call('new_content_item', 'structural_new_repository_item', 45)
-    }
-    if (readOnlyPage) {
-      add.call('open_page_inquiry', 'structural_open_page_inquiry', 42)
-    }
-
-    return new ArrayList<>(byId.values())
+    return out
   }
 
   private static List<Map> mergeRecipeCandidateLists(List<Map> primary, List<Map> additional) {
@@ -760,74 +682,6 @@ final class AuthoringIntentRecipeCatalog {
     return AuthoringPreviewContext.stripStudioInjectedPromptBlocks(cand) ?: ''
   }
 
-  /**
-   * Minimal read-only recipe when {@code authoring-intent-recipes-default.json} is missing from the Studio
-   * classpath or a site override removed {@code open_page_inquiry}.
-   */
-  static Map builtinOpenPageInquiryRecipeFallback() {
-    return [
-      id                : 'open_page_inquiry',
-      title             : 'Describe this page (read-only)',
-      chatEmoji         : '📖',
-      toolsLoopForceTool: 'GetContent',
-      toolsLoopAllowlist: ['GetContent', 'GetPreviewHtml'],
-      matchedUserPrelude:
-        '[Studio — read-only page inquiry] Summarize what this anchored page is about using prefetch or GetContent XML. ' +
-        'Answer in clear prose only. Do not WriteContent unless the author asks to edit.',
-      phases: [
-        context: [
-          hints: [
-            'Prefetch loads pageItem (XML) for the anchored path when available.',
-            'If prefetch already includes full contentXml for the anchored path, do not call GetContent again on that path.'
-          ],
-          engineSteps: [
-            [as: 'pageItem', tool: 'GetContent', args: [siteId: '$siteId', path: '$contentPath']]
-          ]
-        ],
-        action       : ['Answer what the page is about from XML fields in plain prose.'],
-        confirmation : ['Do not call WriteContent unless the author asks to change content.']
-      ]
-    ]
-  }
-
-  /**
-   * Anchored “what is / what would you say this page is about” — always route to {@code open_page_inquiry}
-   * even when site recipe JSON replaced {@code deterministicMatch} on that row.
-   */
-  private static Map tryBuiltinOpenPageInquiryCandidate(List<Map> recipes, Map ctx) {
-    String authorText = deterministicRoutingPrompt(ctx)
-    if (AuthoringPreviewContext.authorCurrentRequestLooksLikeImageOnlyGenerate(authorText)) {
-      return null
-    }
-    String anchorCarrier = (ctx.cand ?: '').toString()
-    if (!AuthoringPreviewContext.extractAnchoredRepositoryPath(anchorCarrier)?.trim()) {
-      return null
-    }
-    if (!AuthoringPreviewContext.authorVisibleSuggestsOpenPageInquiryForAuthorText(anchorCarrier, authorText)) {
-      return null
-    }
-    Map recipe = findRecipeById(recipes, 'open_page_inquiry')
-    boolean usedFallback = false
-    if (recipe == null) {
-      recipe = builtinOpenPageInquiryRecipeFallback()
-      usedFallback = true
-      log.warn(
-        'Intent recipe routing: open_page_inquiry missing from merged catalog — using builtin fallback recipe (deploy {} on Studio classpath)',
-        BUNDLED_RELATIVE
-      )
-    } else {
-      log.info('Intent recipe routing: builtin open_page_inquiry → open_page_inquiry')
-    }
-    return [
-      recipe      : recipe,
-      recipeId    : 'open_page_inquiry',
-      routerReason: usedFallback ? 'deterministic_open_page_inquiry_fallback' : 'deterministic_open_page_inquiry',
-      skipPrefetch: false,
-      visible     : authorText,
-      priority    : 93
-    ]
-  }
-
   private static List<Map> deterministicMatchEntries(Map recipe) {
     List<Map> out = []
     Object dm = recipe?.get('deterministicMatch')
@@ -835,6 +689,21 @@ final class AuthoringIntentRecipeCatalog {
       out.add(new LinkedHashMap<>((Map) dm))
     } else if (dm instanceof List) {
       for (Object o : (List) dm) {
+        if (o instanceof Map) {
+          out.add(new LinkedHashMap<>((Map) o))
+        }
+      }
+    }
+    out
+  }
+
+  private static List<Map> ambiguityMatchEntries(Map recipe) {
+    List<Map> out = []
+    Object am = recipe?.get('ambiguityMatch')
+    if (am instanceof Map) {
+      out.add(new LinkedHashMap<>((Map) am))
+    } else if (am instanceof List) {
+      for (Object o : (List) am) {
         if (o instanceof Map) {
           out.add(new LinkedHashMap<>((Map) o))
         }
@@ -903,7 +772,7 @@ final class AuthoringIntentRecipeCatalog {
     authorVisibleMatchesOrchestrationBypass(authorVisible, keywords)
   }
 
-  private static List<String> matchHintsList(Map recipe) {
+  static List<String> matchHintsList(Map recipe) {
     hintStringList(recipe?.get('matchHints'))
   }
 
@@ -911,7 +780,7 @@ final class AuthoringIntentRecipeCatalog {
     hintStringList(recipe?.get('dontMatchHints'))
   }
 
-  private static List<String> hintStringList(Object raw) {
+  static List<String> hintStringList(Object raw) {
     if (!(raw instanceof List)) {
       return Collections.emptyList()
     }

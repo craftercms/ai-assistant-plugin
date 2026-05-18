@@ -539,7 +539,7 @@ You MUST call at least one tool before giving your final response.
 Do not respond with prose-only output for this request (no final answer that skips tools).
 **WriteContent**, **publish_content**, and **revert_change** are **not registered** — never call them.
 After **update_content** (or sufficient **GetContent** / **GetContentTypeFormDefinition**), your **final** reply must include **`aiassistantFormFieldUpdates`** JSON (see system **Form-engine client-forward mode**) so the Studio form can apply edits — do not substitute MCP commands or “paste into Studio” tutorials.
-First output a **business-readable ## Plan** (**📋** per numbered step, enough detail for a non-developer — see system STUDIO POLICY). **Do not** write plan steps that only restate that you will run tools or obey policy — each **📋** line must name a **concrete visitor- or editor-visible outcome** (what changes, where you verify it). **Do not** call tools until that heading and steps are visible. Then **follow that plan**; after each tool refresh the **same** **📋** lines with **✅** / **❌** / **⚠️** / **⬜** only — keep mid-flight updates compact. When you narrate tool use in your own words, prefix with **🛠️**. Do **not** fake server-style tool log lines (see system STUDIO POLICY).
+Follow system **Plan when warranted** (see STUDIO POLICY). **Simple** (**one** tool): one or two sentences, then **`tool_calls`** — **skip** **## Plan**. **Complex** (**more than one** tool): output **## Plan** with **📋** steps formulated from required **tools** and any **matched recipe** phases (each line names a **concrete visitor- or editor-visible outcome**); **do not** call tools until that checklist is visible. Then follow the plan; after each tool refresh the **same** **📋** lines with **✅** / **❌** / **⚠️** / **⬜** only. When you narrate tool use in your own words, prefix with **🛠️**. Do **not** fake server-style tool log lines (see system STUDIO POLICY).
 Do **not** paste full FreeMarker (`.ftl`) bodies or large XML dumps into the author's chat — summarize outcomes; they edit in the form.
 If target path/id is unclear and the user message does not include **Studio authoring context** with a current repository path, call discovery tools first.
 Your **final** reply after tools must state **success or problems** using **✅** / **❌** / **⚠️**, include a **clear business-friendly** recap under **## Plan Execution** (not **## Plan** again) that mirrors the **📋** checklist — **open that section** with one short line that **core work is done** and the bullets are **recap / verification**, then **ask what's next**.
@@ -555,7 +555,7 @@ This user request is a content/template/config modification task.
 You MUST call at least one tool before giving your final response.
 The repository item **${normProt}** is open in the Studio **content form** with client-side apply: for **that path only**, do **not** call **WriteContent**, **publish_content**, or **revert_change** (they are blocked) — use **`aiassistantFormFieldUpdates`** in your **final** JSON for that item.
 For **any other path**, you may call **WriteContent** (and publish/revert) as usual after **update_*** tools.
-First output a **business-readable ## Plan** (**📋** per step, stakeholder-friendly — see system STUDIO POLICY). **Do not** write plan steps that only restate that you will run tools or obey policy — each **📋** line must name a **concrete visitor- or editor-visible outcome**. **Do not** call tools until that heading and steps are visible. Then **follow that plan**; after each tool refresh the **same** **📋** lines with **✅** / **❌** / **⚠️** / **⬜** only. When you narrate tool use in your own words, prefix with **🛠️**. Do **not** fake server-style tool log lines (see system STUDIO POLICY).
+Follow system **Plan when warranted** (see STUDIO POLICY). **Simple** (**one** tool): one or two sentences, then **`tool_calls`** — **skip** **## Plan**. **Complex** (**more than one** tool): **## Plan** with **📋** steps from **tools + matched recipe** phases when present (concrete outcomes only) before tools. Then **follow that plan**; after each tool refresh the **same** **📋** lines with **✅** / **❌** / **⚠️** / **⬜** only. When you narrate tool use in your own words, prefix with **🛠️**. Do **not** fake server-style tool log lines (see system STUDIO POLICY).
 Do **not** paste full FreeMarker (`.ftl`) bodies or large XML dumps into the author's chat — summarize outcomes.
 Your **final** reply after tools must state **success or problems** using **✅** / **❌** / **⚠️**, include a **clear business-friendly** recap under **## Plan Execution** — **lead with** one short **done + now wrapping up** line, then markers — and **ask what's next**.
 When the author only asked to **update content** — **field values and item XML / static-assets**, not template or schema **file edits** — use **update_content** / **GetContent** — **do not** call **update_template** or **update_content_type** to fix those tasks. You **may** use **analyze_template** or **GetContent** on `.ftl` **read-only** to diagnose; if the issue is **in the template**, **tell the author** — do not patch FTL without explicit consent to change templates. **Page-level** translate/rewrite: update the **page** and **each referenced component** with visible text (not the page file alone) unless the author limited scope.
@@ -567,7 +567,7 @@ When the author only asked to **update content** — **field values and item XML
 This user request is a content/template/config modification task.
 You MUST call at least one tool before giving your final response.
 Do not respond with prose-only output for this request (no final answer that skips tools).
-First output a **business-readable ## Plan** (**📋** per step — see system STUDIO POLICY). **Do not** write plan steps that only restate that you will run tools or obey policy — each **📋** line must name a **concrete visitor- or editor-visible outcome**. **Do not** call tools until that heading and steps are visible. Then **follow that plan**; after each tool refresh the **same** **📋** lines with **✅** / **❌** / **⚠️** / **⬜** only — keep the step list stable. When you narrate tool use in your own words, prefix with **🛠️**. Do **not** fake server-style tool log lines (see system STUDIO POLICY).
+Follow system **Plan when warranted** (see STUDIO POLICY). **Simple** (**one** tool): one or two sentences, then **`tool_calls`** — **skip** **## Plan**. **Complex** (**more than one** tool): **## Plan** with **📋** steps from **tools + matched recipe** phases when present (concrete outcomes only) before tools. Then **follow that plan**; after each tool refresh the **same** **📋** lines with **✅** / **❌** / **⚠️** / **⬜** only — keep the step list stable. When you narrate tool use in your own words, prefix with **🛠️**. Do **not** fake server-style tool log lines (see system STUDIO POLICY).
 Do **not** paste full FreeMarker (`.ftl`) bodies or large XML dumps into the author's chat — summarize what was saved; they edit files in Studio.
 If target path/id is unclear and the user message does not include **Studio authoring context** with a current repository path, call discovery tools first.
 After **update_content**, **update_template**, or **update_content_type** returns, you must still call **WriteContent** with the full file — those tools do not save.
@@ -2282,7 +2282,7 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     if (zeroBasedRound > 0) {
       return ''
     }
-    return '## Plan\n\n📋 Apply the author\'s request with the tools in this turn.\n'
+    return 'Applying your request with the appropriate CMS tools.\n'
   }
 
   /**
@@ -4351,10 +4351,14 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       boolean deferPlan =
         Boolean.TRUE.equals(activePass.deferToPlanLoop) || Boolean.TRUE.equals(activePass.ambiguousMultiRecipe)
       if (deferPlan) {
-        noMatchHint =
-          '[Studio — intent routing: **no single workflow** for the whole turn (multiple goals or no pattern match). ' +
-          'Start with **## Plan** — **one step per distinct goal**, then run tools in that order. ' +
-          'Do **not** treat the entire turn as one recipe when steps differ (e.g. web research **and** a CMS field edit).]\n\n'
+        noMatchHint = ToolPrompts.getLlm_AUTHORING_INTENT_ROUTING_DEFER_PLAN_HINT()
+        if (AuthoringPreviewContext.authorVisibleSuggestsOpenPageInquiryForAuthorText(
+          cand,
+          currentAuthorVisible ?: ''
+        )) {
+          noMatchHint +=
+            '[Studio — read-only page inquiry: The author asked about **this anchored page**. **Simple** tier — call **GetContent** on the **Repository path** (or use prefetch XML), then answer in prose. **Do not** use **WebSearch** or general web research for this turn. **Do not** WriteContent unless they ask to edit.]\n\n'
+        }
       } else if (AuthoringPreviewContext.authorCurrentRequestSuggestsCmsTooling(cand)) {
         noMatchHint =
           AuthoringPreviewContext.authorRefersToAnchoredOpenStudioItemForAuthorText(
@@ -6119,7 +6123,7 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
                   ssePreToolAssistantText.flush()
                 }
                 log.info(
-                  'Tools-loop tools-on: injected minimal ## Plan before tool_calls (empty assistant content) agentId={} round={}',
+                  'Tools-loop tools-on: injected minimal prose before tool_calls (empty assistant content) agentId={} round={}',
                   agentId,
                   round
                 )

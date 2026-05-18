@@ -36005,13 +36005,23 @@ async function fetchOptionalStudioSandboxUtf8(siteId, sandboxPath) {
         return '';
     }
 }
+/** Full sandbox repo path for a Studio {@code studio} module relative path (e.g. {@code scripts/.../tools.json}). */
+function studioConfigSandboxRepoPath(studioConfigRelativeNoLeadingSlash) {
+    const rel = (studioConfigRelativeNoLeadingSlash || '').trim().replace(/^\/+/, '');
+    return rel ? `/config/studio/${rel}` : '';
+}
 /**
  * Reads a site file under {@code /config/studio/<relative>} for the script sandbox editor.
  * <ol>
- *   <li>{@code get-content.json} via {@code fetchContentXML} when the path is not listed as missing from {@code sandbox_items_by_path}
- *       (does <strong>not</strong> require {@code items[0]} — that slot can be empty right after writes while the file still exists).</li>
- *   <li>If still empty, {@code get_configuration} raw string via {@code fetchConfigurationXML} — same stack as {@code write_configuration}.
- *       Do <strong>not</strong> use {@code fetchConfigurationJSON}: it runs XML {@code deserialize} and destroys Groovy/JSON/plain text.</li>
+ *   <li>{@code sandbox_items_by_path}: when the path is listed as missing, return {@code ''} immediately — do
+ *       <strong>not</strong> call {@code get_configuration}. Optional files (e.g. {@code intent-recipes.json}) are
+ *       often absent while the plugin still serves bundled in-memory recipes on the server and built-in catalog in
+ *       the UI; Studio logs {@code ContentNotFoundException} at ERROR when {@code get_configuration} probes a missing path.</li>
+ *   <li>{@code get-content.json} when the path is present (does <strong>not</strong> require {@code items[0]} — that
+ *       slot can be empty right after writes while the file still exists).</li>
+ *   <li>If the listing exists but body is still empty, {@code get_configuration} via {@code fetchConfigurationXML}
+ *       (same stack as {@code write_configuration}). Do <strong>not</strong> use {@code fetchConfigurationJSON}: it
+ *       runs XML {@code deserialize} and destroys Groovy/JSON/plain text.</li>
  * </ol>
  */
 async function fetchStudioConfigFileUtf8(siteId, studioConfigRelativeNoLeadingSlash) {
@@ -36019,11 +36029,14 @@ async function fetchStudioConfigFileUtf8(siteId, studioConfigRelativeNoLeadingSl
     const rel = (studioConfigRelativeNoLeadingSlash || '').trim().replace(/^\/+/, '');
     if (!sid || !rel)
         return '';
-    const path = `/config/studio/${rel}`;
+    const path = studioConfigSandboxRepoPath(rel);
     try {
         const listings = (await firstValueFrom(fetchItemsByPath(sid, [path], { preferContent: true })));
         if (Array.isArray(listings?.missingItems) && listings.missingItems.includes(path)) {
-            return tryFetchConfigurationXmlPlain(sid, rel);
+            return '';
+        }
+        if (!listings?.[0]) {
+            return '';
         }
         const raw = await firstValueFrom(fetchContentXML(sid, path, { lock: false }).pipe(catchError(() => of(null))));
         const fromGetContent = utf8FromStudioContentPayload(raw);
@@ -36033,7 +36046,7 @@ async function fetchStudioConfigFileUtf8(siteId, studioConfigRelativeNoLeadingSl
         return tryFetchConfigurationXmlPlain(sid, rel);
     }
     catch {
-        return tryFetchConfigurationXmlPlain(sid, rel);
+        return '';
     }
 }
 async function tryFetchConfigurationXmlPlain(siteId, configPathRelative) {
@@ -36704,9 +36717,10 @@ var recipes = [
 		chatEmoji: "🔎",
 		toolsLoopForceTool: "WebSearch",
 		deterministicMatch: {
-			signal: "web_research",
 			priority: 90,
-			routerReason: "deterministic_web_research"
+			routerReason: "deterministic_web_research",
+			authorFromMatchHints: true,
+			respectDontMatchHints: true
 		},
 		description: "Author wants fresh information from the public web: latest news, headlines, what happened today, or current facts that need citations. Not CMS repository work.",
 		matchHints: [
@@ -36756,9 +36770,10 @@ var recipes = [
 		chatEmoji: "📚",
 		toolsLoopForceTool: "ResearchSiteContent",
 		deterministicMatch: {
-			signal: "site_content_research",
 			priority: 89,
-			routerReason: "deterministic_site_content_research"
+			routerReason: "deterministic_site_content_research",
+			authorFromMatchHints: true,
+			respectDontMatchHints: true
 		},
 		description: "Author wants to find or summarize existing pages and components in this Crafter site (indexed authoring search + content lookup), not the open web and not a write.",
 		matchHints: [
@@ -36813,19 +36828,34 @@ var recipes = [
 		chatEmoji: "💡",
 		deterministicMatch: [
 			{
-				signal: "chat_artifact_followup",
 				priority: 91,
-				routerReason: "deterministic_chat_artifact_followup"
+				routerReason: "deterministic_chat_artifact_followup",
+				when: "chatArtifactFollowup"
 			},
 			{
-				signal: "creative_llm_only",
 				priority: 89,
-				routerReason: "deterministic_creative_llm_only"
+				routerReason: "deterministic_creative_llm_only",
+				when: "creativeLlmOnly"
 			},
 			{
-				signal: "llm_research",
 				priority: 88,
-				routerReason: "deterministic_llm_research"
+				routerReason: "deterministic_llm_research",
+				authorFromMatchHints: true,
+				respectDontMatchHints: true,
+				when: {
+					not: {
+						allOf: [
+							"anchoredSiteXml",
+							{
+								authorContainsAny: [
+									"this page",
+									"the page",
+									"summarize this page"
+								]
+							}
+						]
+					}
+				}
 			}
 		],
 		description: "Author wants explanation, comparison, or background from model knowledge — not live web headlines and not editing the repository.",
@@ -36873,9 +36903,11 @@ var recipes = [
 		chatEmoji: "📖",
 		toolsLoopForceTool: "GetContent",
 		deterministicMatch: {
-			signal: "open_page_inquiry",
 			priority: 93,
-			routerReason: "deterministic_open_page_inquiry"
+			routerReason: "deterministic_open_page_inquiry",
+			requiresAnchoredSiteXml: true,
+			authorFromMatchHints: true,
+			respectDontMatchHints: true
 		},
 		description: "Author wants a summary or explanation of the page or component currently open in Studio (anchored /site/.../*.xml). Read repository XML and answer in prose. Not a write, not site-wide search, not open web.",
 		matchHints: [
@@ -36938,14 +36970,14 @@ var recipes = [
 		serverHotpathExternalContent: true,
 		deterministicMatch: [
 			{
-				signal: "concrete_field_edit",
 				priority: 60,
-				routerReason: "deterministic_concrete_field_edit"
+				routerReason: "deterministic_concrete_field_edit",
+				when: "concreteFieldEdit"
 			},
 			{
-				signal: "external_content_field_edit",
 				priority: 55,
-				routerReason: "deterministic_external_content_field_edit"
+				routerReason: "deterministic_external_content_field_edit",
+				when: "externalContentFieldEdit"
 			}
 		],
 		description: "Change copy, tone, grammar, or field values on a page or component XML item. If the user provides the page URL, Title or Internal name then they may not be talking about the current page - resolve the page path first.",
@@ -37007,10 +37039,12 @@ var recipes = [
 		title: "Revert to previous version",
 		chatEmoji: "↩️",
 		deterministicMatch: {
-			signal: "revert_content_version",
 			priority: 70,
 			routerReason: "deterministic_revert_content_version",
-			skipPrefetch: true
+			skipPrefetch: true,
+			requiresAnchoredSiteXml: true,
+			authorFromMatchHints: true,
+			respectDontMatchHints: true
 		},
 		matchHints: [
 			"revert",
@@ -37037,9 +37071,11 @@ var recipes = [
 		chatEmoji: "🖼️",
 		toolsLoopForceTool: "GenerateImage",
 		deterministicMatch: {
-			signal: "image_only_generate",
 			priority: 100,
-			routerReason: "deterministic_image_only"
+			routerReason: "deterministic_image_only",
+			authorFromMatchHints: true,
+			respectDontMatchHints: true,
+			when: "imageOnlyGenerate"
 		},
 		description: "Author wants a new AI-generated image, illustration, art, logo, or picture",
 		matchHints: [
@@ -37123,9 +37159,10 @@ var recipes = [
 		title: "Publish entire site / first go-live",
 		chatEmoji: "🌐",
 		deterministicMatch: {
-			signal: "publish_site_bulk",
 			priority: 94,
-			routerReason: "deterministic_publish_site_bulk"
+			routerReason: "deterministic_publish_site_bulk",
+			authorFromMatchHints: true,
+			respectDontMatchHints: true
 		},
 		description: "Author wants to publish the whole site, everything, or first-time go-live — not a read-only page summary and not a single item unless they narrowed scope after first publish.",
 		matchHints: [
@@ -37185,6 +37222,33 @@ var recipes = [
 		id: "new_content_item",
 		title: "Create new page or component",
 		chatEmoji: "📄",
+		deterministicMatch: {
+			priority: 45,
+			routerReason: "deterministic_new_content_item",
+			when: {
+				allOf: [
+					"currentTurnCmsTooling",
+					"anchoredSiteXml",
+					{
+						anyOf: [
+							{
+								authorMatchesRegex: "(?i)\\b(new\\s+page|new\\s+article|add\\s+a\\s+page)\\b"
+							},
+							{
+								allOf: [
+									{
+										authorMatchesRegex: "(?i)\\b(create|draft)\\b"
+									},
+									{
+										authorMatchesRegex: "(?i)\\b(page|article|component|item)\\b"
+									}
+								]
+							}
+						]
+					}
+				]
+			}
+		},
 		description: "Author asks to create, draft, or write a new item (new URL or new component), not only edit the open file.",
 		matchHints: [
 			"create",
@@ -37222,9 +37286,9 @@ var recipes = [
 		title: "Translate or localize content",
 		chatEmoji: "🌐",
 		deterministicMatch: {
-			signal: "translate_intent",
 			priority: 65,
-			routerReason: "deterministic_translate_intent"
+			routerReason: "deterministic_translate_intent",
+			when: "translateIntent"
 		},
 		description: "Author explicitly asks to translate or localize page/component copy into another language. Use TranslateContentItem or TranslateContentBatch (with ListContentTranslationScope for full-page scope) — not update_content or same-language rewrite via GetContent→WriteContent.",
 		matchHints: [
@@ -37288,8 +37352,24 @@ var bundledCatalog = {
 	recipes: recipes
 };
 
-const INTENT_RECIPES_JSON_SANDBOX_PATH = '/scripts/aiassistant/config/intent-recipes.json';
+/**
+ * Built-in intent recipe catalog (bundled with the plugin). Studio sites do not need
+ * {@code /config/studio/scripts/aiassistant/config/intent-recipes.json} until authors save custom recipes;
+ * the configuration UI merges this in-memory catalog with an optional site file.
+ */
+/** Studio {@code studio} module path (tools.json {@code customRecipesPath} default). */
+const INTENT_RECIPES_JSON_REL = 'scripts/aiassistant/config/intent-recipes.json';
 const INTENT_RECIPE_PHASE_KEYS = ['context', 'action', 'confirmation'];
+const INTENT_RECIPE_WHEN_LEAF_OPTIONS = [
+    'anchoredSiteXml',
+    'translateIntent',
+    'concreteFieldEdit',
+    'externalContentFieldEdit',
+    'chatArtifactFollowup',
+    'creativeLlmOnly',
+    'currentTurnCmsTooling',
+    'imageOnlyGenerate'
+];
 /** First user-perceived grapheme (emoji-safe). */
 function normalizeChatEmoji(input) {
     const t = String(input ?? '').trim();
@@ -37998,6 +38078,65 @@ function AiAssistantIntentRecipeEmojiField(props) {
                                 }, sx: { minWidth: 36, fontSize: '1.2rem', lineHeight: 1, p: 0.5 }, children: e }, e))) })] }) })] }));
 }
 
+function isRuleArray(rules) {
+    return Array.isArray(rules);
+}
+function defaultRule() {
+    return {
+        priority: 50,
+        routerReason: '',
+        authorFromMatchHints: true,
+        respectDontMatchHints: true
+    };
+}
+function normalizeSingleRule(rules) {
+    if (!rules)
+        return defaultRule();
+    if (isRuleArray(rules))
+        return rules[0] ?? defaultRule();
+    return { ...defaultRule(), ...rules };
+}
+function AiAssistantIntentRecipeMatchRulesField(props) {
+    const { label, value, onChange, matchHints } = props;
+    const [advancedJson, setAdvancedJson] = useState('');
+    const multi = isRuleArray(value);
+    const rule = useMemo(() => normalizeSingleRule(value), [value]);
+    const patchRule = (partial) => {
+        onChange({ ...rule, ...partial });
+    };
+    const enabled = value != null && (!isRuleArray(value) || value.length > 0);
+    return (jsx$1(Paper, { variant: "outlined", sx: { p: 2 }, children: jsxs(Stack$1, { spacing: 1.5, children: [jsx$1(Typography, { variant: "subtitle2", children: label }), jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "Routing rules live in recipe JSON \u2014 the server evaluates `when` / shorthands generically (no per-recipe Java). Match hints can drive matching via \"Use match hints as phrases\"." }), jsx$1(FormControlLabel, { control: jsx$1(Checkbox, { size: "small", checked: enabled, onChange: (_, c) => onChange(c ? defaultRule() : undefined) }), label: "Enable rules for this recipe" }), enabled && multi ? (jsx$1(TextField, { label: "Rules (JSON array)", value: advancedJson || JSON.stringify(value, null, 2), onChange: (e) => {
+                        setAdvancedJson(e.target.value);
+                        try {
+                            const parsed = JSON.parse(e.target.value);
+                            if (Array.isArray(parsed))
+                                onChange(parsed);
+                        }
+                        catch {
+                            /* keep typing */
+                        }
+                    }, fullWidth: true, multiline: true, minRows: 6, size: "small", InputProps: { sx: { fontFamily: 'monospace', fontSize: 12 } }, helperText: "Multiple rules (e.g. llm_research). Edit JSON directly." })) : null, enabled && !multi ? (jsxs(Stack$1, { spacing: 1.5, children: [jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 1, children: [jsx$1(TextField, { label: "Priority", type: "number", size: "small", value: rule.priority ?? '', onChange: (e) => patchRule({ priority: e.target.value === '' ? undefined : Number(e.target.value) }), sx: { width: 120 } }), jsx$1(TextField, { label: "Router reason", size: "small", value: rule.routerReason ?? '', onChange: (e) => patchRule({ routerReason: e.target.value }), fullWidth: true, InputProps: { sx: { fontFamily: 'monospace' } } })] }), jsx$1(FormControlLabel, { control: jsx$1(Checkbox, { size: "small", checked: Boolean(rule.skipPrefetch), onChange: (_, c) => patchRule({ skipPrefetch: c || undefined }) }), label: "Skip prefetch" }), jsx$1(FormControlLabel, { control: jsx$1(Checkbox, { size: "small", checked: Boolean(rule.requiresAnchoredSiteXml), onChange: (_, c) => patchRule({ requiresAnchoredSiteXml: c || undefined }) }), label: "Requires anchored /site/\u2026/*.xml" }), jsx$1(FormControlLabel, { control: jsx$1(Checkbox, { size: "small", checked: Boolean(rule.authorFromMatchHints), onChange: (_, c) => patchRule({ authorFromMatchHints: c || undefined }) }), label: `Use match hints as author phrases (${matchHints.length})` }), jsx$1(FormControlLabel, { control: jsx$1(Checkbox, { size: "small", checked: Boolean(rule.respectDontMatchHints), onChange: (_, c) => patchRule({ respectDontMatchHints: c || undefined }) }), label: "Respect don't-match hints" }), jsx$1(Autocomplete, { freeSolo: true, size: "small", options: [...INTENT_RECIPE_WHEN_LEAF_OPTIONS], value: typeof rule.when === 'string' ? rule.when : '', onChange: (_, v) => patchRule({ when: (v || '').trim() || undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "When (leaf predicate or leave empty)", helperText: "Built-in predicates: translateIntent, concreteFieldEdit, \u2026 \u2014 or use advanced JSON for allOf/regex." })) }), jsx$1(TextField, { label: "When (advanced JSON, optional)", size: "small", fullWidth: true, multiline: true, minRows: 3, placeholder: '{"allOf":["anchoredSiteXml",{"authorMatchesRegex":"..."}]}', value: rule.when != null && typeof rule.when !== 'string'
+                                ? JSON.stringify(rule.when, null, 2)
+                                : '', onChange: (e) => {
+                                const t = e.target.value.trim();
+                                if (!t) {
+                                    patchRule({ when: undefined });
+                                    return;
+                                }
+                                try {
+                                    patchRule({ when: JSON.parse(t) });
+                                }
+                                catch {
+                                    /* typing */
+                                }
+                            }, InputProps: { sx: { fontFamily: 'monospace', fontSize: 12 } } })] })) : null] }) }));
+}
+/** Deterministic + optional ambiguity blocks on the recipe editor. */
+function AiAssistantIntentRecipeRoutingRulesSection(props) {
+    const { recipe, onChange } = props;
+    return (jsx$1(Box, { children: jsxs(Stack$1, { spacing: 2, children: [jsx$1(AiAssistantIntentRecipeMatchRulesField, { label: "Deterministic match", value: recipe.deterministicMatch, matchHints: recipe.matchHints ?? [], onChange: (deterministicMatch) => onChange({ ...recipe, deterministicMatch }) }), jsx$1(AiAssistantIntentRecipeMatchRulesField, { label: "Ambiguity match (optional)", value: recipe.ambiguityMatch, matchHints: recipe.matchHints ?? [], onChange: (ambiguityMatch) => onChange({ ...recipe, ambiguityMatch }) })] }) }));
+}
+
 const PHASE_LABELS = {
     context: 'Context',
     action: 'Action',
@@ -38170,7 +38309,7 @@ function AiAssistantIntentRecipeEditor(props) {
         setPhaseEdits(merged);
         onChange(recipeFromPhaseEdits(recipe, merged));
     };
-    return (jsxs(Stack$1, { spacing: 2, children: [jsxs(Stack$1, { direction: "row", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", useFlexGap: true, children: [saveHint ? (jsx$1(Typography, { variant: "caption", color: "text.secondary", children: saveHint })) : (jsx$1(Box, {})), onDone ? (jsx$1(Button, { size: "small", variant: "outlined", onClick: onDone, children: "Done editing" })) : null] }), jsxs(Stack$1, { spacing: 2, children: [jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 2, alignItems: "flex-start", children: [jsx$1(AiAssistantIntentRecipeEmojiField, { emoji: recipe.chatEmoji ?? '', title: recipe.title ?? '', recipeId: recipe.id, onChange: (chatEmoji) => patchRecipe({ chatEmoji: chatEmoji || undefined }) }), jsx$1(TextField, { label: "Recipe id", value: recipe.id, onChange: (e) => patchRecipe({ id: e.target.value.trim() }), size: "small", disabled: idReadOnly, sx: { flex: '0 0 220px' }, InputProps: { sx: { fontFamily: 'monospace' } } }), jsx$1(TextField, { label: "Title", value: recipe.title ?? '', onChange: (e) => patchRecipe({ title: e.target.value }), size: "small", fullWidth: true })] }), jsx$1(TextField, { label: "Description (router)", value: recipe.description ?? '', onChange: (e) => patchRecipe({ description: e.target.value }), size: "small", fullWidth: true, multiline: true, minRows: 2 }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.matchHints ?? [], onChange: (_, v) => patchRecipe({ matchHints: v.map(String) }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Match hints", size: "small", placeholder: "translate, publish, \u2026" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.dontMatchHints ?? [], onChange: (_, v) => patchRecipe({ dontMatchHints: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Don't match hints", size: "small", placeholder: "translate, publish, \u2026" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [...INTENT_RECIPE_READ_ONLY_TOOLS, 'GenerateImage', 'WriteContent', 'update_content'], value: recipe.toolsLoopAllowlist ?? [], onChange: (_, v) => patchRecipe({ toolsLoopAllowlist: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Tools-loop allowlist (optional)", size: "small" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.toolsLoopAllowlistBypassIfAuthorMentions ?? [], onChange: (_, v) => patchRecipe({
+    return (jsxs(Stack$1, { spacing: 2, children: [jsxs(Stack$1, { direction: "row", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", useFlexGap: true, children: [saveHint ? (jsx$1(Typography, { variant: "caption", color: "text.secondary", children: saveHint })) : (jsx$1(Box, {})), onDone ? (jsx$1(Button, { size: "small", variant: "outlined", onClick: onDone, children: "Done editing" })) : null] }), jsxs(Stack$1, { spacing: 2, children: [jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 2, alignItems: "flex-start", children: [jsx$1(AiAssistantIntentRecipeEmojiField, { emoji: recipe.chatEmoji ?? '', title: recipe.title ?? '', recipeId: recipe.id, onChange: (chatEmoji) => patchRecipe({ chatEmoji: chatEmoji || undefined }) }), jsx$1(TextField, { label: "Recipe id", value: recipe.id, onChange: (e) => patchRecipe({ id: e.target.value.trim() }), size: "small", disabled: idReadOnly, sx: { flex: '0 0 220px' }, InputProps: { sx: { fontFamily: 'monospace' } } }), jsx$1(TextField, { label: "Title", value: recipe.title ?? '', onChange: (e) => patchRecipe({ title: e.target.value }), size: "small", fullWidth: true })] }), jsx$1(TextField, { label: "Description (router)", value: recipe.description ?? '', onChange: (e) => patchRecipe({ description: e.target.value }), size: "small", fullWidth: true, multiline: true, minRows: 2 }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.matchHints ?? [], onChange: (_, v) => patchRecipe({ matchHints: v.map(String) }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Match hints", size: "small", placeholder: "translate, publish, \u2026" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.dontMatchHints ?? [], onChange: (_, v) => patchRecipe({ dontMatchHints: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Don't match hints", size: "small", placeholder: "translate, publish, \u2026" })) }), jsx$1(AiAssistantIntentRecipeRoutingRulesSection, { recipe: recipe, onChange: onChange }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [...INTENT_RECIPE_READ_ONLY_TOOLS, 'GenerateImage', 'WriteContent', 'update_content'], value: recipe.toolsLoopAllowlist ?? [], onChange: (_, v) => patchRecipe({ toolsLoopAllowlist: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Tools-loop allowlist (optional)", size: "small" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.toolsLoopAllowlistBypassIfAuthorMentions ?? [], onChange: (_, v) => patchRecipe({
                             toolsLoopAllowlistBypassIfAuthorMentions: v.length ? v.map(String) : undefined
                         }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Allowlist bypass keywords (optional)", size: "small" })) })] }), jsx$1(Tabs, { value: editorTab, onChange: (_, v) => setEditorTab(v), variant: "scrollable", scrollButtons: "auto", children: EDITOR_TABS.map((k) => (jsx$1(Tab, { label: k === 'preview' ? 'Preview' : PHASE_TAB_LABELS[k], value: k }, k))) }), INTENT_RECIPE_PHASE_KEYS.map((k) => editorTab === k ? (jsx$1(PhaseEditor, { phaseKey: k, state: phaseEdits[k], bindingNamesForHints: bindingNamesForHints, onChange: (n) => patchPhase(k, n) }, k)) : null), editorTab === 'preview' ? jsx$1(AiAssistantIntentRecipeSwimlane, { recipe: previewRecipe }) : null] }));
 }
@@ -72598,7 +72737,7 @@ function sourceChip(entry) {
     }
 }
 function customRecipesPathFromPolicy(policy) {
-    return policy.intentRecipeRouting.customRecipesPath.trim() || INTENT_RECIPES_JSON_SANDBOX_PATH;
+    return policy.intentRecipeRouting.customRecipesPath.trim() || `/${INTENT_RECIPES_JSON_REL}`;
 }
 function intentRecipesStudioRel(policy) {
     return studioConfigRelativePath(customRecipesPathFromPolicy(policy));
@@ -72707,7 +72846,10 @@ const AiAssistantIntentRecipesConfiguration = forwardRef(function AiAssistantInt
                 setToolsPolicy(parsedTools.state);
             }
             const policyState = parsedTools.ok ? parsedTools.state : defaultToolsPolicyFormState();
-            const customText = await fetchStudioConfigFileUtf8(siteId, intentRecipesStudioRel(policyState));
+            // Site intent-recipes.json is optional: bundled catalog is imported in aiAssistantIntentRecipesModel;
+            // server routing uses classpath authoring-intent-recipes-default.json until the author saves overrides.
+            // Use fetchOptionalStudioSandboxUtf8 only — never get_configuration on a missing path (Studio ERROR logs).
+            const customText = await fetchOptionalStudioSandboxUtf8(siteId, studioConfigSandboxRepoPath(intentRecipesStudioRel(policyState)));
             setCustomFile(parseIntentRecipesFileFromText(customText));
             setDirty(false);
             setDraftSyncToken((t) => t + 1);
@@ -72927,7 +73069,7 @@ const AiAssistantIntentRecipesConfiguration = forwardRef(function AiAssistantInt
         setSaving(true);
         try {
             const routing = toolsPolicy.intentRecipeRouting;
-            const customPath = routing.customRecipesPath.trim() || INTENT_RECIPES_JSON_SANDBOX_PATH;
+            const customPath = routing.customRecipesPath.trim() || `/${INTENT_RECIPES_JSON_REL}`;
             const toolsBody = serializeToolsPolicyToJson({
                 ...toolsPolicy,
                 intentRecipeRouting: { ...routing, customRecipesPath: customPath }

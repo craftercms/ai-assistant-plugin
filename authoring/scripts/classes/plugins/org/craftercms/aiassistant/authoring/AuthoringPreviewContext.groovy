@@ -249,6 +249,19 @@ Use these when the author asks about "today", "now", freshness, or dated content
   /**
    * Author text for this turn only (after {@code Current request:}), not abbreviated prior conversation.
    */
+  /**
+   * Combined wire anchor + current-turn author text for intent {@code deterministicMatch} signals
+   * (so research signals see {@code Repository path:} while patterns run on author wording only).
+   */
+  static String intentRoutingProbe(String anchorCarrier, String authorVisibleText) {
+    String carrier = (anchorCarrier ?: '').toString().trim()
+    String author = (authorVisibleText ?: '').toString().trim()
+    if (carrier && author) {
+      return carrier + '\n\n' + author
+    }
+    return carrier ?: author ?: ''
+  }
+
   static String extractAuthorCurrentRequestVisible(String fullPrompt) {
     def s = (fullPrompt ?: '').toString()
     def cm = CURRENT_REQUEST_SECTION.matcher(s)
@@ -743,7 +756,8 @@ ${asstLine}"""
       return false
     }
     String authorSlice = extractAuthorCurrentRequestVisible(fullOrUserPrompt)?.trim() ?: v
-    if (authorVisibleSuggestsOpenPageInquiryForAuthorText(fullOrUserPrompt, authorSlice)) {
+    if (authorVisibleSuggestsOpenPageInquiryForAuthorText(fullOrUserPrompt, authorSlice) ||
+      authorVisibleSuggestsOpenPageInquiry(fullOrUserPrompt)) {
       return false
     }
     return LLM_RESEARCH_SIGNAL.matcher(v).find()

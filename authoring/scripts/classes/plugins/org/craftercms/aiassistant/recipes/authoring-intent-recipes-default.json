@@ -26,9 +26,10 @@
       "chatEmoji": "🔎",
       "toolsLoopForceTool": "WebSearch",
       "deterministicMatch": {
-        "signal": "web_research",
         "priority": 90,
-        "routerReason": "deterministic_web_research"
+        "routerReason": "deterministic_web_research",
+        "authorFromMatchHints": true,
+        "respectDontMatchHints": true
       },
       "description": "Author wants fresh information from the public web: latest news, headlines, what happened today, or current facts that need citations. Not CMS repository work.",
       "matchHints": [
@@ -76,9 +77,10 @@
       "chatEmoji": "📚",
       "toolsLoopForceTool": "ResearchSiteContent",
       "deterministicMatch": {
-        "signal": "site_content_research",
         "priority": 89,
-        "routerReason": "deterministic_site_content_research"
+        "routerReason": "deterministic_site_content_research",
+        "authorFromMatchHints": true,
+        "respectDontMatchHints": true
       },
       "description": "Author wants to find or summarize existing pages and components in this Crafter site (indexed authoring search + content lookup), not the open web and not a write.",
       "matchHints": [
@@ -131,19 +133,30 @@
       "chatEmoji": "💡",
       "deterministicMatch": [
         {
-          "signal": "chat_artifact_followup",
           "priority": 91,
-          "routerReason": "deterministic_chat_artifact_followup"
+          "routerReason": "deterministic_chat_artifact_followup",
+          "when": "chatArtifactFollowup"
         },
         {
-          "signal": "creative_llm_only",
           "priority": 89,
-          "routerReason": "deterministic_creative_llm_only"
+          "routerReason": "deterministic_creative_llm_only",
+          "when": "creativeLlmOnly"
         },
         {
-          "signal": "llm_research",
           "priority": 88,
-          "routerReason": "deterministic_llm_research"
+          "routerReason": "deterministic_llm_research",
+          "authorFromMatchHints": true,
+          "respectDontMatchHints": true,
+          "when": {
+            "not": {
+              "allOf": [
+                "anchoredSiteXml",
+                {
+                  "authorContainsAny": ["this page", "the page", "summarize this page"]
+                }
+              ]
+            }
+          }
         }
       ],
       "description": "Author wants explanation, comparison, or background from model knowledge — not live web headlines and not editing the repository.",
@@ -191,9 +204,11 @@
       "chatEmoji": "📖",
       "toolsLoopForceTool": "GetContent",
       "deterministicMatch": {
-        "signal": "open_page_inquiry",
         "priority": 93,
-        "routerReason": "deterministic_open_page_inquiry"
+        "routerReason": "deterministic_open_page_inquiry",
+        "requiresAnchoredSiteXml": true,
+        "authorFromMatchHints": true,
+        "respectDontMatchHints": true
       },
       "description": "Author wants a summary or explanation of the page or component currently open in Studio (anchored /site/.../*.xml). Read repository XML and answer in prose. Not a write, not site-wide search, not open web.",
       "matchHints": [
@@ -250,14 +265,14 @@
       "serverHotpathExternalContent": true,
       "deterministicMatch": [
         {
-          "signal": "concrete_field_edit",
           "priority": 60,
-          "routerReason": "deterministic_concrete_field_edit"
+          "routerReason": "deterministic_concrete_field_edit",
+          "when": "concreteFieldEdit"
         },
         {
-          "signal": "external_content_field_edit",
           "priority": 55,
-          "routerReason": "deterministic_external_content_field_edit"
+          "routerReason": "deterministic_external_content_field_edit",
+          "when": "externalContentFieldEdit"
         }
       ],
       "description": "Change copy, tone, grammar, or field values on a page or component XML item. If the user provides the page URL, Title or Internal name then they may not be talking about the current page - resolve the page path first.",
@@ -313,10 +328,12 @@
       "title": "Revert to previous version",
       "chatEmoji": "↩️",
       "deterministicMatch": {
-        "signal": "revert_content_version",
         "priority": 70,
         "routerReason": "deterministic_revert_content_version",
-        "skipPrefetch": true
+        "skipPrefetch": true,
+        "requiresAnchoredSiteXml": true,
+        "authorFromMatchHints": true,
+        "respectDontMatchHints": true
       },
       "matchHints": ["revert", "undo", "rollback", "restore version", "previous version"],
       "phases": {
@@ -331,9 +348,11 @@
       "chatEmoji": "🖼️",
       "toolsLoopForceTool": "GenerateImage",
       "deterministicMatch": {
-        "signal": "image_only_generate",
         "priority": 100,
-        "routerReason": "deterministic_image_only"
+        "routerReason": "deterministic_image_only",
+        "authorFromMatchHints": true,
+        "respectDontMatchHints": true,
+        "when": "imageOnlyGenerate"
       },
       "description": "Author wants a new AI-generated image, illustration, art, logo, or picture",
       "matchHints": [
@@ -404,9 +423,10 @@
       "title": "Publish entire site / first go-live",
       "chatEmoji": "🌐",
       "deterministicMatch": {
-        "signal": "publish_site_bulk",
         "priority": 94,
-        "routerReason": "deterministic_publish_site_bulk"
+        "routerReason": "deterministic_publish_site_bulk",
+        "authorFromMatchHints": true,
+        "respectDontMatchHints": true
       },
       "description": "Author wants to publish the whole site, everything, or first-time go-live — not a read-only page summary and not a single item unless they narrowed scope after first publish.",
       "matchHints": [
@@ -456,6 +476,29 @@
       "id": "new_content_item",
       "title": "Create new page or component",
       "chatEmoji": "📄",
+      "deterministicMatch": {
+        "priority": 45,
+        "routerReason": "deterministic_new_content_item",
+        "when": {
+          "allOf": [
+            "currentTurnCmsTooling",
+            "anchoredSiteXml",
+            {
+              "anyOf": [
+                {
+                  "authorMatchesRegex": "(?i)\\b(new\\s+page|new\\s+article|add\\s+a\\s+page)\\b"
+                },
+                {
+                  "allOf": [
+                    { "authorMatchesRegex": "(?i)\\b(create|draft)\\b" },
+                    { "authorMatchesRegex": "(?i)\\b(page|article|component|item)\\b" }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
       "description": "Author asks to create, draft, or write a new item (new URL or new component), not only edit the open file.",
       "matchHints": ["create", "new page", "new article", "draft", "write a", "add a page"],
       "phases": {
@@ -481,9 +524,9 @@
       "title": "Translate or localize content",
       "chatEmoji": "🌐",
       "deterministicMatch": {
-        "signal": "translate_intent",
         "priority": 65,
-        "routerReason": "deterministic_translate_intent"
+        "routerReason": "deterministic_translate_intent",
+        "when": "translateIntent"
       },
       "description": "Author explicitly asks to translate or localize page/component copy into another language. Use TranslateContentItem or TranslateContentBatch (with ListContentTranslationScope for full-page scope) — not update_content or same-language rewrite via GetContent→WriteContent.",
       "matchHints": [

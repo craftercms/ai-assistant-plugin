@@ -32,6 +32,7 @@ import AiAssistantIntentRecipePrefetchArgsHelp, {
   AiAssistantIntentRecipePrefetchBindingsHelp
 } from './AiAssistantIntentRecipePrefetchArgsHelp';
 import AiAssistantIntentRecipeEmojiField from './AiAssistantIntentRecipeEmojiField';
+import { AiAssistantIntentRecipeRoutingRulesSection } from './AiAssistantIntentRecipeMatchRulesField';
 import AiAssistantIntentRecipeSwimlane from './AiAssistantIntentRecipeSwimlane';
 import { defaultPrefetchArgsJsonForTool } from './intentRecipePrefetchToolReference';
 
@@ -379,6 +380,7 @@ export default function AiAssistantIntentRecipeEditor(props: AiAssistantIntentRe
             />
           )}
         />
+        <AiAssistantIntentRecipeRoutingRulesSection recipe={recipe} onChange={onChange} />
         <Autocomplete
           multiple
           freeSolo

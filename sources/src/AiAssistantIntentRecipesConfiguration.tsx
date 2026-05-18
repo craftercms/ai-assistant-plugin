@@ -45,6 +45,7 @@ import {
   defaultRecipeOrderForCatalog,
   downloadTextFile,
   emptyRecipe,
+  INTENT_RECIPES_JSON_REL,
   INTENT_RECIPES_JSON_SANDBOX_PATH,
   intentRecipesFileFromMergedRecipes,
   listIntentRecipeEntries,
@@ -59,8 +60,8 @@ import {
 } from './aiAssistantIntentRecipesModel';
 import {
   fetchOptionalStudioSandboxUtf8,
-  fetchStudioConfigFileUtf8,
-  studioConfigRelativePath
+  studioConfigRelativePath,
+  studioConfigSandboxRepoPath
 } from './aiAssistantScriptsApi';
 
 const TOOLS_JSON_SANDBOX_PATH = '/scripts/aiassistant/config/tools.json';
@@ -80,7 +81,7 @@ function sourceChip(entry: IntentRecipeListEntry) {
 }
 
 function customRecipesPathFromPolicy(policy: ToolsPolicyFormState): string {
-  return policy.intentRecipeRouting.customRecipesPath.trim() || INTENT_RECIPES_JSON_SANDBOX_PATH;
+  return policy.intentRecipeRouting.customRecipesPath.trim() || `/${INTENT_RECIPES_JSON_REL}`;
 }
 
 function intentRecipesStudioRel(policy: ToolsPolicyFormState): string {
@@ -244,7 +245,13 @@ const AiAssistantIntentRecipesConfiguration = forwardRef<
       }
 
       const policyState = parsedTools.ok ? parsedTools.state : defaultToolsPolicyFormState();
-      const customText = await fetchStudioConfigFileUtf8(siteId, intentRecipesStudioRel(policyState));
+      // Site intent-recipes.json is optional: bundled catalog is imported in aiAssistantIntentRecipesModel;
+      // server routing uses classpath authoring-intent-recipes-default.json until the author saves overrides.
+      // Use fetchOptionalStudioSandboxUtf8 only — never get_configuration on a missing path (Studio ERROR logs).
+      const customText = await fetchOptionalStudioSandboxUtf8(
+        siteId,
+        studioConfigSandboxRepoPath(intentRecipesStudioRel(policyState))
+      );
       setCustomFile(parseIntentRecipesFileFromText(customText));
       setDirty(false);
       setDraftSyncToken((t) => t + 1);
@@ -503,7 +510,7 @@ const AiAssistantIntentRecipesConfiguration = forwardRef<
       setSaving(true);
       try {
         const routing = toolsPolicy.intentRecipeRouting;
-        const customPath = routing.customRecipesPath.trim() || INTENT_RECIPES_JSON_SANDBOX_PATH;
+        const customPath = routing.customRecipesPath.trim() || `/${INTENT_RECIPES_JSON_REL}`;
         const toolsBody = serializeToolsPolicyToJson({
           ...toolsPolicy,
           intentRecipeRouting: { ...routing, customRecipesPath: customPath }

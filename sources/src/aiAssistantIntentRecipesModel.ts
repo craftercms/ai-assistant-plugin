@@ -1,8 +1,16 @@
+/**
+ * Built-in intent recipe catalog (bundled with the plugin). Studio sites do not need
+ * {@code /config/studio/scripts/aiassistant/config/intent-recipes.json} until authors save custom recipes;
+ * the configuration UI merges this in-memory catalog with an optional site file.
+ */
 import bundledCatalog from '../../authoring/scripts/classes/plugins/org/craftercms/aiassistant/recipes/authoring-intent-recipes-default.json';
 import { STUDIO_AI_BUILTIN_TOOL_IDS, STUDIO_AI_MCP_ALL_TOKEN } from './studioAiOrchestrationToolIds';
 
-export const INTENT_RECIPES_JSON_SANDBOX_PATH = '/scripts/aiassistant/config/intent-recipes.json';
+/** Studio {@code studio} module path (tools.json {@code customRecipesPath} default). */
 export const INTENT_RECIPES_JSON_REL = 'scripts/aiassistant/config/intent-recipes.json';
+
+/** Sandbox repo path when the site override file exists (optional until first save). */
+export const INTENT_RECIPES_JSON_SANDBOX_PATH = `/config/studio/${INTENT_RECIPES_JSON_REL}`;
 
 export const INTENT_RECIPE_PHASE_KEYS = ['context', 'action', 'confirmation'] as const;
 export type IntentRecipePhaseKey = (typeof INTENT_RECIPE_PHASE_KEYS)[number];
@@ -28,6 +36,45 @@ export type IntentRecipeChatDefaults = {
   lineSuffix?: string;
 };
 
+/** Config-driven match rule (see {@code AuthoringIntentRecipeWhen} on the server). */
+export type IntentRecipeWhenExpr =
+  | string
+  | {
+      allOf?: IntentRecipeWhenExpr[];
+      anyOf?: IntentRecipeWhenExpr[];
+      not?: IntentRecipeWhenExpr;
+      authorContainsAny?: string[];
+      authorContainsNone?: string[];
+      authorMatchesRegex?: string | string[];
+    };
+
+export type IntentRecipeMatchRule = {
+  priority?: number;
+  routerReason?: string;
+  skipPrefetch?: boolean;
+  when?: IntentRecipeWhenExpr;
+  requiresAnchoredSiteXml?: boolean;
+  requiresNoAnchoredSiteXml?: boolean;
+  authorFromMatchHints?: boolean;
+  respectDontMatchHints?: boolean;
+  authorContainsAny?: string[];
+  authorContainsNone?: string[];
+  authorMatchesRegex?: string | string[];
+};
+
+export type IntentRecipeMatchRules = IntentRecipeMatchRule | IntentRecipeMatchRule[];
+
+export const INTENT_RECIPE_WHEN_LEAF_OPTIONS = [
+  'anchoredSiteXml',
+  'translateIntent',
+  'concreteFieldEdit',
+  'externalContentFieldEdit',
+  'chatArtifactFollowup',
+  'creativeLlmOnly',
+  'currentTurnCmsTooling',
+  'imageOnlyGenerate'
+] as const;
+
 export type IntentRecipe = {
   id: string;
   title?: string;
@@ -37,9 +84,18 @@ export type IntentRecipe = {
   matchHints?: string[];
   /** Substrings in the author message that disqualify this recipe (case-insensitive). */
   dontMatchHints?: string[];
+  /** Server routing: exactly one matching rule per recipe id selects the whole-turn workflow. */
+  deterministicMatch?: IntentRecipeMatchRules;
+  /** Optional extra candidates when clarify/disambiguation runs (same schema as {@link deterministicMatch}). */
+  ambiguityMatch?: IntentRecipeMatchRules;
   phases?: Partial<Record<IntentRecipePhaseKey, IntentRecipePhaseValue>>;
+  toolsLoopForceTool?: string;
+  toolsLoopDisable?: boolean;
   toolsLoopAllowlist?: string[];
   toolsLoopAllowlistBypassIfAuthorMentions?: string[];
+  matchedUserPrelude?: string;
+  prefetchHotpathForceWrite?: boolean;
+  serverHotpathExternalContent?: boolean;
 };
 
 export type IntentRecipesFile = {

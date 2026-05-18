@@ -99,7 +99,7 @@ This is what runs **out of the box** when intent recipe routing is on and the ag
     ┌───────────────────────────────┴───────────────────────────────┐
     │ C  Recipe match — intentRecipeRoutingMatchPass                 │
     │                                                                 │
-    │    C1  Deterministic signals → exactly one hit → matched        │
+    │    C1  deterministicMatch rules → exactly one hit → matched     │
     │                                                                 │
     │    C2  Else clarify/enrich LLM (disambiguate or zero-match)     │
     │         → retest deterministic → one hit → matched              │
@@ -266,17 +266,30 @@ See **[Routing at a glance](#routing-at-a-glance-default)** for the simplified d
 ### Inputs
 
 - **`bodyPrompt` / `cand`:** Full wire (anchor, prior turns, `Current request:`).
-- **`routerVisible`:** `AuthoringPreviewContext.extractAuthorCurrentRequestVisible(cand)` — primary text for deterministic signals and JSON router.
-- **`detCtx`:** `cand`, `routerVisible`, `ops`, closures for translate / field-edit / external-content signals.
+- **`routerVisible`:** `AuthoringPreviewContext.extractAuthorCurrentRequestVisible(cand)` — primary text for deterministic match rules and JSON router.
+- **`detCtx`:** `cand`, `routerVisible`, `ops`, closures for translate / field-edit / external-content predicates.
 
 ### Pass 1 — `intentRecipeRoutingMatchPass`
 
-1. **Deterministic matches** — `findDeterministicRecipeMatches` (bundled + site recipes, `AuthoringIntentRecipeSignals`). **Exactly one** hit → whole-turn `matched` (`matchPass: deterministic`).
+1. **Deterministic matches** — `findDeterministicRecipeMatches` evaluates each recipe’s **`deterministicMatch`** rules from JSON (`AuthoringIntentRecipeWhen` — `when`, shorthands, `matchHints`). **Exactly one** recipe hit → whole-turn `matched` (`matchPass: deterministic`).
+
+   **Rule shape (object or array of objects):**
+
+   | Field | Role |
+   |-------|------|
+   | `priority` / `routerReason` | Telemetry only (higher `priority` wins ties within one recipe’s rules). |
+   | `authorFromMatchHints` | Treat recipe `matchHints` as `authorContainsAny`. |
+   | `respectDontMatchHints` | Drop match if author text hits `dontMatchHints`. |
+   | `requiresAnchoredSiteXml` / `requiresNoAnchoredSiteXml` | Anchor on `/site/.../*.xml`. |
+   | `authorContainsAny` / `authorContainsNone` / `authorMatchesRegex` | Extra author-text predicates. |
+   | `when` | Leaf id (`anchoredSiteXml`, `translateIntent`, `concreteFieldEdit`, …) or nested `{ allOf, anyOf, not }`. |
+
+   **`ambiguityMatch`** uses the same schema for structural competitors during clarify (optional per recipe). There is **no** legacy `signal` key — site `intent-recipes.json` overrides must use this schema.
 
 2. **Clarify / enrich** — When hits ≠ 1: LLM restates current-turn intent (`generateAuthoringIntentRoutingClarifyText`):
    - **Disambiguate** when multiple pattern or structural competitors match.
    - **Enrich** when zero patterns matched (catalog table for context).
-   - Retest deterministic signals on clarified text → one hit → `deterministic_after_clarify`.
+   - Retest `deterministicMatch` on clarified text → one hit → `deterministic_after_clarify`.
 
 3. **Defer to plan loop** (default) — Still **multiple** hits → `deferToPlanLoop`, `ambiguous_multi_defer_plan` (no JSON router). Still **zero** hits → `deferToPlanLoop`, `no_deterministic_defer_plan`. Prelude prepends a **## Plan** hint; when `deferToPlanLoop` is set, the tools loop may log **`Intent recipe routing: plan-step deterministic hints`** and attach **`planStepRecipeMatches`** from `AuthoringIntentRecipeCatalog.matchRecipesForPlanSteps`.
 
@@ -323,7 +336,7 @@ Runs when `springAi.useTools` remains true after prelude.
 **Method:** `executeNativeToolsViaRestClientReturnText` (multi-round).
 
 - Builds wire: system + user (`userTextForToolsLoop` includes recipe prelude, expansion prefix, no-match hints).
-- **Round 0 `tool_choice` biases:** recipe `toolsLoopForceTool`; else web research → `WebSearch`; revert → `revert_change`; image-only → `GenerateImage`; recipe id `web_research` / `site_content_research` signals.
+- **Round 0 `tool_choice` biases:** recipe `toolsLoopForceTool`; else web research → `WebSearch`; revert → `revert_change`; image-only → `GenerateImage`; recipes with `toolsLoopForceTool` in bundled JSON (e.g. `web_research`, `site_content_research`).
 - **Loop:** completion with `tools[]` → execute tool calls → append `role:tool` results → repeat until text-only finish or max rounds.
 - **Recovery nudges:** model promised tools but did not call; `userNeedsCmsTools` when current turn suggests CMS (uses `authorCurrentRequestSuggestsCmsTooling`, not full-wire CMS scan).
 - **Truncation:** large tool JSON capped on wire; `GetContent` keeps path/metadata; `GenerateImage` uses inline ref pattern.
@@ -337,7 +350,7 @@ Runs when `springAi.useTools` remains true after prelude.
 | Area | Location |
 |------|----------|
 | Eligibility + current-turn signals | `AuthoringPreviewContext.groovy` |
-| Recipe catalog, deterministic + structural competitors | `AuthoringIntentRecipeCatalog.groovy`, `AuthoringIntentRecipeSignals.groovy` |
+| Recipe catalog, deterministic + ambiguity competitors | `AuthoringIntentRecipeCatalog.groovy`, `AuthoringIntentRecipeWhen.groovy` |
 | Bundled recipes | `recipes/authoring-intent-recipes-default.json` |
 | Prelude + match pass + tools loop | `AiOrchestration.groovy` |
 | Prefetch / hotpath | `AuthoringIntentRecipeEngine.groovy` (and related) |
