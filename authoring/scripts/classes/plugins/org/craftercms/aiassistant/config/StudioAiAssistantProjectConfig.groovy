@@ -29,6 +29,7 @@ import java.util.Set
  *   "disabledMcpTools": ["mcp_docs_search"],
  *   "intentRecipeRouting": {
  *     "enabled": true,
+ *     "eligibilityGateEnabled": false,
  *     "engineEnabled": true,
  *     "engineMaxSteps": 8,
  *     "engineMaxTotalChars": 200000,
@@ -195,6 +196,19 @@ final class StudioAiAssistantProjectConfig {
       return true
     }
     Boolean.TRUE.equals(m.get('enabled'))
+  }
+
+  /**
+   * When {@code true}: apply {@link plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext#intentRecipeRouterEligibilitySkipReason}
+   * before recipe match (short-message / no-CMS-signal / long-paste gates). When {@code false} (default when omitted): every
+   * non-empty turn runs intent recipe routing so custom recipes and multi-intent requests are not blocked early.
+   */
+  static boolean intentRecipeEligibilityGateEnabled(Map cfg) {
+    Map m = intentRecipeRoutingSection(cfg)
+    if (!m.containsKey('eligibilityGateEnabled')) {
+      return false
+    }
+    Boolean.TRUE.equals(m.get('eligibilityGateEnabled'))
   }
 
   static boolean intentRecipeRequestClarificationOnUnmatched(Map cfg) {

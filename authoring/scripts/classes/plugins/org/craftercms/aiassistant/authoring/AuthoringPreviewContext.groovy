@@ -1,5 +1,7 @@
 package plugins.org.craftercms.aiassistant.authoring
 
+import plugins.org.craftercms.aiassistant.config.StudioAiAssistantProjectConfig
+
 import java.net.URLEncoder
 import java.time.Instant
 import java.time.ZoneId
@@ -187,8 +189,11 @@ Use these when the author asks about "today", "now", freshness, or dated content
       '\\bupdate\\b.+\\b(hero|title|headline|subtitle|body|copy|text)\\b)'
   )
 
-  private static final Pattern REVERT_VERSION_INTENT = Pattern.compile(
-    '(?i)\\b(undo|revert|roll\\s*back|restore|go\\s+back|put\\s+back|switch\\s+back)\\b'
+  /** Studio version rollback — not colloquial “restore a classic car”, “restore health”, etc. */
+  private static final Pattern REPOSITORY_VERSION_REVERT = Pattern.compile(
+    '(?i)\\b(undo|revert|roll\\s*back|go\\s+back|put\\s+back|switch\\s+back)\\b|' +
+      '\\brestore\\s+(?:to\\s+)?(?:the\\s+)?(?:previous|prior|earlier|original|initial)\\s+version\\b|' +
+      '\\brestore\\s+(?:this|the)\\s+(?:page|item|file|content|version)\\b'
   )
 
   /** Oldest / first-created Studio version — not the immediate prior save. */
@@ -202,6 +207,28 @@ Use these when the author asks about "today", "now", freshness, or dated content
     '(?i)\\b(these|those|generated|previous|prior|earlier)\\s+(tips?|list|text|copy|content|results?)\\b|' +
       '\\buse\\s+(these|those|the)\\s+(tips?|list|text|copy)\\b|' +
       '\\bno[,\\s]+use\\s+these\\b'
+  )
+
+  /** Ask the model to compose fiction or chat prose — not repository field work. */
+  private static final Pattern CREATIVE_LLM_ONLY = Pattern.compile(
+    '(?i)\\b(?:write|craft|compose|tell|share|give\\s+me|generate|create)\\b.{0,72}\\b(?:story|tale|poem|verse|limerick|joke|fiction|fable|narrative|parable)\\b|' +
+      '\\b(?:short\\s+)?story\\s+about\\b'
+  )
+
+  /** Edit the last assistant chat artifact (e.g. “this story”), not the anchored Studio page. */
+  private static final Pattern CHAT_ARTIFACT_REFERENCE = Pattern.compile(
+    '(?i)\\b(?:this|the|your|that)\\s+story\\b|' +
+      '\\b(?:shorten|lengthen|expand|condense|trim|rewrite)\\b.{0,40}\\b(?:story|tale|poem|reply|answer|version)\\b|' +
+      '\\b(?:two|three|\\d+)\\s+paragraphs?\\b|' +
+      '\\bmake\\s+(?:this|it|the\\s+story)\\b'
+  )
+
+  private static final Pattern ASSISTANT_PAGE_SUMMARY_MARKERS = Pattern.compile(
+    '(?i)\\bcontent\\s+summary\\b|\\bhero\\s+text\\b|\\bfeatures\\s+section\\b|\\brepository\\s+path\\b'
+  )
+
+  private static final Pattern ASSISTANT_CHAT_CREATIVE_MARKERS = Pattern.compile(
+    "(?i)(?:here's|sure!).{0,48}(?:story|tale|poem)\\b|once\\s+upon\\s+a\\s+time"
   )
 
   private static final Pattern REPOSITORY_PATH_IN_PROMPT = Pattern.compile(
@@ -317,8 +344,125 @@ Use these when the author asks about "today", "now", freshness, or dated content
     if ((current =~ /(?i)\b(make it|shorter|longer|brief|condense|trim it|expand it|rewrite it)\b/).find()) {
       return true
     }
-    return current.split(/\s+/).length() <= 8 &&
+    return current.tokenize().size() <= 8 &&
       (current =~ /(?i)\b(it|that|this|your|the story)\b/).find()
+  }
+
+  /**
+   * Current turn asks for original prose in chat (story, poem, …) without naming a repository field or page edit.
+   */
+  static boolean authorCurrentRequestLooksLikeCreativeLlmOnly(String fullPrompt) {
+    String current = extractAuthorCurrentRequestVisible(fullPrompt)?.trim()
+    if (!current || current.length() > 1200) {
+      return false
+    }
+    def stripped = stripStudioInjectedPromptBlocks(current)?.trim()
+    if (!stripped) {
+      return false
+    }
+    if (authorVisibleSuggestsOpenPageInquiryForAuthorText(fullPrompt, stripped) ||
+      anchoredSiteXmlFieldPlacementIntentForAuthorText(fullPrompt, stripped) ||
+      authorRefersToAnchoredOpenStudioItemForAuthorText(fullPrompt, stripped)) {
+      return false
+    }
+    if ((stripped =~ /(?i)\bthis\s+page\b/).find()) {
+      return false
+    }
+    return CREATIVE_LLM_ONLY.matcher(stripped).find()
+  }
+
+  /**
+   * True when the author refers to chat output from the prior turn (e.g. “this story”), not CMS fields on the anchor.
+   */
+  static boolean authorCurrentRequestEditsPriorChatArtifact(String fullPrompt) {
+    String current = extractAuthorCurrentRequestVisible(fullPrompt)?.trim()
+    if (!current || !extractPriorConversationBody(fullPrompt)?.trim()) {
+      return false
+    }
+    if (authorCurrentRequestSuggestsCmsTooling(fullPrompt)) {
+      return false
+    }
+    if (anchoredSiteXmlFieldPlacementIntentForAuthorText(fullPrompt, current) ||
+      authorRefersToAnchoredOpenStudioItemForAuthorText(fullPrompt, current)) {
+      return false
+    }
+    if ((current =~ /(?i)\b(this|the)\s+page\b/).find()) {
+      return false
+    }
+    if (CHAT_ARTIFACT_REFERENCE.matcher(current).find()) {
+      return true
+    }
+    if (authorCurrentRequestLooksLikePriorTurnFollowUp(fullPrompt) &&
+      (current =~ /(?i)\b(story|tale|poem|your\s+reply|that\s+answer)\b/).find()) {
+      return true
+    }
+    return false
+  }
+
+  /**
+   * Prior user+assistant turn produced chat-only creative text; current turn revises that artifact (not {@code index.xml}).
+   */
+  static boolean authorConversationPivotedToChatOnlyArtifact(String fullPrompt) {
+    if (!authorCurrentRequestEditsPriorChatArtifact(fullPrompt)) {
+      return false
+    }
+    return priorImmediateTurnWasChatCreativeExchange(fullPrompt)
+  }
+
+  private static boolean priorImmediateTurnWasChatCreativeExchange(String fullPrompt) {
+    def priorBody = extractPriorConversationBody(fullPrompt)?.trim()
+    if (!priorBody) {
+      return false
+    }
+    List<Map> turns = parsePriorConversationTurns(priorBody)
+    if (turns.isEmpty()) {
+      return false
+    }
+    int lastUserIdx = -1
+    for (int i = turns.size() - 1; i >= 0; i--) {
+      if ('user'.equals(turns.get(i).role?.toString())) {
+        lastUserIdx = i
+        break
+      }
+    }
+    if (lastUserIdx < 0) {
+      return false
+    }
+    String userText = turns.get(lastUserIdx).text?.toString() ?: ''
+    String asstText = ''
+    if (lastUserIdx + 1 < turns.size() && 'assistant'.equals(turns.get(lastUserIdx + 1).role?.toString())) {
+      asstText = turns.get(lastUserIdx + 1).text?.toString() ?: ''
+    }
+    if (authorTextLooksLikeCreativeGenerationRequest(userText)) {
+      return true
+    }
+    return asstText?.trim() &&
+      authorAssistantReplyLooksLikeChatCreativeArtifact(userText, asstText)
+  }
+
+  private static boolean authorTextLooksLikeCreativeGenerationRequest(String text) {
+    def t = stripStudioInjectedPromptBlocks((text ?: '').toString())?.trim()
+    if (!t) {
+      return false
+    }
+    if (OPEN_PAGE_INQUIRY.matcher(t).find() || (t =~ /(?i)\bthis\s+page\b/).find()) {
+      return false
+    }
+    return CREATIVE_LLM_ONLY.matcher(t).find()
+  }
+
+  private static boolean authorAssistantReplyLooksLikeChatCreativeArtifact(String priorUser, String assistant) {
+    String a = (assistant ?: '').trim()
+    if (!a || a.length() < 80) {
+      return false
+    }
+    if (ASSISTANT_PAGE_SUMMARY_MARKERS.matcher(a).find()) {
+      return false
+    }
+    if (authorTextLooksLikeCreativeGenerationRequest(priorUser)) {
+      return true
+    }
+    return ASSISTANT_CHAT_CREATIVE_MARKERS.matcher(a).find()
   }
 
   /**
@@ -427,7 +571,8 @@ ${asstLine}"""
   /** Live / current-events lookup — route to {@code web_research} + {@code WebSearch}, not CMS tools. */
   private static final Pattern WEB_RESEARCH_SIGNAL = Pattern.compile(
     '(?i)(\\b(latest|recent|current|today\'?s|breaking)\\s+news\\b|\\bnews\\s+(on|about|for)\\b|\\bheadlines?\\b|' +
-      '\\bcurrent\\s+events?\\b|\\bsearch\\s+the\\s+web\\b|\\bweb\\s+search\\b|\\blook\\s+up\\s+(?:the\\s+)?latest\\b|' +
+      '\\bcurrent\\s+events?\\b|\\bsearch\\s+the\\s+web\\b|\\bweb\\s+search\\b|\\bon\\s+the\\s+web\\b|' +
+      '\\blook\\s+up\\s+(?:the\\s+)?latest\\b|\\blook\\s+up\\b.{0,96}\\b(?:on\\s+the\\s+web|online)\\b|' +
       '\\bwhat\\s+happened\\s+(today|this\\s+week)\\b|\\bwhat\'?s\\s+new\\s+with\\b|' +
       '\\bresearch\\b(?:\\s+\\d+)?\\s+(?:tips?|ideas|guides?|steps?|best\\s+practices|facts?)\\b|' +
       '\\bresearch\\s+\\d+\\s+\\w+)'
@@ -476,7 +621,11 @@ ${asstLine}"""
    * ({@code this page}, {@code the component}, …) — CMS authoring context, not general chit-chat.
    */
   static boolean authorRefersToAnchoredOpenStudioItem(String fullOrUserPrompt) {
-    def anchor = extractAnchoredRepositoryPath(fullOrUserPrompt)
+    return authorRefersToAnchoredOpenStudioItemForAuthorText(fullOrUserPrompt, fullOrUserPrompt)
+  }
+
+  static boolean authorRefersToAnchoredOpenStudioItemForAuthorText(String anchorCarrier, String authorVisibleText) {
+    def anchor = extractAnchoredRepositoryPath((anchorCarrier ?: '').toString())
     if (!anchor?.trim()) {
       return false
     }
@@ -484,7 +633,7 @@ ${asstLine}"""
     if (!low.startsWith('/site/') || !low.endsWith('.xml')) {
       return false
     }
-    def v = stripStudioInjectedPromptBlocks((fullOrUserPrompt ?: '').toString())?.trim()
+    def v = stripStudioInjectedPromptBlocks((authorVisibleText ?: '').toString())?.trim()
     return v && ANCHORED_OPEN_STUDIO_ITEM_REFERENCE.matcher(v).find()
   }
 
@@ -498,6 +647,32 @@ ${asstLine}"""
     }
     def v = stripStudioInjectedPromptBlocks((fullOrUserPrompt ?: '').toString())
     return v && CMS_TASK_SIGNAL.matcher(v).find()
+  }
+
+  /**
+   * CMS intent for {@linkplain #extractAuthorCurrentRequestVisible this turn only}, not keywords replayed from
+   * {@code [Prior conversation …]}. A repo anchor may stay on the wire after the author pivots to chat-only work
+   * (e.g. generate a story, then “make it shorter”).
+   */
+  static boolean authorCurrentRequestSuggestsCmsTooling(String fullPrompt) {
+    String current = extractAuthorCurrentRequestVisible(fullPrompt)?.trim()
+    if (!current) {
+      return authorVisibleSuggestsCmsTooling(fullPrompt)
+    }
+    def stripped = stripStudioInjectedPromptBlocks(current)?.trim()
+    if (!stripped) {
+      return false
+    }
+    if (CMS_TASK_SIGNAL.matcher(stripped).find()) {
+      return true
+    }
+    if (authorVisibleSuggestsOpenPageInquiryForAuthorText(fullPrompt, stripped)) {
+      return true
+    }
+    if (anchoredSiteXmlFieldPlacementIntentForAuthorText(fullPrompt, stripped)) {
+      return true
+    }
+    return authorRefersToAnchoredOpenStudioItemForAuthorText(fullPrompt, stripped)
   }
 
   /**
@@ -629,7 +804,9 @@ This site has **never** been published to the delivery tier. For first go-live o
   static boolean authorVisibleSuggestsIntentRecipeResearch(String fullOrUserPrompt) {
     return authorVisibleSuggestsWebResearch(fullOrUserPrompt) ||
       authorVisibleSuggestsSiteContentResearch(fullOrUserPrompt) ||
-      authorVisibleSuggestsLlmResearch(fullOrUserPrompt)
+      authorVisibleSuggestsLlmResearch(fullOrUserPrompt) ||
+      authorCurrentRequestLooksLikeCreativeLlmOnly(fullOrUserPrompt) ||
+      authorConversationPivotedToChatOnlyArtifact(fullOrUserPrompt)
   }
 
   /** {@code Repository path: /site/...} from a Studio request anchor block, when present. */
@@ -647,19 +824,35 @@ This site has **never** been published to the delivery tier. For first go-live o
    * even when they did not say “update” / “edit”.
    */
   static boolean anchoredSiteXmlFieldPlacementIntent(String fullPrompt) {
-    def anchor = extractAnchoredRepositoryPath(fullPrompt)
+    return anchoredSiteXmlFieldPlacementIntentForAuthorText(fullPrompt, fullPrompt)
+  }
+
+  static boolean anchoredSiteXmlFieldPlacementIntentForAuthorText(String anchorCarrier, String authorVisibleText) {
+    def anchor = extractAnchoredRepositoryPath((anchorCarrier ?: '').toString())
     if (!anchor || !anchor.toLowerCase(Locale.ROOT).startsWith('/site/') ||
       !anchor.toLowerCase(Locale.ROOT).endsWith('.xml')) {
       return false
     }
-    def v = stripStudioInjectedPromptBlocks((fullPrompt ?: '').toString())?.trim()
+    def v = stripStudioInjectedPromptBlocks((authorVisibleText ?: '').toString())?.trim()
     return v && ANCHORED_FIELD_PLACEMENT.matcher(v).find()
+  }
+
+  /** Length / URL gates for intent expansion when prior turns are on the wire — use the current author line only. */
+  private static String intentExpansionVisibleSlice(String fullPrompt) {
+    def prior = extractPriorConversationBody(fullPrompt)?.trim()
+    if (prior) {
+      String current = extractAuthorCurrentRequestVisible(fullPrompt)?.trim()
+      if (current) {
+        return stripStudioInjectedPromptBlocks(current)?.trim() ?: current
+      }
+    }
+    return stripStudioInjectedPromptBlocks((fullPrompt ?: '').toString())?.trim() ?: ''
   }
 
   /** Undo / revert / restore a prior repository version (not a generative rewrite). */
   static boolean authorVisibleSuggestsRevertIntent(String visible) {
     def v = (visible ?: '').toString().trim()
-    return v && REVERT_VERSION_INTENT.matcher(v).find()
+    return v && REPOSITORY_VERSION_REVERT.matcher(v).find()
   }
 
   /** Author wants the oldest revertible history entry (e.g. “initial commit”), not one step back. */
@@ -745,12 +938,22 @@ This site has **never** been published to the delivery tier. For first go-live o
         return 'visible_exceeds_1600_chars'
       }
     }
-    if (!authorVisibleSuggestsCmsTooling(fullPrompt)) {
-      if (anchoredSiteXmlFieldPlacementIntent(fullPrompt)) {
-        return null
-      }
-      if (authorRefersToAnchoredOpenStudioItem(fullPrompt)) {
-        return null
+    if (!authorCurrentRequestSuggestsCmsTooling(fullPrompt)) {
+      String currentOnly = extractAuthorCurrentRequestVisible(fullPrompt)?.trim()
+      if (currentOnly) {
+        if (anchoredSiteXmlFieldPlacementIntentForAuthorText(fullPrompt, currentOnly)) {
+          return null
+        }
+        if (authorRefersToAnchoredOpenStudioItemForAuthorText(fullPrompt, currentOnly)) {
+          return null
+        }
+      } else {
+        if (anchoredSiteXmlFieldPlacementIntent(fullPrompt)) {
+          return null
+        }
+        if (authorRefersToAnchoredOpenStudioItem(fullPrompt)) {
+          return null
+        }
       }
       if (authorVisibleSuggestsIntentRecipeResearch(fullPrompt)) {
         return null
@@ -758,7 +961,6 @@ This site has **never** been published to the delivery tier. For first go-live o
       if (authorCurrentRequestLooksLikeImageOnlyGenerate(fullPrompt)) {
         return null
       }
-      String currentOnly = extractAuthorCurrentRequestVisible(fullPrompt)
       if (currentOnly && authorVisibleSuggestsIntentRecipeResearch(currentOnly)) {
         return null
       }
@@ -769,18 +971,38 @@ This site has **never** been published to the delivery tier. For first go-live o
       if (authorCurrentRequestLooksLikePriorTurnFollowUp(fullPrompt)) {
         return null
       }
+      if (authorCurrentRequestLooksLikeCreativeLlmOnly(fullPrompt)) {
+        return null
+      }
+      if (authorConversationPivotedToChatOnlyArtifact(fullPrompt)) {
+        return null
+      }
+      if (extractAnchoredRepositoryPath(fullPrompt)?.trim() || extractPriorConversationBody(fullPrompt)?.trim()) {
+        return null
+      }
       return 'no_cms_task_signal'
     }
-    if (v.length() <= AUTHORING_INTENT_EXPANSION_SHORT_VISIBLE_MAX_CHARS) {
+    if (authorConversationPivotedToChatOnlyArtifact(fullPrompt)) {
+      return null
+    }
+    if (authorCurrentRequestLooksLikePriorTurnFollowUp(fullPrompt)) {
+      return null
+    }
+    String expansionVisible = intentExpansionVisibleSlice(fullPrompt) ?: v
+    if (expansionVisible.length() <= AUTHORING_INTENT_EXPANSION_SHORT_VISIBLE_MAX_CHARS) {
       return null
     }
     if (authorCurrentRequestLooksLikeImageOnlyGenerate(fullPrompt)) {
       return null
     }
-    if (!authorVisibleContainsHttpOrLikelyExternalHost(v)) {
+    String currentOnlyForGate = extractAuthorCurrentRequestVisible(fullPrompt)?.trim()
+    if (currentOnlyForGate && authorVisibleSuggestsIntentRecipeResearch(currentOnlyForGate)) {
+      return null
+    }
+    if (!authorVisibleContainsHttpOrLikelyExternalHost(expansionVisible)) {
       return 'long_message_no_url_for_expansion_gate'
     }
-    if (!AUTHORING_INTENT_EXPANSION_VISUAL.matcher(v).find()) {
+    if (!AUTHORING_INTENT_EXPANSION_VISUAL.matcher(expansionVisible).find()) {
       return 'long_message_url_without_visual_reference_phrase'
     }
     return null
@@ -793,6 +1015,17 @@ This site has **never** been published to the delivery tier. For first go-live o
    */
   static boolean isAuthoringIntentExpansionCandidate(String fullPrompt) {
     return intentRecipeRouterEligibilitySkipReason(fullPrompt) == null
+  }
+
+  /**
+   * Same as {@link #isAuthoringIntentExpansionCandidate(String)} unless project config disables the eligibility gate
+   * ({@code intentRecipeRouting.eligibilityGateEnabled} false / omitted — default): then any non-empty prompt is eligible.
+   */
+  static boolean isAuthoringIntentExpansionCandidate(String fullPrompt, Map projectCfg) {
+    if (projectCfg != null && !StudioAiAssistantProjectConfig.intentRecipeEligibilityGateEnabled(projectCfg)) {
+      return (fullPrompt ?: '').toString().trim().length() > 0
+    }
+    return isAuthoringIntentExpansionCandidate(fullPrompt)
   }
 
   /**

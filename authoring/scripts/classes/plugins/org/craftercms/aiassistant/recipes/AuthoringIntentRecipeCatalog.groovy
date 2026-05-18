@@ -516,6 +516,137 @@ final class AuthoringIntentRecipeCatalog {
     return matches.size() == 1 ? matches[0] : null
   }
 
+  /**
+   * Optional competitors when the **current turn** already signals CMS/research — not when Studio metadata alone
+   * anchors {@code /site/.../*.xml} (that bias is deferred to deterministic signals + the LLM recipe router).
+   */
+  static List<Map> findStructuralRecipeCompetitors(List<Map> recipes, Map ctx, String routerVisible) {
+    if (recipes == null || recipes.isEmpty() || !(ctx instanceof Map)) {
+      return Collections.emptyList()
+    }
+    String wire = (ctx.cand ?: '').toString()
+    String visible = (routerVisible ?: '').toString().trim()
+    String scan = deterministicRoutingPrompt(ctx)
+    if (!scan?.trim()) {
+      return Collections.emptyList()
+    }
+    String anchor = AuthoringPreviewContext.extractAnchoredRepositoryPath(wire)
+    if (!anchor?.trim()) {
+      anchor = AuthoringPreviewContext.extractAnchoredRepositoryPath(visible)
+    }
+    String anchorLc = (anchor ?: '').toLowerCase(Locale.ROOT)
+    boolean anchoredSiteXml =
+      anchorLc.startsWith('/site/') && anchorLc.endsWith('.xml')
+
+    Map<String, Map> byId = new LinkedHashMap<>()
+    Closure add = { String rid, String reason, int priority ->
+      String id = (rid ?: '').trim()
+      if (!id || byId.containsKey(id)) {
+        return
+      }
+      Map recipe = findRecipeById(recipes, id)
+      if (!recipe) {
+        return
+      }
+      byId.put(id, [
+        recipe      : recipe,
+        recipeId    : id,
+        routerReason: reason,
+        skipPrefetch: false,
+        visible     : scan,
+        priority    : priority
+      ])
+    }
+
+    boolean webResearch = AuthoringPreviewContext.authorVisibleSuggestsWebResearch(scan)
+    boolean siteResearch = AuthoringPreviewContext.authorVisibleSuggestsSiteContentResearch(scan)
+    boolean llmResearch = AuthoringPreviewContext.authorVisibleSuggestsLlmResearch(scan)
+    if (webResearch) {
+      add.call('web_research', 'structural_web_research', 40)
+    }
+    if (siteResearch) {
+      add.call('site_content_research', 'structural_site_content_research', 38)
+    }
+    if (llmResearch) {
+      add.call('llm_research', 'structural_llm_research', 36)
+    }
+
+    if (!anchoredSiteXml) {
+      return new ArrayList<>(byId.values())
+    }
+
+    if (AuthoringPreviewContext.authorConversationPivotedToChatOnlyArtifact(wire)) {
+      add.call('llm_research', 'structural_chat_artifact_followup', 52)
+      return new ArrayList<>(byId.values())
+    }
+
+    boolean cmsOnCurrentTurn = AuthoringPreviewContext.authorCurrentRequestSuggestsCmsTooling(wire)
+    if (!cmsOnCurrentTurn) {
+      return new ArrayList<>(byId.values())
+    }
+
+    boolean editOpenItem =
+      AuthoringPreviewContext.anchoredSiteXmlFieldPlacementIntentForAuthorText(wire, scan) ||
+      (AuthoringPreviewContext.authorRefersToAnchoredOpenStudioItemForAuthorText(wire, scan) &&
+        (scan =~ /(?i)\b(update|change|edit|rewrite|rephrase|shorten|add|put|set)\b/).find())
+
+    boolean newItem =
+      (scan =~ /(?i)\b(new\s+page|new\s+article|add\s+a\s+page)\b/).find() ||
+      ((scan =~ /(?i)\b(create|draft)\b/).find() &&
+        (scan =~ /(?i)\b(page|article|component|item)\b/).find())
+
+    boolean readOnlyPage =
+      AuthoringPreviewContext.authorVisibleSuggestsOpenPageInquiryForAuthorText(anchor, scan)
+
+    if (editOpenItem) {
+      add.call('modify_page_content', 'structural_anchored_copy_or_field_edit', 50)
+    }
+    if (newItem) {
+      add.call('new_content_item', 'structural_new_repository_item', 45)
+    }
+    if (readOnlyPage) {
+      add.call('open_page_inquiry', 'structural_open_page_inquiry', 42)
+    }
+
+    return new ArrayList<>(byId.values())
+  }
+
+  private static List<Map> mergeRecipeCandidateLists(List<Map> primary, List<Map> additional) {
+    Map<String, Map> byId = new LinkedHashMap<>()
+    for (Map m : (primary ?: [])) {
+      String rid = m?.recipeId?.toString()?.trim()
+      if (rid) {
+        byId.put(rid, m)
+      }
+    }
+    for (Map m : (additional ?: [])) {
+      String rid = m?.recipeId?.toString()?.trim()
+      if (rid && !byId.containsKey(rid)) {
+        byId.put(rid, m)
+      }
+    }
+    List<Map> out = new ArrayList<>(byId.values())
+    out.sort { a, b ->
+      int pa = a.priority instanceof Number ? ((Number) a.priority).intValue() : 0
+      int pb = b.priority instanceof Number ? ((Number) b.priority).intValue() : 0
+      pb <=> pa
+    }
+    return out
+  }
+
+  /**
+   * Deterministic signal matches plus structural competitors (e.g. anchored page + “create” + “title”).
+   * Used to decide when orchestration runs intent-tighten before deterministic retest / LLM router.
+   */
+  static List<Map> findAmbiguousRecipeCandidates(List<Map> recipes, Map ctx, String routerVisible) {
+    List<Map> det = findDeterministicRecipeMatches(recipes, ctx)
+    List<Map> structural = findStructuralRecipeCompetitors(recipes, ctx, routerVisible)
+    if (det.size() > 1) {
+      return det
+    }
+    return mergeRecipeCandidateLists(det, structural)
+  }
+
   static String formatAmbiguousDeterministicMatchesMarkdown(List<Map> matches) {
     if (matches == null || matches.isEmpty()) {
       return '(none)'

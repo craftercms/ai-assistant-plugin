@@ -27,6 +27,8 @@ Companion to **[`spec.md`](spec.md)** for tools, REST bodies, MCP, and runtime t
 
 **Conversation vs focused generation (native tools path — all AI panel surfaces):** The same rules apply whether the author opens the assistant from **Experience Builder / ICE** (preview sidebar), the **floating dialog**, or the **content-type form assistant** (`authoringSurface: formEngine`). Normal chat turns register CMS **function tools** when the agent / request enables them. **`AiAssistantChat`** prepends an **abbreviated prior-turn block** (last several user/assistant messages, capped in size) on every send so each HTTP request stays single-shot while preserving context. For a **focused copy or generation step**, send **`omitTools: true`** on that POST (or set **`&lt;omitTools&gt;true&lt;/omitTools&gt;`** on a quick **`&lt;prompt&gt;`** in ui.xml); that **one** request omits tool schemas so more context remains for large payloads (e.g. serialized form XML or expanded content macros). **`omitTools`** overrides **`enableTools`** for that round-trip only on **any** surface.
 
+**Intent recipe routing (pre-tools):** When enabled in site **`tools.json`**, preview chat runs an **eligibility gate**, then **recipe match** (deterministic signals → optional LLM router → optional expansion rematch) **before** the native tools loop. Matched recipes may prefetch **`GetContent`**, disable CMS tools for chat-only work (`llm_research`), or force a first tool. Full pipeline, telemetry fields, and maintainer checklist: **[`intent-recipe-routing.md`](intent-recipe-routing.md)**.
+
 ---
 
 ## OpenAI Vendor API Key (`OPENAI_API_KEY`, Server-side) and Testing-only Widget Key {#openai-api-key-server-side}

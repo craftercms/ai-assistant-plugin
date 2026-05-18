@@ -1,0 +1,326 @@
+# Intent Recipe Routing (Pre-Tools) and Tools Loop
+
+Companion to **[`chat-and-tools-runtime.md`](chat-and-tools-runtime.md)** and **[`spec.md`](spec.md)**. Describes how preview chat classifies an author turn **before** the native CMS tools loop runs, and how that classification affects tool availability, prefetch, and prompts.
+
+**Audience:** Maintainers debugging `intent-recipe-routing` SSE telemetry, `skipped_eligibility`, wrong recipe matches, or CMS tools firing on chat-only turns.
+
+**Configuration:** Project Tools → AI Assistant → **Intent recipe routing** (`tools.json` → `intentRecipeRouting`). Bundled recipes: `authoring/scripts/classes/plugins/org/craftercms/aiassistant/recipes/authoring-intent-recipes-default.json`. Site overrides: `config/studio/scripts/aiassistant/intent-recipes.json` (path configurable).
+
+---
+
+## Design principle
+
+- **Repository anchor** (`contentPath`, Request anchor on `/site/.../*.xml`) is **context** — which item is open in Studio.
+- **CMS intent** follows the **current author message** (`Current request:` line on the wire), not keywords buried in `[Prior conversation …]`.
+- A **repo anchor alone** must not add structural competitors for `modify_page_content` or force CMS tools on creative / chat-only turns.
+
+---
+
+## Default flow (shipped — preview chat, tools-loop LLMs)
+
+This is what runs **out of the box** when intent recipe routing is on and the agent uses a **tools-loop** LLM (`openAI`, `xAI`, `deepSeek`, `llama`, `gemini` / `genesis`, or `script:{id}` with tools-loop wire). Optional branches are in **[Optional paths](#optional-paths-not-default)** below.
+
+### Shipped defaults (`tools.json` → `intentRecipeRouting`)
+
+| Setting | Default when omitted | Effect on diagram |
+|---------|----------------------|-------------------|
+| `enabled` | `true` | Prelude runs |
+| `eligibilityGateEnabled` | **`false`** | **No** early message filter — every non-empty turn reaches recipe match |
+| `engineEnabled` | `true` | Prefetch engine runs on match |
+| `requestClarificationOnUnmatched` | `false` | On `no_match`, tools loop runs (no tools-off clarification turn) |
+| `minConfidence` | `0.55` | Router must meet this to match |
+
+**Wire in:** `Repository path` / Request anchor + optional `[Prior conversation …]` + **`Current request:`** (current-turn text for routing).
+
+**Does not enter this prelude:** `claude` (Anthropic stack), `omitTools: true` on POST, or `intentRecipeRouting.enabled: false`.
+
+```
+                         Wire in (anchor + prior + Current request:)
+                                    │
+    ┌───────────────────────────────┴───────────────────────────────┐
+    │ A  Enter prelude                                                │
+    │    useToolsLoopChatRestClient + intentRecipeRouting.enabled     │
+    └───────────────────────────────┬─────────────────────────────────┘
+                                    │
+    ┌───────────────────────────────┴───────────────────────────────┐
+    │ B  Preconditions (fail fast)                                    │
+    │    empty prompt · API key · model · recipe catalog loaded       │
+    └───────────────────────────────┬─────────────────────────────────┘
+                                    │
+    ┌───────────────────────────────┴───────────────────────────────┐
+    │ C  Recipe match — intentRecipeRoutingMatchPass                 │
+    │                                                                 │
+    │    C1  Deterministic signals (bundled + site custom recipes)    │
+    │         one hit → matched (e.g. open_page_inquiry,              │
+    │         creative_llm_only → llm_research, modify_page_content)  │
+    │                                                                 │
+    │    C2  Else JSON recipe router LLM (catalog + Current request)  │
+    │         conf ≥ minConfidence → matched                          │
+    │                                                                 │
+    │    C3  Else deterministic fallback → still none → no_match    │
+    │                                                                 │
+    │    If no_match and current turn has CMS / field-placement bias: │
+    │         LLM intent expansion → repeat C (expansion rematch)     │
+    └───────────────────────────────┬─────────────────────────────────┘
+                                    │
+    ┌───────────────────────────────┴───────────────────────────────┐
+    │ D  Apply match outcome                                          │
+    │                                                                 │
+    │    matched → prefetch (GetContent, form def, …) + recipe prelude  │
+    │              on userTextForToolsLoop                            │
+    │                                                                 │
+    │    matched + toolsLoopDisable (e.g. llm_research, read-only     │
+    │              open_page_inquiry with prefetch) → prose only      │
+    │                                                                 │
+    │    no_match → Studio hint on prompt → continue below          │
+    └───────────────────────────────┬─────────────────────────────────┘
+                                    │
+    ┌───────────────────────────────┴───────────────────────────────┐
+    │ E  Native tools loop (unless toolsLoopDisable)                │
+    │    multi-round tool_calls → assistant text                    │
+    └───────────────────────────────────────────────────────────────┘
+```
+
+### Default path — example turns (anchored page open)
+
+| Current request | Typical default path |
+|-----------------|------------------------|
+| What is this page about? | B → C1 `open_page_inquiry` → D prefetch → **no E** (tools off) |
+| Write a short story about … | B → C1 `creative_llm_only` / `llm_research` → D tools off → **no E** |
+| Update the hero text to … | B → C1/C2 `modify_page_content` → D prefetch → **E** WriteContent |
+| Multi-intent / odd wording | B → C2 router or C3 `no_match` → D hint → **E** (model + custom tools/recipes) |
+| Long paste, no URL | B → C (no eligibility gate) → often `no_match` → **E** |
+
+### Telemetry outcomes (default prelude)
+
+| `outcome` | Meaning |
+|-----------|---------|
+| `matched` | Recipe chosen; prefetch + prelude applied |
+| `no_match` | No recipe; hint prepended; **tools loop runs** |
+| `skipped_empty_prompt` / `skipped_no_api_key` / `skipped_no_model` / `skipped_no_recipes` | Preconditions failed |
+| `skipped_disabled` | `intentRecipeRouting.enabled: false` |
+
+Entry: `AiOrchestration.intentRecipeRoutingPrelude` when `StudioAiLlmKind.useToolsLoopChatRestClient` is true. `applyIntentRecipeRouteEffects` sets `springAi.useTools = false` when the matched recipe sets `toolsLoopDisable`.
+
+---
+
+## Optional paths (not default)
+
+Enable these in `tools.json` only when you want legacy or extra behavior. They are **not** in the default diagram above.
+
+### Optional: eligibility gate (`eligibilityGateEnabled: true`)
+
+**Off by default.** When **on**, step **B** is followed by a heuristic filter (`intentRecipeRouterEligibilitySkipReason`) before recipe match. Failures return `skipped_eligibility` and skip C–D (tools loop still runs).
+
+```
+    B  Preconditions OK
+              │
+    ┌─────────┴─────────┐
+    │ eligibility gate  │  only if eligibilityGateEnabled: true
+    ├─ ✗ "Hi!" alone     ► skipped_eligibility → E
+    ├─ ✗ no_cms_task_signal
+    ├─ ✗ long paste w/o URL
+    └─ ✓ pass ──────────► C  Recipe match
+```
+
+See **[Phase 2 — Eligibility gate](#phase-2--eligibility-gate-optional-off-by-default)** for skip reasons and examples.
+
+### Optional: tools-off clarification (`requestClarificationOnUnmatched: true`)
+
+**Off by default.** On `no_match`, returns one clarification completion **instead of** the tools loop.
+
+### Optional: disable routing entirely
+
+`intentRecipeRouting.enabled: false` → prelude skipped; chat goes straight to **E** with no recipe/prefetch.
+
+---
+
+## Phase 1 — Prelude preconditions (runs first in code)
+
+**Class:** `AiOrchestration.intentRecipeRoutingPrelude` — runs first in the prelude (default: then straight to match; optional eligibility gate may follow).
+
+| Check | Outcome if fail |
+|-------|-----------------|
+| `ops` non-null | `skipped_ops_null` |
+| `intentRecipeRouting.enabled` | `skipped_disabled` |
+| Non-empty `bodyPrompt` | `skipped_empty_prompt` |
+| Tools-loop API key | `skipped_no_api_key` |
+| Not cancelled | `skipped_cancelled` |
+| Resolved chat model | `skipped_no_model` |
+| Recipe catalog non-empty | `skipped_no_recipes` (+ hint, tools loop) |
+
+Fails here mean routing never called the router LLM and never ran prefetch — regardless of author message content.
+
+---
+
+## Phase 2 — Eligibility gate (optional; **off by default**)
+
+**Configuration:** `intentRecipeRouting.eligibilityGateEnabled` in site `tools.json`. **Default when omitted: `false`** — the gate does not run; every non-empty turn proceeds to recipe match (deterministic + router + optional expansion rematch). Set **`true`** only if you want the legacy short-message / `no_cms_task_signal` / long-paste filters.
+
+**Eligible for what?** When the gate is **enabled**, a turn is **eligible** when `intentRecipeRouterEligibilitySkipReason` returns **null** — meaning the server may run **pre-tools intent recipe routing** on that turn:
+
+- Pick a **recipe** (deterministic signals and/or JSON router LLM)
+- Run **prefetch** (e.g. `GetContent` for the anchored path)
+- Optionally run **intent expansion + pass-2 rematch** when pass 1 misses
+
+It is **not** “eligible to chat” (chat always proceeds) and **not** “eligible for CMS tools” (the **tools loop** often still runs after a skip — see optional diagram: `skipped_eligibility` → **E**).
+
+**Class:** `AuthoringPreviewContext`  
+**Method:** `intentRecipeRouterEligibilitySkipReason(fullPrompt)`  
+**Alias:** `isAuthoringIntentExpansionCandidate` — same gate; name reflects older “intent expansion” wording but controls **routing + expansion rematch**, not whether the author gets a reply.
+
+When skip reason is **non-null**, prelude returns `outcome: skipped_eligibility` with `eligibilitySkipReason` in telemetry. **No** recipe match, **no** prefetch — the turn skips **C–D** and usually continues to the **tools loop** (**E**). Runs **after** prelude preconditions (catalog and API key already verified). **Not used** when `eligibilityGateEnabled` is false (default).
+
+### Runs routing (eligible) — typical cases
+
+| Signal | Role |
+|--------|------|
+| `authorCurrentRequestSuggestsCmsTooling` | CMS verbs / field / repo language on **`Current request:`** only |
+| `anchoredSiteXmlFieldPlacementIntentForAuthorText` | e.g. “put X in hero text” on anchored item |
+| `authorVisibleSuggestsIntentRecipeResearch` | web / site / llm research on current or full visible slice |
+| `authorCurrentRequestLooksLikeCreativeLlmOnly` | generate/write story, etc. |
+| `authorCurrentRequestEditsPriorChatArtifact` | “this story”, “two paragraphs”, revise prior assistant reply |
+| `authorConversationPivotedToChatOnlyArtifact` | prior turn was creative; current turn edits chat artifact |
+| `authorCurrentRequestLooksLikePriorTurnFollowUp` | short follow-ups (“make it shorter”) with guards |
+| Anchor **or** prior conversation on wire | multi-turn session still runs router even without CMS keywords on this line |
+| Short visible text | ≤ ~320 chars on expansion slice (`AUTHORING_INTENT_EXPANSION_SHORT_VISIBLE_MAX_CHARS`) |
+| Long + URL + visual/reference language | expansion gate for URL-heavy asks |
+
+### Skips routing — typical cases
+
+| `eligibilitySkipReason` | Meaning |
+|-------------------------|---------|
+| `trivial_non_authoring_turn` | Greeting / chit-chat (unless short affirmation continuing CMS work) |
+| `no_cms_task_signal` | No CMS/research/creative signal **and** no anchor/prior conversation |
+| `visible_exceeds_1600_chars` | Long paste without qualifying current-line exception |
+| `long_message_no_url_for_expansion_gate` | Long message without URL/visual gate (uses current-line slice when prior conversation present) |
+| `author_summarize_no_intent_recipe` | Summarize routed elsewhere (page summarize path) |
+| `empty_visible_after_strip` | Nothing left after stripping Studio blocks |
+
+**Length gates:** When `[Prior conversation …]` is present, expansion length checks use `intentExpansionVisibleSlice` (**current request**), not the full wire.
+
+---
+
+## Phase 3 — Match pass and outcomes (inside prelude)
+
+**Class:** `AiOrchestration`  
+**Method:** `intentRecipeRoutingPrelude` → `intentRecipeRoutingMatchPass` after Phase 1 (and optional Phase 2 eligibility gate)
+
+### Inputs
+
+- **`bodyPrompt` / `cand`:** Full wire (anchor, prior turns, `Current request:`).
+- **`routerVisible`:** `AuthoringPreviewContext.extractAuthorCurrentRequestVisible(cand)` — primary text for deterministic signals and JSON router.
+- **`detCtx`:** `cand`, `routerVisible`, `ops`, closures for translate / field-edit / external-content signals.
+
+### Pass 1 — `intentRecipeRoutingMatchPass`
+
+1. **Deterministic matches** — `AuthoringIntentRecipeCatalog.findDeterministicRecipeMatches` against JSON recipes (`deterministicMatch` entries) and `AuthoringIntentRecipeSignals` (e.g. `creative_llm_only`, `chat_artifact_followup`, `open_page_inquiry`, field-edit signals).
+
+2. **Ambiguous competitors** — If multiple recipes match:
+   - **Structural competitors** (`findStructuralRecipeCompetitors`): only when **current turn** has CMS signals (`authorCurrentRequestSuggestsCmsTooling`). Chat pivot adds `llm_research` only; does **not** add `modify_page_content` from anchor alone.
+   - **Intent tighten** (LLM): only when ambiguous **and** CMS on current turn; rewrites one sentence, retests deterministic match.
+   - If ambiguous but **no** CMS on current turn: skip tighten; defer to JSON router (+ optional recent-turn memory in router user message).
+
+3. **JSON recipe router** — Catalog markdown + `routerVisible` → LLM returns `{ recipeId, confidence, reason }`. Must meet `intentRecipeMinConfidence` and pass `dontMatchHints`.
+
+4. **Deterministic fallback** — After router miss, one more `findDeterministicRecipeMatch`.
+
+**Single deterministic match** → `matchPass: deterministic` (or `deterministic_after_intent_tighten`), confidence 1.0, often `skipPrefetch` per recipe.
+
+### Pass 2 — Expansion rematch (optional)
+
+When pass 1 **does not** match, `allowExpansionRematch` is true (default: same as eligibility unless request disables `authoringIntentExpansion`), and **expansion bias** is on:
+
+- `authorCurrentRequestSuggestsCmsTooling(cand)` **or**
+- `anchoredSiteXmlFieldPlacementIntentForAuthorText(cand, currentAuthorVisible)`
+
+Then: LLM **intent expansion** → `intentRecipeRematchRouterVisible` → **pass 2** repeats the match pass. Telemetry: `intentExpansionRematch: true`. Expansion wire prefix may be prepended to `userTextForToolsLoop` even on eventual no-match.
+
+### Prelude outcomes
+
+| `outcome` | Behavior |
+|-----------|----------|
+| `matched` | `intentRecipeRoutingAttachMatchedRecipe`: prefetch (`AuthoringIntentRecipeEngine.runPrefetchBlock`), hotpath directives, recipe prelude on `userTextForToolsLoop`; telemetry includes `recipeId`, `prefetchSteps`, `toolsLoopDisable`, `toolsLoopAllowlist`, `toolsLoopForceTool` |
+| `no_match` | Anchor-aware Studio hint prepended; full tools loop if tools still on |
+| `clarification_only` | Tools off; clarification completion only (when `requestClarificationOnUnmatched` enabled) |
+| `skipped_disabled` | Routing off in `tools.json` |
+| `skipped_eligibility` | Eligibility gate only (`eligibilityGateEnabled: true`) |
+| `skipped_*` | Empty prompt, no API key, cancelled, empty catalog, etc. |
+
+### Matched recipe effects on tools
+
+**Method:** `applyIntentRecipeRouteEffects`
+
+- **`toolsLoopDisable: true`** (e.g. `llm_research`, read-only `open_page_inquiry` with successful prefetch): `springAi.useTools = false` — **no** native tools loop; model answers from prefetch + prelude only.
+- **`toolsLoopAllowlist`**: filter registered tools to named set.
+- **`toolsLoopForceTool`**: round 0 `tool_choice` forced to that function (e.g. `GetContent` for inquiry prefetch path).
+
+Bundled chat-only recipes (`llm_research` with `creative_llm_only` / `chat_artifact_followup` deterministic entries) set `toolsLoopDisable: true` in `authoring-intent-recipes-default.json`.
+
+---
+
+## Phase 4 — Native tools loop
+
+Runs when `springAi.useTools` remains true after prelude.
+
+**Method:** `executeNativeToolsViaRestClientReturnText` (multi-round).
+
+- Builds wire: system + user (`userTextForToolsLoop` includes recipe prelude, expansion prefix, no-match hints).
+- **Round 0 `tool_choice` biases:** recipe `toolsLoopForceTool`; else web research → `WebSearch`; revert → `revert_change`; image-only → `GenerateImage`; recipe id `web_research` / `site_content_research` signals.
+- **Loop:** completion with `tools[]` → execute tool calls → append `role:tool` results → repeat until text-only finish or max rounds.
+- **Recovery nudges:** model promised tools but did not call; `userNeedsCmsTools` when current turn suggests CMS (uses `authorCurrentRequestSuggestsCmsTooling`, not full-wire CMS scan).
+- **Truncation:** large tool JSON capped on wire; `GetContent` keeps path/metadata; `GenerateImage` uses inline ref pattern.
+
+**Not** part of intent routing: model choosing wrong tools after `no_match`, malformed `WriteContent` XML, or optional `ResearchSiteContent` when tools are unrestricted — those are loop execution issues.
+
+---
+
+## Key classes and files
+
+| Area | Location |
+|------|----------|
+| Eligibility + current-turn signals | `AuthoringPreviewContext.groovy` |
+| Recipe catalog, deterministic + structural competitors | `AuthoringIntentRecipeCatalog.groovy`, `AuthoringIntentRecipeSignals.groovy` |
+| Bundled recipes | `recipes/authoring-intent-recipes-default.json` |
+| Prelude + match pass + tools loop | `AiOrchestration.groovy` |
+| Prefetch / hotpath | `AuthoringIntentRecipeEngine.groovy` (and related) |
+| Router system prompt | `ToolPrompts.groovy` (`getLlm_AUTHORING_INTENT_RECIPE_ROUTER_SYSTEM`) |
+| Feature flags | `StudioAiAssistantProjectConfig` (`intentRecipeRoutingEnabled`, `intentRecipeMinConfidence`, …) |
+
+---
+
+## Debug telemetry (SSE / session logs)
+
+`metadata.intentRecipeRouting` / `intentRecipeRoutingTelemetry` commonly includes:
+
+- `outcome` — `matched`, `no_match`, `skipped_eligibility`, …
+- `eligibilitySkipReason` — when skipped at gate
+- `recipeId`, `confidence`, `matchPass` — `deterministic`, `router`, `deterministic_after_router`, `deterministic_after_intent_tighten`
+- `intentExpansionRematch` — pass 2 ran
+- `prefetchSteps`, `prefetchRan`, `toolsLoopDisable`
+- `routerReason`, `recipeFoundInCatalog`
+
+Use these fields to see whether a turn failed at **preconditions**, **routing (match)**, optional **eligibility gate**, or **tools loop execution**.
+
+---
+
+## Maintainer checklist (routing regressions)
+
+When chat-only turns hit CMS tools:
+
+1. Confirm **`Current request:`** is present on the wire (client sends abbreviated prior block + current line).
+2. Check `eligibilityGateEnabled` in telemetry — if false (default), ignore `skipped_eligibility` unless the site turned the gate on.
+3. If gate on: check `eligibilitySkipReason` — was routing skipped before match?
+4. If routing ran: `matchPass` and `recipeId` — was expansion rematch (`intentExpansionRematch`) involved?
+5. Grep competitors: structural `modify_page_content` should require `authorCurrentRequestSuggestsCmsTooling` on the wire.
+6. Confirm site deployed classes match repo (Groovy compile errors in preview context break the whole servlet).
+
+**Site-agnostic rule:** Do not hardcode field ids, demo copy, or site paths in eligibility or structural competitors — resolution belongs in tools + form definition + author message (see `.cursor/rules/no-project-specific-content.mdc`).
+
+---
+
+## Related docs
+
+- **[`chat-and-tools-runtime.md`](chat-and-tools-runtime.md)** — CMS tool wiring, SSE, MCP, troubleshooting  
+- **[`configuration-guide.md`](../using-and-extending/configuration-guide.md)** — Project Tools UI, `tools.json`  
+- **[`maintainer-review-checklist.md`](maintainer-review-checklist.md)** — review anti-patterns

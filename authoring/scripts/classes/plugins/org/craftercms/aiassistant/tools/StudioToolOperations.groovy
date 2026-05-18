@@ -2926,7 +2926,8 @@ class StudioToolOperations {
           b.minimumShouldMatch('1')
           b.mustNot { mn ->
             mn.term { t ->
-              t.field('disabled').value(true)
+              t.field('disabled')
+              t.value { v -> v.booleanValue(true) }
             }
           }
         }

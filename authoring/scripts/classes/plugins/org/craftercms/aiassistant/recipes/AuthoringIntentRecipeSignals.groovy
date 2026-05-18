@@ -53,6 +53,14 @@ final class AuthoringIntentRecipeSignals {
         return AuthoringPreviewContext.authorVisibleSuggestsSiteContentResearch(prompt)
       case 'llm_research':
         return AuthoringPreviewContext.authorVisibleSuggestsLlmResearch(prompt)
+      case 'creative_llm_only':
+        return AuthoringPreviewContext.authorCurrentRequestLooksLikeCreativeLlmOnly(
+          (ctx.cand ?: prompt ?: '').toString()
+        )
+      case 'chat_artifact_followup':
+        return AuthoringPreviewContext.authorConversationPivotedToChatOnlyArtifact(
+          (ctx.cand ?: prompt ?: '').toString()
+        )
       case 'revert_content_version':
         if (!AuthoringPreviewContext.authorVisibleSuggestsRevertIntent(routerVisible)) {
           return false

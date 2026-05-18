@@ -129,11 +129,23 @@
       "id": "llm_research",
       "title": "General knowledge (LLM)",
       "chatEmoji": "💡",
-      "deterministicMatch": {
-        "signal": "llm_research",
-        "priority": 88,
-        "routerReason": "deterministic_llm_research"
-      },
+      "deterministicMatch": [
+        {
+          "signal": "chat_artifact_followup",
+          "priority": 91,
+          "routerReason": "deterministic_chat_artifact_followup"
+        },
+        {
+          "signal": "creative_llm_only",
+          "priority": 89,
+          "routerReason": "deterministic_creative_llm_only"
+        },
+        {
+          "signal": "llm_research",
+          "priority": 88,
+          "routerReason": "deterministic_llm_research"
+        }
+      ],
       "description": "Author wants explanation, comparison, or background from model knowledge — not live web headlines and not editing the repository.",
       "matchHints": [
         "explain",

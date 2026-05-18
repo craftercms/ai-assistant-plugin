@@ -1163,7 +1163,7 @@ For **content XML** (pages/components): do not invent a new element tree — pre
    * After pass-1 recipe routing fails: allow LLM intent expansion + rematch when the turn is an expansion
    * candidate (unless the request explicitly disables {@code authoringIntentExpansion}).
    */
-  private boolean effectiveAuthoringIntentExpansionRematchEnabled(String bodyPrompt) {
+  private boolean effectiveAuthoringIntentExpansionRematchEnabled(String bodyPrompt, StudioToolOperations ops = null) {
     try {
       def v = request?.getAttribute('aiassistant.authoringIntentExpansion')
       if (v != null) {
@@ -1171,7 +1171,18 @@ For **content XML** (pages/components): do not invent a new element tree — pre
       }
     } catch (Throwable ignored) {
     }
-    return AuthoringPreviewContext.isAuthoringIntentExpansionCandidate((bodyPrompt ?: '').toString())
+    Map cfg = ops != null ? StudioAiAssistantProjectConfig.load(ops) : Collections.emptyMap()
+    return AuthoringPreviewContext.isAuthoringIntentExpansionCandidate((bodyPrompt ?: '').toString(), cfg)
+  }
+
+  private static Map intentRecipeProjectConfigFromToolsLoopBundle(Map toolsLoopSessionBundle) {
+    if (toolsLoopSessionBundle?.studioOps instanceof StudioToolOperations) {
+      try {
+        return StudioAiAssistantProjectConfig.load((StudioToolOperations) toolsLoopSessionBundle.studioOps)
+      } catch (Throwable ignored) {
+      }
+    }
+    return Collections.emptyMap()
   }
 
   /**
@@ -3367,7 +3378,8 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     if (!cand.trim()) {
       return ''
     }
-    if (!AuthoringPreviewContext.isAuthoringIntentExpansionCandidate(cand)) {
+    Map expansionCfg = intentRecipeProjectConfigFromToolsLoopBundle(toolsLoopSessionBundle)
+    if (!AuthoringPreviewContext.isAuthoringIntentExpansionCandidate(cand, expansionCfg)) {
       return ''
     }
     boolean needsExternal = authorRequestNeedsExternalContentResolution(cand)
@@ -3538,7 +3550,8 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     if (!cand.trim()) {
       return ''
     }
-    if (!AuthoringPreviewContext.isAuthoringIntentExpansionCandidate(cand)) {
+    Map expansionCfg = intentRecipeProjectConfigFromToolsLoopBundle(toolsLoopSessionBundle)
+    if (!AuthoringPreviewContext.isAuthoringIntentExpansionCandidate(cand, expansionCfg)) {
       return ''
     }
     def key = (apiKey ?: '').toString().trim()
@@ -3668,17 +3681,25 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     Map routeCtx = detCtx instanceof Map ? new LinkedHashMap(detCtx) : [:]
     routeCtx.routerVisible = visible
     List detMatches = AuthoringIntentRecipeCatalog.findDeterministicRecipeMatches(recipes, routeCtx)
+    List ambiguousCandidates =
+      AuthoringIntentRecipeCatalog.findAmbiguousRecipeCandidates(recipes, routeCtx, visible)
     boolean intentTightened = false
-    if (detMatches.size() > 1) {
-      log.info(
-        'Intent recipe routing: deterministic ambiguous ({} recipes: {}) — LLM intent tighten + retest',
-        detMatches.size(),
-        detMatches.collect { it.recipeId?.toString() }.findAll { it }.join(', ')
-      )
+    if (ambiguousCandidates.size() > 1) {
       String wireForMemory = (routeCtx.cand ?: '').toString()
+      if (!AuthoringPreviewContext.authorCurrentRequestSuggestsCmsTooling(wireForMemory)) {
+        log.info(
+          'Intent recipe routing: {} ambiguous candidates but no CMS signal on current turn — skip intent tighten (defer to recipe router)',
+          ambiguousCandidates.size()
+        )
+      } else {
+      log.info(
+        'Intent recipe routing: ambiguous workflows ({} recipes: {}) — LLM intent tighten + retest',
+        ambiguousCandidates.size(),
+        ambiguousCandidates.collect { it.recipeId?.toString() }.findAll { it }.join(', ')
+      )
       String tightened =
         generateAuthoringIntentTighteningText(
-          detMatches,
+          ambiguousCandidates,
           visible,
           wireForMemory,
           apiKey,
@@ -3691,11 +3712,15 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
         visible = tightened.trim()
         routeCtx.routerVisible = visible
         detMatches = AuthoringIntentRecipeCatalog.findDeterministicRecipeMatches(recipes, routeCtx)
+        ambiguousCandidates =
+          AuthoringIntentRecipeCatalog.findAmbiguousRecipeCandidates(recipes, routeCtx, visible)
         log.info(
-          'Intent recipe routing: retest after intent tighten (matches={}, tightenedChars={})',
+          'Intent recipe routing: retest after intent tighten (detMatches={}, ambiguous={}, tightenedChars={})',
           detMatches.size(),
+          ambiguousCandidates.size(),
           visible.length()
         )
+      }
       }
     }
     out.intentTightened = intentTightened
@@ -3968,14 +3993,6 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       if (!cand.trim()) {
         return intentRecipeAttachTelemetry(ops, cfg, result, 'skipped_empty_prompt')
       }
-      String eligibilitySkip = AuthoringPreviewContext.intentRecipeRouterEligibilitySkipReason(cand)
-      if (eligibilitySkip != null) {
-        log.info(
-          'Intent recipe routing skipped: not an intent-expansion candidate (reason={}) — routing and prefetch do not run. Short prompts: author-visible text after stripping Request anchor / Studio blocks must be ≤320 chars with a CMS signal, OR longer prompts need an http(s) or external host plus visual/reference language.',
-          eligibilitySkip
-        )
-        return intentRecipeAttachTelemetry(ops, cfg, result, 'skipped_eligibility', [eligibilitySkipReason: eligibilitySkip])
-      }
       String key = (apiKey ?: '').toString().trim()
       if (!key) {
         log.warn('Intent recipe routing skipped: empty tools-loop API key (cannot call IntentRecipeRouter).')
@@ -3993,7 +4010,12 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       int recipeCatalogSize = recipes != null ? recipes.size() : 0
       boolean catalogHasOpenPageInquiry =
         AuthoringIntentRecipeCatalog.findRecipeById(recipes, 'open_page_inquiry') != null
-      Map catalogTel = [recipeCatalogSize: recipeCatalogSize, catalogHasOpenPageInquiry: catalogHasOpenPageInquiry]
+      boolean eligibilityGate = StudioAiAssistantProjectConfig.intentRecipeEligibilityGateEnabled(cfg)
+      Map catalogTel = [
+        eligibilityGateEnabled   : eligibilityGate,
+        recipeCatalogSize        : recipeCatalogSize,
+        catalogHasOpenPageInquiry: catalogHasOpenPageInquiry
+      ]
       if (recipes == null || recipes.isEmpty()) {
         log.warn('Intent recipe routing skipped: recipe catalog is empty after bundled + site custom merge.')
         result.userTextForToolsLoop =
@@ -4009,6 +4031,20 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
           'skipped_no_recipes',
           [recipeCatalogEmpty: true] + catalogTel
         )
+      }
+      if (eligibilityGate) {
+        String eligibilitySkip = AuthoringPreviewContext.intentRecipeRouterEligibilitySkipReason(cand)
+        if (eligibilitySkip != null) {
+          log.info(
+            'Intent recipe routing skipped: eligibility gate (reason={}) — routing and prefetch do not run. Disable with intentRecipeRouting.eligibilityGateEnabled false in tools.json.',
+            eligibilitySkip
+          )
+          Map skipTel = new LinkedHashMap(catalogTel)
+          skipTel.eligibilitySkipReason = eligibilitySkip
+          return intentRecipeAttachTelemetry(ops, cfg, result, 'skipped_eligibility', skipTel)
+        }
+      } else {
+        log.debug('Intent recipe routing: eligibility gate disabled — match pass runs for non-empty prompt')
       }
       String visible = cand
       try {
@@ -4079,7 +4115,13 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       )
       String expansionWirePrefix = ''
       Map activePass = pass1
-      if (!Boolean.TRUE.equals(pass1.matched) && allowExpansionRematch) {
+      boolean expansionBiasOk =
+        AuthoringPreviewContext.authorCurrentRequestSuggestsCmsTooling(cand) ||
+          AuthoringPreviewContext.anchoredSiteXmlFieldPlacementIntentForAuthorText(
+            cand,
+            currentAuthorVisible ?: ''
+          )
+      if (!Boolean.TRUE.equals(pass1.matched) && allowExpansionRematch && expansionBiasOk) {
         List routerRecipesForExpansion =
           AuthoringIntentRecipeCatalog.filterRecipesEligibleForRouter(recipes, routerVisible)
         String catalogMdForExpansion =
@@ -4195,10 +4237,22 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
           ]
         )
       }
-      String noMatchHint =
-        AuthoringPreviewContext.authorRefersToAnchoredOpenStudioItem(cand) ?
-          '[Studio — open Studio item (read-only likely): The author refers to **this page** / **this component** and Studio anchored **`/site/.../*.xml`**. Call **GetContent** on that path first, then answer from the XML. Do **not** ResearchSiteContent, WriteContent, update_template, or guess CSS/FTL paths unless they ask to change something.]\n\n' :
-          '[Studio — recipe intent router: no confident recipe match; proceed with normal CMS judgement. For **/site/.../*.xml** copy or field-only asks (no explicit FTL/CSS/template wording), use **GetContent**/**WriteContent** on **those XML paths** — not **update_template**, not **WriteContent** on **`.ftl`** with XML bodies, and not guessed **`/static-assets/styles.css`** unless the author asked for stylesheet work.]\n\n'
+      String noMatchHint
+      if (AuthoringPreviewContext.authorCurrentRequestSuggestsCmsTooling(cand)) {
+        noMatchHint =
+          AuthoringPreviewContext.authorRefersToAnchoredOpenStudioItemForAuthorText(
+            cand,
+            currentAuthorVisible ?: ''
+          ) ?
+            '[Studio — open Studio item (read-only likely): The author refers to **this page** / **this component** on **this turn**. Call **GetContent** on the anchored **`/site/.../*.xml`** path first, then answer from the XML. Do **not** WriteContent unless they ask to change something.]\n\n' :
+            '[Studio — recipe intent router: no confident recipe match; **this turn** asks for CMS work. For **/site/.../*.xml** copy or field-only asks (no explicit FTL/CSS/template wording), use **GetContent**/**WriteContent** on those XML paths — not **update_template** or guessed asset paths unless the author asked for stylesheet/template work.]\n\n'
+      } else if (AuthoringPreviewContext.extractAnchoredRepositoryPath(cand)?.trim()) {
+        noMatchHint =
+          '[Studio — recipe intent router: no confident CMS workflow on **this message**. **Repository path** metadata describes which item is open in Studio — it is **not** by itself a request to read or write the repository. For chat-only work (stories, Q&A, revising a prior assistant reply), answer in prose and **do not** call GetContent or WriteContent unless **this turn** explicitly asks to read or edit repository content.]\n\n'
+      } else {
+        noMatchHint =
+          '[Studio — recipe intent router: no confident recipe match; proceed with normal judgement and only use CMS tools when **this turn** clearly requires repository work.]\n\n'
+      }
       result.userTextForToolsLoop = expansionWirePrefix + noMatchHint + (userTextAfterGuard ?: '')
       Map noMatchTel = [
         recipeId               : rid,
@@ -5694,8 +5748,15 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
             AuthoringPreviewContext.authorVisibleSuggestsWebResearch(visible) ||
             AuthoringPreviewContext.authorVisibleSuggestsSiteContentResearch(visible) ||
             AuthoringPreviewContext.authorVisibleSuggestsLlmResearch(visible)
-          boolean revertTurn = AuthoringPreviewContext.authorVisibleSuggestsRevertIntent(visible)
-          if (revertTurn && wireToolsIncludeNamedTool(wireTools, 'revert_change')) {
+          boolean revertTurn =
+            !researchTurn && AuthoringPreviewContext.authorVisibleSuggestsRevertIntent(visible)
+          if (researchTurn && wireToolsIncludeNamedTool(wireTools, 'WebSearch')) {
+            toolChoice = [type: 'function', function: [name: 'WebSearch']]
+            log.info(
+              'Tools-loop tools-on: tool_choice forced to WebSearch (web research intent, round 0) agentId={}',
+              agentId
+            )
+          } else if (revertTurn && wireToolsIncludeNamedTool(wireTools, 'revert_change')) {
             toolChoice = [type: 'function', function: [name: 'revert_change']]
             log.info(
               'Tools-loop tools-on: tool_choice forced to revert_change (revert intent, round 0) agentId={}',
@@ -6233,8 +6294,7 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
       boolean userNeedsImageGenerate = false
       try {
         userNeedsCmsTools =
-          AuthoringPreviewContext.authorVisibleSuggestsCmsTooling(userWireSnapshotForRecovery) ||
-            AuthoringPreviewContext.anchoredSiteXmlFieldPlacementIntent(userWireSnapshotForRecovery) ||
+          AuthoringPreviewContext.authorCurrentRequestSuggestsCmsTooling(userWireSnapshotForRecovery) ||
             AuthoringPreviewContext.isShortAffirmationContinuingPriorCmsWork(userWireSnapshotForRecovery)
         userNeedsImageGenerate =
           AuthoringPreviewContext.authorCurrentRequestLooksLikeImageOnlyGenerate(userWireSnapshotForRecovery)
@@ -6955,7 +7015,7 @@ Your last assistant message had a **plan-style heading** (## Plan, ## Revised Pl
           StudioAiLlmKind.toolsLoopChatBaseUrlFromBundle(springAi),
           springAi,
           springAi.studioOps,
-          effectiveAuthoringIntentExpansionRematchEnabled(bodyPrompt)
+          effectiveAuthoringIntentExpansionRematchEnabled(bodyPrompt, springAi.studioOps)
         )
         if (route?.intentRecipeRoutingTelemetry instanceof Map) {
           springAi.intentRecipeRoutingTelemetry = route.intentRecipeRoutingTelemetry
@@ -7794,7 +7854,7 @@ Your last assistant message had a **plan-style heading** (## Plan, ## Revised Pl
           StudioAiLlmKind.toolsLoopChatBaseUrlFromBundle(springAi),
           springAi,
           springAi.studioOps,
-          effectiveAuthoringIntentExpansionRematchEnabled(bodyPrompt)
+          effectiveAuthoringIntentExpansionRematchEnabled(bodyPrompt, springAi.studioOps)
         )
         if (route?.intentRecipeRoutingTelemetry instanceof Map) {
           springAi.intentRecipeRoutingTelemetry = route.intentRecipeRoutingTelemetry

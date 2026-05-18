@@ -636,6 +636,7 @@ Rules:
 - If they want **creative writing**, fiction, jokes, brainstorming, or general knowledge **unrelated** to reading or editing the open CMS item, say that explicitly (e.g. "Write a short fictional story about …") — **do not** reinterpret as "describe or summarize the open page."
 - If they ask what **this page** / the open item is about, or want a read-only summary of anchored **`/site/.../*.xml`**, say that explicitly.
 - If they want to **edit copy or a field** on the anchored item, say that explicitly.
+- When Studio anchors **`/site/.../*.xml`** and they say **create** or **generate** a title/headline but mean copy **for this open page** (not a new URL or new content item), state **edit the anchored page's title or hero** — not **create a new page or component**.
 - Do **not** invent repository paths, field ids, or tool names.
 
 Output **exactly one line** (no bullets, no JSON):
@@ -667,6 +668,7 @@ Rules:
 - Prefer **null** when the author only greets or asks a generic CMS question with **no** clear workflow from the table.
 - If the author message begins with **`Recipe match hint:`** naming a `recipeId` from the table (from pass-2 expansion), return **that** `recipeId` with **confidence ≥ 0.85** unless a **do not match if** phrase forbids it — the hint is a strong signal, not a separate author ask.
 - **Read-only page inquiry:** When Studio anchors **`/site/.../*.xml`** and the author asks what **this page** is about (any phrasing: “what is”, “what would you say”, “describe”, “tell me about”) with **no** edit/translate/publish/image verbs, **`open_page_inquiry`** is the correct row — **not** `modify_page_content`, **not** `null`, and **not** “unrelated to CMS workflows”.
+- **Anchor metadata alone:** A **Repository path** line in Studio context does **not** mean **`modify_page_content`**. Do **not** choose CMS edit workflows when **this turn** is creative writing, fiction, jokes, or revising a **prior chat reply** (e.g. “make this story shorter”) — use **`llm_research`** (tools off) even if an anchor is present.
 - Do **not** output any key besides recipeId, confidence, reason.'''
     )
   }
