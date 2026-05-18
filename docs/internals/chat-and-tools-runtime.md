@@ -80,9 +80,9 @@ Each **`crafterQAgentId`** value is the stable **`agentId`** sent on **`/ai/stre
 
 ---
 
-## `ui.xml` merge helper (`AiAssistantBearerUiXmlMerge`)
+## Central agents merge (`AiAssistantCentralAgentsMerge`)
 
-Despite the class name, this helper **only** merges **`llm`**, **`llmModel`**, **`imageModel`**, and **`imageGenerator`** from the matching **`<agent>`** row when those fields are missing on the POST body. Matching uses **`crafterQAgentId`** **===** request **`agentId`**.
+On **`/ai/stream`** and **`/ai/agent/chat`**, when the POST body omits **`llm`**, **`llmModel`**, **`imageModel`**, or **`imageGenerator`**, the server copies missing fields from **`config/studio/ai-assistant/agents.json`** (Project Tools → Agents). Matching uses **`crafterQAgentId`** or **`id`** **===** request **`agentId`**; if **`agentId`** is absent, the first **`mode: chat`** row (or omitted mode) is used.
 
 ---
 

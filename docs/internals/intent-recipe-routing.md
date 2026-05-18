@@ -278,7 +278,7 @@ See **[Routing at a glance](#routing-at-a-glance-default)** for the simplified d
    - **Enrich** when zero patterns matched (catalog table for context).
    - Retest deterministic signals on clarified text → one hit → `deterministic_after_clarify`.
 
-3. **Defer to plan loop** (default) — Still **multiple** hits → `deferToPlanLoop`, `ambiguous_multi_defer_plan` (no JSON router). Still **zero** hits → `deferToPlanLoop`, `no_deterministic_defer_plan`. Prelude prepends a **## Plan** hint; tools loop may log per-step deterministic hints from `CRAFTERRQ_ORCH` step summaries (`matchRecipesForPlanSteps`).
+3. **Defer to plan loop** (default) — Still **multiple** hits → `deferToPlanLoop`, `ambiguous_multi_defer_plan` (no JSON router). Still **zero** hits → `deferToPlanLoop`, `no_deterministic_defer_plan`. Prelude prepends a **## Plan** hint; when `deferToPlanLoop` is set, the tools loop may log **`Intent recipe routing: plan-step deterministic hints`** and attach **`planStepRecipeMatches`** from `AuthoringIntentRecipeCatalog.matchRecipesForPlanSteps`.
 
 4. **Optional JSON whole-turn router** — Only when `wholeTurnJsonRouterEnabled: true` and zero hits after clarify: legacy catalog classifier + `minConfidence` + deterministic fallback.
 
@@ -352,7 +352,8 @@ Runs when `springAi.useTools` remains true after prelude.
 
 - `outcome` — `matched`, `no_match`, `skipped_eligibility`, …
 - `eligibilitySkipReason` — when skipped at gate
-- `recipeId`, `confidence`, `matchPass` — `deterministic`, `router`, `deterministic_after_router`, `deterministic_after_intent_tighten`
+- `recipeId`, `confidence`, `matchPass` — `deterministic`, `deterministic_after_clarify`, `router`, `deterministic_after_router`, `ambiguous_multi_defer_plan`, `no_deterministic_defer_plan`, `no_match_defer_plan`
+- `planStepRecipeMatches` — when `deferToPlanLoop`, optional per **## Plan** step hints (`stepId:recipeId`, …)
 - `intentExpansionRematch` — pass 2 ran
 - `prefetchSteps`, `prefetchRan`, `toolsLoopDisable`
 - `routerReason`, `recipeFoundInCatalog`
