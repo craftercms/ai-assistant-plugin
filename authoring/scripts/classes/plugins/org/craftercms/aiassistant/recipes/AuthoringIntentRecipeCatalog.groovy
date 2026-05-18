@@ -7,6 +7,7 @@ import plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext
 import plugins.org.craftercms.aiassistant.config.StudioAiAssistantProjectConfig
 import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
 
+import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.util.ArrayList
 import java.util.Collections
@@ -50,136 +51,13 @@ final class AuthoringIntentRecipeCatalog {
     return d != null ? d : defaultCatalogChatDefaults()
   }
 
-  /**
-   * Last-resort catalog when the JSON file is not on disk / classpath (marketplace copy often omits sibling files).
-   * Keep in sync with {@link #BUNDLED_RELATIVE}.
-   */
-  private static final String BUNDLED_RECIPES_JSON_EMBEDDED = '''{
-  "version": 1,
-  "recipes": [
-    {
-      "id": "open_page_inquiry",
-      "title": "Describe this page (read-only)",
-      "chatEmoji": "📖",
-      "toolsLoopForceTool": "GetContent",
-      "toolsLoopAllowlist": ["GetContent", "GetPreviewHtml"],
-      "deterministicMatch": {
-        "signal": "open_page_inquiry",
-        "priority": 93,
-        "routerReason": "deterministic_open_page_inquiry"
-      },
-      "phases": {
-        "context": {
-          "engineSteps": [
-            { "as": "pageItem", "tool": "GetContent", "args": { "siteId": "$siteId", "path": "$contentPath" } }
-          ]
-        },
-        "action": ["Answer what the page is about from XML in plain prose."],
-        "confirmation": ["Do not WriteContent unless the author asks to edit."]
-      }
-    },
-    {
-      "id": "modify_page_content",
-      "title": "Modify page or component content",
-      "description": "Change copy, tone, grammar, or field values on a page or component XML item. If the user provides the page URL, Title or Internal name then they may not be talking about the current page - look up the page path first.",
-      "matchHints": ["update", "change", "rewrite", "proofread", "grammar", "tone", "rephrase", "look up", "fetch"],
-      "phases": {
-        "context": {
-          "hints": [
-            "If the author gives a page URL, title, or internal name, resolve the correct repository path before GetContent — they may not mean the item currently open in Studio.",
-            "Load the target item with GetContent (and GetContentTypeFormDefinition with contentPath when the form model matters)."
-          ],
-          "engineSteps": [
-            { "as": "pageItem", "tool": "GetContent", "args": { "siteId": "$siteId", "path": "$contentPath" } },
-            { "as": "pageForm", "tool": "GetContentTypeFormDefinition", "args": { "siteId": "$siteId", "contentPath": "$contentPath" } }
-          ]
-        },
-        "action": ["Use update_content or GetContent → revise XML → WriteContent; preserve <page>/<component> structure and node-selector shapes."],
-        "confirmation": ["When an Engine preview URL exists, use GetPreviewHtml after substantive writes affecting rendered output."]
-      }
-    },
-    {
-      "id": "translate_content_item",
-      "title": "Translate or localize content",
-      "description": "Author explicitly asks to translate or localize page/component copy into another language. Use TranslateContentItem or TranslateContentBatch (with ListContentTranslationScope for full-page scope) — not update_content or same-language rewrite via GetContent→WriteContent.",
-      "matchHints": ["translate", "translation", "localize", "localise", "localization", "localisation", "language"],
-      "phases": {
-        "context": {
-          "hints": [
-            "Full page / this page: ListContentTranslationScope once on contentPath, then TranslateContentBatch or TranslateContentItem per path.",
-            "Open item only: TranslateContentItem on contentPath; skip ListContentTranslationScope unless scope expands."
-          ],
-          "engineSteps": [
-            { "tool": "GetContent", "args": { "siteId": "$siteId", "path": "$contentPath" } },
-            { "tool": "GetContentTypeFormDefinition", "args": { "siteId": "$siteId", "contentPath": "$contentPath" } }
-          ]
-        },
-        "action": ["TranslateContentItem or TranslateContentBatch with explicit target language from the author."],
-        "confirmation": ["Optional GetPreviewHtml when preview URL exists after translation writes."]
-      }
-    },
-    {
-      "id": "generate_image",
-      "title": "Generate image (bitmap)",
-      "description": "Author wants a new AI-generated image, illustration, art, logo, or picture",
-      "matchHints": ["generate", "draw", "image", "picture", "illustration", "hero", "cover", "banner", "logo", "artwork", "graphic", "bitmap", "sketch", "paint"],
-      "toolsLoopAllowlist": ["GenerateImage"],
-      "toolsLoopAllowlistBypassIfAuthorMentions": ["WriteContent", "write content", "save to", "update_content", "image-picker", "static-assets", "upload to repo"],
-      "phases": {
-        "context": ["Build GenerateImage prompt from author words; skip GetContent unless prompt detail is missing."],
-        "action": ["Call GenerateImage in the first tool round with a concrete prompt."],
-        "confirmation": ["Short prose wrap-up only — image appears in the Studio chat image strip."]
-      }
-    },
-    {
-      "id": "template_display_change",
-      "title": "Template / display (FTL) change",
-      "description": "Author explicitly wants layout, FreeMarker, listing markup, dates formatting in code, or how the page renders.",
-      "matchHints": ["template", "ftl", "freemarker", "render", "layout", "listing", "cards", "display"],
-      "phases": {
-        "context": ["GetContent on page/component XML; read display-template; follow sections_o keys to component templates when the shell is not the listing."],
-        "action": ["Read templates with GetContent or analyze_template (read-only) before update_template; persist with WriteContent on .ftl paths."],
-        "confirmation": ["GetPreviewHtml when preview URL is available."]
-      }
-    },
-    {
-      "id": "publish_site",
-      "title": "Publish entire site / first go-live",
-      "description": "Author wants entire site, everything, or first publish — publish_content publishScope=all.",
-      "matchHints": ["publish entire site", "publish everything", "first publish"],
-      "phases": {
-        "context": ["Confirm siteId; use publishScope=all when site never published."],
-        "action": ["publish_content with publishScope=all — not only open contentPath."],
-        "confirmation": ["Report publishScope and counts; never claim whole site on single-path deploy."]
-      }
-    },
-    {
-      "id": "publish_item",
-      "title": "Publish or go live",
-      "description": "Author wants one item, a path list, or bulk subtree — not entire-site first publish.",
-      "matchHints": ["publish", "go live", "deploy", "push to live", "release"],
-      "phases": {
-        "context": ["Confirm siteId, scope (item/paths/bulk), and path(s)."],
-        "action": ["publish_content with publishScope item|paths|bulk per scope."],
-        "confirmation": ["Summarize publishScope and tool outcome."]
-      }
-    },
-    {
-      "id": "new_content_item",
-      "title": "Create new page or component",
-      "description": "Author asks to create, draft, or write a new item (new URL or new component), not only edit the open file.",
-      "matchHints": ["create", "new page", "new article", "draft", "write a", "add a page"],
-      "phases": {
-        "context": {
-          "hints": ["ListStudioContentTypes (siteId only) then exact catalog match; GetContentTypeFormDefinition for resolved contentTypeId; GetContent on one sibling of the same type when siblings exist."],
-          "engineSteps": [{ "tool": "ListStudioContentTypes", "args": { "siteId": "$siteId", "searchable": false } }]
-        },
-        "action": ["WriteContent the new item with correct conventions (objectId, dates, file-name, sections)."],
-        "confirmation": ["Tell the author how to preview the new route; optional GetPreviewHtml."]
-      }
+  /** Installs merged {@code chatDefaults} from a parsed catalog document (see {@link #parseCatalogDocument}). */
+  static void installCatalogChatDefaults(Map<String, String> chatDefaults) {
+    if (chatDefaults instanceof Map && !chatDefaults.isEmpty()) {
+      catalogChatDefaultsRef = Collections.unmodifiableMap(new LinkedHashMap<>(chatDefaults))
     }
-  ]
-}'''
+  }
+
 
   /**
    * @return immutable list of recipe maps (each may contain id, title, description, matchHints, phases)
@@ -204,8 +82,11 @@ final class AuthoringIntentRecipeCatalog {
         String raw = ops.readStudioConfigurationUtf8(siteId, sitePath.trim())
         if (raw?.trim()) {
           siteOrder = parseRecipeOrderFromJsonText(raw)
-          parseCatalogDocument(raw)
-          for (Map r : parseRecipesArrayFromJsonText(raw)) {
+          Map siteDoc = parseCatalogDocument(raw)
+          if (siteDoc?.chatDefaults instanceof Map) {
+            installCatalogChatDefaults((Map) siteDoc.chatDefaults)
+          }
+          for (Map r : (siteDoc?.recipes ?: []) as List<Map>) {
             String id = r?.id?.toString()?.trim()
             if (!id) {
               continue
@@ -232,11 +113,7 @@ final class AuthoringIntentRecipeCatalog {
   }
 
   private static List<String> parseBundledRecipeOrder() {
-    String raw = loadBundledRecipesJsonText()
-    if (!raw?.trim()) {
-      raw = BUNDLED_RECIPES_JSON_EMBEDDED
-    }
-    return parseRecipeOrderFromJsonText(raw)
+    return parseRecipeOrderFromJsonText(loadBundledRecipesJsonText())
   }
 
   private static List<String> parseRecipeOrderFromJsonText(String raw) {
@@ -298,21 +175,25 @@ final class AuthoringIntentRecipeCatalog {
     String raw = loadBundledRecipesJsonText()
     if (!raw?.trim()) {
       log.warn(
-        'AuthoringIntentRecipeCatalog: missing bundled {} on disk/classpath — using embedded default catalog (deploy {} under config/studio/scripts/classes/{}/ or set JVM {} to override)',
+        'AuthoringIntentRecipeCatalog: missing bundled {} — no default recipes loaded (deploy {} under config/studio/scripts/classes/{}/ or set JVM {} to override)',
         BUNDLED_RELATIVE,
         BUNDLED_RELATIVE,
         PACKAGE_RESOURCE_PREFIX,
         SYSPROP_BUNDLED_PATH
       )
-      raw = BUNDLED_RECIPES_JSON_EMBEDDED
+      return []
     }
     Map doc = parseCatalogDocument(raw)
+    if (doc?.chatDefaults instanceof Map) {
+      installCatalogChatDefaults((Map) doc.chatDefaults)
+    }
     return doc?.recipes ?: []
   }
 
   /**
-   * Studio loads Groovy from {@code config/studio/scripts/classes/…} on disk; JSON beside those sources is not
-   * always visible to {@link Class#getResourceAsStream(String)}. Try peer resource, package classpath, then code-source directory.
+   * Canonical bundled catalog: {@link #BUNDLED_RELATIVE} next to this class (repo:
+   * {@code authoring/scripts/classes/plugins/org/craftercms/aiassistant/recipes/authoring-intent-recipes-default.json}).
+   * Studio deploys the whole {@code authoring/scripts/classes} tree; try classpath stream, resource URL, and code-source peer file.
    */
   private static String loadBundledRecipesJsonText() {
     String override = System.getProperty(SYSPROP_BUNDLED_PATH)?.toString()?.trim()
@@ -328,18 +209,34 @@ final class AuthoringIntentRecipeCatalog {
       }
     }
 
+    String pkgPath = "${PACKAGE_RESOURCE_PREFIX}${BUNDLED_RELATIVE}"
+    String fromResource = readUtf8FromResourceUrl(AuthoringIntentRecipeCatalog.class.getResource(BUNDLED_RELATIVE))
+    if (fromResource?.trim()) {
+      return fromResource
+    }
+    fromResource = readUtf8FromResourceUrl(AuthoringIntentRecipeCatalog.class.getResource("/${pkgPath}"))
+    if (fromResource?.trim()) {
+      return fromResource
+    }
+
+    ClassLoader cl = AuthoringIntentRecipeCatalog.class.classLoader
+    fromResource = readUtf8FromResourceUrl(cl?.getResource(pkgPath))
+    if (fromResource?.trim()) {
+      return fromResource
+    }
+    fromResource = readUtf8FromResourceUrl(Thread.currentThread().contextClassLoader?.getResource(pkgPath))
+    if (fromResource?.trim()) {
+      return fromResource
+    }
+
     String fromStream = readUtf8FromResourceStream(AuthoringIntentRecipeCatalog.class.getResourceAsStream(BUNDLED_RELATIVE))
     if (fromStream?.trim()) {
       return fromStream
     }
-
-    ClassLoader cl = AuthoringIntentRecipeCatalog.class.classLoader
-    String pkgPath = "${PACKAGE_RESOURCE_PREFIX}${BUNDLED_RELATIVE}"
     fromStream = readUtf8FromResourceStream(cl?.getResourceAsStream(pkgPath))
     if (fromStream?.trim()) {
       return fromStream
     }
-
     fromStream = readUtf8FromResourceStream(Thread.currentThread().contextClassLoader?.getResourceAsStream(pkgPath))
     if (fromStream?.trim()) {
       return fromStream
@@ -353,9 +250,11 @@ final class AuthoringIntentRecipeCatalog {
           base = base.parentFile
         }
         if (base != null && base.isDirectory()) {
-          File candidate = new File(base, BUNDLED_RELATIVE)
-          if (candidate.isFile()) {
-            return candidate.getText('UTF-8')
+          for (String rel : [BUNDLED_RELATIVE, pkgPath]) {
+            File candidate = new File(base, rel)
+            if (candidate.isFile()) {
+              return candidate.getText('UTF-8')
+            }
           }
         }
       }
@@ -364,6 +263,21 @@ final class AuthoringIntentRecipeCatalog {
     }
 
     return ''
+  }
+
+  private static String readUtf8FromResourceUrl(URL url) {
+    if (url == null) {
+      return ''
+    }
+    try {
+      if ('file'.equalsIgnoreCase(url.protocol)) {
+        return new File(url.toURI()).getText('UTF-8')
+      }
+      return readUtf8FromResourceStream(url.openStream())
+    } catch (Throwable t) {
+      log.debug('AuthoringIntentRecipeCatalog: resource URL read failed {}: {}', url, t.message)
+      return ''
+    }
   }
 
   private static String readUtf8FromResourceStream(InputStream is) {
@@ -395,10 +309,10 @@ final class AuthoringIntentRecipeCatalog {
       if (!(root instanceof Map)) {
         return null
       }
-      catalogChatDefaultsRef = Collections.unmodifiableMap(mergeChatDefaults((Map) root))
+      Map<String, String> chatDefaults = Collections.unmodifiableMap(mergeChatDefaults((Map) root))
       Object arr = ((Map) root).get('recipes')
       if (!(arr instanceof List)) {
-        return [recipes: [], chatDefaults: catalogChatDefaults()]
+        return [recipes: [], chatDefaults: chatDefaults]
       }
       List<Map> out = []
       for (Object o : (List) arr) {
@@ -406,7 +320,7 @@ final class AuthoringIntentRecipeCatalog {
           out.add(new LinkedHashMap<>((Map) o))
         }
       }
-      return [recipes: out, chatDefaults: catalogChatDefaults()]
+      return [recipes: out, chatDefaults: chatDefaults]
     } catch (Throwable t) {
       log.warn('AuthoringIntentRecipeCatalog: JSON parse failed: {}', t.message)
       return null
@@ -716,7 +630,7 @@ final class AuthoringIntentRecipeCatalog {
 
   /**
    * Minimal read-only recipe when {@code authoring-intent-recipes-default.json} is missing from the Studio
-   * classpath (embedded catalog fallback) or a site override removed {@code open_page_inquiry}.
+   * classpath or a site override removed {@code open_page_inquiry}.
    */
   static Map builtinOpenPageInquiryRecipeFallback() {
     return [

@@ -24,6 +24,7 @@ class GetContentTool extends AbstractStudioAiTool {
     if (!path) {
       throw new IllegalArgumentException('Missing required field: path (or contentPath)')
     }
-    return ctx.ops.getContent(input?.siteId as String, path, commitRef) as Map
+    String siteId = ctx.ops.resolveEffectiveSiteId(input?.siteId?.toString()?.trim() ?: '')
+    return ctx.ops.getContent(siteId, path, commitRef) as Map
   }
 }

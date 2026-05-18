@@ -236,24 +236,6 @@ final class AuthoringIntentRecipeEngine {
     out
   }
 
-  private static Object navigateMapPath(Map root, String dotPath) {
-    if (root == null || !dotPath?.trim()) {
-      return ''
-    }
-    Object cur = root
-    for (String part : dotPath.split('\\.')) {
-      String p = part?.trim()
-      if (!p || !(cur instanceof Map)) {
-        return cur instanceof Map ? '' : cur
-      }
-      cur = ((Map) cur).get(p)
-      if (cur == null) {
-        return ''
-      }
-    }
-    cur
-  }
-
   private static Map executeReadOnlyTool(StudioToolOperations ops, String tool, Map input) {
     String siteId = ops.resolveEffectiveSiteId(input?.siteId?.toString()?.trim() ?: '')
     switch (tool) {

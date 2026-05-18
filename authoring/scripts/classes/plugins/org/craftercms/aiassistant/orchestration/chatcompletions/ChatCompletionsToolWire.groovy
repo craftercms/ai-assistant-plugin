@@ -42,8 +42,34 @@ final class ChatCompletionsToolWire {
     NATIVE_TOOL_CALL_ID.remove()
   }
 
+  static <T> T runWithNativeToolCallId(String toolCallId, Closure<T> work) {
+    nativeToolCallIdBindingSet(toolCallId)
+    try {
+      return work.call()
+    } finally {
+      nativeToolCallIdBindingClear()
+    }
+  }
+
   static String nativeToolCallIdBindingGet() {
     return NATIVE_TOOL_CALL_ID.get()
+  }
+
+  /**
+   * When GenerateImage runs under {@link #runWithNativeToolCallId}, adds {@code inlineImageRef} for progress/SSE
+   * if the tool result omitted it (compact wire payloads).
+   */
+  static Map enrichGenerateImageToolResult(Map result) {
+    if (!(result instanceof Map)) {
+      return result
+    }
+    String wireTcId = nativeToolCallIdBindingGet()
+    if (wireTcId && !((Map) result).inlineImageRef) {
+      Map enriched = new LinkedHashMap<>((Map) result)
+      enriched.put('inlineImageRef', wireTcId)
+      return enriched
+    }
+    return (Map) result
   }
 
   /**

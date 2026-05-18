@@ -2598,7 +2598,9 @@ class AiOrchestrationTools {
         @Override Map apply(Map input) {
           runWithToolProgress('GenerateImage', input, toolProgressListener, {
             logToolInvocation('GenerateImage', (Map) (input ?: [:]))
-            imageGen.generate((Map) (input ?: [:]), imageCtx)
+            ChatCompletionsToolWire.enrichGenerateImageToolResult(
+              imageGen.generate((Map) (input ?: [:]), imageCtx) as Map
+            )
           })
         }
       })

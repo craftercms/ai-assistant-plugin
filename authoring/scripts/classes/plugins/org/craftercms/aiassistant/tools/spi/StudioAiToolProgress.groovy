@@ -3,7 +3,6 @@ package plugins.org.craftercms.aiassistant.tools.spi
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import plugins.org.craftercms.aiassistant.orchestration.AiOrchestration
-import plugins.org.craftercms.aiassistant.orchestration.chatcompletions.ChatCompletionsToolWire
 
 /**
  * Optional SSE progress wrapper around native tool execution.
@@ -43,14 +42,6 @@ final class StudioAiToolProgress {
     }
     try {
       def result = work.call()
-      if ('GenerateImage'.equals(toolName) && result instanceof Map) {
-        String wireTcId = ChatCompletionsToolWire.nativeToolCallIdBindingGet()
-        if (wireTcId && !((Map) result).inlineImageRef) {
-          Map enriched = new LinkedHashMap<>((Map) result)
-          enriched.put('inlineImageRef', wireTcId)
-          result = enriched
-        }
-      }
       long elapsedMs = (System.nanoTime() - t0) / 1_000_000L
       if (listener) {
         try {

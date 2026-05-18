@@ -26,33 +26,34 @@ import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolContext
  */
 final class StudioAiToolRegistry {
 
-  private static final List<Class<? extends AbstractStudioAiTool>> CORE_TOOL_CLASSES = [
-    GetContentTool,
-    ListContentDependencyScopeTool,
-    ListStudioContentTypesTool,
-    GetContentTypeFormDefinitionTool,
-    GetContentVersionHistoryTool,
-    GetPreviewHtmlTool,
-    FetchHttpUrlTool,
-    WebSearchTool,
-    ResearchSiteContentTool,
-    WriteContentTool,
-    ListPagesAndComponentsTool,
-    UpdateTemplateTool,
-    UpdateContentTool,
-    UpdateContentTypeTool,
-    AnalyzeTemplateTool,
-    PublishContentTool,
-    GetCrafterizingPlaybookTool,
-    RevertChangeTool,
-  ].asImmutable()
-
   private StudioAiToolRegistry() {}
+
+  private static List<AbstractStudioAiTool> coreTools() {
+    return [
+      new GetContentTool(),
+      new ListContentDependencyScopeTool(),
+      new ListStudioContentTypesTool(),
+      new GetContentTypeFormDefinitionTool(),
+      new GetContentVersionHistoryTool(),
+      new GetPreviewHtmlTool(),
+      new FetchHttpUrlTool(),
+      new WebSearchTool(),
+      new ResearchSiteContentTool(),
+      new WriteContentTool(),
+      new ListPagesAndComponentsTool(),
+      new UpdateTemplateTool(),
+      new UpdateContentTool(),
+      new UpdateContentTypeTool(),
+      new AnalyzeTemplateTool(),
+      new PublishContentTool(),
+      new GetCrafterizingPlaybookTool(),
+      new RevertChangeTool(),
+    ]
+  }
 
   static List buildCoreToolCallbacks(StudioAiToolContext ctx) {
     List out = []
-    for (Class<? extends AbstractStudioAiTool> clazz : CORE_TOOL_CLASSES) {
-      AbstractStudioAiTool tool = clazz.getDeclaredConstructor().newInstance()
+    for (AbstractStudioAiTool tool : coreTools()) {
       if (tool.enabled(ctx)) {
         out.add(tool.toFunctionToolCallback(ctx))
       }

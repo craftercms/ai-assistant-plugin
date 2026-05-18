@@ -35,6 +35,7 @@ abstract class AbstractStudioAiTool implements StudioAiOrchestrationTool {
       .description(description())
       .inputSchema(inputSchemaJson())
       .inputType(Map.class)
+      // Spring AI FunctionToolCallback.Builder has no public toolCallResultConverter(…) step; Groovy invokeMethod wires it.
       .invokeMethod('toolCallResultConverter', ctx.converter)
       .build()
   }

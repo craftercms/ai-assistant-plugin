@@ -218,7 +218,7 @@ final class StudioAiLlmKind {
         "llm='${trimmed}' is invalid: that string names the Studio AI Assistant plugin or form control, not an LLM provider. Use openAI, claude, xAI, deepSeek, llama, gemini, or script:<id>."
       )
     }
-    if (s == 'aiassistant' || s == 'hostedchat' || s == 'hosted-chat' || s == new String([99, 114, 97, 102, 116, 101, 114, 113] as char[]) || s == new String([99, 114, 97, 102, 116, 101, 114, 45, 113] as char[])) {
+    if (s == 'aiassistant' || s == 'hostedchat' || s == 'hosted-chat' || s == 'crafterq' || s == 'crafter-q') {
       throw new IllegalArgumentException(
         "llm='${trimmed}' is no longer supported (hosted remote chat was removed). Configure an LLM provider such as openAI, claude, xAI, deepSeek, llama, gemini, or script:<id>."
       )

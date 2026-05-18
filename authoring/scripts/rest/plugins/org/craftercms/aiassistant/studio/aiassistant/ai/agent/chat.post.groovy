@@ -67,7 +67,7 @@ if (AuthoringPreviewContext.isFormEngineSurface(body?.authoringSurface)) {
 }
 promptForOrchestration = AuthoringPreviewContext.appendAgentDateTimeContext(promptForOrchestration)
 def chatId = body.chatId?.toString()
-def llmApiKey = body.apiKey?.toString()
+def llmApiKey = (body?.apiKey ?: body?.llmApiKey ?: body?.openAiApiKey)?.toString()
 if (siteIdBody) {
   try {
     request.setAttribute('aiassistant.siteId', siteIdBody)

@@ -41,10 +41,14 @@ class WriteContentTool extends AbstractStudioAiTool {
     }
     if (!path) throw new IllegalArgumentException('Missing required field: path (or contentPath)')
     String siteId = ctx.ops.resolveEffectiveSiteId(input?.siteId?.toString()?.trim() ?: '')
+    String contentXml = input?.contentXml?.toString()
+    if (!contentXml?.trim()) {
+      throw new IllegalArgumentException('Missing required field: contentXml')
+    }
     return ctx.ops.writeContent(
       siteId,
       path,
-      input?.contentXml as String,
+      contentXml,
       input?.unlock != null ? input.unlock as String : 'true'
     ) as Map
   }

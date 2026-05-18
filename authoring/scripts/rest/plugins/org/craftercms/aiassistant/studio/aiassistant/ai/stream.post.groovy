@@ -157,7 +157,7 @@ try {
       log.debug('OpenAI default imageModel skipped: {}', defIm.message ?: defIm.toString())
     }
   }
-  def llmApiKey = (body?.llmApiKey ?: body?.openAiApiKey)?.toString()
+  def llmApiKey = (body?.llmApiKey ?: body?.openAiApiKey ?: body?.apiKey)?.toString()
   def openAiModel = body?.llmModel?.toString()
   def imageModelRaw = body?.imageModel?.toString()
   def imageModel = null

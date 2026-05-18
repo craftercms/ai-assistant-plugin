@@ -44,6 +44,7 @@ class RevertChangeTool extends AbstractStudioAiTool {
         action: 'revert_change'
       ]
     }
+    // Echo flags for the model; version selection is delegated to resolveRevertChangeVersionSelection.
     boolean revertToPrevious = AuthoringPreviewContext.isTruthy(input?.revertToPrevious)
     boolean revertToInitial = AuthoringPreviewContext.isTruthy(input?.revertToInitial) ||
       AuthoringPreviewContext.isTruthy(input?.revertToOldest) ||

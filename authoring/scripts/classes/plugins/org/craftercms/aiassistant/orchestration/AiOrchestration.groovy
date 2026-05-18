@@ -5034,13 +5034,12 @@ ${checkedLine}
     String tcId = 'hotpath_gen_' + Long.toHexString(System.nanoTime())
     Map res
     try {
-      ChatCompletionsToolWire.nativeToolCallIdBindingSet(tcId)
-      res = coerceFunctionToolCallbackResultMap(genCb.call(JsonOutput.toJson(args)))
+      res = ChatCompletionsToolWire.runWithNativeToolCallId(tcId) {
+        coerceFunctionToolCallbackResultMap(genCb.call(JsonOutput.toJson(args)))
+      }
     } catch (Throwable genEx) {
       log.warn('Tools-loop: GenerateImage hotpath failed agentId={}', agentId, genEx)
       return null
-    } finally {
-      ChatCompletionsToolWire.nativeToolCallIdBindingClear()
     }
     if (!Boolean.TRUE.equals(res?.ok)) {
       return null
@@ -6224,13 +6223,12 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
             log.warn('Tools-loop tools-on: unknown tool {} agentId={}', fnName, agentId)
           } else {
             try {
-              ChatCompletionsToolWire.nativeToolCallIdBindingSet(id)
-              toolOut = tcb.call(argsStr)
+              toolOut = ChatCompletionsToolWire.runWithNativeToolCallId(id) {
+                tcb.call(argsStr)
+              }
             } catch (Throwable tex) {
               log.warn('Tools-loop tools-on: tool {} failed: {}', fnName, tex.message)
               toolOut = JsonOutput.toJson([ok: false, error: tex.message?.toString()])
-            } finally {
-              ChatCompletionsToolWire.nativeToolCallIdBindingClear()
             }
           }
           aiAssistantToolWorkerDiagPhase(
