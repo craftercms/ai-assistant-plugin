@@ -1748,6 +1748,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
       )
     );
     abortRef.current?.abort();
+    abortRef.current = null;
   }, []);
 
   /** Remove one bubble from history (demos / retakes). Aborts stream if removing the in-flight assistant or its paired user message. */

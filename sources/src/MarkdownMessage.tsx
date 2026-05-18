@@ -159,6 +159,10 @@ function textHasMarkdownFences(text: string): boolean {
   return text.includes('```') || text.includes('~~~');
 }
 
+function textHasAssistantMarkdownImageMarkers(text: string): boolean {
+  return /(data:image|studio-ai-inline-image|!\[)/i.test(text);
+}
+
 /** GFM fences: ``` or ~~~ (same opener/closer run length). */
 const MARKDOWN_FENCE_RE = /(`{3,}|~{3,})[^\n]*\n[\s\S]*?\1/g;
 
@@ -180,9 +184,16 @@ export function preprocessAssistantMarkdownImages(text: string): {
   longDataImageBlobRefMap: Map<string, string>;
 } {
   const longDataImageBlobRefMap = new Map<string, string>();
-  if (!text || !textHasMarkdownFences(text)) {
+  const raw = text || '';
+  if (!raw) {
+    return { displayText: '', longDataImageBlobRefMap };
+  }
+  if (!textHasAssistantMarkdownImageMarkers(raw)) {
+    return { displayText: normalizeLlmLiteralEscapes(raw), longDataImageBlobRefMap };
+  }
+  if (!textHasMarkdownFences(raw)) {
     return {
-      displayText: preprocessAssistantMarkdownImagesSegment(text, longDataImageBlobRefMap),
+      displayText: preprocessAssistantMarkdownImagesSegment(raw, longDataImageBlobRefMap),
       longDataImageBlobRefMap
     };
   }
@@ -190,15 +201,15 @@ export function preprocessAssistantMarkdownImages(text: string): {
   let last = 0;
   let m: RegExpExecArray | null;
   MARKDOWN_FENCE_RE.lastIndex = 0;
-  while ((m = MARKDOWN_FENCE_RE.exec(text)) !== null) {
+  while ((m = MARKDOWN_FENCE_RE.exec(raw)) !== null) {
     if (m.index > last) {
-      parts.push(preprocessAssistantMarkdownImagesSegment(text.slice(last, m.index), longDataImageBlobRefMap));
+      parts.push(preprocessAssistantMarkdownImagesSegment(raw.slice(last, m.index), longDataImageBlobRefMap));
     }
     parts.push(m[0]);
     last = m.index + m[0].length;
   }
-  if (last < text.length) {
-    parts.push(preprocessAssistantMarkdownImagesSegment(text.slice(last), longDataImageBlobRefMap));
+  if (last < raw.length) {
+    parts.push(preprocessAssistantMarkdownImagesSegment(raw.slice(last), longDataImageBlobRefMap));
   }
   return { displayText: parts.join(''), longDataImageBlobRefMap };
 }

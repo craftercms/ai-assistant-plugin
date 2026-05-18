@@ -28882,6 +28882,9 @@ function wrapBareLongDataImageUrlsAsMarkdown(input, minUrlChars = 256) {
 function textHasMarkdownFences(text) {
     return text.includes('```') || text.includes('~~~');
 }
+function textHasAssistantMarkdownImageMarkers(text) {
+    return /(data:image|studio-ai-inline-image|!\[)/i.test(text);
+}
 /** GFM fences: ``` or ~~~ (same opener/closer run length). */
 const MARKDOWN_FENCE_RE = /(`{3,}|~{3,})[^\n]*\n[\s\S]*?\1/g;
 /** Apply data:image compaction only outside fenced code blocks (preserve literal examples in fences). */
@@ -28895,9 +28898,16 @@ function preprocessAssistantMarkdownImagesSegment(text, longDataImageBlobRefMap)
 /** Normalize escapes, wrap bare {@code data:image} runs, shorten to blob refs, angle-bracket destinations. */
 function preprocessAssistantMarkdownImages(text) {
     const longDataImageBlobRefMap = new Map();
-    if (!text || !textHasMarkdownFences(text)) {
+    const raw = text || '';
+    if (!raw) {
+        return { displayText: '', longDataImageBlobRefMap };
+    }
+    if (!textHasAssistantMarkdownImageMarkers(raw)) {
+        return { displayText: normalizeLlmLiteralEscapes(raw), longDataImageBlobRefMap };
+    }
+    if (!textHasMarkdownFences(raw)) {
         return {
-            displayText: preprocessAssistantMarkdownImagesSegment(text, longDataImageBlobRefMap),
+            displayText: preprocessAssistantMarkdownImagesSegment(raw, longDataImageBlobRefMap),
             longDataImageBlobRefMap
         };
     }
@@ -28905,15 +28915,15 @@ function preprocessAssistantMarkdownImages(text) {
     let last = 0;
     let m;
     MARKDOWN_FENCE_RE.lastIndex = 0;
-    while ((m = MARKDOWN_FENCE_RE.exec(text)) !== null) {
+    while ((m = MARKDOWN_FENCE_RE.exec(raw)) !== null) {
         if (m.index > last) {
-            parts.push(preprocessAssistantMarkdownImagesSegment(text.slice(last, m.index), longDataImageBlobRefMap));
+            parts.push(preprocessAssistantMarkdownImagesSegment(raw.slice(last, m.index), longDataImageBlobRefMap));
         }
         parts.push(m[0]);
         last = m.index + m[0].length;
     }
-    if (last < text.length) {
-        parts.push(preprocessAssistantMarkdownImagesSegment(text.slice(last), longDataImageBlobRefMap));
+    if (last < raw.length) {
+        parts.push(preprocessAssistantMarkdownImagesSegment(raw.slice(last), longDataImageBlobRefMap));
     }
     return { displayText: parts.join(''), longDataImageBlobRefMap };
 }
@@ -31225,6 +31235,7 @@ function AiAssistantChat(props) {
             }
             : m));
         abortRef.current?.abort();
+        abortRef.current = null;
     }, []);
     /** Remove one bubble from history (demos / retakes). Aborts stream if removing the in-flight assistant or its paired user message. */
     const removeBubble = useCallback((id) => {
@@ -36042,25 +36053,11 @@ const CQ_SCRIPT_IMAGE_SELECT_CUSTOM = '__cqScriptImageCustom__';
 function cloneCatalog(f) {
     return { version: f.version ?? 1, agents: f.agents.map((a) => ({ ...a })) };
 }
-/** Obsolete hosted/plugin `<llm>` spellings → `openAI` for catalog UI + save (matches server `StudioAiLlmKind.normalize` rejections). */
-function normalizeLegacyHostedLlmToOpenAi(low) {
-    return (low === 'ai-assistant' ||
-        low === 'ai_assistant' ||
-        low === 'ai assistant' ||
-        low === 'aiassistant' ||
-        low === 'hostedchat' ||
-        low === 'hosted-chat' ||
-        low === String.fromCharCode(99, 114, 97, 102, 116, 101, 114, 113) ||
-        low === String.fromCharCode(99, 114, 97, 102, 116, 101, 114, 45, 113));
-}
 function parseLlmVendorAndScript(llm) {
     const s = String(llm ?? 'openAI').trim();
     const low = s.toLowerCase();
     if (low === 'script' || low.startsWith('script:')) {
         return { vendor: 'script', scriptId: low.startsWith('script:') ? s.slice('script:'.length).trim() : '' };
-    }
-    if (normalizeLegacyHostedLlmToOpenAi(low)) {
-        return { vendor: 'openAI', scriptId: '' };
     }
     return { vendor: s || 'openAI', scriptId: '' };
 }
@@ -36152,10 +36149,6 @@ function normalizeCatalogForSave(f) {
                 llmModel: String(e.llmModel ?? 'gpt-4o-mini').trim() || 'gpt-4o-mini'
             };
             const outRec = out;
-            const lzAuto = String(out.llm ?? '').trim().toLowerCase();
-            if (normalizeLegacyHostedLlmToOpenAi(lzAuto)) {
-                outRec.llm = 'openAI';
-            }
             delete outRec.prompts;
             const llmS = String(out.llm ?? '').toLowerCase();
             const scriptish = llmS === 'script' || llmS.startsWith('script:');
@@ -36177,10 +36170,6 @@ function normalizeCatalogForSave(f) {
             ...(id != null && String(id).trim() !== '' ? { crafterQAgentId: String(id).trim() } : {})
         };
         const recChat = outChat;
-        const lzChat = String(outChat.llm ?? '').trim().toLowerCase();
-        if (normalizeLegacyHostedLlmToOpenAi(lzChat)) {
-            recChat.llm = 'openAI';
-        }
         delete recChat.prompt;
         delete recChat.schedule;
         delete recChat.scope;
