@@ -1358,17 +1358,17 @@ function buildPriorTurnsContextBlock(prior: UiMessage[]): string {
 
 export interface AiAssistantChatProps {
   agentId: string;
-  /** Widget agent `<llm>` when set in ui.xml. Omitted from POST if unset—server merges from `/ui.xml`; if still missing after merge, stream returns **400**. Set explicitly for predictable routing. */
+  /** Agent `llm` from agents.json (or ICE inline props). Server merges from catalog when omitted on POST. */
   llm?: string;
   llmModel?: string;
-  /** OpenAI Images API model for GenerateImage; from agent ui.xml **imageModel** or request body only (no default). */
+  /** OpenAI Images API model for GenerateImage; from agents.json **imageModel** or request body only (no default). */
   imageModel?: string;
-  /** GenerateImage backend: ui.xml **imageGenerator** / stream POST (blank / openAiWire / none / script:{id}). */
+  /** GenerateImage backend from agents.json **imageGenerator** or stream POST. */
   imageGenerator?: string;
-  /** From ui.xml; server uses only if env/JVM provider key unset. Testing only — not recommended. */
+  /** From agent config; server uses only if env/JVM provider key unset. Testing only — not recommended. */
   llmApiKey?: string;
   initialMessages?: Array<{ role: string; content: string }>;
-  /** Prompts from ui.xml agent config; shown above chat. When set, overrides API quick messages. */
+  /** Quick-prompt chips from agents.json; shown above chat. When set, overrides API quick messages. */
   configPrompts?: PromptConfig[];
   /**
    * `icePanel` — Studio ICE tools drawer scrolls the whole page (`drawerBody { overflowY: auto }`).
@@ -1386,7 +1386,7 @@ export interface AiAssistantChatProps {
    */
   formEngineClientJsonApply?: boolean;
   /**
-   * When false, POST omits OpenAI function tools (agent ui.xml `enableTools`).
+   * When false, POST omits OpenAI function tools (agents.json `enableTools`).
    * Applies on **all** surfaces (XB/ICE, dialog, form engine). Focused no-tools turns also use quick-prompt **`omitTools`** (see {@link PromptConfig.omitTools} / POST **`omitTools`**).
    */
   enableTools?: boolean;
@@ -1396,7 +1396,7 @@ export interface AiAssistantChatProps {
   enabledBuiltInTools?: string[];
   /** Optional per-agent markdown RAG URLs (OpenAI); sent as `expertSkills` on stream POST. */
   expertSkills?: ExpertSkillConfig[];
-  /** 1–64; sent on stream POST for TranslateContentBatch default parallelism (ui.xml translateBatchConcurrency). */
+  /** 1–64; sent on stream POST for TranslateContentBatch default parallelism (agents.json translateBatchConcurrency). */
   translateBatchConcurrency?: number;
 }
 

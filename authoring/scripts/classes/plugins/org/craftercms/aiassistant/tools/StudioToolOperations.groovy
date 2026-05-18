@@ -392,7 +392,7 @@ class StudioToolOperations {
 
   /**
    * Default parallel workers for {@code TranslateContentBatch} when the model does not pass {@code maxConcurrency}.
-   * Set per request from stream POST {@code translateBatchConcurrency} (ui.xml per-agent); clamped {@code 1..64};
+   * Set per request from stream POST {@code translateBatchConcurrency} (agents.json per-agent); clamped {@code 1..64};
    * falls back to {@code 25}.
    */
   int resolveTranslateBatchDefaultMaxConcurrency() {

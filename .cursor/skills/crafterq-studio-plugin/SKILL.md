@@ -24,7 +24,7 @@ Use this skill when editing **this repo**: `plugin-studio-crafterq` — Studio p
 ## Documentation map
 
 - **`docs/using-and-extending/installation.md`** — Install the plugin (Studio UI, CLI, Marketplace **`copy`**, build-before-install).
-- **`docs/using-and-extending/configuration-guide.md`** — Admins configure a site: `ui.xml`, plugin id, agents, keys, **`§1e`** **`studio-ui.json`** + Project Tools UI, forms. **Screenshots:** anchor **`#cg-screenshots`**.
+- **`docs/using-and-extending/configuration-guide.md`** — Admins configure a site: `ui.xml` widget placement, **`agents.json`**, keys, **`§1e`** **`studio-ui.json`** + Project Tools UI, forms. **Screenshots:** anchor **`#cg-screenshots`**.
 - **`docs/README.md`** — Documentation index (**using & extending** vs **internals**).
 - **`docs/using-and-extending/product-requirements.md`** — Product obligations (authors, admins, integrators); wire and build contracts live in **`spec.md`** and linked guides.
 - **`docs/internals/spec.md`** — **Official** product requirements & mechanics; update when behavior or contracts change. **Studio UI flags:** anchor **`#studio-ui-flags-studio-uijson`** (`studio-ui.json`, Project Tools).

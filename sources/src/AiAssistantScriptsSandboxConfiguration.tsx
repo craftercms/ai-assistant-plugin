@@ -71,7 +71,15 @@ const REGISTRY_REL = 'scripts/aiassistant/user-tools/registry.json';
 const TOOLS_JSON_REL = 'scripts/aiassistant/config/tools.json';
 
 /** When embedded in Project Tools tabs, show only one vertical slice of this screen. */
-export type AiAssistantScriptsSandboxPanel = 'all' | 'prompts' | 'tools' | 'scripts';
+export type AiAssistantScriptsSandboxPanel =
+  | 'all'
+  | 'prompts'
+  | 'tools'
+  | 'mcp'
+  | 'llms'
+  | 'imagegen'
+  /** @deprecated Prefer {@link llms} and {@link imagegen} tabs. */
+  | 'scripts';
 
 function safeJsonParse(text: string): unknown | null {
   try {
@@ -93,10 +101,14 @@ function mcpPreviewHasPickableTools(servers: AiAssistantMcpPreviewServer[]): boo
 export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistantScriptsSandboxConfigurationProps) {
   const panel = props.panel ?? 'all';
   const showPrompts = panel === 'all' || panel === 'prompts';
-  const showTools = panel === 'all' || panel === 'tools';
-  const showScripts = panel === 'all' || panel === 'scripts';
-  /** Tools-only tab: hide the raw registry JSON editor; the table + Add tool + Open in editor are enough for most authors. */
-  const showRegistryJsonEditor = panel !== 'tools';
+  const showToolsBuiltIn = panel === 'all' || panel === 'tools';
+  const showToolsUser = panel === 'all' || panel === 'tools';
+  const showMcp = panel === 'all' || panel === 'mcp';
+  const showLlms = panel === 'all' || panel === 'llms' || panel === 'scripts';
+  const showImageGen = panel === 'all' || panel === 'imagegen' || panel === 'scripts';
+  const showToolsPolicy = showToolsBuiltIn || showMcp;
+  /** Tools tab: hide the raw registry JSON editor; the table + Add tool + Open in editor are enough for most authors. */
+  const showRegistryJsonEditor = panel === 'all';
 
   const siteId = useActiveSiteId() ?? '';
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -173,7 +185,7 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
         const t = (data.registryText ?? '').trim();
         setRegistryDraft(t || AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB);
       }
-      if (!toolsPolicyDirtyRef.current && showTools) {
+      if (!toolsPolicyDirtyRef.current && showToolsPolicy) {
         try {
           const text = await fetchOptionalStudioSandboxUtf8(siteId, TOOLS_JSON_SANDBOX_PATH);
           const parsed = parseToolsPolicyFromJsonText(text.trim() ? text : '');
@@ -193,7 +205,7 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
     } finally {
       setLoading(false);
     }
-  }, [siteId, showTools]);
+  }, [siteId, showToolsPolicy]);
 
   useEffect(() => {
     void reload();
@@ -550,10 +562,16 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
     panel === 'prompts'
       ? 'Tool prompt overrides'
       : panel === 'tools'
-        ? 'Tools and MCP'
-        : panel === 'scripts'
-          ? 'Script backends'
-          : 'AI Assistant Scripts';
+        ? 'Tools'
+        : panel === 'mcp'
+          ? 'MCP'
+          : panel === 'llms'
+            ? 'LLMs'
+            : panel === 'imagegen'
+              ? 'Image generators'
+              : panel === 'scripts'
+                ? 'Script backends'
+                : 'AI Assistant Scripts';
 
   const pageIntro =
     panel === 'prompts' ? (
@@ -595,17 +613,51 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
             </Button>
           </Stack>
 
-          {showTools ? (
+          {showToolsBuiltIn ? (
             <>
           <Typography variant="subtitle1" gutterBottom>
-            Built-In Tools and MCP (<code>{TOOLS_JSON_REL}</code>):
+            Built-in tools (<code>{TOOLS_JSON_REL}</code>):
           </Typography>
           <Typography variant="body2" color="text.secondary" paragraph>
-            Use the form below to map built-in tools and optional MCP servers. The site file remains{' '}
-            <code>scripts/aiassistant/config/tools.json</code> (written on Save). MCP tools use wire names like{' '}
-            <code>mcp_&lt;serverId&gt;_&lt;toolName&gt;</code>.
+            Allowlists and intent-recipe routing for CMS tools. Saved with the same site file as MCP settings (
+            <code>scripts/aiassistant/config/tools.json</code>).
           </Typography>
           <AiAssistantToolsMcpForm
+            sections="builtIn"
+            value={toolsPolicy}
+            onChange={(next) => {
+              setToolsPolicy(next);
+              setToolsPolicyDirty(true);
+            }}
+          />
+          {showToolsUser ? null : (
+            <Stack direction="row" spacing={1} sx={{ mt: 2 }} flexWrap="wrap" alignItems="center">
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={savingToolsPolicy ? <CircularProgress size={16} color="inherit" /> : <SaveRounded />}
+                disabled={savingToolsPolicy || !toolsPolicyDirty}
+                onClick={() => void saveToolsPolicy()}
+              >
+                Save tools policy
+              </Button>
+            </Stack>
+          )}
+            </>
+          ) : null}
+
+          {showMcp ? (
+            <>
+          <Typography variant="subtitle1" gutterBottom>
+            MCP (<code>{TOOLS_JSON_REL}</code>):
+          </Typography>
+          <Typography variant="body2" color="text.secondary" paragraph>
+            Optional Streamable HTTP MCP servers. Wire names look like{' '}
+            <code>mcp_&lt;serverId&gt;_&lt;toolName&gt;</code>. Written to{' '}
+            <code>scripts/aiassistant/config/tools.json</code> on Save.
+          </Typography>
+          <AiAssistantToolsMcpForm
+            sections="mcp"
             value={toolsPolicy}
             onChange={(next) => {
               setToolsPolicy(next);
@@ -620,7 +672,7 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
               disabled={savingToolsPolicy || !toolsPolicyDirty}
               onClick={() => void saveToolsPolicy()}
             >
-              Save tools &amp; MCP
+              Save MCP settings
             </Button>
             <Button
               size="small"
@@ -632,9 +684,13 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
               List MCP tools
             </Button>
           </Stack>
+            </>
+          ) : null}
 
-          <Divider sx={{ my: 4 }} />
+          {showToolsBuiltIn && showMcp ? <Divider sx={{ my: 4 }} /> : null}
 
+          {showToolsUser ? (
+            <>
           <Typography variant="subtitle1" gutterBottom>
             Registry (<code>{REGISTRY_REL}</code>):
           </Typography>
@@ -674,10 +730,70 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
           >
             Open in editor
           </Button>
+
+          <Divider sx={{ my: 3 }} />
+
+          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+            <Typography variant="subtitle1">User tools (Groovy):</Typography>
+            <Button size="small" startIcon={<AddRounded />} onClick={() => { setAddDialogFullscreen(false); setAddOpen('tool'); }}>
+              Add tool
+            </Button>
+          </Stack>
+          <Table size="small" sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
+            <TableHead>
+              <TableRow>
+                <TableCell>Id</TableCell>
+                <TableCell>Script</TableCell>
+                <TableCell>Description</TableCell>
+                <TableCell align="right">Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {tools.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={4}>
+                    <Typography variant="body2" color="text.secondary">
+                      No tools in registry (or registry missing).
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                tools.map((t) => (
+                  <TableRow key={t.id}>
+                    <TableCell>{t.id}</TableCell>
+                    <TableCell>
+                      <code>{t.script}</code>
+                    </TableCell>
+                    <TableCell>{t.description}</TableCell>
+                    <TableCell align="right">
+                      <Button size="small" startIcon={<EditRounded />} onClick={() => void loadFileForEditor(`Tool ${t.id}`, t.studioPath, AI_ASSISTANT_USER_TOOL_GROOVY_STUB)}>
+                        Edit
+                      </Button>
+                      <Button size="small" color="error" startIcon={<DeleteOutlineRounded />} onClick={() => void removeUserTool(t.id)}>
+                        Remove
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+
+          <Stack direction="row" spacing={1} sx={{ mt: 2 }} flexWrap="wrap" alignItems="center">
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={savingToolsPolicy ? <CircularProgress size={16} color="inherit" /> : <SaveRounded />}
+              disabled={savingToolsPolicy || !toolsPolicyDirty}
+              onClick={() => void saveToolsPolicy()}
+            >
+              Save tools policy
+            </Button>
+          </Stack>
             </>
           ) : null}
 
-          {showTools && showPrompts ? <Divider sx={{ my: 4 }} /> : null}
+          {(showToolsBuiltIn || showToolsUser) && showPrompts ? <Divider sx={{ my: 4 }} /> : null}
 
           {showPrompts ? (
             <>
@@ -754,64 +870,14 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
             </>
           ) : null}
 
-          {showPrompts && showTools ? <Divider sx={{ my: 4 }} /> : null}
+          {showPrompts && (showToolsBuiltIn || showToolsUser) ? <Divider sx={{ my: 4 }} /> : null}
 
-          {showTools ? (
+          {(showToolsBuiltIn || showToolsUser) && (showLlms || showImageGen) ? <Divider sx={{ my: 4 }} /> : null}
+
+          {showImageGen ? (
             <>
           <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
-            <Typography variant="subtitle1">User Tools (Registry + Groovy):</Typography>
-            <Button size="small" startIcon={<AddRounded />} onClick={() => { setAddDialogFullscreen(false); setAddOpen('tool'); }}>
-              Add tool
-            </Button>
-          </Stack>
-          <Table size="small" sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
-            <TableHead>
-              <TableRow>
-                <TableCell>Id</TableCell>
-                <TableCell>Script</TableCell>
-                <TableCell>Description</TableCell>
-                <TableCell align="right">Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {tools.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={4}>
-                    <Typography variant="body2" color="text.secondary">
-                      No tools in registry (or registry missing).
-                    </Typography>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                tools.map((t) => (
-                  <TableRow key={t.id}>
-                    <TableCell>{t.id}</TableCell>
-                    <TableCell>
-                      <code>{t.script}</code>
-                    </TableCell>
-                    <TableCell>{t.description}</TableCell>
-                    <TableCell align="right">
-                      <Button size="small" startIcon={<EditRounded />} onClick={() => void loadFileForEditor(`Tool ${t.id}`, t.studioPath, AI_ASSISTANT_USER_TOOL_GROOVY_STUB)}>
-                        Edit
-                      </Button>
-                      <Button size="small" color="error" startIcon={<DeleteOutlineRounded />} onClick={() => void removeUserTool(t.id)}>
-                        Remove
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-            </>
-          ) : null}
-
-          {showTools && showScripts ? <Divider sx={{ my: 4 }} /> : null}
-
-          {showScripts ? (
-            <>
-          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
-            <Typography variant="subtitle1">Script Image Generators:</Typography>
+            <Typography variant="subtitle1">Script image generators:</Typography>
             <Button size="small" startIcon={<AddRounded />} onClick={() => { setAddDialogFullscreen(false); setAddOpen('imagegen'); }}>
               Add generator
             </Button>
@@ -869,9 +935,13 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
               )}
             </TableBody>
           </Table>
+            </>
+          ) : null}
 
-          <Divider sx={{ my: 4 }} />
+          {showLlms && showImageGen ? <Divider sx={{ my: 4 }} /> : null}
 
+          {showLlms ? (
+            <>
           <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
             <Typography variant="subtitle1">Script LLMs:</Typography>
             <Button size="small" startIcon={<AddRounded />} onClick={() => { setAddDialogFullscreen(false); setAddOpen('llm'); }}>

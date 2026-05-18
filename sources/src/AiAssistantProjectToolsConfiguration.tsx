@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type SyntheticEvent } from 'react';
+import { useCallback, useMemo, useRef, useState, type SyntheticEvent } from 'react';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import FullscreenExitRounded from '@mui/icons-material/FullscreenExitRounded';
 import FullscreenRounded from '@mui/icons-material/FullscreenRounded';
@@ -25,7 +25,34 @@ import AiAssistantStudioUiSettings from './AiAssistantStudioUiSettings';
 import { aiAssistantProjectToolsPanelContentSx } from './aiAssistantProjectToolsFormSx';
 import { useDomFullscreen } from './aiAssistantDomFullscreen';
 
-export type AiAssistantProjectToolsTab = 'ui' | 'agents' | 'recipes' | 'prompts' | 'tools' | 'scripts';
+/** Sub-tabs inside Project Tools → Integrations. */
+export type AiAssistantIntegrationsSubTab = 'llms' | 'imagegen' | 'tools' | 'mcp' | 'scripts';
+
+export type AiAssistantProjectToolsTab =
+  | 'ui'
+  | 'agents'
+  | 'recipes'
+  | 'integrations'
+  | 'prompts'
+  /** @deprecated Opens Integrations with the matching sub-tab. */
+  | AiAssistantIntegrationsSubTab;
+
+function isIntegrationsSubTab(t: AiAssistantProjectToolsTab): t is AiAssistantIntegrationsSubTab {
+  return t === 'llms' || t === 'imagegen' || t === 'tools' || t === 'mcp' || t === 'scripts';
+}
+
+function resolveProjectToolsTabs(defaultTab: AiAssistantProjectToolsTab): {
+  tab: 'ui' | 'agents' | 'recipes' | 'integrations' | 'prompts';
+  integrationsSub: AiAssistantIntegrationsSubTab;
+} {
+  if (isIntegrationsSubTab(defaultTab)) {
+    return { tab: 'integrations', integrationsSub: defaultTab };
+  }
+  if (defaultTab === 'integrations') {
+    return { tab: 'integrations', integrationsSub: 'tools' };
+  }
+  return { tab: defaultTab, integrationsSub: 'tools' };
+}
 
 function projectToolsTabLabel(t: AiAssistantProjectToolsTab): string {
   switch (t) {
@@ -35,15 +62,29 @@ function projectToolsTabLabel(t: AiAssistantProjectToolsTab): string {
       return 'Agents';
     case 'recipes':
       return 'Recipes';
+    case 'integrations':
+      return 'Integrations';
     case 'prompts':
       return 'Prompts and Context';
+    case 'llms':
+      return 'LLMs';
+    case 'imagegen':
+      return 'Image Generators';
     case 'tools':
-      return 'Tools and MCP';
+      return 'Tools';
+    case 'mcp':
+      return 'MCP';
     case 'scripts':
       return 'Scripts';
     default:
       return t;
   }
+}
+
+function integrationsSandboxPanel(
+  sub: AiAssistantIntegrationsSubTab
+): 'tools' | 'mcp' | 'llms' | 'imagegen' | 'scripts' {
+  return sub;
 }
 
 export interface AiAssistantProjectToolsConfigurationProps {
@@ -56,12 +97,14 @@ export interface AiAssistantProjectToolsConfigurationProps {
  */
 function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectToolsConfigurationProps) {
   const { defaultTab = 'ui' } = props;
-  const [tab, setTab] = useState<AiAssistantProjectToolsTab>(defaultTab);
+  const initialTabs = useMemo(() => resolveProjectToolsTabs(defaultTab), [defaultTab]);
+  const [tab, setTab] = useState(initialTabs.tab);
+  const [integrationsSub, setIntegrationsSub] = useState<AiAssistantIntegrationsSubTab>(initialTabs.integrationsSub);
   const [agentsCatalogDirty, setAgentsCatalogDirty] = useState(false);
   const [recipesDirty, setRecipesDirty] = useState(false);
   const [pendingTabSwitch, setPendingTabSwitch] = useState<{
-    from: AiAssistantProjectToolsTab;
-    to: AiAssistantProjectToolsTab;
+    from: typeof tab;
+    to: typeof tab;
   } | null>(null);
   const [tabLeaveSaveBusy, setTabLeaveSaveBusy] = useState(false);
   const agentsCatalogRef = useRef<AiAssistantCentralAgentsCatalogHandle>(null);
@@ -70,7 +113,7 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
     useDomFullscreen<HTMLDivElement>();
 
   const handleTabsChange = useCallback(
-    (_: SyntheticEvent, value: AiAssistantProjectToolsTab) => {
+    (_: SyntheticEvent, value: typeof tab) => {
       if (tab === 'agents' && agentsCatalogDirty && value !== 'agents') {
         setPendingTabSwitch({ from: 'agents', to: value });
         return;
@@ -83,6 +126,10 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
     },
     [tab, agentsCatalogDirty, recipesDirty]
   );
+
+  const handleIntegrationsSubChange = useCallback((_: SyntheticEvent, value: AiAssistantIntegrationsSubTab) => {
+    setIntegrationsSub(value);
+  }, []);
 
   const cancelPendingTabSwitch = useCallback(() => {
     setPendingTabSwitch(null);
@@ -155,9 +202,8 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
         >
           <Tab label="UI" value="ui" />
           <Tab label="Agents" value="agents" />
-          <Tab label="Tools and MCP" value="tools" />
-          <Tab label="Scripts" value="scripts" />
           <Tab label="Recipes" value="recipes" />
+          <Tab label="Integrations" value="integrations" />
           <Tab label="Prompts and Context" value="prompts" />
         </Tabs>
         <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0, borderLeft: 1, borderColor: 'divider', px: 0.5 }}>
@@ -190,8 +236,29 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
         {tab === 'recipes' ? (
           <AiAssistantIntentRecipesConfiguration ref={recipesConfigRef} onDirtyChange={setRecipesDirty} />
         ) : null}
-        {tab === 'tools' ? <AiAssistantScriptsSandboxConfiguration panel="tools" /> : null}
-        {tab === 'scripts' ? <AiAssistantScriptsSandboxConfiguration panel="scripts" /> : null}
+        {tab === 'integrations' ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+            <Tabs
+              value={integrationsSub}
+              onChange={handleIntegrationsSubChange}
+              variant="scrollable"
+              scrollButtons="auto"
+              allowScrollButtonsMobile
+              sx={{ flexShrink: 0, borderBottom: 1, borderColor: 'divider', px: 1 }}
+            >
+              <Tab label="LLMs" value="llms" />
+              <Tab label="Image Generators" value="imagegen" />
+              <Tab label="Tools" value="tools" />
+              <Tab label="MCP" value="mcp" />
+            </Tabs>
+            <Box sx={{ flex: '1 1 auto', minHeight: 0 }}>
+              <AiAssistantScriptsSandboxConfiguration
+                key={integrationsSub === 'tools' || integrationsSub === 'mcp' ? 'tools-policy' : integrationsSub}
+                panel={integrationsSandboxPanel(integrationsSub)}
+              />
+            </Box>
+          </Box>
+        ) : null}
         {tab === 'prompts' ? <AiAssistantScriptsSandboxConfiguration panel="prompts" /> : null}
       </Box>
 
@@ -222,7 +289,7 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
 
 /**
  * Single Project Tools surface: **UI** (`studio-ui.json` + bulk), **Agents** (`agents.json`), **Recipes** (intent router + site overrides),
- * **Tools and MCP** (`tools.json` + registry + user Groovy), **Scripts** (imagegen + script LLMs), **Prompts and Context** (tool markdown overrides).
+ * **Integrations** (sub-tabs: **LLMs**, **Image Generators**, **Tools**, **MCP**), **Prompts and Context** (tool markdown overrides).
  * Opens in a **large dialog** when the Project Tools entry mounts so authors stay focused and get more space than the default tool pane.
  * Primary widget id: {@link projectToolsAiAssistantConfigWidgetId}. Legacy ids still mount this component with a fixed default tab.
  */
@@ -302,8 +369,8 @@ export function AiAssistantProjectToolsConfigurationAgentsTab() {
 }
 
 /**
- * Legacy widget id `craftercms.components.aiassistant.ScriptsSandboxConfiguration` — opens **Tools and MCP** tab
- * (`tools.json` + registry + user Groovy), closest to the old combined page’s top section.
+ * Legacy widget id `craftercms.components.aiassistant.ScriptsSandboxConfiguration` — opens **Integrations → Tools**
+ * (`tools.json` built-in + registry + user Groovy).
  */
 export function AiAssistantProjectToolsConfigurationScriptsTab() {
   return <AiAssistantProjectToolsConfiguration defaultTab="tools" />;

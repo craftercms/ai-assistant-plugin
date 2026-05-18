@@ -57,7 +57,7 @@ final class AiAssistantCentralAgentsMerge {
         if (isAutonomousEntry(entry)) {
           continue
         }
-        // crafterQAgentId is the legacy agents.json / ui.xml field name; id is the newer alias — both kept for migration.
+        // Match crafterQAgentId or id on the catalog row.
         String id = (entry.crafterQAgentId ?: entry.id ?: '').toString().trim()
         if (wanted == id) {
           return entry
@@ -109,7 +109,7 @@ final class AiAssistantCentralAgentsMerge {
 
   /**
    * Fills missing {@code imageModel}, {@code llmModel}, {@code llm}, and/or {@code imageGenerator} on {@code body}
-   * from the site's central agents catalog. Matches {@code crafterQAgentId} (legacy) or {@code id} when
+   * from the site's central agents catalog. Matches {@code crafterQAgentId} or {@code id} when
    * {@code agentId} is set; otherwise uses the first {@code mode: chat} row (or omitted mode).
    */
   static void mergeStreamAgentFieldsFromSiteAgentsFileIfMissing(

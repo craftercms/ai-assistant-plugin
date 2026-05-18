@@ -1,8 +1,6 @@
 /**
  * Central AI Assistant agent catalog: `config/studio/ai-assistant/agents.json`
- * When this file exists and contains at least one `agents[]` entry, chat agents are taken only from
- * entries with `mode: "chat"` (or omitted mode, treated as chat). Autonomous agents are taken from
- * `mode: "autonomous"`. Chat agents are not loaded from `ui.xml`.
+ * Chat agents use entries with `mode: "chat"` (or omitted mode). Autonomous agents use `mode: "autonomous"`.
  */
 import type { AgentConfig, AgentLlm, PromptConfig } from './agentConfig';
 import { AI_ASSISTANT_DEFAULT_AGENT_ID, normalizeEnabledBuiltInToolsRaw } from './agentConfig';
@@ -83,6 +81,43 @@ export function rawPromptsToEditorRows(raw: unknown): PromptConfig[] {
     if (omitTools) row.omitTools = true;
     return row;
   });
+}
+
+/** Editor row for {@link ExpertSkillConfig} in Project Tools → Agents. */
+export type ExpertSkillEditorRow = {
+  name: string;
+  url: string;
+  description: string;
+};
+
+/** One row per array element for the Studio catalog editor. */
+export function rawExpertSkillsToEditorRows(raw: unknown): ExpertSkillEditorRow[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item): ExpertSkillEditorRow => {
+    const o = asRecord(item);
+    if (!o) return { name: '', url: '', description: '' };
+    return {
+      name: String(o.name ?? '').trim(),
+      url: String(o.url ?? o.href ?? '').trim(),
+      description: String(o.description ?? '').trim()
+    };
+  });
+}
+
+/** Persistable `expertSkills` array for agents.json (requires URL). */
+export function serializeCentralCatalogExpertSkills(rows: ExpertSkillEditorRow[]): unknown[] | undefined {
+  const out: unknown[] = [];
+  for (const row of rows) {
+    const url = row.url.trim();
+    if (!url) continue;
+    const o: Record<string, unknown> = { url };
+    const name = row.name.trim();
+    if (name) o.name = name;
+    const description = row.description.trim();
+    if (description) o.description = description;
+    out.push(o);
+  }
+  return out.length ? out : undefined;
 }
 
 /** Persistable `prompts` array for agents.json (skips blank chip labels). */
@@ -228,17 +263,6 @@ export function catalogChatAgents(file: CentralAgentsFile): AgentConfig[] {
 
 export function catalogAutonomousAgents(file: CentralAgentsFile): AutonomousAgentDefinition[] {
   return file.agents.map((e) => entryToAutonomousDefinition(e)).filter(Boolean) as AutonomousAgentDefinition[];
-}
-
-/**
- * When the catalog file exists and has at least one agent row, chat agents are sourced **only** from
- * `mode: chat` entries (including omitted mode). If the file has only autonomous rows, returns `null` so
- * callers get no chat agents from this file (Helper/form use built-in fallbacks until the catalog is saved).
- */
-export function exclusiveCentralChatAgentsFromFile(file: CentralAgentsFile): AgentConfig[] | null {
-  if (!file.agents.length) return null;
-  const chat = catalogChatAgents(file);
-  return chat.length ? chat : null;
 }
 
 function parseCentralAgentsFromContentPayload(raw: unknown): CentralAgentsFile | null {

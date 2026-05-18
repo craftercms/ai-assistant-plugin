@@ -2,52 +2,29 @@
 <!--
   Reference fragments for config/studio/ui.xml (Studio AI assistant plugin).
   Merge each block under the parent shown in the comment. After editing, commit the site sandbox
-  and sync in Studio. Re-run marketplace/copy from this plugin repo to apply descriptor-driven merges,
-  or paste these fragments manually if you maintain ui.xml by hand.
+  and sync in Studio.
 
-  Example site sandbox (maintainer local Authoring 4.4.xE):
-    /home/russdanner/crafter-installs/4-4-xE/crafter-authoring/data/repos/sites/new-demo/sandbox
-  → edit: .../sandbox/config/studio/ui.xml
+  Chat and autonomous agents are configured in Project Tools → AI Assistant → Agents
+  (config/studio/ai-assistant/agents.json), not in ui.xml.
 
   Plugin bundle: id="org.craftercms.aiassistant.studio" type="aiassistant" name="components" file="index.js"
   Widget ids must match sources/src/consts.ts (Helper, AutonomousAssistants, etc.).
-  Default install (craftercms-plugin.yaml): **Preview toolbar only** — Helper **appended** under PreviewToolbar **`configuration/rightSection/widgets`** (marketplace-safe wiring). **Tools Panel** (left rail) Helper / Autonomous widgets are **not** merged by the descriptor; paste the blocks below under **`ToolsPanel/configuration/widgets`** only if your policy allows. For an icon **next to the URL bar**, move the merged **`<widget id="craftercms.components.aiassistant.Helper">…</widget>`** to **`configuration/middleSection/widgets`**. One **`openAI`** vendor agent with llmModel + imageModel; **`OPENAI_API_KEY`** on Studio host.
+  Default install (craftercms-plugin.yaml): Preview toolbar only — Helper under PreviewToolbar configuration/rightSection/widgets.
+  Tools Panel Helper / Autonomous are not merged by the descriptor; paste below under ToolsPanel/configuration/widgets if needed.
 
   CRITICAL — Tools Panel placement: every sidebar tool row must live under
   //widget[@id='craftercms.components.ToolsPanel']/configuration/widgets as a <widget> child.
-  Do NOT put Helper or AutonomousAssistants after </configuration> as a sibling of <configuration>;
-  Studio ignores those for the left rail, and descriptor merge used to match the wrong node.
 -->
 <!-- ========== Tools Panel (//widget[@id='craftercms.components.ToolsPanel']/configuration/widgets) ========== -->
 <widget id="craftercms.components.aiassistant.Helper">
   <plugin id="org.craftercms.aiassistant.studio" type="aiassistant" name="components" file="index.js"/>
-  <configuration>
-    <!-- ui="IconButton" = compact toolbar icon; omit attribute for list-style row in Tools Panel -->
-    <agents>
-      <!-- Primary: tools-loop chat + CMS tools (set OPENAI_API_KEY on the Studio host for the openAI vendor row). -->
-      <agent>
-        <crafterQAgentId>019c7237-478b-7f98-9a5c-87144c3fb010</crafterQAgentId>
-        <label>Authoring Assistant</label>
-        <llm>openAI</llm>
-        <llmModel>gpt-4o-mini</llmModel>
-        <imageModel>gpt-image-1</imageModel>
-        <enableTools>true</enableTools>
-        <icon id="@mui/icons-material/AutoAwesomeRounded"/>
-        <prompts>
-          <prompt>What can you help me with?</prompt>
-          <prompt>List components used on the current page</prompt>
-        </prompts>
-      </agent>
-      <!-- Add more agents by copying the block above with a new crafterQAgentId + label + llm rows. -->
-    </agents>
-  </configuration>
+  <configuration ui="IconButton"/>
 </widget>
 
 <widget id="craftercms.components.aiassistant.AutonomousAssistants">
   <plugin id="org.craftercms.aiassistant.studio" type="aiassistant" name="components" file="index.js"/>
   <configuration>
     <title>Autonomous Agents</title>
-    <!-- Default mark matches sources/src/AiAssistant.tsx (plugin bundle) and craftercms-plugin.yaml installation. -->
     <icon><![CDATA[<svg width="800px" height="800px" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
   <title>ai</title>
   <g id="Layer_2" data-name="Layer 2">
@@ -63,38 +40,13 @@
     </g>
   </g>
 </svg>]]></icon>
-    <autonomousAgents>
-      <agent>
-        <name>Prototype agent</name>
-        <schedule>0 * * * * ?</schedule>
-        <prompt>You are an autonomous assistant. Reply with JSON only as instructed by the server.</prompt>
-        <scope>project</scope>
-        <llm>openAI</llm>
-        <llmModel>gpt-4o-mini</llmModel>
-        <imageModel>gpt-image-1</imageModel>
-        <manageOtherAgentsHumanTasks>false</manageOtherAgentsHumanTasks>
-      </agent>
-    </autonomousAgents>
   </configuration>
 </widget>
 
-<!-- ========== Preview Toolbar — descriptor merge: rightSection/widgets; move here to middleSection/widgets for icon next to URL bar ========== -->
+<!-- ========== Preview toolbar (//widget[@id='craftercms.components.PreviewToolbar']/configuration/.../widgets) ========== -->
+<!--
 <widget id="craftercms.components.aiassistant.Helper">
   <plugin id="org.craftercms.aiassistant.studio" type="aiassistant" name="components" file="index.js"/>
-  <configuration ui="IconButton">
-    <agents>
-      <agent>
-        <crafterQAgentId>019c7237-478b-7f98-9a5c-87144c3fb010</crafterQAgentId>
-        <label>Authoring Assistant</label>
-        <llm>openAI</llm>
-        <llmModel>gpt-4o-mini</llmModel>
-        <imageModel>gpt-image-1</imageModel>
-        <enableTools>true</enableTools>
-        <icon id="@mui/icons-material/AutoAwesomeRounded"/>
-        <prompts>
-          <prompt>What can you help me with?</prompt>
-        </prompts>
-      </agent>
-    </agents>
-  </configuration>
+  <configuration ui="IconButton"/>
 </widget>
+-->

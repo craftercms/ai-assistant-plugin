@@ -257,7 +257,7 @@ final class StudioAiLlmKind {
     String trimmed = (raw ?: '').toString().trim()
     if (!trimmed) {
       throw new IllegalArgumentException(
-        'Missing or blank llm: set <llm> on the agent in /config/studio/ui.xml (or include llm on the stream/chat POST body), e.g. openAI, claude, deepSeek, gemini, xAI, llama, script:myid.'
+        'Missing or blank llm: set llm on the agent in config/studio/ai-assistant/agents.json (Project Tools → Agents) or include llm on the stream/chat POST body, e.g. openAI, claude, deepSeek, gemini, xAI, llama, script:myid.'
       )
     }
     String s = trimmed.toLowerCase(Locale.US)

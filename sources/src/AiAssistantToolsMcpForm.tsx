@@ -25,13 +25,19 @@ function emptyMcpServerRow(): McpServerFormRow {
   return { id: '', url: '', readTimeoutMs: '', headerPairs: [{ key: '', value: '' }] };
 }
 
+export type AiAssistantToolsMcpFormSections = 'builtIn' | 'mcp' | 'both';
+
 export interface AiAssistantToolsMcpFormProps {
   value: ToolsPolicyFormState;
   onChange: (next: ToolsPolicyFormState) => void;
+  /** When split across Project Tools tabs, show built-in orchestration only, MCP only, or both. */
+  sections?: AiAssistantToolsMcpFormSections;
 }
 
 export default function AiAssistantToolsMcpForm(props: AiAssistantToolsMcpFormProps) {
-  const { value, onChange } = props;
+  const { value, onChange, sections = 'both' } = props;
+  const showBuiltIn = sections === 'builtIn' || sections === 'both';
+  const showMcp = sections === 'mcp' || sections === 'both';
 
   const setMcpEnabled = (mcpEnabled: boolean) => {
     onChange({ ...value, mcpEnabled });
@@ -52,8 +58,9 @@ export default function AiAssistantToolsMcpForm(props: AiAssistantToolsMcpFormPr
 
   return (
     <Stack spacing={4}>
-      <AiAssistantSiteOrchestrationToolsForm value={value} onChange={onChange} />
+      {showBuiltIn ? <AiAssistantSiteOrchestrationToolsForm value={value} onChange={onChange} /> : null}
 
+      {showMcp ? (
       <Paper variant="outlined" sx={{ p: 2.5 }}>
         <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
           <Typography variant="subtitle2">MCP (Streamable HTTP):</Typography>
@@ -218,6 +225,7 @@ export default function AiAssistantToolsMcpForm(props: AiAssistantToolsMcpFormPr
           </>
         ) : null}
       </Paper>
+      ) : null}
     </Stack>
   );
 }

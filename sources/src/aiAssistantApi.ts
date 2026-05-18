@@ -81,7 +81,7 @@ export interface StreamChatArgs {
   /** GenerateImage backend: agent **imageGenerator** / POST **imageGenerator** (blank / llmWire / none / script:{id}). */
   imageGenerator?: string;
   /**
-   * Optional key from widget ui.xml — server uses only if env/JVM key unset. Not recommended for production.
+   * Optional key from agent config — server uses only if env/JVM key unset. Not recommended for production.
    */
   llmApiKey?: string;
   /** Required by Studio plugin script API */
@@ -92,7 +92,7 @@ export interface StreamChatArgs {
    */
   previewToken?: string;
   /**
-   * When false, server omits OpenAI CMS function tools (from ui.xml agent `enableTools`). Omitted defaults to tools on.
+   * When false, server omits OpenAI CMS function tools (from agents.json `enableTools`). Omitted defaults to tools on.
    * May be string when passed from serialized widget props.
    */
   enableTools?: boolean | string;
@@ -110,7 +110,7 @@ export interface StreamChatArgs {
   expertSkills?: ExpertSkillConfig[];
   /**
    * 1–64; forwarded on stream POST for default **TranslateContentBatch** parallelism when the model omits **maxConcurrency**
-   * (from agent ui.xml **translateBatchConcurrency**). Server default 25 when omitted.
+   * (from agent `translateBatchConcurrency` in agents.json). Server default 25 when omitted.
    */
   translateBatchConcurrency?: number;
   signal?: AbortSignal;

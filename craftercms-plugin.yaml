@@ -100,7 +100,7 @@ plugin:
               - name: ui
                 value: IconButton
             children: []
-          # Chat agents: `config/studio/ai-assistant/agents.json` (Project Tools) or legacy `<agents>` here / in `ui.xml`.
+          # Chat agents: `config/studio/ai-assistant/agents.json` (Project Tools → Agents).
     - type: preview-app
       parentXpath: //reference[@id='craftercms.siteTools']
       elementXpath: //widget[@id='craftercms.components.aiassistant.ProjectToolsConfiguration']

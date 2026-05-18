@@ -31,7 +31,12 @@ const INTENT_RECIPE_ROUTING_KNOWN_KEYS = new Set([
   'engineEnabled',
   'minConfidence',
   'requestClarificationOnUnmatched',
-  'customRecipesPath'
+  'customRecipesPath',
+  'eligibilityGateEnabled',
+  'wholeTurnJsonRouterEnabled',
+  'engineMaxSteps',
+  'engineMaxTotalChars',
+  'engineMaxFieldChars'
 ]);
 
 export interface IntentRecipeRoutingFormState {
@@ -40,7 +45,17 @@ export interface IntentRecipeRoutingFormState {
   minConfidence: string;
   requestClarificationOnUnmatched: boolean;
   customRecipesPath: string;
-  /** Keys such as engineMaxSteps preserved when saving from Studio. */
+  /** When true, short / non-CMS messages may skip recipe routing (server default: off). */
+  eligibilityGateEnabled: boolean;
+  /** When true, use whole-turn JSON router pass (server default: off). */
+  wholeTurnJsonRouterEnabled: boolean;
+  /** Prefetch engine step cap (empty = server default, typically 8). */
+  engineMaxSteps: string;
+  /** Prefetch total character cap (empty = server default). */
+  engineMaxTotalChars: string;
+  /** Prefetch per-field character cap (empty = server default). */
+  engineMaxFieldChars: string;
+  /** Unknown keys preserved when saving from Studio. */
   intentRecipeRoutingExtra?: Record<string, unknown>;
 }
 
@@ -51,6 +66,11 @@ export function defaultIntentRecipeRoutingFormState(): IntentRecipeRoutingFormSt
     minConfidence: '0.55',
     requestClarificationOnUnmatched: false,
     customRecipesPath: '',
+    eligibilityGateEnabled: false,
+    wholeTurnJsonRouterEnabled: false,
+    engineMaxSteps: '',
+    engineMaxTotalChars: '',
+    engineMaxFieldChars: '',
     intentRecipeRoutingExtra: undefined
   };
 }
@@ -94,12 +114,22 @@ function parseIntentRecipeRoutingFromUnknown(raw: unknown): IntentRecipeRoutingF
   if (o.minConfidence != null) {
     minC = String(o.minConfidence).trim() || base.minConfidence;
   }
+  const numField = (key: string): string => {
+    if (o[key] == null || o[key] === '') return '';
+    const n = Number(o[key]);
+    return Number.isFinite(n) ? String(Math.round(n)) : '';
+  };
   return {
     enabled: 'enabled' in o ? Boolean(o.enabled) : true,
     engineEnabled: 'engineEnabled' in o ? Boolean(o.engineEnabled) : true,
     minConfidence: minC,
     requestClarificationOnUnmatched: Boolean(o.requestClarificationOnUnmatched),
     customRecipesPath: o.customRecipesPath != null ? String(o.customRecipesPath).trim() : '',
+    eligibilityGateEnabled: Boolean(o.eligibilityGateEnabled),
+    wholeTurnJsonRouterEnabled: Boolean(o.wholeTurnJsonRouterEnabled),
+    engineMaxSteps: numField('engineMaxSteps'),
+    engineMaxTotalChars: numField('engineMaxTotalChars'),
+    engineMaxFieldChars: numField('engineMaxFieldChars'),
     intentRecipeRoutingExtra: Object.keys(extra).length ? extra : undefined
   };
 }
@@ -118,6 +148,33 @@ function intentRecipeRoutingToJsonObject(state: IntentRecipeRoutingFormState): R
   const path = state.customRecipesPath.trim();
   if (path) {
     obj.customRecipesPath = path;
+  }
+  if (state.eligibilityGateEnabled) {
+    obj.eligibilityGateEnabled = true;
+  }
+  if (state.wholeTurnJsonRouterEnabled) {
+    obj.wholeTurnJsonRouterEnabled = true;
+  }
+  const maxSteps = state.engineMaxSteps.trim();
+  if (maxSteps) {
+    const n = Math.round(Number(maxSteps));
+    if (Number.isFinite(n)) {
+      obj.engineMaxSteps = n;
+    }
+  }
+  const maxTotal = state.engineMaxTotalChars.trim();
+  if (maxTotal) {
+    const n = Math.round(Number(maxTotal));
+    if (Number.isFinite(n)) {
+      obj.engineMaxTotalChars = n;
+    }
+  }
+  const maxField = state.engineMaxFieldChars.trim();
+  if (maxField) {
+    const n = Math.round(Number(maxField));
+    if (Number.isFinite(n)) {
+      obj.engineMaxFieldChars = n;
+    }
   }
   return obj;
 }
@@ -216,6 +273,24 @@ export function validateToolsPolicy(state: ToolsPolicyFormState): { ok: true } |
   if (state.intentRecipeRouting.enabled && (!Number.isFinite(mc) || mc < 0 || mc > 1)) {
     return { ok: false, message: 'Intent recipe min confidence must be a number between 0 and 1.' };
   }
+  const irr = state.intentRecipeRouting;
+  const posInt = (label: string, raw: string): { ok: true } | { ok: false; message: string } => {
+    const t = raw.trim();
+    if (!t) return { ok: true };
+    const n = Math.round(Number(t));
+    if (!Number.isFinite(n) || n < 1) {
+      return { ok: false, message: `${label} must be a positive integer when set.` };
+    }
+    return { ok: true };
+  };
+  for (const [label, raw] of [
+    ['Prefetch max steps', irr.engineMaxSteps],
+    ['Prefetch max total characters', irr.engineMaxTotalChars],
+    ['Prefetch max field characters', irr.engineMaxFieldChars]
+  ] as const) {
+    const check = posInt(label, raw);
+    if (!check.ok) return check;
+  }
   for (let i = 0; i < state.mcpServers.length; i++) {
     const r = state.mcpServers[i];
     const id = r.id.trim();
@@ -303,7 +378,12 @@ export function serializeToolsPolicyToJson(state: ToolsPolicyFormState): string 
     state.intentRecipeRouting.enabled ||
     state.intentRecipeRouting.engineEnabled ||
     state.intentRecipeRouting.requestClarificationOnUnmatched ||
+    state.intentRecipeRouting.eligibilityGateEnabled ||
+    state.intentRecipeRouting.wholeTurnJsonRouterEnabled ||
     state.intentRecipeRouting.customRecipesPath.trim() ||
+    state.intentRecipeRouting.engineMaxSteps.trim() ||
+    state.intentRecipeRouting.engineMaxTotalChars.trim() ||
+    state.intentRecipeRouting.engineMaxFieldChars.trim() ||
     (state.intentRecipeRouting.intentRecipeRoutingExtra &&
       Object.keys(state.intentRecipeRouting.intentRecipeRoutingExtra).length > 0)
   ) {

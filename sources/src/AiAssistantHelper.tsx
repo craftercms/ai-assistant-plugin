@@ -30,7 +30,6 @@ import {
   DEFAULT_AGENTS,
   dedupeAgentsByStableKey,
   dropPlaceholderAgentsWhenRicherMatchesExist,
-  getAgentsFromConfiguration,
   extractPositiveInt,
   normalizeEnabledBuiltInToolsRaw,
   readOptionalBooleanFromConfiguration,
@@ -171,21 +170,16 @@ export function AiAssistantHelper(props: Readonly<AiAssistantHelperProps>) {
   }, [studioUiSiteKey, iceChatCfg]);
 
   const agents = useMemo(() => {
-    let base: AgentConfig[];
-    if (Array.isArray(agentsProp) && agentsProp.length > 0) base = agentsProp;
-    else {
-      const agentsFromConfig = getAgentsFromConfiguration(props);
-      if (agentsFromConfig.length > 0) base = agentsFromConfig;
-      else if (configuration != null) {
-        const fromConfig = getAgentsFromConfiguration(configuration);
-        base = fromConfig.length > 0 ? fromConfig : DEFAULT_AGENTS;
-      } else base = DEFAULT_AGENTS;
-    }
-    let merged: AgentConfig[] = siteChatOverlay?.agents?.length ? siteChatOverlay.agents : base;
+    let merged: AgentConfig[] =
+      siteChatOverlay?.agents?.length
+        ? siteChatOverlay.agents
+        : Array.isArray(agentsProp) && agentsProp.length > 0
+          ? agentsProp
+          : DEFAULT_AGENTS;
     merged = dedupeAgentsByStableKey(merged);
     merged = dropPlaceholderAgentsWhenRicherMatchesExist(merged);
     return merged;
-  }, [configuration, agentsProp, props, siteChatOverlay]);
+  }, [agentsProp, siteChatOverlay]);
 
   type OpenDialog = { id: string; agent: AgentConfig; minimized: boolean; width: number };
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);

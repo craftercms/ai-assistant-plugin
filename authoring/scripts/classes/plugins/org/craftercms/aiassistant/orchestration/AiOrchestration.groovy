@@ -670,7 +670,7 @@ For **content XML** (pages/components): do not invent a new element tree — pre
 
   /**
    * Resolution order: {@code OPENAI_API_KEY} env, {@code crafter.openai.apiKey} JVM,
-   * {@code OPENAI_API_KEY} JVM, then optional {@code fromWidgetOrRequest} (ui.xml / POST body — testing only).
+   * {@code OPENAI_API_KEY} JVM, then optional {@code fromWidgetOrRequest} (agent config / POST body — testing only).
    */
   static String resolveApiKey(String fromWidgetOrRequest = null) {
     def fromEnv = System.getenv('OPENAI_API_KEY')
@@ -955,7 +955,7 @@ For **content XML** (pages/components): do not invent a new element tree — pre
       sb.append('Provider message: ').append(apiMsg).append(' ')
     }
     sb.append(
-      'Set the agent chat model to an id your host and API key support (for example in ui.xml / control payload), pass llmModel on the chat request, or set JVM crafter.openai.model when using the default bundled chat host row.'
+      'Set the agent chat model to an id your host and API key support (for example in config/studio/ai-assistant/agents.json), pass llmModel on the chat request, or set JVM crafter.openai.model when using the default bundled chat host row.'
     )
     return new IllegalStateException(sb.toString())
   }
@@ -989,7 +989,7 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     String base = (fromRequest ?: '').toString().trim() ?: (System.getProperty('crafter.openai.model') ?: '').toString().trim()
     if (!base) {
       throw new IllegalStateException(
-        'The chat model is not configured properly. Set the agent LLM / llmModel in Studio (for example ui.xml), pass llmModel on the chat request, or set JVM property crafter.openai.model when using the default bundled chat host configuration.'
+        'The chat model is not configured properly. Set the agent LLM / llmModel in Project Tools → Agents (config/studio/ai-assistant/agents.json), pass llmModel on the chat request, or set JVM property crafter.openai.model when using the default bundled chat host configuration.'
       )
     }
     String canon = llmCanonicalizeApiModelToken(base)
@@ -1115,14 +1115,14 @@ For **content XML** (pages/components): do not invent a new element tree — pre
   }
 
   /**
-   * OpenAI Images API model id (e.g. {@code gpt-image-1}). Source: agent **{@code <imageModel>}** or POST **{@code imageModel}** only.
+   * OpenAI Images API model id (e.g. {@code gpt-image-1}). Source: agent {@code imageModel} in agents.json or POST {@code imageModel} only.
    * Canonicalized via {@link #normalizeImagesApiModelId(String)}.
    */
   static String resolveImageModel(String fromRequest) {
     String base = (fromRequest ?: '').toString().trim()
     if (!base) {
       throw new IllegalStateException(
-        'The GenerateImage model is not configured properly. Set imageModel on the agent (ui.xml element imageModel) or pass imageModel on the chat request JSON body.'
+        'The GenerateImage model is not configured properly. Set imageModel on the agent in config/studio/ai-assistant/agents.json or pass imageModel on the chat request JSON body.'
       )
     }
     String canon = llmCanonicalizeApiModelToken(base)

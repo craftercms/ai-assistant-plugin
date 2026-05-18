@@ -32034,7 +32034,7 @@ function AiAssistantChat(props) {
 }
 
 /**
- * Stable key for matching agents between ui.xml, form field properties, and the form-control UI.
+ * Stable key for matching agents between `agents.json`, form field properties, and the form-control UI.
  * When both `id` and `label` are set, uses a composite key so multiple `<agent>` rows with the **same**
  * backend `id` (e.g. same UUID, different labels) stay distinct — otherwise merging collapses them.
  */
@@ -32048,24 +32048,13 @@ function agentStableKey(a) {
     return label || 'agent';
 }
 /**
- * Sentinel label when Studio/widget JSON omits **{@code label}** (see {@link normalizeAgent}).
+ * Sentinel label when a catalog row omits **{@code label}**.
  */
 const AI_ASSISTANT_AGENT_LABEL_FALLBACK = 'AI Assistant';
-/** Matches historical widget JSON label when Studio omitted the stable agent id element (same string as pre-2026 installs). */
-const LEGACY_OMITTED_AGENT_LABEL = 'C\u0072after\u0051';
 /**
- * Default **{@code crafterQAgentId}** when none is configured (empty — authors must set id in ui.xml / agents file).
+ * Default **{@code crafterQAgentId}** when none is configured (empty — authors should set id in `agents.json`).
  */
 const AI_ASSISTANT_DEFAULT_AGENT_ID = '';
-/**
- * Legacy sample agent id from pre-2026 blueprint installs (duplicate-detection only; not a runtime default).
- */
-const AI_ASSISTANT_LEGACY_SHIPPED_AGENT_ID = '019c7237-478b-7f98-9a5c-87144c3fb010';
-/**
- * Exact label from an old merged Helper sample row (**id** {@link AI_ASSISTANT_LEGACY_SHIPPED_AGENT_ID}). Not used for new
- * installs; {@link dropPlaceholderAgentsWhenRicherMatchesExist} drops this duplicate when authors add real agents.
- */
-const AI_ASSISTANT_LEGACY_SHIPPED_SAMPLE_LABEL = 'C\u0072after\u0051 content';
 /** Keep first occurrence per {@link agentStableKey} (order preserved). */
 function dedupeAgentsByStableKey(agents) {
     const m = new Map();
@@ -32077,10 +32066,7 @@ function dedupeAgentsByStableKey(agents) {
     return Array.from(m.values());
 }
 /**
- * Remove (a) JSON placeholder rows (label exactly {@link AI_ASSISTANT_AGENT_LABEL_FALLBACK}) whenever another agent
- * has a non-placeholder label (Studio may still attach a non-sample id to the fallback row), and
- * (b) the legacy shipped sample row (**{@link AI_ASSISTANT_LEGACY_SHIPPED_AGENT_ID}** + **{@link AI_ASSISTANT_LEGACY_SHIPPED_SAMPLE_LABEL}**)
- * when at least one other row looks author-defined — typical duplicate Helper menu (Studio merges blueprint + site `ui.xml`).
+ * Remove placeholder rows (label exactly {@link AI_ASSISTANT_AGENT_LABEL_FALLBACK}) when another agent has a real label.
  */
 function dropPlaceholderAgentsWhenRicherMatchesExist(agents) {
     const deduped = dedupeAgentsByStableKey(agents);
@@ -32088,29 +32074,12 @@ function dropPlaceholderAgentsWhenRicherMatchesExist(agents) {
         return deduped;
     const hasRicher = deduped.some((a) => {
         const lab = (a.label || '').trim();
-        if (!lab)
-            return false;
-        if (lab === AI_ASSISTANT_AGENT_LABEL_FALLBACK)
-            return false;
-        if (lab === LEGACY_OMITTED_AGENT_LABEL)
-            return false;
-        if (lab === AI_ASSISTANT_LEGACY_SHIPPED_SAMPLE_LABEL)
-            return false;
-        return true;
+        return lab && lab !== AI_ASSISTANT_AGENT_LABEL_FALLBACK;
     });
     if (!hasRicher)
         return deduped;
-    return deduped.filter((a) => {
-        const id = (a.id || '').trim();
-        const label = (a.label || '').trim();
-        if (hasRicher && (label === AI_ASSISTANT_AGENT_LABEL_FALLBACK || label === LEGACY_OMITTED_AGENT_LABEL))
-            return false;
-        if (id === AI_ASSISTANT_LEGACY_SHIPPED_AGENT_ID && label === AI_ASSISTANT_LEGACY_SHIPPED_SAMPLE_LABEL)
-            return false;
-        return true;
-    });
+    return deduped.filter((a) => (a.label || '').trim() !== AI_ASSISTANT_AGENT_LABEL_FALLBACK);
 }
-const DEFAULT_AGENT_ID = '';
 /** Fallback when no config or parsing fails — one toolbar/menu row so click always has a target. */
 const DEFAULT_AGENT = {
     id: AI_ASSISTANT_DEFAULT_AGENT_ID,
@@ -32119,109 +32088,8 @@ const DEFAULT_AGENT = {
     llmModel: 'gpt-4o-mini',
     prompts: []
 };
-/** Fallback list so Helper click / agent menus always have at least one entry (see {@link getAgentsFromConfiguration}). */
+/** Fallback list so Helper click / agent menus always have at least one entry while the catalog loads. */
 const DEFAULT_AGENTS = [DEFAULT_AGENT];
-/**
- * Normalize agents from widget configuration.
- * Falls back to DEFAULT_AGENTS when no config or no agents found so the UI always works.
- */
-function getAgentsFromConfiguration(configuration) {
-    const config = configuration != null && typeof configuration === 'object' ? configuration : null;
-    if (!config)
-        return DEFAULT_AGENTS;
-    // Prefer nested configuration.agents; fallback to top-level agents (e.g. if config is spread onto props)
-    let agentsRaw = config.agents;
-    if (agentsRaw == null && config.configuration != null && typeof config.configuration === 'object') {
-        const inner = config.configuration;
-        agentsRaw = inner.agents ?? (inner.configuration != null && typeof inner.configuration === 'object' ? inner.configuration.agents : undefined);
-    }
-    if (agentsRaw == null && config.configuration != null && typeof config.configuration === 'object') {
-        const inner = config.configuration;
-        if (inner.configuration != null && typeof inner.configuration === 'object') {
-            const deep = inner.configuration.agents;
-            if (deep != null)
-                agentsRaw = deep;
-        }
-    }
-    if (agentsRaw == null) {
-        const singleAgent = config.agent ?? (config.configuration && typeof config.configuration === 'object' ? config.configuration.agent : undefined);
-        if (singleAgent != null) {
-            const one = normalizeAgentOrWrapped(singleAgent);
-            if (one)
-                return [one];
-        }
-        return DEFAULT_AGENTS;
-    }
-    // Direct array
-    if (Array.isArray(agentsRaw)) {
-        const list = agentsRaw.map((a) => normalizeAgentOrWrapped(a)).filter(Boolean);
-        return list.length > 0 ? list : DEFAULT_AGENTS;
-    }
-    // Nested: { agent: [ {...}, {...} ] } or { agent: { "0": {...}, "1": {...} } } — same pattern as uigoodies CopyCurrentPageUrl (Object.keys(environments.label))
-    if (typeof agentsRaw === 'object' && agentsRaw !== null) {
-        const obj = agentsRaw;
-        const listOrSingle = obj.agent;
-        if (listOrSingle != null) {
-            const arr = Array.isArray(listOrSingle)
-                ? listOrSingle
-                : typeof listOrSingle === 'object' && listOrSingle !== null
-                    ? Object.values(listOrSingle)
-                    : [];
-            const list = arr.map((a) => normalizeAgentOrWrapped(a)).filter(Boolean);
-            if (list.length > 0)
-                return list;
-        }
-    }
-    return DEFAULT_AGENTS;
-}
-/** Normalize one item that might be `{ agent: { crafterQAgentId, label, ... } }` or plain `{ crafterQAgentId, label, ... }`. */
-function normalizeAgentOrWrapped(a) {
-    if (!a || typeof a !== 'object')
-        return null;
-    const o = a;
-    const agent = o.agent && typeof o.agent === 'object' ? o.agent : o;
-    return normalizeAgent(agent);
-}
-/**
- * Normalize one agent from config: **crafterQAgentId**, **label**, optional **icon**, **prompts**, etc.
- */
-function normalizeExpertSkillsRaw(raw) {
-    if (raw == null)
-        return undefined;
-    const rows = [];
-    const pushFromRecord = (r) => {
-        const url = extractString(r.url) ?? extractString(r.href);
-        if (!url?.trim())
-            return;
-        rows.push({
-            name: extractString(r.name) ?? 'Expert guidance',
-            url: url.trim(),
-            description: extractString(r.description) ?? ''
-        });
-    };
-    if (Array.isArray(raw)) {
-        for (const item of raw) {
-            if (!item || typeof item !== 'object')
-                continue;
-            pushFromRecord(item);
-        }
-    }
-    else if (typeof raw === 'object') {
-        const o = raw;
-        const nested = o.expertSkill;
-        if (Array.isArray(nested)) {
-            for (const item of nested) {
-                if (!item || typeof item !== 'object')
-                    continue;
-                pushFromRecord(item);
-            }
-        }
-        else if (nested && typeof nested === 'object') {
-            pushFromRecord(nested);
-        }
-    }
-    return rows.length ? rows : undefined;
-}
 function normalizeEnabledBuiltInToolsRaw(raw) {
     if (!Array.isArray(raw) || raw.length === 0)
         return undefined;
@@ -32232,68 +32100,6 @@ function normalizeEnabledBuiltInToolsRaw(raw) {
             out.push(s);
     }
     return out.length ? out : undefined;
-}
-function normalizeAgent(a) {
-    if (!a || typeof a !== 'object')
-        return null;
-    const o = a;
-    const id = extractString(o.crafterQAgentId) ?? DEFAULT_AGENT_ID;
-    const label = extractString(o.label) ?? AI_ASSISTANT_AGENT_LABEL_FALLBACK;
-    if (!label.trim())
-        return null;
-    let icon;
-    const iconVal = o.icon;
-    if (typeof iconVal === 'string')
-        icon = iconVal;
-    else if (iconVal && typeof iconVal === 'object') {
-        const iconObj = iconVal;
-        icon = typeof iconObj.id === 'string' ? iconObj.id : typeof iconObj['@_id'] === 'string' ? iconObj['@_id'] : undefined;
-    }
-    const prompts = normalizePrompts(o.prompts);
-    const llmStr = extractString(o.llm)?.trim();
-    let llm;
-    if (llmStr) {
-        const low = llmStr.toLowerCase();
-        if (low === 'openai' || low === 'open-ai')
-            llm = 'openAI';
-        else
-            llm = llmStr;
-    }
-    const llmModel = extractString(o.llmModel);
-    const imageModel = extractString(o.imageModel);
-    const imageGenerator = extractString(o.imageGenerator) ??
-        extractString(o['image-generator']) ??
-        extractString(o.image_generator);
-    const llmApiKey = extractString(o.llmApiKey) ??
-        extractString(o['open-ai-api-key']) ??
-        extractString(o.open_ai_api_key);
-    const out = { id: id.trim(), label, icon, prompts };
-    if (llm)
-        out.llm = llm;
-    if (llmModel)
-        out.llmModel = llmModel;
-    if (imageModel)
-        out.imageModel = imageModel;
-    if (imageGenerator)
-        out.imageGenerator = imageGenerator;
-    if (llmApiKey?.trim())
-        out.llmApiKey = llmApiKey.trim();
-    const openAsPopup = extractBooleanFromRecord(o, 'openAsPopup', 'open_as_popup', 'OpenAsPopup');
-    if (openAsPopup !== undefined)
-        out.openAsPopup = openAsPopup;
-    const enableTools = extractBooleanFromRecord(o, 'enableTools', 'enable_tools');
-    if (enableTools !== undefined)
-        out.enableTools = enableTools;
-    const expertSkills = normalizeExpertSkillsRaw(o.expertSkills) ?? normalizeExpertSkillsRaw(o.expertSkill);
-    if (expertSkills)
-        out.expertSkills = expertSkills;
-    const translateBatchConcurrency = extractPositiveInt(o, 1, 64, 'translateBatchConcurrency', 'translate_batch_concurrency', 'TranslateBatchConcurrency');
-    if (translateBatchConcurrency != null)
-        out.translateBatchConcurrency = translateBatchConcurrency;
-    const enabledBuiltIn = normalizeEnabledBuiltInToolsRaw(o.enabledBuiltInTools ?? o.enabled_built_in_tools);
-    if (enabledBuiltIn?.length)
-        out.enabledBuiltInTools = enabledBuiltIn;
-    return out;
 }
 /** Integer in inclusive range; undefined if missing or invalid. */
 function extractPositiveInt(o, min, max, ...keys) {
@@ -32381,122 +32187,6 @@ function extractString(v) {
         }
     }
     return undefined;
-}
-function extractAdditionalContextField(o) {
-    const ctx = extractString(o.additionalContext) ??
-        extractString(o['additional-context']) ??
-        extractString(o.context) ??
-        extractString(o.AdditionalContext) ??
-        extractString(o.additional_context);
-    return ctx?.trim() ? ctx.trim() : undefined;
-}
-/** Quick-action chips should be short labels; long / multiline "userText" is almost always mis-parsed additional context. */
-const MAX_QUICK_PROMPT_LABEL_CHARS = 100;
-const MIN_MULTILINE_QUICK_PROMPT_CHARS = 48;
-function isLikelyMisplacedContextPrompt(p) {
-    const t = (p.userText || '').trim();
-    if (!t)
-        return false;
-    if (t.length > MAX_QUICK_PROMPT_LABEL_CHARS)
-        return true;
-    if (t.includes('\n') && t.length >= MIN_MULTILINE_QUICK_PROMPT_CHARS)
-        return true;
-    return false;
-}
-/**
- * When Studio/XML produces two <prompt> entries (or flattens context into #text), the second
- * entry often becomes a second "button" with the full context as userText. Fold those into the
- * previous prompt's additionalContext instead.
- */
-function mergeMisplacedContextPrompts(prompts) {
-    if (prompts.length <= 1)
-        return prompts;
-    const out = [];
-    for (const p of prompts) {
-        if (isLikelyMisplacedContextPrompt(p) && out.length > 0) {
-            const prev = out[out.length - 1];
-            const body = (p.userText || '').trim();
-            const extra = (p.additionalContext || '').trim();
-            const chunk = [body, extra].filter(Boolean).join('\n\n');
-            prev.additionalContext = prev.additionalContext ? `${prev.additionalContext}\n\n${chunk}` : chunk;
-            continue;
-        }
-        out.push({ ...p });
-    }
-    return out;
-}
-function normalizePrompts(prompts) {
-    const normalizeOne = (p) => {
-        if (p == null)
-            return null;
-        // Back-compat: <prompt>Text</prompt>
-        if (typeof p === 'string')
-            return { userText: p };
-        if (typeof p !== 'object') {
-            const s = extractString(p);
-            return s ? { userText: s } : null;
-        }
-        const o = p;
-        // New structure:
-        // <prompt><userText>...</userText><additionalContext>...</additionalContext></prompt>
-        const userText = extractString(o.userText) ??
-            extractString(o['user-text']) ??
-            extractString(o.text) ??
-            extractString(o.UserText) ??
-            extractString(o.user_text);
-        const additionalContext = extractAdditionalContextField(o);
-        if (userText && userText.trim()) {
-            const pc = { userText: userText.trim() };
-            if (additionalContext)
-                pc.additionalContext = additionalContext;
-            const omitTools = extractBooleanFromRecord(o, 'omitTools', 'omit_tools');
-            if (omitTools === true)
-                pc.omitTools = true;
-            return pc;
-        }
-        // Studio/XML parsers sometimes emit sibling nodes as two array entries: one { userText }, one { additionalContext }.
-        // Never promote additionalContext alone to userText (that created a second "quick" button). Merge in processPromptList instead.
-        if (additionalContext)
-            return null;
-        // Some parsers might flatten the inner text into #text/value
-        const fallback = extractString(o);
-        return fallback ? { userText: fallback } : null;
-    };
-    const coerceList = (raw) => {
-        if (raw == null)
-            return [];
-        if (Array.isArray(raw))
-            return raw;
-        if (typeof raw === 'object')
-            return Object.values(raw);
-        return [raw];
-    };
-    /** Preserve order; merge orphan context-only fragments into the previous prompt. */
-    const processPromptList = (arr) => {
-        const out = [];
-        for (const item of arr) {
-            const normalized = normalizeOne(item);
-            if (normalized) {
-                out.push(normalized);
-                continue;
-            }
-            if (item != null && typeof item === 'object') {
-                const ctx = extractAdditionalContextField(item);
-                if (ctx && out.length > 0) {
-                    const prev = out[out.length - 1];
-                    prev.additionalContext = prev.additionalContext ? `${prev.additionalContext}\n\n${ctx}` : ctx;
-                }
-            }
-        }
-        return out;
-    };
-    const finalize = (arr) => mergeMisplacedContextPrompts(processPromptList(arr));
-    if (prompts && typeof prompts === 'object') {
-        const p = prompts;
-        const raw = p.prompt;
-        return finalize(coerceList(raw));
-    }
-    return finalize(coerceList(prompts));
 }
 
 function AiAssistantPopover(props) {
@@ -33048,6 +32738,39 @@ function rawPromptsToEditorRows(raw) {
         return row;
     });
 }
+/** One row per array element for the Studio catalog editor. */
+function rawExpertSkillsToEditorRows(raw) {
+    if (!Array.isArray(raw))
+        return [];
+    return raw.map((item) => {
+        const o = asRecord(item);
+        if (!o)
+            return { name: '', url: '', description: '' };
+        return {
+            name: String(o.name ?? '').trim(),
+            url: String(o.url ?? o.href ?? '').trim(),
+            description: String(o.description ?? '').trim()
+        };
+    });
+}
+/** Persistable `expertSkills` array for agents.json (requires URL). */
+function serializeCentralCatalogExpertSkills(rows) {
+    const out = [];
+    for (const row of rows) {
+        const url = row.url.trim();
+        if (!url)
+            continue;
+        const o = { url };
+        const name = row.name.trim();
+        if (name)
+            o.name = name;
+        const description = row.description.trim();
+        if (description)
+            o.description = description;
+        out.push(o);
+    }
+    return out.length ? out : undefined;
+}
 /** Persistable `prompts` array for agents.json (skips blank chip labels). */
 function serializeCentralCatalogPrompts(rows) {
     const out = [];
@@ -33206,17 +32929,6 @@ function catalogChatAgents(file) {
 function catalogAutonomousAgents(file) {
     return file.agents.map((e) => entryToAutonomousDefinition(e)).filter(Boolean);
 }
-/**
- * When the catalog file exists and has at least one agent row, chat agents are sourced **only** from
- * `mode: chat` entries (including omitted mode). If the file has only autonomous rows, returns `null` so
- * callers get no chat agents from this file (Helper/form use built-in fallbacks until the catalog is saved).
- */
-function exclusiveCentralChatAgentsFromFile(file) {
-    if (!file.agents.length)
-        return null;
-    const chat = catalogChatAgents(file);
-    return chat.length ? chat : null;
-}
 function parseCentralAgentsFromContentPayload(raw) {
     if (raw == null)
         return null;
@@ -33348,16 +33060,18 @@ function defaultCentralAgentsFile() {
 }
 
 /**
- * Load chat agents for preview Helper / toolbar: site `agents.json` when saved, else built-in defaults.
+ * Load chat agents for preview Helper / toolbar from `config/studio/ai-assistant/agents.json`
+ * (Project Tools → Agents), or built-in defaults when the site file is missing/empty.
  */
 async function fetchSiteChatAgentsForOverlay(siteId) {
     if (!siteId)
-        return { agents: [], exclusive: false };
+        return { agents: [], exclusive: true };
     const file = await getEffectiveCentralAgentsCatalog(siteId);
-    const ex = exclusiveCentralChatAgentsFromFile(file);
-    if (ex)
-        return { agents: ex, exclusive: true };
-    return { agents: [], exclusive: false };
+    let agents = catalogChatAgents(file);
+    if (!agents.length) {
+        agents = catalogChatAgents(defaultCentralAgentsFile());
+    }
+    return { agents, exclusive: true };
 }
 
 const ICON_MAP = {
@@ -33870,25 +33584,15 @@ function AiAssistantHelper(props) {
         };
     }, [studioUiSiteKey, iceChatCfg]);
     const agents = useMemo(() => {
-        let base;
-        if (Array.isArray(agentsProp) && agentsProp.length > 0)
-            base = agentsProp;
-        else {
-            const agentsFromConfig = getAgentsFromConfiguration(props);
-            if (agentsFromConfig.length > 0)
-                base = agentsFromConfig;
-            else if (configuration != null) {
-                const fromConfig = getAgentsFromConfiguration(configuration);
-                base = fromConfig.length > 0 ? fromConfig : DEFAULT_AGENTS;
-            }
-            else
-                base = DEFAULT_AGENTS;
-        }
-        let merged = siteChatOverlay?.agents?.length ? siteChatOverlay.agents : base;
+        let merged = siteChatOverlay?.agents?.length
+            ? siteChatOverlay.agents
+            : Array.isArray(agentsProp) && agentsProp.length > 0
+                ? agentsProp
+                : DEFAULT_AGENTS;
         merged = dedupeAgentsByStableKey(merged);
         merged = dropPlaceholderAgentsWhenRicherMatchesExist(merged);
         return merged;
-    }, [configuration, agentsProp, props, siteChatOverlay]);
+    }, [agentsProp, siteChatOverlay]);
     const [menuAnchor, setMenuAnchor] = useState(null);
     const [menuOpen, setMenuOpen] = useState(false);
     const [openDialogs, setOpenDialogs] = useState([]);
@@ -34197,10 +33901,7 @@ default_1 = ErrorOutline.default = (0, _createSvgIcon.default)( /*#__PURE__*/(0,
   d: "M11 15h2v2h-2zm0-8h2v6h-2zm.99-5C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2M12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8"
 }), 'ErrorOutline');
 
-/**
- * Autonomous Agents — definitions from widget `ui.xml` / JSON configuration.
- * XML shape: `<autonomousAgents><agent><name/><schedule/><startAutomatically/>…</agent></autonomousAgents>`
- */
+/** Autonomous agent rows from `config/studio/ai-assistant/agents.json` (`mode: autonomous`). */
 /** Mirrors `AutonomousAgentIdBuilder` (Groovy) for project-scoped ids used in sync/status. */
 function normalizeAgentNameForId(raw) {
     let s = (raw ?? '').trim().toLowerCase();
@@ -34307,157 +34008,7 @@ function mergeAutonomousAgentsForTable(siteId, defs, statusAgents, viewer) {
     }
     return out;
 }
-function normalizeManageOtherAgentsHumanTasks(raw) {
-    if (raw === true || raw === 1)
-        return true;
-    if (raw === false || raw === 0)
-        return false;
-    if (typeof raw === 'string') {
-        const s = raw.trim().toLowerCase();
-        if (s === 'true' || s === '1' || s === 'yes')
-            return true;
-        if (s === 'false' || s === '0' || s === 'no' || s === '')
-            return false;
-    }
-    return undefined;
-}
-function normalizeStartAutomatically(raw) {
-    if (raw === true || raw === 1)
-        return true;
-    if (raw === false || raw === 0)
-        return false;
-    if (typeof raw === 'string') {
-        const s = raw.trim().toLowerCase();
-        if (s === 'true' || s === '1' || s === 'yes')
-            return true;
-        if (s === 'false' || s === '0' || s === 'no')
-            return false;
-    }
-    return undefined;
-}
-function normalizeStopOnFailure(raw) {
-    if (raw === true || raw === 1)
-        return true;
-    if (raw === false || raw === 0)
-        return false;
-    if (typeof raw === 'string') {
-        const s = raw.trim().toLowerCase();
-        if (s === 'true' || s === '1' || s === 'yes')
-            return true;
-        if (s === 'false' || s === '0' || s === 'no')
-            return false;
-    }
-    return undefined;
-}
-function normalizeOne(raw) {
-    if (raw == null || typeof raw !== 'object')
-        return null;
-    const o = raw;
-    const name = String(o.name ?? o.label ?? '').trim();
-    if (!name)
-        return null;
-    const scopeRaw = String(o.scope ?? 'project').trim().toLowerCase();
-    const scope = scopeRaw === 'user' || scopeRaw === 'role' || scopeRaw === 'project' ? scopeRaw : 'project';
-    const manageCross = normalizeManageOtherAgentsHumanTasks(o.manageOtherAgentsHumanTasks);
-    const startAuto = normalizeStartAutomatically(o.startAutomatically ?? o.start_automatically ?? o.automaticallyStart ?? o.automatically_start);
-    const stopFail = normalizeStopOnFailure(o.stopOnFailure ?? o.stop_on_failure);
-    const expertSkills = normalizeExpertSkillsRaw(o.expertSkills) ?? normalizeExpertSkillsRaw(o.expertSkill);
-    const enabledBuiltIn = normalizeEnabledBuiltInToolsRaw(o.enabledBuiltInTools ?? o.enabled_built_in_tools);
-    return {
-        name,
-        schedule: String(o.schedule ?? '0 0 * * * ?').trim(),
-        prompt: String(o.prompt ?? '').trim(),
-        scope,
-        llm: String(o.llm ?? 'openAI').trim(),
-        llmModel: String(o.llmModel ?? 'gpt-4o-mini').trim(),
-        imageModel: o.imageModel != null ? String(o.imageModel).trim() : undefined,
-        imageGenerator: o.imageGenerator != null && String(o.imageGenerator).trim() !== ''
-            ? String(o.imageGenerator).trim()
-            : undefined,
-        llmApiKey: o.llmApiKey != null ? String(o.llmApiKey).trim() : undefined,
-        ...(manageCross !== undefined ? { manageOtherAgentsHumanTasks: manageCross } : {}),
-        ...(startAuto === false ? { startAutomatically: false } : {}),
-        ...(stopFail === false ? { stopOnFailure: false } : {}),
-        ...(expertSkills && expertSkills.length > 0 ? { expertSkills } : {}),
-        ...(enabledBuiltIn?.length ? { enabledBuiltInTools: enabledBuiltIn } : {})
-    };
-}
-/**
- * Same nesting patterns as `getAgentsFromConfiguration` in `agentConfig.ts`: Studio may pass
- * `autonomousAgents` at the top level, under `configuration`, or under `configuration.configuration`.
- */
-function readAgentsRaw(configuration) {
-    const config = configuration != null && typeof configuration === 'object' ? configuration : null;
-    if (!config)
-        return null;
-    let raw = config.autonomousAgents;
-    if (raw == null && config.configuration != null && typeof config.configuration === 'object') {
-        const inner = config.configuration;
-        raw =
-            inner.autonomousAgents ??
-                (inner.configuration != null && typeof inner.configuration === 'object'
-                    ? inner.configuration.autonomousAgents
-                    : undefined);
-    }
-    if (raw == null && config.configuration != null && typeof config.configuration === 'object') {
-        const inner = config.configuration;
-        if (inner.configuration != null && typeof inner.configuration === 'object') {
-            const deep = inner.configuration.autonomousAgents;
-            if (deep != null)
-                raw = deep;
-        }
-    }
-    return raw;
-}
-/**
- * Studio deserializes a **single** `<agent>` as a flat object `{ name, schedule, ... }` under `agent`.
- * `Object.values(that)` would yield primitive strings — use this instead.
- */
-function agentsFromRawAgentField(listOrSingle) {
-    if (listOrSingle == null)
-        return [];
-    if (Array.isArray(listOrSingle))
-        return listOrSingle;
-    if (typeof listOrSingle !== 'object')
-        return [];
-    const o = listOrSingle;
-    const keys = Object.keys(o);
-    const numericKeyed = keys.length > 0 && keys.every((k) => /^\d+$/.test(k));
-    if (numericKeyed) {
-        return [...keys].sort((a, b) => Number(a) - Number(b)).map((k) => o[k]);
-    }
-    const looksLikeSingleAgentRow = typeof o.name === 'string' ||
-        typeof o.label === 'string' ||
-        typeof o.schedule === 'string' ||
-        typeof o.prompt === 'string' ||
-        typeof o.llm === 'string';
-    if (looksLikeSingleAgentRow) {
-        return [o];
-    }
-    return Object.values(o);
-}
-/**
- * Pass **merged widget props**: `{ ...props.configuration, ...props }` so `autonomousAgents` is found whether
- * Studio nested it or spread `<configuration>` onto the component root (see `Widget.js`).
- */
-function getAutonomousAgentsFromConfiguration(configurationOrMergedProps) {
-    const raw = readAgentsRaw(configurationOrMergedProps);
-    if (raw == null)
-        return [];
-    if (Array.isArray(raw)) {
-        return raw.map(normalizeOne).filter(Boolean);
-    }
-    if (typeof raw === 'object') {
-        const obj = raw;
-        const listOrSingle = obj.agent;
-        if (listOrSingle == null)
-            return [];
-        const arr = agentsFromRawAgentField(listOrSingle);
-        return arr.map(normalizeOne).filter(Boolean);
-    }
-    return [];
-}
-/** Merge nested `configuration` with root props (Studio spreads config onto the component after registration). */
+/** Merge nested `configuration` with root props (Studio spreads widget configuration onto the component). */
 function mergeAutonomousWidgetProps(props) {
     const nested = props.configuration != null && typeof props.configuration === 'object' && !Array.isArray(props.configuration)
         ? props.configuration
@@ -34696,7 +34247,7 @@ function parseJsonBoolean(v) {
     }
     return Boolean(v);
 }
-/** Per-agent `startAutomatically` from ui.xml / registry; defaults to true when omitted. */
+/** Per-agent `startAutomatically` from agents.json; defaults to true when omitted. */
 function definitionStartAutomatically(def) {
     if (def == null || typeof def !== 'object')
         return true;
@@ -34708,7 +34259,7 @@ function definitionStartAutomatically(def) {
         return false;
     return true;
 }
-/** Per-agent `stopOnFailure` from ui.xml / registry; defaults to true when omitted. */
+/** Per-agent `stopOnFailure` from agents.json; defaults to true when omitted. */
 function definitionStopOnFailure(def) {
     if (def == null || typeof def !== 'object')
         return true;
@@ -34809,13 +34360,10 @@ function AiAssistantAutonomousAssistantsImpl(props) {
         };
     }, [siteId]);
     const defs = useMemo(() => {
-        if (centralAgentsFile && centralAgentsFile.agents.length > 0) {
-            const fromCentral = catalogAutonomousAgents(centralAgentsFile);
-            if (fromCentral.length)
-                return fromCentral;
-        }
-        return getAutonomousAgentsFromConfiguration(merged);
-    }, [centralAgentsFile, merged]);
+        if (!centralAgentsFile)
+            return [];
+        return catalogAutonomousAgents(centralAgentsFile);
+    }, [centralAgentsFile]);
     const listTitle = useMemo(() => widgetTitleText(merged), [merged]);
     const listTitleTranslated = usePossibleTranslation(listTitle);
     const toolsListSystemIcon = useMemo(() => systemIconDescriptorFromWidgetMerged(merged), [merged]);
@@ -35091,7 +34639,7 @@ function AiAssistantAutonomousAssistantsImpl(props) {
                     : '';
     const headerError = hasAgentError || Boolean(supervisorHaltReason);
     const agentControlsDisabled = busy || !selected || Boolean(selectedRow?.syntheticFromConfig);
-    const panelBody = !siteId ? (jsx$1(Typography, { variant: "body2", children: "Select a site to manage Autonomous Agents." })) : defs.length === 0 ? (jsxs(Fragment, { children: [jsx$1(Typography, { variant: "subtitle1", gutterBottom: true, children: listTitle }), jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No agents configured. In Project Configuration \u2192 UI, under this widget\u2019s <configuration>, add <autonomousAgents><agent>\u2026</agent></autonomousAgents> (see plugin installation sample in craftercms-plugin.yaml)." })] })) : (jsxs(Box, { "data-cq-autonomous-widget": "1", "data-cq-autonomous-has-error": headerError ? '1' : '0', sx: {
+    const panelBody = !siteId ? (jsx$1(Typography, { variant: "body2", children: "Select a site to manage Autonomous Agents." })) : defs.length === 0 ? (jsxs(Fragment, { children: [jsx$1(Typography, { variant: "subtitle1", gutterBottom: true, children: listTitle }), jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No autonomous agents configured. Open Project Tools \u2192 AI Assistant \u2192 Agents, add a row with mode autonomous, and save to config/studio/ai-assistant/agents.json." })] })) : (jsxs(Box, { "data-cq-autonomous-widget": "1", "data-cq-autonomous-has-error": headerError ? '1' : '0', sx: {
             p: 0,
             pt: 0.5,
             display: 'flex',
@@ -35633,7 +35181,12 @@ const INTENT_RECIPE_ROUTING_KNOWN_KEYS = new Set([
     'engineEnabled',
     'minConfidence',
     'requestClarificationOnUnmatched',
-    'customRecipesPath'
+    'customRecipesPath',
+    'eligibilityGateEnabled',
+    'wholeTurnJsonRouterEnabled',
+    'engineMaxSteps',
+    'engineMaxTotalChars',
+    'engineMaxFieldChars'
 ]);
 function defaultIntentRecipeRoutingFormState() {
     return {
@@ -35642,6 +35195,11 @@ function defaultIntentRecipeRoutingFormState() {
         minConfidence: '0.55',
         requestClarificationOnUnmatched: false,
         customRecipesPath: '',
+        eligibilityGateEnabled: false,
+        wholeTurnJsonRouterEnabled: false,
+        engineMaxSteps: '',
+        engineMaxTotalChars: '',
+        engineMaxFieldChars: '',
         intentRecipeRoutingExtra: undefined
     };
 }
@@ -35672,12 +35230,23 @@ function parseIntentRecipeRoutingFromUnknown(raw) {
     if (o.minConfidence != null) {
         minC = String(o.minConfidence).trim() || base.minConfidence;
     }
+    const numField = (key) => {
+        if (o[key] == null || o[key] === '')
+            return '';
+        const n = Number(o[key]);
+        return Number.isFinite(n) ? String(Math.round(n)) : '';
+    };
     return {
         enabled: 'enabled' in o ? Boolean(o.enabled) : true,
         engineEnabled: 'engineEnabled' in o ? Boolean(o.engineEnabled) : true,
         minConfidence: minC,
         requestClarificationOnUnmatched: Boolean(o.requestClarificationOnUnmatched),
         customRecipesPath: o.customRecipesPath != null ? String(o.customRecipesPath).trim() : '',
+        eligibilityGateEnabled: Boolean(o.eligibilityGateEnabled),
+        wholeTurnJsonRouterEnabled: Boolean(o.wholeTurnJsonRouterEnabled),
+        engineMaxSteps: numField('engineMaxSteps'),
+        engineMaxTotalChars: numField('engineMaxTotalChars'),
+        engineMaxFieldChars: numField('engineMaxFieldChars'),
         intentRecipeRoutingExtra: Object.keys(extra).length ? extra : undefined
     };
 }
@@ -35695,6 +35264,33 @@ function intentRecipeRoutingToJsonObject(state) {
     const path = state.customRecipesPath.trim();
     if (path) {
         obj.customRecipesPath = path;
+    }
+    if (state.eligibilityGateEnabled) {
+        obj.eligibilityGateEnabled = true;
+    }
+    if (state.wholeTurnJsonRouterEnabled) {
+        obj.wholeTurnJsonRouterEnabled = true;
+    }
+    const maxSteps = state.engineMaxSteps.trim();
+    if (maxSteps) {
+        const n = Math.round(Number(maxSteps));
+        if (Number.isFinite(n)) {
+            obj.engineMaxSteps = n;
+        }
+    }
+    const maxTotal = state.engineMaxTotalChars.trim();
+    if (maxTotal) {
+        const n = Math.round(Number(maxTotal));
+        if (Number.isFinite(n)) {
+            obj.engineMaxTotalChars = n;
+        }
+    }
+    const maxField = state.engineMaxFieldChars.trim();
+    if (maxField) {
+        const n = Math.round(Number(maxField));
+        if (Number.isFinite(n)) {
+            obj.engineMaxFieldChars = n;
+        }
     }
     return obj;
 }
@@ -35789,6 +35385,26 @@ function validateToolsPolicy(state) {
     if (state.intentRecipeRouting.enabled && (!Number.isFinite(mc) || mc < 0 || mc > 1)) {
         return { ok: false, message: 'Intent recipe min confidence must be a number between 0 and 1.' };
     }
+    const irr = state.intentRecipeRouting;
+    const posInt = (label, raw) => {
+        const t = raw.trim();
+        if (!t)
+            return { ok: true };
+        const n = Math.round(Number(t));
+        if (!Number.isFinite(n) || n < 1) {
+            return { ok: false, message: `${label} must be a positive integer when set.` };
+        }
+        return { ok: true };
+    };
+    for (const [label, raw] of [
+        ['Prefetch max steps', irr.engineMaxSteps],
+        ['Prefetch max total characters', irr.engineMaxTotalChars],
+        ['Prefetch max field characters', irr.engineMaxFieldChars]
+    ]) {
+        const check = posInt(label, raw);
+        if (!check.ok)
+            return check;
+    }
     for (let i = 0; i < state.mcpServers.length; i++) {
         const r = state.mcpServers[i];
         const id = r.id.trim();
@@ -35868,7 +35484,12 @@ function serializeToolsPolicyToJson(state) {
     if (state.intentRecipeRouting.enabled ||
         state.intentRecipeRouting.engineEnabled ||
         state.intentRecipeRouting.requestClarificationOnUnmatched ||
+        state.intentRecipeRouting.eligibilityGateEnabled ||
+        state.intentRecipeRouting.wholeTurnJsonRouterEnabled ||
         state.intentRecipeRouting.customRecipesPath.trim() ||
+        state.intentRecipeRouting.engineMaxSteps.trim() ||
+        state.intentRecipeRouting.engineMaxTotalChars.trim() ||
+        state.intentRecipeRouting.engineMaxFieldChars.trim() ||
         (state.intentRecipeRouting.intentRecipeRoutingExtra &&
             Object.keys(state.intentRecipeRouting.intentRecipeRoutingExtra).length > 0)) {
         obj.intentRecipeRouting = irr;
@@ -36137,6 +35758,64 @@ function llmModelPresetRows(vendor) {
         return STUDIO_AI_CLAUDE_CHAT_MODELS;
     return STUDIO_AI_TOOLS_LOOP_CHAT_MODELS;
 }
+function mergeAgentAdvancedCatalogFields(draft, expertSkillRows, translateBatchStr) {
+    const rec = { ...draft };
+    const skills = serializeCentralCatalogExpertSkills(expertSkillRows);
+    if (skills)
+        rec.expertSkills = skills;
+    else {
+        delete rec.expertSkills;
+        delete rec.expertSkill;
+    }
+    const tbc = translateBatchStr.trim();
+    if (tbc) {
+        const n = Math.round(Number(tbc));
+        if (!Number.isFinite(n) || n < 1 || n > 64) {
+            return { error: 'Translate batch concurrency must be an integer from 1 to 64 when set.' };
+        }
+        rec.translateBatchConcurrency = n;
+        delete rec.translate_batch_concurrency;
+    }
+    else {
+        delete rec.translateBatchConcurrency;
+        delete rec.translate_batch_concurrency;
+    }
+    const key = String(rec.llmApiKey ?? rec.openAiApiKey ?? '').trim();
+    if (key)
+        rec.llmApiKey = key;
+    else {
+        delete rec.llmApiKey;
+        delete rec.openAiApiKey;
+    }
+    return rec;
+}
+function AgentAdvancedAgentFields(props) {
+    const { draft, setDraft, expertSkillRows, setExpertSkillRows, translateBatchStr, setTranslateBatchStr } = props;
+    return (jsxs(Stack$1, { spacing: 2, sx: { width: '100%' }, children: [jsxs(Box, { children: [jsx$1(FormLabel, { component: "legend", sx: { fontSize: '1.05rem', fontWeight: 600, color: 'text.primary' }, children: "Expert skills (markdown URLs)" }), jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mt: 0.5, mb: 1 }, children: ["Public http(s) URLs indexed for ", jsx$1("strong", { children: "QueryExpertGuidance" }), " when CMS tools are enabled (OpenAI and compatible providers)."] }), jsx$1(Stack$1, { spacing: 1.5, children: expertSkillRows.map((row, idx) => (jsxs(Box, { sx: { border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5, pr: 5, position: 'relative' }, children: [jsx$1(IconButton, { size: "small", "aria-label": "Remove expert skill", sx: { position: 'absolute', right: 4, top: 4 }, onClick: () => setExpertSkillRows(expertSkillRows.filter((_, i) => i !== idx)), children: jsx$1(DeleteOutlineRounded, { fontSize: "small" }) }), jsxs(Stack$1, { spacing: 1, children: [jsx$1(TextField, { label: "Name (optional)", value: row.name, onChange: (ev) => {
+                                                const v = ev.target.value;
+                                                setExpertSkillRows(expertSkillRows.map((r, i) => (i === idx ? { ...r, name: v } : r)));
+                                            }, fullWidth: true, size: "small" }), jsx$1(TextField, { label: "Markdown URL", value: row.url, onChange: (ev) => {
+                                                const v = ev.target.value;
+                                                setExpertSkillRows(expertSkillRows.map((r, i) => (i === idx ? { ...r, url: v } : r)));
+                                            }, fullWidth: true, size: "small", placeholder: "https://example.com/docs/guide.md" }), jsx$1(TextField, { label: "When to use (optional)", value: row.description, onChange: (ev) => {
+                                                const v = ev.target.value;
+                                                setExpertSkillRows(expertSkillRows.map((r, i) => (i === idx ? { ...r, description: v } : r)));
+                                            }, fullWidth: true, size: "small", multiline: true, minRows: 2 })] })] }, idx))) }), jsx$1(Button, { sx: { mt: 1 }, size: "small", startIcon: jsx$1(AddRounded, {}), onClick: () => setExpertSkillRows([...expertSkillRows, { name: '', url: '', description: '' }]), children: "Add expert skill" })] }), jsx$1(TextField, { label: "Translate batch concurrency (1\u201364, optional)", value: translateBatchStr, onChange: (ev) => setTranslateBatchStr(ev.target.value), fullWidth: true, size: "small", placeholder: "25", helperText: "Default parallelism for TranslateContentBatch when the model omits maxConcurrency. Leave empty for server default (25)." }), jsx$1(TextField, { label: "LLM API key override (optional, not recommended)", value: String(draft.llmApiKey ?? draft.openAiApiKey ?? ''), onChange: (ev) => {
+                    const v = ev.target.value;
+                    setDraft((d) => {
+                        if (!d)
+                            return d;
+                        const next = { ...d };
+                        if (v.trim())
+                            next.llmApiKey = v;
+                        else {
+                            delete next.llmApiKey;
+                            delete next.openAiApiKey;
+                        }
+                        return next;
+                    });
+                }, fullWidth: true, size: "small", type: "password", autoComplete: "off", helperText: "Testing only. Prefer host OPENAI_API_KEY or provider env vars. Stored in site config and sent on chat requests." })] }));
+}
 function CmsToolCheckboxes(props) {
     const { draft, onToggle } = props;
     return (jsxs(Box, { sx: { maxHeight: 220, overflowY: 'auto', border: 1, borderColor: 'divider', borderRadius: 1, p: 1 }, children: [jsx$1(FormLabel, { component: "legend", sx: { fontSize: '1.05rem', fontWeight: 600, color: 'text.primary', mb: 0.5 }, children: "CMS Tools for This Agent:" }), jsx$1(FormGroup, { children: STUDIO_AI_BUILTIN_TOOL_IDS.map((id) => (jsx$1(FormControlLabel, { control: jsx$1(Checkbox, { size: "small", checked: allToolIdsCheckedState(draft).has(id), onChange: (ev) => onToggle(id, ev.target.checked) }), label: jsx$1(Typography, { variant: "body2", sx: { fontFamily: 'monospace' }, children: id }) }, id))) })] }));
@@ -36242,6 +35921,8 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
     const [draft, setDraft] = useState(null);
     /** Chat quick-prompt rows while the edit dialog is open (trimmed on save). */
     const [chatPromptRows, setChatPromptRows] = useState([]);
+    const [expertSkillRows, setExpertSkillRows] = useState([]);
+    const [translateBatchStr, setTranslateBatchStr] = useState('');
     const [agentDialogFullscreen, setAgentDialogFullscreen] = useState(false);
     const [agentDialogTab, setAgentDialogTab] = useState('general');
     const [siteOrchPolicy, setSiteOrchPolicy] = useState(() => defaultToolsPolicyFormState());
@@ -36403,6 +36084,8 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
         resetSiteOrchDraft();
         setAgentDialogFullscreen(false);
         setChatPromptRows([]);
+        setExpertSkillRows([]);
+        setTranslateBatchStr('');
         setDraft({
             mode: 'chat',
             label: 'New assistant',
@@ -36421,6 +36104,8 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
         resetSiteOrchDraft();
         setAgentDialogFullscreen(false);
         setChatPromptRows([]);
+        setExpertSkillRows([]);
+        setTranslateBatchStr('');
         setDraft({
             mode: 'autonomous',
             name: 'New autonomous agent',
@@ -36442,6 +36127,10 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
         const entry = sanitizeScriptLlmModelField(catalog.agents[index]);
         setDraft({ ...entry });
         setChatPromptRows(rawPromptsToEditorRows(entry.prompts));
+        setExpertSkillRows(rawExpertSkillsToEditorRows(entry.expertSkills ?? entry.expertSkill));
+        const tbcRaw = entry.translateBatchConcurrency ?? entry.translate_batch_concurrency;
+        const tbcNum = tbcRaw != null ? Number(tbcRaw) : NaN;
+        setTranslateBatchStr(Number.isFinite(tbcNum) && tbcNum >= 1 ? String(Math.round(tbcNum)) : '');
         setEditIndex(index);
     };
     const closeDialog = () => {
@@ -36465,13 +36154,21 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
         }
         const next = cloneCatalog(catalog);
         const mode = String(draft.mode ?? 'chat').toLowerCase() === 'autonomous' ? 'autonomous' : 'chat';
+        const advancedMerged = mergeAgentAdvancedCatalogFields(draft, expertSkillRows, translateBatchStr);
+        if ('error' in advancedMerged) {
+            setFormError(advancedMerged.error);
+            return;
+        }
         const mergedDraft = mode === 'autonomous'
             ? (() => {
-                const x = { ...draft };
+                const x = { ...advancedMerged };
                 delete x.prompts;
                 return x;
             })()
-            : { ...draft, prompts: serializeCentralCatalogPrompts(chatPromptRows) ?? [] };
+            : {
+                ...advancedMerged,
+                prompts: serializeCentralCatalogPrompts(chatPromptRows) ?? []
+            };
         if (editIndex < 0)
             next.agents.push(mergedDraft);
         else
@@ -36566,7 +36263,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
                                     : presets.includes(String(draft.llmModel ?? '').trim())
                                         ? String(draft.llmModel ?? '').trim()
                                         : '__custom__';
-                                const advancedSiteOrchestrationPanel = !siteId ? null : (jsxs(Stack$1, { spacing: 2, sx: { width: '100%' }, children: [jsx$1(Divider, {}), jsx$1(Typography, { variant: "subtitle2", children: "Site orchestration (tools.json)" }), jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", children: "Built-in allowlists and intent recipe routing apply site-wide. MCP servers are edited under Project Tools \u2192 AI Assistant \u2192 Tools and MCP." }), siteOrchError ? (jsx$1(Alert, { severity: "error", onClose: () => setSiteOrchError(null), children: siteOrchError })) : null, siteOrchLoading ? (jsxs(Stack$1, { direction: "row", alignItems: "center", spacing: 1, children: [jsx$1(CircularProgress, { size: 22 }), jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "Loading tools.json\u2026" })] })) : (jsxs(Fragment, { children: [jsx$1(AiAssistantSiteOrchestrationToolsForm, { value: siteOrchPolicy, onChange: (next) => {
+                                const advancedSiteOrchestrationPanel = !siteId ? null : (jsxs(Stack$1, { spacing: 2, sx: { width: '100%' }, children: [jsx$1(Divider, {}), jsx$1(Typography, { variant: "subtitle2", children: "Site orchestration (tools.json)" }), jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", children: "Built-in allowlists and intent recipe routing apply site-wide. MCP servers are edited under Project Tools \u2192 AI Assistant \u2192 Integrations \u2192 Tools." }), siteOrchError ? (jsx$1(Alert, { severity: "error", onClose: () => setSiteOrchError(null), children: siteOrchError })) : null, siteOrchLoading ? (jsxs(Stack$1, { direction: "row", alignItems: "center", spacing: 1, children: [jsx$1(CircularProgress, { size: 22 }), jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "Loading tools.json\u2026" })] })) : (jsxs(Fragment, { children: [jsx$1(AiAssistantSiteOrchestrationToolsForm, { value: siteOrchPolicy, onChange: (next) => {
                                                         setSiteOrchPolicy(next);
                                                         setSiteOrchDirty(true);
                                                     } }), jsx$1(Button, { variant: "contained", size: "small", startIcon: jsx$1(SaveRounded, {}), disabled: savingSiteOrch || !siteOrchDirty, onClick: () => void saveSiteOrchPolicy(), children: savingSiteOrch ? 'Saving…' : 'Save site orchestration' })] }))] }));
@@ -36685,9 +36382,9 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
                                                                                                         delete next.omitTools;
                                                                                                     return next;
                                                                                                 }));
-                                                                                            } }), label: jsx$1(Typography, { variant: "body2", children: "Omit CMS tools when this chip is used (omitTools)" }) })] })] }, idx))) }), jsx$1(Button, { sx: { mt: 1 }, size: "small", startIcon: jsx$1(AddRounded, {}), disabled: chatPromptRows.length >= 10, onClick: () => setChatPromptRows([...chatPromptRows, { userText: '', additionalContext: '' }]), children: "Add prompt" })] })] })) : (jsxs(Stack$1, { spacing: 2, sx: { pt: 2.5, width: '100%' }, children: [draft.enableTools !== false ? (jsx$1(CmsToolCheckboxes, { draft: draft, onToggle: (toolId, checked) => setDraft((d) => (d ? setToolCheckedOnEntry(d, toolId, checked) : d)) })) : (jsxs(Typography, { variant: "body2", color: "text.secondary", children: ["Turn on ", jsx$1("strong", { children: "Enable CMS tools" }), " on the General tab to choose per-agent CMS tools."] })), advancedSiteOrchestrationPanel] }))] })) : (jsxs(Fragment, { children: [jsxs(Tabs, { value: agentDialogTab, onChange: (_, v) => setAgentDialogTab(v), sx: { borderBottom: 1, borderColor: 'divider', minHeight: 40 }, children: [jsx$1(Tab, { label: "General", value: "general" }), jsx$1(Tab, { label: "Advanced", value: "advanced" })] }), agentDialogTab === 'general' ? (jsxs(Stack$1, { spacing: 2, sx: { pt: 2.5, width: '100%' }, children: [jsx$1(TextField, { label: "Agent name", value: String(draft.name ?? ''), onChange: (ev) => setDraft((d) => (d ? { ...d, name: ev.target.value } : d)), fullWidth: true, size: "small" }), jsx$1(TextField, { label: "Schedule (Quartz cron)", value: String(draft.schedule ?? ''), onChange: (ev) => setDraft((d) => (d ? { ...d, schedule: ev.target.value } : d)), fullWidth: true, size: "small", helperText: "Quartz cron, e.g. every minute: 0 * * * * ?" }), jsx$1(TextField, { label: "System prompt", value: String(draft.prompt ?? ''), onChange: (ev) => setDraft((d) => (d ? { ...d, prompt: ev.target.value } : d)), fullWidth: true, multiline: true, minRows: 4, size: "small", helperText: "Instructions for each scheduled run.", placeholder: 'e.g. On each run: scan /site/website/news/ for draft items older than 7 days, ' +
+                                                                                            } }), label: jsx$1(Typography, { variant: "body2", children: "Omit CMS tools when this chip is used (omitTools)" }) })] })] }, idx))) }), jsx$1(Button, { sx: { mt: 1 }, size: "small", startIcon: jsx$1(AddRounded, {}), disabled: chatPromptRows.length >= 10, onClick: () => setChatPromptRows([...chatPromptRows, { userText: '', additionalContext: '' }]), children: "Add prompt" })] })] })) : (jsxs(Stack$1, { spacing: 2, sx: { pt: 2.5, width: '100%' }, children: [draft.enableTools !== false ? (jsx$1(CmsToolCheckboxes, { draft: draft, onToggle: (toolId, checked) => setDraft((d) => (d ? setToolCheckedOnEntry(d, toolId, checked) : d)) })) : (jsxs(Typography, { variant: "body2", color: "text.secondary", children: ["Turn on ", jsx$1("strong", { children: "Enable CMS tools" }), " on the General tab to choose per-agent CMS tools."] })), jsx$1(AgentAdvancedAgentFields, { draft: draft, setDraft: setDraft, expertSkillRows: expertSkillRows, setExpertSkillRows: setExpertSkillRows, translateBatchStr: translateBatchStr, setTranslateBatchStr: setTranslateBatchStr }), advancedSiteOrchestrationPanel] }))] })) : (jsxs(Fragment, { children: [jsxs(Tabs, { value: agentDialogTab, onChange: (_, v) => setAgentDialogTab(v), sx: { borderBottom: 1, borderColor: 'divider', minHeight: 40 }, children: [jsx$1(Tab, { label: "General", value: "general" }), jsx$1(Tab, { label: "Advanced", value: "advanced" })] }), agentDialogTab === 'general' ? (jsxs(Stack$1, { spacing: 2, sx: { pt: 2.5, width: '100%' }, children: [jsx$1(TextField, { label: "Agent name", value: String(draft.name ?? ''), onChange: (ev) => setDraft((d) => (d ? { ...d, name: ev.target.value } : d)), fullWidth: true, size: "small" }), jsx$1(TextField, { label: "Schedule (Quartz cron)", value: String(draft.schedule ?? ''), onChange: (ev) => setDraft((d) => (d ? { ...d, schedule: ev.target.value } : d)), fullWidth: true, size: "small", helperText: "Quartz cron, e.g. every minute: 0 * * * * ?" }), jsx$1(TextField, { label: "System prompt", value: String(draft.prompt ?? ''), onChange: (ev) => setDraft((d) => (d ? { ...d, prompt: ev.target.value } : d)), fullWidth: true, multiline: true, minRows: 4, size: "small", helperText: "Instructions for each scheduled run.", placeholder: 'e.g. On each run: scan /site/website/news/ for draft items older than 7 days, ' +
                                                                 'list their internal names, and suggest one-line social posts for each.' }), jsxs(FormControl, { fullWidth: true, size: "small", variant: "outlined", children: [jsx$1(InputLabel, { id: "cq-central-scope", children: "Scope" }), jsxs(Select, { labelId: "cq-central-scope", label: "Scope", value: String(draft.scope ?? 'project'), onChange: (ev) => setDraft((d) => (d ? { ...d, scope: ev.target.value } : d)), children: [jsx$1(MenuItem, { value: "project", children: "project" }), jsx$1(MenuItem, { value: "user", children: "user" }), jsx$1(MenuItem, { value: "role", children: "role" })] })] }), llmVendorImageRows] })) : (jsxs(Stack$1, { spacing: 2, sx: { pt: 2.5, width: '100%' }, children: [jsx$1(CmsToolCheckboxes, { draft: draft, onToggle: (toolId, checked) => setDraft((d) => (d ? setToolCheckedOnEntry(d, toolId, checked) : d)) }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: draft.manageOtherAgentsHumanTasks === true ||
-                                                                    String(draft.manageOtherAgentsHumanTasks).toLowerCase() === 'true', onChange: (ev) => setDraft((d) => (d ? { ...d, manageOtherAgentsHumanTasks: ev.target.checked } : d)) }), label: "Manage other agents\u2019 human tasks" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: draft.startAutomatically !== false, onChange: (ev) => setDraft((d) => (d ? { ...d, startAutomatically: ev.target.checked } : d)) }), label: "Start automatically (with supervisor)" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: draft.stopOnFailure !== false, onChange: (ev) => setDraft((d) => (d ? { ...d, stopOnFailure: ev.target.checked } : d)) }), label: "Stop on failure" }), advancedSiteOrchestrationPanel] }))] }))] }));
+                                                                    String(draft.manageOtherAgentsHumanTasks).toLowerCase() === 'true', onChange: (ev) => setDraft((d) => (d ? { ...d, manageOtherAgentsHumanTasks: ev.target.checked } : d)) }), label: "Manage other agents\u2019 human tasks" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: draft.startAutomatically !== false, onChange: (ev) => setDraft((d) => (d ? { ...d, startAutomatically: ev.target.checked } : d)) }), label: "Start automatically (with supervisor)" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: draft.stopOnFailure !== false, onChange: (ev) => setDraft((d) => (d ? { ...d, stopOnFailure: ev.target.checked } : d)) }), label: "Stop on failure" }), jsx$1(AgentAdvancedAgentFields, { draft: draft, setDraft: setDraft, expertSkillRows: expertSkillRows, setExpertSkillRows: setExpertSkillRows, translateBatchStr: translateBatchStr, setTranslateBatchStr: setTranslateBatchStr }), advancedSiteOrchestrationPanel] }))] }))] }));
                             })() }), jsxs(DialogActions, { sx: { flexShrink: 0 }, children: [jsx$1(Button, { onClick: closeDialog, children: "Cancel" }), jsx$1(Button, { variant: "contained", onClick: applyDraft, children: "Apply to catalog" })] })] })] }));
 });
 
@@ -38388,7 +38085,7 @@ function AiAssistantIntentRecipeRoutingFields(props) {
     const { value: valueProp, onChange } = props;
     const value = valueProp ?? defaultIntentRecipeRoutingFormState();
     const patch = (partial) => onChange({ ...value, ...partial });
-    return (jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Intent recipe routing" }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Optional pre-tools router: classifies the author message, runs read-only prefetch steps from a matched recipe, then prepends guidance to the main CMS tool loop." }), jsxs(Stack$1, { spacing: 2, children: [jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.enabled, onChange: (_, c) => patch({ enabled: c }), size: "small" }), label: "Enable intent recipe router" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.engineEnabled, onChange: (_, c) => patch({ engineEnabled: c }), size: "small", disabled: !value.enabled }), label: "Prefetch engine (server read-only tool steps before tools loop)" }), jsx$1(TextField, { label: "Min confidence (0\u20131)", value: value.minConfidence, onChange: (ev) => patch({ minConfidence: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled, helperText: "Router must meet this confidence to apply a recipe (default 0.55)." }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.requestClarificationOnUnmatched, onChange: (_, c) => patch({ requestClarificationOnUnmatched: c }), size: "small", disabled: !value.enabled }), label: "Tools-off clarification when unmatched" }), jsx$1(TextField, { label: "Custom recipes path (optional)", value: value.customRecipesPath, onChange: (ev) => patch({ customRecipesPath: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled, placeholder: "/scripts/aiassistant/config/intent-recipes.json", helperText: "Studio module path; merged over bundled defaults by recipe id." })] })] }));
+    return (jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Intent recipe routing" }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Optional pre-tools router: classifies the author message, runs read-only prefetch steps from a matched recipe, then prepends guidance to the main CMS tool loop." }), jsxs(Stack$1, { spacing: 2, children: [jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.enabled, onChange: (_, c) => patch({ enabled: c }), size: "small" }), label: "Enable intent recipe router" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.engineEnabled, onChange: (_, c) => patch({ engineEnabled: c }), size: "small", disabled: !value.enabled }), label: "Prefetch engine (server read-only tool steps before tools loop)" }), jsx$1(TextField, { label: "Min confidence (0\u20131)", value: value.minConfidence, onChange: (ev) => patch({ minConfidence: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled, helperText: "Router must meet this confidence to apply a recipe (default 0.55)." }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.requestClarificationOnUnmatched, onChange: (_, c) => patch({ requestClarificationOnUnmatched: c }), size: "small", disabled: !value.enabled }), label: "Tools-off clarification when unmatched" }), jsx$1(TextField, { label: "Custom recipes path (optional)", value: value.customRecipesPath, onChange: (ev) => patch({ customRecipesPath: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled, placeholder: "/scripts/aiassistant/config/intent-recipes.json", helperText: "Studio module path; merged over bundled defaults by recipe id." }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.eligibilityGateEnabled, onChange: (_, c) => patch({ eligibilityGateEnabled: c }), size: "small", disabled: !value.enabled }), label: "Eligibility gate (filter short / non-CMS messages before routing)" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.wholeTurnJsonRouterEnabled, onChange: (_, c) => patch({ wholeTurnJsonRouterEnabled: c }), size: "small", disabled: !value.enabled }), label: "Whole-turn JSON router" }), jsx$1(TextField, { label: "Prefetch max steps (optional)", value: value.engineMaxSteps, onChange: (ev) => patch({ engineMaxSteps: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled || !value.engineEnabled, placeholder: "8", helperText: "Cap read-only prefetch steps in the recipe engine. Leave empty for server default." }), jsx$1(TextField, { label: "Prefetch max total characters (optional)", value: value.engineMaxTotalChars, onChange: (ev) => patch({ engineMaxTotalChars: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled || !value.engineEnabled, placeholder: "200000", helperText: "Total characters loaded across prefetch steps. Leave empty for server default." }), jsx$1(TextField, { label: "Prefetch max field characters (optional)", value: value.engineMaxFieldChars, onChange: (ev) => patch({ engineMaxFieldChars: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled || !value.engineEnabled, placeholder: "120000", helperText: "Per-field cap during prefetch. Leave empty for server default." })] })] }));
 }
 
 function _extends() {
@@ -73384,7 +73081,9 @@ function emptyMcpServerRow() {
     return { id: '', url: '', readTimeoutMs: '', headerPairs: [{ key: '', value: '' }] };
 }
 function AiAssistantToolsMcpForm(props) {
-    const { value, onChange } = props;
+    const { value, onChange, sections = 'both' } = props;
+    const showBuiltIn = sections === 'builtIn' || sections === 'both';
+    const showMcp = sections === 'mcp' || sections === 'both';
     const setMcpEnabled = (mcpEnabled) => {
         onChange({ ...value, mcpEnabled });
     };
@@ -73398,7 +73097,7 @@ function AiAssistantToolsMcpForm(props) {
     const removeServer = (index) => {
         onChange({ ...value, mcpServers: value.mcpServers.filter((_, i) => i !== index) });
     };
-    return (jsxs(Stack$1, { spacing: 4, children: [jsx$1(AiAssistantSiteOrchestrationToolsForm, { value: value, onChange: onChange }), jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "subtitle2", children: "MCP (Streamable HTTP):" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.mcpEnabled, onChange: (_, c) => setMcpEnabled(c), size: "small" }), label: "Enable MCP client" })] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "When enabled, each server below is contacted on chat requests to list and call remote tools. URLs must pass the same outbound rules as FetchHttpUrl." }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Example (streamable HTTP, optional headers, read-only URL patterns):", ' ', jsx$1(Link, { href: "https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md", target: "_blank", rel: "noopener noreferrer", children: "GitHub MCP Server \u2014 remote-server.md" }), "."] }), value.mcpEnabled ? (jsxs(Fragment, { children: [jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "body2", children: "MCP servers" }), jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: addServer, children: "Add server" })] }), value.mcpServers.length === 0 ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 1 }, children: "No servers yet. Use Add server to register a Streamable HTTP MCP endpoint." })) : (jsxs(Table$1, { size: "small", sx: { border: 1, borderColor: 'divider', borderRadius: 1, mb: 1 }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Server id" }), jsx$1(TableCell, { children: "MCP URL and optional headers" }), jsx$1(TableCell, { width: 120, children: "Timeout (ms)" }), jsx$1(TableCell, { align: "right", width: 88, children: ' ' })] }) }), jsx$1(TableBody, { children: value.mcpServers.map((row, si) => (jsxs(TableRow, { children: [jsx$1(TableCell, { sx: { verticalAlign: 'top' }, children: jsx$1(TextField, { size: "small", fullWidth: true, value: row.id, onChange: (e) => updateServer(si, { ...row, id: e.target.value }), placeholder: "e.g. docs" }) }), jsxs(TableCell, { sx: { verticalAlign: 'top' }, children: [jsx$1(TextField, { size: "small", fullWidth: true, value: row.url, onChange: (e) => updateServer(si, { ...row, url: e.target.value }), placeholder: "https://host/\u2026/mcp" }), jsxs(Stack$1, { spacing: 0.5, sx: { mt: 1 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Optional headers" }), row.headerPairs.map((hp, hi) => (jsxs(Stack$1, { direction: "row", spacing: 0.5, alignItems: "center", children: [jsx$1(TextField, { size: "small", label: "Name", value: hp.key, onChange: (e) => {
+    return (jsxs(Stack$1, { spacing: 4, children: [showBuiltIn ? jsx$1(AiAssistantSiteOrchestrationToolsForm, { value: value, onChange: onChange }) : null, showMcp ? (jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "subtitle2", children: "MCP (Streamable HTTP):" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.mcpEnabled, onChange: (_, c) => setMcpEnabled(c), size: "small" }), label: "Enable MCP client" })] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "When enabled, each server below is contacted on chat requests to list and call remote tools. URLs must pass the same outbound rules as FetchHttpUrl." }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Example (streamable HTTP, optional headers, read-only URL patterns):", ' ', jsx$1(Link, { href: "https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md", target: "_blank", rel: "noopener noreferrer", children: "GitHub MCP Server \u2014 remote-server.md" }), "."] }), value.mcpEnabled ? (jsxs(Fragment, { children: [jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "body2", children: "MCP servers" }), jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: addServer, children: "Add server" })] }), value.mcpServers.length === 0 ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 1 }, children: "No servers yet. Use Add server to register a Streamable HTTP MCP endpoint." })) : (jsxs(Table$1, { size: "small", sx: { border: 1, borderColor: 'divider', borderRadius: 1, mb: 1 }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Server id" }), jsx$1(TableCell, { children: "MCP URL and optional headers" }), jsx$1(TableCell, { width: 120, children: "Timeout (ms)" }), jsx$1(TableCell, { align: "right", width: 88, children: ' ' })] }) }), jsx$1(TableBody, { children: value.mcpServers.map((row, si) => (jsxs(TableRow, { children: [jsx$1(TableCell, { sx: { verticalAlign: 'top' }, children: jsx$1(TextField, { size: "small", fullWidth: true, value: row.id, onChange: (e) => updateServer(si, { ...row, id: e.target.value }), placeholder: "e.g. docs" }) }), jsxs(TableCell, { sx: { verticalAlign: 'top' }, children: [jsx$1(TextField, { size: "small", fullWidth: true, value: row.url, onChange: (e) => updateServer(si, { ...row, url: e.target.value }), placeholder: "https://host/\u2026/mcp" }), jsxs(Stack$1, { spacing: 0.5, sx: { mt: 1 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Optional headers" }), row.headerPairs.map((hp, hi) => (jsxs(Stack$1, { direction: "row", spacing: 0.5, alignItems: "center", children: [jsx$1(TextField, { size: "small", label: "Name", value: hp.key, onChange: (e) => {
                                                                                 const headerPairs = row.headerPairs.map((p, j) => j === hi ? { ...p, key: e.target.value } : p);
                                                                                 updateServer(si, { ...row, headerPairs });
                                                                             }, sx: { flex: 1 } }), jsx$1(TextField, { size: "small", label: "Value", type: hp.key.trim().toLowerCase() === 'authorization' ? 'password' : 'text', autoComplete: "off", value: hp.value, onChange: (e) => {
@@ -73413,7 +73112,7 @@ function AiAssistantToolsMcpForm(props) {
                                                                             }, children: jsx$1(DeleteOutlineRounded, { fontSize: "small" }) })] }, hi))), jsx$1(Button, { size: "small", onClick: () => updateServer(si, {
                                                                         ...row,
                                                                         headerPairs: [...row.headerPairs, { key: '', value: '' }]
-                                                                    }), children: "Add header" })] })] }), jsx$1(TableCell, { sx: { verticalAlign: 'top' }, children: jsx$1(TextField, { size: "small", fullWidth: true, value: row.readTimeoutMs, onChange: (e) => updateServer(si, { ...row, readTimeoutMs: e.target.value }), placeholder: "120000" }) }), jsx$1(TableCell, { align: "right", sx: { verticalAlign: 'top' }, children: jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), onClick: () => removeServer(si), children: "Remove" }) })] }, si))) })] })), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: value.disabledMcpTools, onChange: (_, v) => onChange({ ...value, disabledMcpTools: v.map(String) }), renderTags: (tagValue, getTagProps) => tagValue.map((option, index) => (createElement(Chip, { variant: "outlined", label: option, size: "small", ...getTagProps({ index }), key: `${option}-${index}` }))), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Hide MCP wire tools", placeholder: "e.g. mcp_docs_search", size: "small" })) })] })) : null] })] }));
+                                                                    }), children: "Add header" })] })] }), jsx$1(TableCell, { sx: { verticalAlign: 'top' }, children: jsx$1(TextField, { size: "small", fullWidth: true, value: row.readTimeoutMs, onChange: (e) => updateServer(si, { ...row, readTimeoutMs: e.target.value }), placeholder: "120000" }) }), jsx$1(TableCell, { align: "right", sx: { verticalAlign: 'top' }, children: jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), onClick: () => removeServer(si), children: "Remove" }) })] }, si))) })] })), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: value.disabledMcpTools, onChange: (_, v) => onChange({ ...value, disabledMcpTools: v.map(String) }), renderTags: (tagValue, getTagProps) => tagValue.map((option, index) => (createElement(Chip, { variant: "outlined", label: option, size: "small", ...getTagProps({ index }), key: `${option}-${index}` }))), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Hide MCP wire tools", placeholder: "e.g. mcp_docs_search", size: "small" })) })] })) : null] })) : null] }));
 }
 
 const REGISTRY_REL = 'scripts/aiassistant/user-tools/registry.json';
@@ -73433,10 +73132,14 @@ function mcpPreviewHasPickableTools(servers) {
 function AiAssistantScriptsSandboxConfiguration(props) {
     const panel = props.panel ?? 'all';
     const showPrompts = panel === 'all' || panel === 'prompts';
-    const showTools = panel === 'all' || panel === 'tools';
-    const showScripts = panel === 'all' || panel === 'scripts';
-    /** Tools-only tab: hide the raw registry JSON editor; the table + Add tool + Open in editor are enough for most authors. */
-    const showRegistryJsonEditor = panel !== 'tools';
+    const showToolsBuiltIn = panel === 'all' || panel === 'tools';
+    const showToolsUser = panel === 'all' || panel === 'tools';
+    const showMcp = panel === 'all' || panel === 'mcp';
+    const showLlms = panel === 'all' || panel === 'llms' || panel === 'scripts';
+    const showImageGen = panel === 'all' || panel === 'imagegen' || panel === 'scripts';
+    const showToolsPolicy = showToolsBuiltIn || showMcp;
+    /** Tools tab: hide the raw registry JSON editor; the table + Add tool + Open in editor are enough for most authors. */
+    const showRegistryJsonEditor = panel === 'all';
     const siteId = useActiveSiteId() ?? '';
     const [loadError, setLoadError] = useState(null);
     const [index, setIndex] = useState(null);
@@ -73496,7 +73199,7 @@ function AiAssistantScriptsSandboxConfiguration(props) {
                 const t = (data.registryText ?? '').trim();
                 setRegistryDraft(t || AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB);
             }
-            if (!toolsPolicyDirtyRef.current && showTools) {
+            if (!toolsPolicyDirtyRef.current && showToolsPolicy) {
                 try {
                     const text = await fetchOptionalStudioSandboxUtf8(siteId, TOOLS_JSON_SANDBOX_PATH$1);
                     const parsed = parseToolsPolicyFromJsonText(text.trim() ? text : '');
@@ -73520,7 +73223,7 @@ function AiAssistantScriptsSandboxConfiguration(props) {
         finally {
             setLoading(false);
         }
-    }, [siteId, showTools]);
+    }, [siteId, showToolsPolicy]);
     useEffect(() => {
         void reload();
     }, [reload]);
@@ -73885,28 +73588,37 @@ function AiAssistantScriptsSandboxConfiguration(props) {
     const pageTitle = panel === 'prompts'
         ? 'Tool prompt overrides'
         : panel === 'tools'
-            ? 'Tools and MCP'
-            : panel === 'scripts'
-                ? 'Script backends'
-                : 'AI Assistant Scripts';
+            ? 'Tools'
+            : panel === 'mcp'
+                ? 'MCP'
+                : panel === 'llms'
+                    ? 'LLMs'
+                    : panel === 'imagegen'
+                        ? 'Image generators'
+                        : panel === 'scripts'
+                            ? 'Script backends'
+                            : 'AI Assistant Scripts';
     const pageIntro = panel === 'prompts' ? (jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Markdown under ", jsx$1("code", { children: "scripts/aiassistant/prompts/<KEY>.md" }), " overrides built-in tool prompt text (see ToolPromptsLoader). Empty files open with a working stub."] })) : null;
     return (jsxs(Box, { sx: { p: 2, maxWidth: 1100, mx: 'auto' }, children: [jsx$1(Typography, { variant: "h5", component: "h1", gutterBottom: true, children: pageTitle }), pageIntro, !siteId ? (jsx$1(Alert, { severity: "info", children: "Select a site to edit scripts." })) : (jsxs(Fragment, { children: [loadError ? (jsx$1(Alert, { severity: "error", sx: { mb: 2 }, onClose: () => setLoadError(null), children: loadError })) : null, jsx$1(Stack$1, { direction: "row", spacing: 1, sx: { mb: 2 }, flexWrap: "wrap", alignItems: "center", children: jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(RefreshRounded, {}), disabled: loading, onClick: () => {
                                 setRegistryDirty(false);
                                 setToolsPolicyDirty(false);
                                 void reload();
-                            }, children: "Reload" }) }), showTools ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["Built-In Tools and MCP (", jsx$1("code", { children: TOOLS_JSON_REL }), "):"] }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Use the form below to map built-in tools and optional MCP servers. The site file remains", ' ', jsx$1("code", { children: "scripts/aiassistant/config/tools.json" }), " (written on Save). MCP tools use wire names like", ' ', jsx$1("code", { children: "mcp_<serverId>_<toolName>" }), "."] }), jsx$1(AiAssistantToolsMcpForm, { value: toolsPolicy, onChange: (next) => {
+                            }, children: "Reload" }) }), showToolsBuiltIn ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["Built-in tools (", jsx$1("code", { children: TOOLS_JSON_REL }), "):"] }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Allowlists and intent-recipe routing for CMS tools. Saved with the same site file as MCP settings (", jsx$1("code", { children: "scripts/aiassistant/config/tools.json" }), ")."] }), jsx$1(AiAssistantToolsMcpForm, { sections: "builtIn", value: toolsPolicy, onChange: (next) => {
                                     setToolsPolicy(next);
                                     setToolsPolicyDirty(true);
-                                } }), jsxs(Stack$1, { direction: "row", spacing: 1, sx: { mt: 2 }, flexWrap: "wrap", alignItems: "center", children: [jsx$1(Button, { size: "small", variant: "contained", startIcon: savingToolsPolicy ? jsx$1(CircularProgress, { size: 16, color: "inherit" }) : jsx$1(SaveRounded, {}), disabled: savingToolsPolicy || !toolsPolicyDirty, onClick: () => void saveToolsPolicy(), children: "Save tools & MCP" }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: listingMcpTools ? jsx$1(CircularProgress, { size: 16, color: "inherit" }) : jsx$1(FormatListBulletedRounded, {}), disabled: savingToolsPolicy || listingMcpTools || !mcpListPreviewAllowed, onClick: () => void openMcpToolsListOnly(), children: "List MCP tools" })] }), jsx$1(Divider, { sx: { my: 4 } }), jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["Registry (", jsx$1("code", { children: REGISTRY_REL }), "):"] }), showRegistryJsonEditor ? null : (jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Use ", jsx$1("strong", { children: "Add tool" }), " and the table below to change the registry. For a raw JSON view or hand edits, use ", jsx$1("strong", { children: "Open in editor" }), "."] })), showRegistryJsonEditor ? (jsx$1(AiAssistantStudioCodeEditor, { language: "json", value: registryDraft, onChange: (v) => {
+                                } }), showToolsUser ? null : (jsx$1(Stack$1, { direction: "row", spacing: 1, sx: { mt: 2 }, flexWrap: "wrap", alignItems: "center", children: jsx$1(Button, { size: "small", variant: "contained", startIcon: savingToolsPolicy ? jsx$1(CircularProgress, { size: 16, color: "inherit" }) : jsx$1(SaveRounded, {}), disabled: savingToolsPolicy || !toolsPolicyDirty, onClick: () => void saveToolsPolicy(), children: "Save tools policy" }) }))] })) : null, showMcp ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["MCP (", jsx$1("code", { children: TOOLS_JSON_REL }), "):"] }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Optional Streamable HTTP MCP servers. Wire names look like", ' ', jsx$1("code", { children: "mcp_<serverId>_<toolName>" }), ". Written to", ' ', jsx$1("code", { children: "scripts/aiassistant/config/tools.json" }), " on Save."] }), jsx$1(AiAssistantToolsMcpForm, { sections: "mcp", value: toolsPolicy, onChange: (next) => {
+                                    setToolsPolicy(next);
+                                    setToolsPolicyDirty(true);
+                                } }), jsxs(Stack$1, { direction: "row", spacing: 1, sx: { mt: 2 }, flexWrap: "wrap", alignItems: "center", children: [jsx$1(Button, { size: "small", variant: "contained", startIcon: savingToolsPolicy ? jsx$1(CircularProgress, { size: 16, color: "inherit" }) : jsx$1(SaveRounded, {}), disabled: savingToolsPolicy || !toolsPolicyDirty, onClick: () => void saveToolsPolicy(), children: "Save MCP settings" }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: listingMcpTools ? jsx$1(CircularProgress, { size: 16, color: "inherit" }) : jsx$1(FormatListBulletedRounded, {}), disabled: savingToolsPolicy || listingMcpTools || !mcpListPreviewAllowed, onClick: () => void openMcpToolsListOnly(), children: "List MCP tools" })] })] })) : null, showToolsBuiltIn && showMcp ? jsx$1(Divider, { sx: { my: 4 } }) : null, showToolsUser ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["Registry (", jsx$1("code", { children: REGISTRY_REL }), "):"] }), showRegistryJsonEditor ? null : (jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Use ", jsx$1("strong", { children: "Add tool" }), " and the table below to change the registry. For a raw JSON view or hand edits, use ", jsx$1("strong", { children: "Open in editor" }), "."] })), showRegistryJsonEditor ? (jsx$1(AiAssistantStudioCodeEditor, { language: "json", value: registryDraft, onChange: (v) => {
                                     setRegistryDraft(v);
                                     setRegistryDirty(true);
-                                }, minHeightPx: 260 })) : null, showRegistryJsonEditor ? (jsx$1(Button, { sx: { mt: 1 }, size: "small", variant: "contained", startIcon: jsx$1(SaveRounded, {}), disabled: savingRegistry || !registryDirty, onClick: () => void saveRegistry(), children: "Save registry" })) : null, jsx$1(Button, { sx: { mt: 1, ...(showRegistryJsonEditor ? { ml: 1 } : {}) }, size: "small", onClick: () => loadFileForEditor('Registry', `/${REGISTRY_REL}`, AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB), children: "Open in editor" })] })) : null, showTools && showPrompts ? jsx$1(Divider, { sx: { my: 4 } }) : null, showPrompts ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["Tool Prompt Overrides (", jsx$1("code", { children: "scripts/aiassistant/prompts/" }), "):"] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Non-empty markdown for a key replaces the plugin default (see ToolPromptsLoader). Remove the file to use the built-in text again. Click a row to read the default and the site file side by side." }), jsx$1(TableContainer, { sx: { maxHeight: 420, border: 1, borderColor: 'divider', borderRadius: 1 }, children: jsxs(Table$1, { size: "small", stickyHeader: true, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Key" }), jsx$1(TableCell, { children: "Status" }), jsx$1(TableCell, { align: "right", children: "Actions" })] }) }), jsx$1(TableBody, { children: toolPromptOverrides.length === 0 ? (jsx$1(TableRow, { children: jsx$1(TableCell, { colSpan: 3, children: jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No prompt keys returned from the server." }) }) })) : (toolPromptOverrides.map((row) => (jsxs(TableRow, { hover: true, selected: promptReadOpen && promptReadKey === row.key, sx: { cursor: 'pointer' }, onClick: () => openPromptRead(row.key), children: [jsx$1(TableCell, { children: jsx$1("code", { children: row.key }) }), jsx$1(TableCell, { children: row.hasOverride ? `Site override (${row.byteLength} bytes)` : 'Built-in default' }), jsxs(TableCell, { align: "right", children: [jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: (ev) => {
+                                }, minHeightPx: 260 })) : null, showRegistryJsonEditor ? (jsx$1(Button, { sx: { mt: 1 }, size: "small", variant: "contained", startIcon: jsx$1(SaveRounded, {}), disabled: savingRegistry || !registryDirty, onClick: () => void saveRegistry(), children: "Save registry" })) : null, jsx$1(Button, { sx: { mt: 1, ...(showRegistryJsonEditor ? { ml: 1 } : {}) }, size: "small", onClick: () => loadFileForEditor('Registry', `/${REGISTRY_REL}`, AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB), children: "Open in editor" }), jsx$1(Divider, { sx: { my: 3 } }), jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "subtitle1", children: "User tools (Groovy):" }), jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: () => { setAddDialogFullscreen(false); setAddOpen('tool'); }, children: "Add tool" })] }), jsxs(Table$1, { size: "small", sx: { border: 1, borderColor: 'divider', borderRadius: 1 }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Id" }), jsx$1(TableCell, { children: "Script" }), jsx$1(TableCell, { children: "Description" }), jsx$1(TableCell, { align: "right", children: "Actions" })] }) }), jsx$1(TableBody, { children: tools.length === 0 ? (jsx$1(TableRow, { children: jsx$1(TableCell, { colSpan: 4, children: jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No tools in registry (or registry missing)." }) }) })) : (tools.map((t) => (jsxs(TableRow, { children: [jsx$1(TableCell, { children: t.id }), jsx$1(TableCell, { children: jsx$1("code", { children: t.script }) }), jsx$1(TableCell, { children: t.description }), jsxs(TableCell, { align: "right", children: [jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: () => void loadFileForEditor(`Tool ${t.id}`, t.studioPath, AI_ASSISTANT_USER_TOOL_GROOVY_STUB), children: "Edit" }), jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), onClick: () => void removeUserTool(t.id), children: "Remove" })] })] }, t.id)))) })] }), jsx$1(Stack$1, { direction: "row", spacing: 1, sx: { mt: 2 }, flexWrap: "wrap", alignItems: "center", children: jsx$1(Button, { size: "small", variant: "contained", startIcon: savingToolsPolicy ? jsx$1(CircularProgress, { size: 16, color: "inherit" }) : jsx$1(SaveRounded, {}), disabled: savingToolsPolicy || !toolsPolicyDirty, onClick: () => void saveToolsPolicy(), children: "Save tools policy" }) })] })) : null, (showToolsBuiltIn || showToolsUser) && showPrompts ? jsx$1(Divider, { sx: { my: 4 } }) : null, showPrompts ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["Tool Prompt Overrides (", jsx$1("code", { children: "scripts/aiassistant/prompts/" }), "):"] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Non-empty markdown for a key replaces the plugin default (see ToolPromptsLoader). Remove the file to use the built-in text again. Click a row to read the default and the site file side by side." }), jsx$1(TableContainer, { sx: { maxHeight: 420, border: 1, borderColor: 'divider', borderRadius: 1 }, children: jsxs(Table$1, { size: "small", stickyHeader: true, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Key" }), jsx$1(TableCell, { children: "Status" }), jsx$1(TableCell, { align: "right", children: "Actions" })] }) }), jsx$1(TableBody, { children: toolPromptOverrides.length === 0 ? (jsx$1(TableRow, { children: jsx$1(TableCell, { colSpan: 3, children: jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No prompt keys returned from the server." }) }) })) : (toolPromptOverrides.map((row) => (jsxs(TableRow, { hover: true, selected: promptReadOpen && promptReadKey === row.key, sx: { cursor: 'pointer' }, onClick: () => openPromptRead(row.key), children: [jsx$1(TableCell, { children: jsx$1("code", { children: row.key }) }), jsx$1(TableCell, { children: row.hasOverride ? `Site override (${row.byteLength} bytes)` : 'Built-in default' }), jsxs(TableCell, { align: "right", children: [jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: (ev) => {
                                                                     ev.stopPropagation();
                                                                     void openToolPromptOverride(row.key);
                                                                 }, children: "Override" }), jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), disabled: !row.hasOverride, onClick: (ev) => {
                                                                     ev.stopPropagation();
                                                                     void removeToolPromptOverride(row.key);
-                                                                }, children: "Remove override" })] })] }, row.key)))) })] }) })] })) : null, showPrompts && showTools ? jsx$1(Divider, { sx: { my: 4 } }) : null, showTools ? (jsxs(Fragment, { children: [jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "subtitle1", children: "User Tools (Registry + Groovy):" }), jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: () => { setAddDialogFullscreen(false); setAddOpen('tool'); }, children: "Add tool" })] }), jsxs(Table$1, { size: "small", sx: { border: 1, borderColor: 'divider', borderRadius: 1 }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Id" }), jsx$1(TableCell, { children: "Script" }), jsx$1(TableCell, { children: "Description" }), jsx$1(TableCell, { align: "right", children: "Actions" })] }) }), jsx$1(TableBody, { children: tools.length === 0 ? (jsx$1(TableRow, { children: jsx$1(TableCell, { colSpan: 4, children: jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No tools in registry (or registry missing)." }) }) })) : (tools.map((t) => (jsxs(TableRow, { children: [jsx$1(TableCell, { children: t.id }), jsx$1(TableCell, { children: jsx$1("code", { children: t.script }) }), jsx$1(TableCell, { children: t.description }), jsxs(TableCell, { align: "right", children: [jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: () => void loadFileForEditor(`Tool ${t.id}`, t.studioPath, AI_ASSISTANT_USER_TOOL_GROOVY_STUB), children: "Edit" }), jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), onClick: () => void removeUserTool(t.id), children: "Remove" })] })] }, t.id)))) })] })] })) : null, showTools && showScripts ? jsx$1(Divider, { sx: { my: 4 } }) : null, showScripts ? (jsxs(Fragment, { children: [jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "subtitle1", children: "Script Image Generators:" }), jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: () => { setAddDialogFullscreen(false); setAddOpen('imagegen'); }, children: "Add generator" })] }), jsxs(Table$1, { size: "small", sx: { border: 1, borderColor: 'divider' }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Id" }), jsx$1(TableCell, { children: "Path" }), jsx$1(TableCell, { align: "right", children: "Actions" })] }) }), jsx$1(TableBody, { children: imageGens.length === 0 ? (jsx$1(TableRow, { children: jsx$1(TableCell, { colSpan: 3, children: jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No folders under imagegen (create one with Add generator)." }) }) })) : (imageGens.map((g) => (jsxs(TableRow, { children: [jsx$1(TableCell, { children: g.id }), jsx$1(TableCell, { children: jsx$1("code", { children: g.studioPath ?? '' }) }), jsxs(TableCell, { align: "right", children: [jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: () => void loadFileForEditor(`Image generator ${g.id}`, g.studioPath ?? '', AI_ASSISTANT_IMAGEGEN_GROOVY_STUB), children: "Edit" }), jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), onClick: () => void deleteRepoFile(`/config/studio${g.studioPath ?? ''}`, `Delete script image generator ${g.id} (${g.studioPath})?`), children: "Remove" })] })] }, g.id)))) })] }), jsx$1(Divider, { sx: { my: 4 } }), jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "subtitle1", children: "Script LLMs:" }), jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: () => { setAddDialogFullscreen(false); setAddOpen('llm'); }, children: "Add script LLM" })] }), jsxs(Table$1, { size: "small", sx: { border: 1, borderColor: 'divider' }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Id" }), jsx$1(TableCell, { children: "Entry" }), jsx$1(TableCell, { align: "right", children: "Actions" })] }) }), jsx$1(TableBody, { children: llms.length === 0 ? (jsx$1(TableRow, { children: jsx$1(TableCell, { colSpan: 3, children: jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No folders under llm (create one with Add script LLM)." }) }) })) : (llms.map((l) => (jsxs(TableRow, { children: [jsx$1(TableCell, { children: l.id }), jsx$1(TableCell, { children: jsx$1("code", { children: l.studioPath ?? '(no runtime.groovy / llm.groovy)' }) }), jsxs(TableCell, { align: "right", children: [jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: () => {
+                                                                }, children: "Remove override" })] })] }, row.key)))) })] }) })] })) : null, showPrompts && (showToolsBuiltIn || showToolsUser) ? jsx$1(Divider, { sx: { my: 4 } }) : null, (showToolsBuiltIn || showToolsUser) && (showLlms || showImageGen) ? jsx$1(Divider, { sx: { my: 4 } }) : null, showImageGen ? (jsxs(Fragment, { children: [jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "subtitle1", children: "Script image generators:" }), jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: () => { setAddDialogFullscreen(false); setAddOpen('imagegen'); }, children: "Add generator" })] }), jsxs(Table$1, { size: "small", sx: { border: 1, borderColor: 'divider' }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Id" }), jsx$1(TableCell, { children: "Path" }), jsx$1(TableCell, { align: "right", children: "Actions" })] }) }), jsx$1(TableBody, { children: imageGens.length === 0 ? (jsx$1(TableRow, { children: jsx$1(TableCell, { colSpan: 3, children: jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No folders under imagegen (create one with Add generator)." }) }) })) : (imageGens.map((g) => (jsxs(TableRow, { children: [jsx$1(TableCell, { children: g.id }), jsx$1(TableCell, { children: jsx$1("code", { children: g.studioPath ?? '' }) }), jsxs(TableCell, { align: "right", children: [jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: () => void loadFileForEditor(`Image generator ${g.id}`, g.studioPath ?? '', AI_ASSISTANT_IMAGEGEN_GROOVY_STUB), children: "Edit" }), jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), onClick: () => void deleteRepoFile(`/config/studio${g.studioPath ?? ''}`, `Delete script image generator ${g.id} (${g.studioPath})?`), children: "Remove" })] })] }, g.id)))) })] })] })) : null, showLlms && showImageGen ? jsx$1(Divider, { sx: { my: 4 } }) : null, showLlms ? (jsxs(Fragment, { children: [jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "subtitle1", children: "Script LLMs:" }), jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: () => { setAddDialogFullscreen(false); setAddOpen('llm'); }, children: "Add script LLM" })] }), jsxs(Table$1, { size: "small", sx: { border: 1, borderColor: 'divider' }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Id" }), jsx$1(TableCell, { children: "Entry" }), jsx$1(TableCell, { align: "right", children: "Actions" })] }) }), jsx$1(TableBody, { children: llms.length === 0 ? (jsx$1(TableRow, { children: jsx$1(TableCell, { colSpan: 3, children: jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No folders under llm (create one with Add script LLM)." }) }) })) : (llms.map((l) => (jsxs(TableRow, { children: [jsx$1(TableCell, { children: l.id }), jsx$1(TableCell, { children: jsx$1("code", { children: l.studioPath ?? '(no runtime.groovy / llm.groovy)' }) }), jsxs(TableCell, { align: "right", children: [jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: () => {
                                                                 const sp = l.studioPath && l.studioPath.length > 0
                                                                     ? l.studioPath.startsWith('/')
                                                                         ? l.studioPath
@@ -74526,6 +74238,18 @@ function useDomFullscreen() {
     return { ref, isFullscreen, toggleFullscreen };
 }
 
+function isIntegrationsSubTab(t) {
+    return t === 'llms' || t === 'imagegen' || t === 'tools' || t === 'mcp' || t === 'scripts';
+}
+function resolveProjectToolsTabs(defaultTab) {
+    if (isIntegrationsSubTab(defaultTab)) {
+        return { tab: 'integrations', integrationsSub: defaultTab };
+    }
+    if (defaultTab === 'integrations') {
+        return { tab: 'integrations', integrationsSub: 'tools' };
+    }
+    return { tab: defaultTab, integrationsSub: 'tools' };
+}
 function projectToolsTabLabel(t) {
     switch (t) {
         case 'ui':
@@ -74534,22 +74258,35 @@ function projectToolsTabLabel(t) {
             return 'Agents';
         case 'recipes':
             return 'Recipes';
+        case 'integrations':
+            return 'Integrations';
         case 'prompts':
             return 'Prompts and Context';
+        case 'llms':
+            return 'LLMs';
+        case 'imagegen':
+            return 'Image Generators';
         case 'tools':
-            return 'Tools and MCP';
+            return 'Tools';
+        case 'mcp':
+            return 'MCP';
         case 'scripts':
             return 'Scripts';
         default:
             return t;
     }
 }
+function integrationsSandboxPanel(sub) {
+    return sub;
+}
 /**
  * Tabbed configuration body (tabs + panels + unsaved guard). Used inside {@link AiAssistantProjectToolsConfiguration}.
  */
 function AiAssistantProjectToolsConfigurationPanel(props) {
     const { defaultTab = 'ui' } = props;
-    const [tab, setTab] = useState(defaultTab);
+    const initialTabs = useMemo(() => resolveProjectToolsTabs(defaultTab), [defaultTab]);
+    const [tab, setTab] = useState(initialTabs.tab);
+    const [integrationsSub, setIntegrationsSub] = useState(initialTabs.integrationsSub);
     const [agentsCatalogDirty, setAgentsCatalogDirty] = useState(false);
     const [recipesDirty, setRecipesDirty] = useState(false);
     const [pendingTabSwitch, setPendingTabSwitch] = useState(null);
@@ -74568,6 +74305,9 @@ function AiAssistantProjectToolsConfigurationPanel(props) {
         }
         setTab(value);
     }, [tab, agentsCatalogDirty, recipesDirty]);
+    const handleIntegrationsSubChange = useCallback((_, value) => {
+        setIntegrationsSub(value);
+    }, []);
     const cancelPendingTabSwitch = useCallback(() => {
         setPendingTabSwitch(null);
         setTabLeaveSaveBusy(false);
@@ -74619,16 +74359,16 @@ function AiAssistantProjectToolsConfigurationPanel(props) {
             minHeight: 0,
             alignSelf: 'stretch',
             ...(toolFullscreen ? { bgcolor: 'background.default' } : {})
-        }, children: [jsxs(Stack$2, { direction: "row", alignItems: "stretch", sx: { flexShrink: 0, borderBottom: 1, borderColor: 'divider' }, children: [jsxs(Tabs$1, { value: tab, onChange: handleTabsChange, variant: "scrollable", scrollButtons: "auto", allowScrollButtonsMobile: true, sx: { flex: '1 1 auto', minWidth: 0 }, children: [jsx$1(Tab$1, { label: "UI", value: "ui" }), jsx$1(Tab$1, { label: "Agents", value: "agents" }), jsx$1(Tab$1, { label: "Tools and MCP", value: "tools" }), jsx$1(Tab$1, { label: "Scripts", value: "scripts" }), jsx$1(Tab$1, { label: "Recipes", value: "recipes" }), jsx$1(Tab$1, { label: "Prompts and Context", value: "prompts" })] }), jsx$1(Box$1, { sx: { display: 'flex', alignItems: 'center', flexShrink: 0, borderLeft: 1, borderColor: 'divider', px: 0.5 }, children: jsx$1(Tooltip$1, { title: toolFullscreen ? 'Exit fullscreen' : 'Fullscreen', children: jsx$1(IconButton$1, { size: "small", "aria-label": toolFullscreen ? 'Exit fullscreen' : 'Enter fullscreen', onClick: () => toggleToolFullscreen(), children: toolFullscreen ? jsx$1(FullscreenExitRounded, {}) : jsx$1(FullscreenRounded, {}) }) }) })] }), jsxs(Box$1, { sx: {
+        }, children: [jsxs(Stack$2, { direction: "row", alignItems: "stretch", sx: { flexShrink: 0, borderBottom: 1, borderColor: 'divider' }, children: [jsxs(Tabs$1, { value: tab, onChange: handleTabsChange, variant: "scrollable", scrollButtons: "auto", allowScrollButtonsMobile: true, sx: { flex: '1 1 auto', minWidth: 0 }, children: [jsx$1(Tab$1, { label: "UI", value: "ui" }), jsx$1(Tab$1, { label: "Agents", value: "agents" }), jsx$1(Tab$1, { label: "Recipes", value: "recipes" }), jsx$1(Tab$1, { label: "Integrations", value: "integrations" }), jsx$1(Tab$1, { label: "Prompts and Context", value: "prompts" })] }), jsx$1(Box$1, { sx: { display: 'flex', alignItems: 'center', flexShrink: 0, borderLeft: 1, borderColor: 'divider', px: 0.5 }, children: jsx$1(Tooltip$1, { title: toolFullscreen ? 'Exit fullscreen' : 'Fullscreen', children: jsx$1(IconButton$1, { size: "small", "aria-label": toolFullscreen ? 'Exit fullscreen' : 'Enter fullscreen', onClick: () => toggleToolFullscreen(), children: toolFullscreen ? jsx$1(FullscreenExitRounded, {}) : jsx$1(FullscreenRounded, {}) }) }) })] }), jsxs(Box$1, { sx: {
                     flex: '1 1 auto',
                     minHeight: 0,
                     overflow: 'auto',
                     ...aiAssistantProjectToolsPanelContentSx
-                }, children: [tab === 'ui' ? jsx$1(AiAssistantStudioUiSettings, {}) : null, tab === 'agents' ? (jsx$1(AiAssistantCentralAgentsConfiguration, { ref: agentsCatalogRef, onDirtyChange: setAgentsCatalogDirty })) : null, tab === 'recipes' ? (jsx$1(AiAssistantIntentRecipesConfiguration, { ref: recipesConfigRef, onDirtyChange: setRecipesDirty })) : null, tab === 'tools' ? jsx$1(AiAssistantScriptsSandboxConfiguration, { panel: "tools" }) : null, tab === 'scripts' ? jsx$1(AiAssistantScriptsSandboxConfiguration, { panel: "scripts" }) : null, tab === 'prompts' ? jsx$1(AiAssistantScriptsSandboxConfiguration, { panel: "prompts" }) : null] }), jsxs(Dialog$1, { open: pendingTabSwitch != null, onClose: cancelPendingTabSwitch, maxWidth: "sm", fullWidth: true, children: [jsx$1(DialogTitle$1, { children: "Unsaved changes" }), jsx$1(DialogContent$1, { children: jsxs(Typography$1, { variant: "body2", paragraph: true, children: ["Save, discard, or stay on", ' ', jsx$1("strong", { children: pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.from) : '' }), " before opening", ' ', jsx$1("strong", { children: pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.to) : '' }), "."] }) }), jsxs(DialogActions$1, { children: [jsxs(Button$1, { onClick: cancelPendingTabSwitch, disabled: tabLeaveSaveBusy, children: ["Stay on ", pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.from) : 'this tab'] }), jsx$1(Button$1, { color: "warning", onClick: () => void discardPendingTabSwitch(), disabled: tabLeaveSaveBusy, children: "Discard changes" }), jsx$1(Button$1, { variant: "contained", onClick: () => void saveAndPendingTabSwitch(), disabled: tabLeaveSaveBusy, children: tabLeaveSaveBusy ? 'Saving…' : 'Save and continue' })] })] })] }));
+                }, children: [tab === 'ui' ? jsx$1(AiAssistantStudioUiSettings, {}) : null, tab === 'agents' ? (jsx$1(AiAssistantCentralAgentsConfiguration, { ref: agentsCatalogRef, onDirtyChange: setAgentsCatalogDirty })) : null, tab === 'recipes' ? (jsx$1(AiAssistantIntentRecipesConfiguration, { ref: recipesConfigRef, onDirtyChange: setRecipesDirty })) : null, tab === 'integrations' ? (jsxs(Box$1, { sx: { display: 'flex', flexDirection: 'column', minHeight: '100%' }, children: [jsxs(Tabs$1, { value: integrationsSub, onChange: handleIntegrationsSubChange, variant: "scrollable", scrollButtons: "auto", allowScrollButtonsMobile: true, sx: { flexShrink: 0, borderBottom: 1, borderColor: 'divider', px: 1 }, children: [jsx$1(Tab$1, { label: "LLMs", value: "llms" }), jsx$1(Tab$1, { label: "Image Generators", value: "imagegen" }), jsx$1(Tab$1, { label: "Tools", value: "tools" }), jsx$1(Tab$1, { label: "MCP", value: "mcp" })] }), jsx$1(Box$1, { sx: { flex: '1 1 auto', minHeight: 0 }, children: jsx$1(AiAssistantScriptsSandboxConfiguration, { panel: integrationsSandboxPanel(integrationsSub) }, integrationsSub === 'tools' || integrationsSub === 'mcp' ? 'tools-policy' : integrationsSub) })] })) : null, tab === 'prompts' ? jsx$1(AiAssistantScriptsSandboxConfiguration, { panel: "prompts" }) : null] }), jsxs(Dialog$1, { open: pendingTabSwitch != null, onClose: cancelPendingTabSwitch, maxWidth: "sm", fullWidth: true, children: [jsx$1(DialogTitle$1, { children: "Unsaved changes" }), jsx$1(DialogContent$1, { children: jsxs(Typography$1, { variant: "body2", paragraph: true, children: ["Save, discard, or stay on", ' ', jsx$1("strong", { children: pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.from) : '' }), " before opening", ' ', jsx$1("strong", { children: pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.to) : '' }), "."] }) }), jsxs(DialogActions$1, { children: [jsxs(Button$1, { onClick: cancelPendingTabSwitch, disabled: tabLeaveSaveBusy, children: ["Stay on ", pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.from) : 'this tab'] }), jsx$1(Button$1, { color: "warning", onClick: () => void discardPendingTabSwitch(), disabled: tabLeaveSaveBusy, children: "Discard changes" }), jsx$1(Button$1, { variant: "contained", onClick: () => void saveAndPendingTabSwitch(), disabled: tabLeaveSaveBusy, children: tabLeaveSaveBusy ? 'Saving…' : 'Save and continue' })] })] })] }));
 }
 /**
  * Single Project Tools surface: **UI** (`studio-ui.json` + bulk), **Agents** (`agents.json`), **Recipes** (intent router + site overrides),
- * **Tools and MCP** (`tools.json` + registry + user Groovy), **Scripts** (imagegen + script LLMs), **Prompts and Context** (tool markdown overrides).
+ * **Integrations** (sub-tabs: **LLMs**, **Image Generators**, **Tools**, **MCP**), **Prompts and Context** (tool markdown overrides).
  * Opens in a **large dialog** when the Project Tools entry mounts so authors stay focused and get more space than the default tool pane.
  * Primary widget id: {@link projectToolsAiAssistantConfigWidgetId}. Legacy ids still mount this component with a fixed default tab.
  */
@@ -74665,8 +74405,8 @@ function AiAssistantProjectToolsConfigurationAgentsTab() {
     return jsx$1(AiAssistantProjectToolsConfiguration, { defaultTab: "agents" });
 }
 /**
- * Legacy widget id `craftercms.components.aiassistant.ScriptsSandboxConfiguration` — opens **Tools and MCP** tab
- * (`tools.json` + registry + user Groovy), closest to the old combined page’s top section.
+ * Legacy widget id `craftercms.components.aiassistant.ScriptsSandboxConfiguration` — opens **Integrations → Tools**
+ * (`tools.json` built-in + registry + user Groovy).
  */
 function AiAssistantProjectToolsConfigurationScriptsTab() {
     return jsx$1(AiAssistantProjectToolsConfiguration, { defaultTab: "tools" });

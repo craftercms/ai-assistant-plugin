@@ -57,7 +57,6 @@ import {
 import type { Theme } from '@mui/material/styles';
 import AutonomousAgentsMarkIcon from './autonomousAgentsMarkIcon';
 import {
-  getAutonomousAgentsFromConfiguration,
   mergeAutonomousAgentsForTable,
   mergeAutonomousWidgetProps,
   type AutonomousMergeViewer,
@@ -345,7 +344,7 @@ function parseJsonBoolean(v: unknown): boolean {
   return Boolean(v);
 }
 
-/** Per-agent `startAutomatically` from ui.xml / registry; defaults to true when omitted. */
+/** Per-agent `startAutomatically` from agents.json; defaults to true when omitted. */
 function definitionStartAutomatically(def: unknown): boolean {
   if (def == null || typeof def !== 'object') return true;
   const o = def as Record<string, unknown>;
@@ -355,7 +354,7 @@ function definitionStartAutomatically(def: unknown): boolean {
   return true;
 }
 
-/** Per-agent `stopOnFailure` from ui.xml / registry; defaults to true when omitted. */
+/** Per-agent `stopOnFailure` from agents.json; defaults to true when omitted. */
 function definitionStopOnFailure(def: unknown): boolean {
   if (def == null || typeof def !== 'object') return true;
   const o = def as Record<string, unknown>;
@@ -514,12 +513,9 @@ function AiAssistantAutonomousAssistantsImpl(props: Readonly<AiAssistantAutonomo
   }, [siteId]);
 
   const defs = useMemo(() => {
-    if (centralAgentsFile && centralAgentsFile.agents.length > 0) {
-      const fromCentral = catalogAutonomousAgents(centralAgentsFile);
-      if (fromCentral.length) return fromCentral;
-    }
-    return getAutonomousAgentsFromConfiguration(merged);
-  }, [centralAgentsFile, merged]);
+    if (!centralAgentsFile) return [];
+    return catalogAutonomousAgents(centralAgentsFile);
+  }, [centralAgentsFile]);
   const listTitle = useMemo(() => widgetTitleText(merged), [merged]);
   const listTitleTranslated = usePossibleTranslation(listTitle);
   const toolsListSystemIcon = useMemo(() => systemIconDescriptorFromWidgetMerged(merged), [merged]);
@@ -818,9 +814,8 @@ function AiAssistantAutonomousAssistantsImpl(props: Readonly<AiAssistantAutonomo
           {listTitle}
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          No agents configured. In Project Configuration → UI, under this widget’s &lt;configuration&gt;, add
-          &lt;autonomousAgents&gt;&lt;agent&gt;…&lt;/agent&gt;&lt;/autonomousAgents&gt; (see plugin installation sample in
-          craftercms-plugin.yaml).
+          No autonomous agents configured. Open Project Tools → AI Assistant → Agents, add a row with mode
+          autonomous, and save to config/studio/ai-assistant/agents.json.
         </Typography>
       </>
     ) : (

@@ -1,7 +1,4 @@
-/**
- * Autonomous Agents — definitions from widget `ui.xml` / JSON configuration.
- * XML shape: `<autonomousAgents><agent><name/><schedule/><startAutomatically/>…</agent></autonomousAgents>`
- */
+/** Autonomous agent rows from `config/studio/ai-assistant/agents.json` (`mode: autonomous`). */
 import { normalizeExpertSkillsRaw, type ExpertSkillConfig, normalizeEnabledBuiltInToolsRaw } from './agentConfig';
 
 export type AutonomousScope = 'user' | 'role' | 'project';
@@ -79,7 +76,7 @@ export type AutonomousTableAgentRow = {
   definition?: Record<string, unknown>;
   state?: Record<string, unknown>;
   pastRunReports?: unknown[];
-  /** Present when the row is built from ui.xml before the server registry lists it (e.g. before sync). */
+  /** Present when the row is built from agents.json before the server registry lists it (e.g. before sync). */
   syntheticFromConfig?: boolean;
 };
 
@@ -250,81 +247,7 @@ function normalizeOne(raw: unknown): AutonomousAgentDefinition | null {
   };
 }
 
-/**
- * Same nesting patterns as `getAgentsFromConfiguration` in `agentConfig.ts`: Studio may pass
- * `autonomousAgents` at the top level, under `configuration`, or under `configuration.configuration`.
- */
-function readAgentsRaw(configuration: unknown): unknown {
-  const config =
-    configuration != null && typeof configuration === 'object' ? (configuration as Record<string, unknown>) : null;
-  if (!config) return null;
-  let raw: unknown = config.autonomousAgents;
-  if (raw == null && config.configuration != null && typeof config.configuration === 'object') {
-    const inner = config.configuration as Record<string, unknown>;
-    raw =
-      inner.autonomousAgents ??
-      (inner.configuration != null && typeof inner.configuration === 'object'
-        ? (inner.configuration as Record<string, unknown>).autonomousAgents
-        : undefined);
-  }
-  if (raw == null && config.configuration != null && typeof config.configuration === 'object') {
-    const inner = config.configuration as Record<string, unknown>;
-    if (inner.configuration != null && typeof inner.configuration === 'object') {
-      const deep = (inner.configuration as Record<string, unknown>).autonomousAgents;
-      if (deep != null) raw = deep;
-    }
-  }
-  return raw;
-}
-
-/**
- * Studio deserializes a **single** `<agent>` as a flat object `{ name, schedule, ... }` under `agent`.
- * `Object.values(that)` would yield primitive strings — use this instead.
- */
-function agentsFromRawAgentField(listOrSingle: unknown): unknown[] {
-  if (listOrSingle == null) return [];
-  if (Array.isArray(listOrSingle)) return listOrSingle;
-  if (typeof listOrSingle !== 'object') return [];
-  const o = listOrSingle as Record<string, unknown>;
-  const keys = Object.keys(o);
-  const numericKeyed = keys.length > 0 && keys.every((k) => /^\d+$/.test(k));
-  if (numericKeyed) {
-    return [...keys].sort((a, b) => Number(a) - Number(b)).map((k) => o[k]);
-  }
-  const looksLikeSingleAgentRow =
-    typeof o.name === 'string' ||
-    typeof o.label === 'string' ||
-    typeof o.schedule === 'string' ||
-    typeof o.prompt === 'string' ||
-    typeof o.llm === 'string';
-  if (looksLikeSingleAgentRow) {
-    return [o];
-  }
-  return Object.values(o);
-}
-
-/**
- * Pass **merged widget props**: `{ ...props.configuration, ...props }` so `autonomousAgents` is found whether
- * Studio nested it or spread `<configuration>` onto the component root (see `Widget.js`).
- */
-export function getAutonomousAgentsFromConfiguration(configurationOrMergedProps: unknown): AutonomousAgentDefinition[] {
-  const raw = readAgentsRaw(configurationOrMergedProps);
-  if (raw == null) return [];
-
-  if (Array.isArray(raw)) {
-    return raw.map(normalizeOne).filter(Boolean) as AutonomousAgentDefinition[];
-  }
-  if (typeof raw === 'object') {
-    const obj = raw as Record<string, unknown>;
-    const listOrSingle = obj.agent;
-    if (listOrSingle == null) return [];
-    const arr = agentsFromRawAgentField(listOrSingle);
-    return arr.map(normalizeOne).filter(Boolean) as AutonomousAgentDefinition[];
-  }
-  return [];
-}
-
-/** Merge nested `configuration` with root props (Studio spreads config onto the component after registration). */
+/** Merge nested `configuration` with root props (Studio spreads widget configuration onto the component). */
 export function mergeAutonomousWidgetProps(props: Record<string, unknown>): Record<string, unknown> {
   const nested =
     props.configuration != null && typeof props.configuration === 'object' && !Array.isArray(props.configuration)

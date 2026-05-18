@@ -73,9 +73,12 @@ import {
   catalogChatAgents,
   defaultCentralAgentsFile,
   getEffectiveCentralAgentsCatalog,
+  rawExpertSkillsToEditorRows,
   rawPromptsToEditorRows,
+  serializeCentralCatalogExpertSkills,
   serializeCentralCatalogPrompts,
   type CentralAgentFileEntry,
+  type ExpertSkillEditorRow,
   type CentralAgentMode,
   type CentralAgentsFile
 } from './centralAgentCatalog';
@@ -156,6 +159,154 @@ function setToolCheckedOnEntry(d: CentralAgentFileEntry, toolId: string, checked
 function llmModelPresetRows(vendor: string): readonly string[] {
   if (vendor === 'claude') return STUDIO_AI_CLAUDE_CHAT_MODELS;
   return STUDIO_AI_TOOLS_LOOP_CHAT_MODELS;
+}
+
+function mergeAgentAdvancedCatalogFields(
+  draft: CentralAgentFileEntry,
+  expertSkillRows: ExpertSkillEditorRow[],
+  translateBatchStr: string
+): { error: string } | CentralAgentFileEntry {
+  const rec = { ...draft } as Record<string, unknown>;
+  const skills = serializeCentralCatalogExpertSkills(expertSkillRows);
+  if (skills) rec.expertSkills = skills;
+  else {
+    delete rec.expertSkills;
+    delete rec.expertSkill;
+  }
+  const tbc = translateBatchStr.trim();
+  if (tbc) {
+    const n = Math.round(Number(tbc));
+    if (!Number.isFinite(n) || n < 1 || n > 64) {
+      return { error: 'Translate batch concurrency must be an integer from 1 to 64 when set.' };
+    }
+    rec.translateBatchConcurrency = n;
+    delete rec.translate_batch_concurrency;
+  } else {
+    delete rec.translateBatchConcurrency;
+    delete rec.translate_batch_concurrency;
+  }
+  const key = String(rec.llmApiKey ?? rec.openAiApiKey ?? '').trim();
+  if (key) rec.llmApiKey = key;
+  else {
+    delete rec.llmApiKey;
+    delete rec.openAiApiKey;
+  }
+  return rec as CentralAgentFileEntry;
+}
+
+function AgentAdvancedAgentFields(props: {
+  draft: CentralAgentFileEntry;
+  setDraft: React.Dispatch<React.SetStateAction<CentralAgentFileEntry | null>>;
+  expertSkillRows: ExpertSkillEditorRow[];
+  setExpertSkillRows: React.Dispatch<React.SetStateAction<ExpertSkillEditorRow[]>>;
+  translateBatchStr: string;
+  setTranslateBatchStr: React.Dispatch<React.SetStateAction<string>>;
+}) {
+  const { draft, setDraft, expertSkillRows, setExpertSkillRows, translateBatchStr, setTranslateBatchStr } = props;
+  return (
+    <Stack spacing={2} sx={{ width: '100%' }}>
+      <Box>
+        <FormLabel component="legend" sx={{ fontSize: '1.05rem', fontWeight: 600, color: 'text.primary' }}>
+          Expert skills (markdown URLs)
+        </FormLabel>
+        <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5, mb: 1 }}>
+          Public http(s) URLs indexed for <strong>QueryExpertGuidance</strong> when CMS tools are enabled (OpenAI and
+          compatible providers).
+        </Typography>
+        <Stack spacing={1.5}>
+          {expertSkillRows.map((row, idx) => (
+            <Box
+              key={idx}
+              sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5, pr: 5, position: 'relative' }}
+            >
+              <IconButton
+                size="small"
+                aria-label="Remove expert skill"
+                sx={{ position: 'absolute', right: 4, top: 4 }}
+                onClick={() => setExpertSkillRows(expertSkillRows.filter((_, i) => i !== idx))}
+              >
+                <DeleteOutlineRounded fontSize="small" />
+              </IconButton>
+              <Stack spacing={1}>
+                <TextField
+                  label="Name (optional)"
+                  value={row.name}
+                  onChange={(ev) => {
+                    const v = ev.target.value;
+                    setExpertSkillRows(expertSkillRows.map((r, i) => (i === idx ? { ...r, name: v } : r)));
+                  }}
+                  fullWidth
+                  size="small"
+                />
+                <TextField
+                  label="Markdown URL"
+                  value={row.url}
+                  onChange={(ev) => {
+                    const v = ev.target.value;
+                    setExpertSkillRows(expertSkillRows.map((r, i) => (i === idx ? { ...r, url: v } : r)));
+                  }}
+                  fullWidth
+                  size="small"
+                  placeholder="https://example.com/docs/guide.md"
+                />
+                <TextField
+                  label="When to use (optional)"
+                  value={row.description}
+                  onChange={(ev) => {
+                    const v = ev.target.value;
+                    setExpertSkillRows(expertSkillRows.map((r, i) => (i === idx ? { ...r, description: v } : r)));
+                  }}
+                  fullWidth
+                  size="small"
+                  multiline
+                  minRows={2}
+                />
+              </Stack>
+            </Box>
+          ))}
+        </Stack>
+        <Button
+          sx={{ mt: 1 }}
+          size="small"
+          startIcon={<AddRounded />}
+          onClick={() => setExpertSkillRows([...expertSkillRows, { name: '', url: '', description: '' }])}
+        >
+          Add expert skill
+        </Button>
+      </Box>
+      <TextField
+        label="Translate batch concurrency (1–64, optional)"
+        value={translateBatchStr}
+        onChange={(ev) => setTranslateBatchStr(ev.target.value)}
+        fullWidth
+        size="small"
+        placeholder="25"
+        helperText="Default parallelism for TranslateContentBatch when the model omits maxConcurrency. Leave empty for server default (25)."
+      />
+      <TextField
+        label="LLM API key override (optional, not recommended)"
+        value={String(draft.llmApiKey ?? draft.openAiApiKey ?? '')}
+        onChange={(ev) => {
+          const v = ev.target.value;
+          setDraft((d) => {
+            if (!d) return d;
+            const next = { ...d } as Record<string, unknown>;
+            if (v.trim()) next.llmApiKey = v;
+            else {
+              delete next.llmApiKey;
+              delete next.openAiApiKey;
+            }
+            return next as CentralAgentFileEntry;
+          });
+        }}
+        fullWidth
+        size="small"
+        type="password"
+        autoComplete="off"
+        helperText="Testing only. Prefer host OPENAI_API_KEY or provider env vars. Stored in site config and sent on chat requests."
+      />
+    </Stack>
+  );
 }
 
 function CmsToolCheckboxes(props: {
@@ -307,6 +458,8 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
   const [draft, setDraft] = useState<CentralAgentFileEntry | null>(null);
   /** Chat quick-prompt rows while the edit dialog is open (trimmed on save). */
   const [chatPromptRows, setChatPromptRows] = useState<PromptConfig[]>([]);
+  const [expertSkillRows, setExpertSkillRows] = useState<ExpertSkillEditorRow[]>([]);
+  const [translateBatchStr, setTranslateBatchStr] = useState('');
   const [agentDialogFullscreen, setAgentDialogFullscreen] = useState(false);
   const [agentDialogTab, setAgentDialogTab] = useState<'general' | 'advanced'>('general');
   const [siteOrchPolicy, setSiteOrchPolicy] = useState<ToolsPolicyFormState>(() => defaultToolsPolicyFormState());
@@ -474,6 +627,8 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
     resetSiteOrchDraft();
     setAgentDialogFullscreen(false);
     setChatPromptRows([]);
+    setExpertSkillRows([]);
+    setTranslateBatchStr('');
     setDraft({
       mode: 'chat',
       label: 'New assistant',
@@ -493,6 +648,8 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
     resetSiteOrchDraft();
     setAgentDialogFullscreen(false);
     setChatPromptRows([]);
+    setExpertSkillRows([]);
+    setTranslateBatchStr('');
     setDraft({
       mode: 'autonomous',
       name: 'New autonomous agent',
@@ -515,6 +672,10 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
     const entry = sanitizeScriptLlmModelField(catalog.agents[index]);
     setDraft({ ...entry });
     setChatPromptRows(rawPromptsToEditorRows(entry.prompts));
+    setExpertSkillRows(rawExpertSkillsToEditorRows(entry.expertSkills ?? entry.expertSkill));
+    const tbcRaw = entry.translateBatchConcurrency ?? entry.translate_batch_concurrency;
+    const tbcNum = tbcRaw != null ? Number(tbcRaw) : NaN;
+    setTranslateBatchStr(Number.isFinite(tbcNum) && tbcNum >= 1 ? String(Math.round(tbcNum)) : '');
     setEditIndex(index);
   };
 
@@ -539,14 +700,22 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
     }
     const next = cloneCatalog(catalog);
     const mode = String(draft.mode ?? 'chat').toLowerCase() === 'autonomous' ? 'autonomous' : 'chat';
+    const advancedMerged = mergeAgentAdvancedCatalogFields(draft, expertSkillRows, translateBatchStr);
+    if ('error' in advancedMerged) {
+      setFormError(advancedMerged.error);
+      return;
+    }
     const mergedDraft: CentralAgentFileEntry =
       mode === 'autonomous'
         ? (() => {
-            const x = { ...draft } as Record<string, unknown>;
+            const x = { ...advancedMerged } as Record<string, unknown>;
             delete x.prompts;
             return x as CentralAgentFileEntry;
           })()
-        : ({ ...draft, prompts: serializeCentralCatalogPrompts(chatPromptRows) ?? [] } as CentralAgentFileEntry);
+        : ({
+            ...advancedMerged,
+            prompts: serializeCentralCatalogPrompts(chatPromptRows) ?? []
+          } as CentralAgentFileEntry);
     if (editIndex < 0) next.agents.push(mergedDraft);
     else next.agents[editIndex] = mergedDraft;
     setCatalog(next);
@@ -890,7 +1059,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                     <Typography variant="subtitle2">Site orchestration (tools.json)</Typography>
                     <Typography variant="caption" color="text.secondary" display="block">
                       Built-in allowlists and intent recipe routing apply site-wide. MCP servers are edited under
-                      Project Tools → AI Assistant → Tools and MCP.
+                      Project Tools → AI Assistant → Integrations → Tools.
                     </Typography>
                     {siteOrchError ? (
                       <Alert severity="error" onClose={() => setSiteOrchError(null)}>
@@ -1362,6 +1531,14 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                               Turn on <strong>Enable CMS tools</strong> on the General tab to choose per-agent CMS tools.
                             </Typography>
                           )}
+                          <AgentAdvancedAgentFields
+                            draft={draft}
+                            setDraft={setDraft}
+                            expertSkillRows={expertSkillRows}
+                            setExpertSkillRows={setExpertSkillRows}
+                            translateBatchStr={translateBatchStr}
+                            setTranslateBatchStr={setTranslateBatchStr}
+                          />
                           {advancedSiteOrchestrationPanel}
                         </Stack>
                       )}
@@ -1461,6 +1638,14 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                           />
                         }
                         label="Stop on failure"
+                      />
+                      <AgentAdvancedAgentFields
+                        draft={draft}
+                        setDraft={setDraft}
+                        expertSkillRows={expertSkillRows}
+                        setExpertSkillRows={setExpertSkillRows}
+                        translateBatchStr={translateBatchStr}
+                        setTranslateBatchStr={setTranslateBatchStr}
                       />
                       {advancedSiteOrchestrationPanel}
                         </Stack>

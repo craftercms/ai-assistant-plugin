@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Crafter Software Corporation. All Rights Reserved.
  *
  * Form engine control: AI Assistant in the Content Types palette.
- * - getSupportedProperties: one boolean property per agent from ui.xml (same object shape as built-in datasource
+ * - getSupportedProperties: one boolean property per agent from agents.json (same object shape as built-in datasource
  *   booleans, e.g. Components datasource allowShared / allowEmbedded — see aiassistant-img-from-url datasource).
  * - render: one expandable row per enabled agent; chat only inside expanded row (see AiAssistantFormControlPanel.tsx).
  *
@@ -16,7 +16,7 @@ var CRAFTERQ_HELPER_WIDGET_ID = 'craftercms.components.aiassistant.Helper';
 /** Matches <plugin id="…"> in ui.xml for this Studio plugin */
 var CRAFTERQ_PLUGIN_ID = 'org.craftercms.aiassistant.studio';
 
-/** Default form-engine agents when ui.xml lists none. `id` must match `AI_ASSISTANT_DEFAULT_AGENT_ID` in `sources/src/agentConfig.ts` (empty). */
+/** Default form-engine agents when agents.json is missing. `id` must match `AI_ASSISTANT_DEFAULT_AGENT_ID` in `sources/src/agentConfig.ts` (empty). */
 var AIASSISTANT_FALLBACK_AGENTS = [
   {
     id: '',
@@ -153,7 +153,7 @@ function cqChatAgentFromCentralJsonEntry(e) {
   return out;
 }
 
-/** @returns {Array|null} non-null when catalog should replace ui.xml for chat agents */
+/** @returns {Array|null} non-null when the site catalog has at least one chat agent row */
 function cqCentralCatalogExclusiveChatAgents(siteId) {
   var parsed = cqSyncFetchCentralAgentsJson(siteId);
   if (!parsed || !Array.isArray(parsed.agents) || parsed.agents.length === 0) return null;
@@ -165,7 +165,7 @@ function cqCentralCatalogExclusiveChatAgents(siteId) {
   return chat.length ? chat : null;
 }
 
-/** Chat agents from `config/studio/ai-assistant/agents.json` only (not ui.xml). */
+/** Chat agents from `config/studio/ai-assistant/agents.json`. */
 var cqAgentsListCache = { siteId: '', mergedAt: 0, agents: null };
 var CQ_AGENTS_LIST_TTL_MS = 4000;
 

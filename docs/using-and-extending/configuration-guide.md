@@ -1,16 +1,16 @@
 # Configuration Guide — AI Assistant for Crafter Studio
 
-**Audience:** **Crafter Studio admins** responsible for installing and configuring the assistant and its **tools** for authors—`ui.xml` widgets, agents, credentials, form wiring, optional TinyMCE, and optional site-script overrides.
+**Audience:** **Crafter Studio admins** responsible for installing and configuring the assistant and its **tools** for authors—`ui.xml` widget placement, **`agents.json`**, credentials, form wiring, optional TinyMCE, and optional site-script overrides.
 
 ## Table of Contents
 
-**[Basic Configuration](#cg-basic)** — `ui.xml` + forms: Helper / Tools Panel / Preview / Autonomous placement, **`plugin`** line, **`<agents>`**, secrets, form pipeline, checklist; TinyMCE last (**§8**) within **§1–§8**.
+**[Basic Configuration](#cg-basic)** — `ui.xml` widget placement + **`agents.json`**: Helper / Tools Panel / Preview / Autonomous, **`plugin`** line, secrets, form pipeline, checklist; TinyMCE last (**§8**) within **§1–§8**.
 
 | § | Topic |
 |---|--------|
 | [1](#cg-1) | What you are configuring — goals; [where XML goes](#cg-1-xml) ([A](#cg-1a) Preview toolbar · [B](#cg-1b) Tools Panel · [C](#cg-1c) Form · [D](#cg-1d) Autonomous · [E](#cg-1e) Studio UI flags) |
 | [2](#cg-2) | Helper / Autonomous / toolbar — **`plugin`** element |
-| [3](#cg-3) | Agents (`<agents>` / `<agent>`) |
+| [3](#cg-3) | Agents (`config/studio/ai-assistant/agents.json`) |
 | [4](#cg-4) | Secrets and API keys |
 | [5](#cg-5) | Form Engine control |
 | [6](#cg-6) | Autonomous assistants (overview) |
@@ -90,7 +90,7 @@ These screenshots show **Project Tools** (where you install the plugin and open 
 
 ## Basic Configuration
 
-Typical authoring setup is **`config/studio/ui.xml`** plus content-type form definitions: register the Helper (and optional Autonomous), use one consistent **`plugin`** line, define **`<agents>`**, supply keys, run the checklist (**§1–§7**), then optionally wire **TinyMCE** (**§8**). **§1–§8** below are the subsections in reading order.
+Typical authoring setup is **`config/studio/ui.xml`** (widget placement) plus **`config/studio/ai-assistant/agents.json`** (agents) and content-type form definitions: register the Helper (and optional Autonomous), use one consistent **`plugin`** line, configure agents in **Project Tools → AI Assistant → Agents**, supply keys, run the checklist (**§1–§7**), then optionally wire **TinyMCE** (**§8**). **§1–§8** below are the subsections in reading order.
 
 ---
 
@@ -100,9 +100,9 @@ Typical authoring setup is **`config/studio/ui.xml`** plus content-type form def
 
 | Goal | Typical touchpoints |
 |------|---------------------|
-| Authors use AI **in Experience Builder** while authoring in **preview** | `ui.xml` → **`craftercms.components.aiassistant.Helper`** registers the agent in the **Experience Builder** workflow (preview toolbar control opens the assistant in the XB tools panel by default) + `<agents>` — optional visibility for the **toolbar icon** via **`studio-ui.json`** (**§1e**) |
-| Authors use AI on a **content type form** | Content type **form definition** → **AI Assistant** control + `config/studio/ui.xml` **`<agents>`** (merged by stable agent id) |
-| **Scheduled** server-side runs (experimental) | `ui.xml` → **`craftercms.components.aiassistant.AutonomousAssistants`** + `<autonomousAgents>` or **`agents.json`** `mode: autonomous` — see [spec.md — Autonomous assistants widget](../internals/spec.md#autonomous-assistants-widget-tools-panel); optional **sidebar show** via **`studio-ui.json`** **`showAutonomousAiAssistantsInSidebar: true`** (**§1e**); default off. |
+| Authors use AI **in Experience Builder** while authoring in **preview** | `ui.xml` → **`craftercms.components.aiassistant.Helper`** + agents in **`agents.json`** — optional toolbar icon visibility via **`studio-ui.json`** (**§1e**) |
+| Authors use AI on a **content type form** | Content type **form definition** → **AI Assistant** control + chat agents in **`agents.json`** (per-agent visibility toggles on the form field) |
+| **Scheduled** server-side runs (experimental) | `ui.xml` → **`craftercms.components.aiassistant.AutonomousAssistants`** + **`agents.json`** rows with **`mode: autonomous`** — see [spec.md — Autonomous assistants widget](../internals/spec.md#autonomous-assistants-widget-tools-panel); optional **sidebar show** via **`studio-ui.json`** (**§1e**); default off. |
 | Authors use AI from the **rich text editor** (optional) | `config/studio/ui.xml` → **TinyMCE** widget → `tinymceOptions` (external plugin URL + `craftercms_aiassistant` JSON) — **§8** (last) and [tinymce-integration.md](tinymce-integration.md) |
 
 Commit **`config/studio/ui.xml`** (and any content-type changes) to the site sandbox so Studio and other authors load the same configuration.
@@ -132,16 +132,7 @@ Commit **`config/studio/ui.xml`** (and any content-type changes) to the site san
         <!-- config/studio/ui.xml — PreviewToolbar / configuration / rightSection or middleSection / widgets -->
         <widget id="craftercms.components.aiassistant.Helper">
           <plugin id="org.craftercms.aiassistant.studio" type="aiassistant" name="components" file="index.js"/>
-          <configuration ui="IconButton">
-            <agents>
-              <agent>
-                <label>Authoring Assistant</label>
-                <llm>openAI</llm>
-                <llmModel>gpt-4o-mini</llmModel>
-                <imageModel>gpt-image-1-mini</imageModel>
-              </agent>
-            </agents>
-          </configuration>
+          <configuration ui="IconButton"/>
         </widget>
 ```
 
@@ -161,15 +152,7 @@ Longer copy-paste blocks (Tools Panel + Preview + Autonomous together): [example
         <!-- config/studio/ui.xml — ToolsPanel / configuration / widgets -->
         <widget id="craftercms.components.aiassistant.Helper">
           <plugin id="org.craftercms.aiassistant.studio" type="aiassistant" name="components" file="index.js"/>
-          <configuration>
-            <agents>
-              <agent>
-                <label>Authoring Assistant</label>
-                <llm>openAI</llm>
-                <llmModel>gpt-4o-mini</llmModel>
-              </agent>
-            </agents>
-          </configuration>
+          <configuration/>
         </widget>
 ```
 
@@ -183,7 +166,7 @@ Longer copy-paste blocks (Tools Panel + Preview + Autonomous together): [example
 
 **Recommended:** In Studio, **Project Tools → Content Types →** open the type → **Add field** → choose **Studio AI Assistant** from the palette (the plugin registers that control in **`config/studio/administration/site-config-tools.xml`** on install). That writes the correct control wiring; hand-editing is easy to get wrong.
 
-Agent rows still come from **`config/studio/ui.xml`** **`<agents>`** (same stable ids as the Helper). Do not define agents only in the form field.
+Chat agents come from **`config/studio/ai-assistant/agents.json`** (Project Tools → AI Assistant → Agents). The form control exposes per-agent visibility toggles for agents defined there.
 
 ---
 
@@ -201,16 +184,6 @@ Agent rows still come from **`config/studio/ui.xml`** **`<agents>`** (same stabl
           <plugin id="org.craftercms.aiassistant.studio" type="aiassistant" name="components" file="index.js"/>
           <configuration>
             <title>Autonomous Agents</title>
-            <autonomousAgents>
-              <agent>
-                <name>Example agent</name>
-                <schedule>0 * * * * ?</schedule>
-                <prompt>You are an autonomous assistant. Reply with JSON only as instructed by the server.</prompt>
-                <scope>project</scope>
-                <llm>openAI</llm>
-                <llmModel>gpt-4o-mini</llmModel>
-              </agent>
-            </autonomousAgents>
           </configuration>
         </widget>
 ```
@@ -271,36 +244,20 @@ If the id or `file` path is wrong, Studio shows **component not found** or **404
 
 <a id="cg-3"></a>
 
-### 3. Agents (`<agents>` / `<agent>`)
+### 3. Agents (`config/studio/ai-assistant/agents.json`)
 
-Each **agent** is one row in the Helper menu (or one accordion row on the form assistant). Per agent you normally set:
+Configure chat and autonomous agents in **Project Tools → AI Assistant → Agents**. Saving writes **`config/studio/ai-assistant/agents.json`**. The Helper menu, form-engine accordion, preview ICE panel, and server stream merge all read this file.
+
+Each **chat** row (`mode: chat` or omitted) is one Helper picker entry (and one form accordion row when enabled on the field). Typical fields:
 
 - **`label`** — Display name.
-- **`llm`** — Backend for this agent’s chat. **Set `<llm>` explicitly** — use **`openAI`**, **`xAI`**, **`deepSeek`**, **`llama`**, **`gemini`/`genesis`**, **`claude`**, or **`script:…`** for tools-loop chat. Legacy hosted-only values (**`crafterQ`**, **`aiassistant`**, **`hostedchat`**, …) are **rejected** (**HTTP 400**). If **`<llm>`** is omitted and the POST omits **`llm`**, the stream/chat request **400**s unless **`siteId`** + **`agentId`** allow the server to merge **`llm`** from **`/ui.xml`** — see [llm-configuration.md § Omitted `<llm>` and POST body](llm-configuration.md#omitted-llm-and-post-body). Allowed values: [llm-configuration.md § Summary table](llm-configuration.md#summary-table).
-- **`llmModel`** — Provider chat model id (optional; when omitted, some providers use a server default — see **[llm-configuration.md](llm-configuration.md)** and JVM defaults in **[studio-aiassistant-jvm-parameters.md](studio-aiassistant-jvm-parameters.md)** only if you rely on non-XML defaults).
-- **`imageModel`** — OpenAI **Images** model id for **`GenerateImage`** (no server fallback if blank). Use **`gpt-image-1`** or **`gpt-image-1-mini`**. See [llm-configuration.md](llm-configuration.md).
-- **`crafterQAgentId`** — Stable UUID string sent as **`agentId`** on stream/chat and used with **`label`** for dedupe and **`ui.xml`** merge (XML tag name is historical). See [spec.md](../internals/spec.md) and [llm-configuration.md](llm-configuration.md).
-- **`prompts`** — Optional quick chips (`<prompt>` plain or structured with `<userText>` / `<additionalContext>` / `<omitTools>`).
+- **`crafterQAgentId`** or **`id`** — Stable id sent as **`agentId`** on stream/chat.
+- **`llm`** — **`openAI`**, **`claude`**, **`xAI`**, **`deepSeek`**, **`llama`**, **`gemini`**, or **`script:{id}`**. Unsupported hosted-only values (**`crafterQ`**, **`aiassistant`**, …) return **HTTP 400**.
+- **`llmModel`**, **`imageModel`**, **`imageGenerator`**, **`enableTools`**, **`enabledBuiltInTools`**, **`prompts`**, **`expertSkills`**, etc.
 
-Optional toggles (`openAsPopup`, `enableTools`, expert skills, translation concurrency, etc.) are documented field‑by‑field under [spec.md — Agent configuration (ui.xml)](../internals/spec.md#agent-configuration-uixml).
+**Autonomous** rows use **`mode: autonomous`** with **`name`**, **`schedule`**, **`prompt`**, **`scope`**, and the same LLM fields.
 
-**Example — multiple `<agent>` rows** (replace or extend the **`<agents>`** block **inside** the Helper `<configuration>` from **§1**; each `<agent>` is one picker row):
-
-```xml
-            <agents>
-              <agent>
-                <label>OpenAI authoring</label>
-                <llm>openAI</llm>
-                <llmModel>gpt-4o-mini</llmModel>
-                <imageModel>gpt-image-1-mini</imageModel>
-              </agent>
-              <agent>
-                <label>Claude</label>
-                <llm>claude</llm>
-                <llmModel>claude-3-5-sonnet-20241022</llmModel>
-              </agent>
-            </agents>
-```
+Field reference: [spec.md — Central agent catalog](../internals/spec.md) · [llm-configuration.md](llm-configuration.md). Use **Reload example catalog** in Project Tools for a starter file.
 
 ---
 
@@ -309,8 +266,8 @@ Optional toggles (`openAsPopup`, `enableTools`, expert skills, translation concu
 ### 4. Secrets and API Keys (Recommended Order)
 
 1. **Studio host environment variables** — Preferred for production API keys and base URLs. Provider names and variables are listed in [llm-configuration.md](llm-configuration.md).
-2. **Per‑agent `ui.xml` / widget JSON** — e.g. `<openAiApiKey>`: **testing only**; discouraged in Git‑tracked sites. Precedence vs host env is described in [chat-and-tools-runtime.md § OpenAI API key](../internals/chat-and-tools-runtime.md#openai-api-key-server-side).
-3. **JVM system properties** — Advanced tuning and key fallbacks only; see **[studio-aiassistant-jvm-parameters.md](studio-aiassistant-jvm-parameters.md)** (not alternatives to `ui.xml` fields for typical admin configuration).
+2. **Per‑agent `llmApiKey` in `agents.json`** — **testing only**; discouraged in Git‑tracked sites. Precedence vs host env is described in [chat-and-tools-runtime.md § OpenAI API key](../internals/chat-and-tools-runtime.md#openai-api-key-server-side).
+3. **JVM system properties** — Advanced tuning and key fallbacks only; see **[studio-aiassistant-jvm-parameters.md](studio-aiassistant-jvm-parameters.md)**.
 
 **Do not commit secrets** — prefer **`OPENAI_API_KEY`**, **`ANTHROPIC_API_KEY`**, and related provider env vars on the Studio host.
 
@@ -320,7 +277,7 @@ Optional toggles (`openAsPopup`, `enableTools`, expert skills, translation concu
 
 ### 5. Form Engine Control
 
-The AI Assistant **form control** reads agent definitions from the same **`/ui.xml`** agent collection as the Helper (by stable id). Changing only the Helper widget JSON in Studio UI without updating **`/config/studio/ui.xml`** can leave the form panel out of sync—see the form pipeline and locked panel behavior in [studio-plugins-guide.md](studio-plugins-guide.md) (**Form assistant panel**) and [spec.md](../internals/spec.md) (content-type form assistant).
+The AI Assistant **form control** lists chat agents from **`agents.json`** (same catalog as the Helper). Per-agent **show in panel** toggles live on the content-type field definition. See [studio-plugins-guide.md](studio-plugins-guide.md) (**Form assistant panel**) and [spec.md](../internals/spec.md) (content-type form assistant).
 
 ---
 
@@ -328,7 +285,7 @@ The AI Assistant **form control** reads agent definitions from the same **`/ui.x
 
 ### 6. Autonomous Assistants (Optional)
 
-Separate widget, separate XML block **`autonomousAgents`**, supervisor and in‑memory state. Not a substitute for interactive chat configuration: you still define **`llm`**, **`llmModel`**, schedules, scopes, and human‑task behavior per [spec.md — Autonomous assistants widget](../internals/spec.md#autonomous-assistants-widget-tools-panel).
+Separate **AutonomousAssistants** widget in **`ui.xml`** (placement only). Agent definitions are **`mode: autonomous`** rows in **`agents.json`**. See [spec.md — Autonomous assistants widget](../internals/spec.md#autonomous-assistants-widget-tools-panel).
 
 ---
 
@@ -339,9 +296,10 @@ Separate widget, separate XML block **`autonomousAgents`**, supervisor and in‑
 - [ ] Plugin installed for the **site** (Marketplace or `copy-plugin` / `install-plugin.sh`); **`org.craftercms.aiassistant.studio`** appears in Plugin Management.
 - [ ] **`ui.xml`** committed; Studio **Sync** performed if you rely on git‑backed sandbox.
 - [ ] Helper / Autonomous / toolbar widgets are **nested under the correct parents** in **`config/studio/ui.xml`** (**§1** A / B / D), and the **`plugin`** line matches **§2**.
-- [ ] For **OpenAI‑wire / Claude / …**: host **env** API keys set (per [llm-configuration.md](llm-configuration.md)), or you accept testing‑only keys in `ui.xml`.
+- [ ] **`config/studio/ai-assistant/agents.json`** saved with at least one chat agent (Project Tools → Agents).
+- [ ] For **OpenAI‑wire / Claude / …**: host **env** API keys set (per [llm-configuration.md](llm-configuration.md)), or testing‑only **`llmApiKey`** on an agent row.
 - [ ] For **GenerateImage**: **`imageModel`** set on the agent (or body) when that tool is used.
-- [ ] **`llm`** is set to a **supported** provider (**`openAI`**, **`claude`**, **`script:{id}`**, …); legacy **`crafterQ`** / **`aiassistant`** values **fail** at runtime (**HTTP 400**).
+- [ ] **`llm`** is a **supported** provider (**`openAI`**, **`claude`**, **`script:{id}`**, …).
 
 ---
 
@@ -537,19 +495,19 @@ Copy‑paste starter: **`docs/examples/aiassistant-user-tools/`**; **Gemini “N
 [ok: true, message: "Hello ${(args?.name ?: 'author') as String} from ${siteId}"]
 ```
 
-**Example — script image backend on an agent** (in **`config/studio/ui.xml`**, inside the same `<agent>` as **`imageModel`**):
+**Example — script image backend on an agent** (in **`agents.json`** on the same row as **`imageModel`**):
 
-```xml
-        <imageModel>gpt-image-1-mini</imageModel>
-        <imageGenerator>script:mygen</imageGenerator>
+```json
+"imageModel": "gpt-image-1-mini",
+"imageGenerator": "script:mygen"
 ```
 
 Implement **`config/studio/scripts/aiassistant/imagegen/mygen/generate.groovy`** per **[scripted-tools-and-imagegen.md](scripted-tools-and-imagegen.md)** (closure contract, **`context`** map) and [image-generation.md](image-generation.md) (registration rules).
 
-**Example — script LLM agent** (still in **`ui.xml`**):
+**Example — script LLM agent** (in **`agents.json`**):
 
-```xml
-        <llm>script:mybackend</llm>
+```json
+"llm": "script:mybackend"
 ```
 
 Implement **`config/studio/scripts/aiassistant/llm/mybackend/runtime.groovy`** per [llm-configuration.md](llm-configuration.md).

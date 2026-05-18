@@ -4,6 +4,11 @@
       "id": "hello",
       "script": "hello.groovy",
       "description": "Example site user tool: returns a greeting; optional args.name"
+    },
+    {
+      "id": "gold_price",
+      "script": "gold-price.groovy",
+      "description": "Returns current LBMA gold spot price (USD per troy oz) from Minted Metal public JSON API; optional args.metal (gold only)."
     }
   ]
 }

@@ -76,6 +76,58 @@ export default function AiAssistantIntentRecipeRoutingFields(props: AiAssistantI
           placeholder="/scripts/aiassistant/config/intent-recipes.json"
           helperText="Studio module path; merged over bundled defaults by recipe id."
         />
+        <FormControlLabel
+          control={
+            <Switch
+              checked={value.eligibilityGateEnabled}
+              onChange={(_, c) => patch({ eligibilityGateEnabled: c })}
+              size="small"
+              disabled={!value.enabled}
+            />
+          }
+          label="Eligibility gate (filter short / non-CMS messages before routing)"
+        />
+        <FormControlLabel
+          control={
+            <Switch
+              checked={value.wholeTurnJsonRouterEnabled}
+              onChange={(_, c) => patch({ wholeTurnJsonRouterEnabled: c })}
+              size="small"
+              disabled={!value.enabled}
+            />
+          }
+          label="Whole-turn JSON router"
+        />
+        <TextField
+          label="Prefetch max steps (optional)"
+          value={value.engineMaxSteps}
+          onChange={(ev) => patch({ engineMaxSteps: ev.target.value })}
+          fullWidth
+          size="small"
+          disabled={!value.enabled || !value.engineEnabled}
+          placeholder="8"
+          helperText="Cap read-only prefetch steps in the recipe engine. Leave empty for server default."
+        />
+        <TextField
+          label="Prefetch max total characters (optional)"
+          value={value.engineMaxTotalChars}
+          onChange={(ev) => patch({ engineMaxTotalChars: ev.target.value })}
+          fullWidth
+          size="small"
+          disabled={!value.enabled || !value.engineEnabled}
+          placeholder="200000"
+          helperText="Total characters loaded across prefetch steps. Leave empty for server default."
+        />
+        <TextField
+          label="Prefetch max field characters (optional)"
+          value={value.engineMaxFieldChars}
+          onChange={(ev) => patch({ engineMaxFieldChars: ev.target.value })}
+          fullWidth
+          size="small"
+          disabled={!value.enabled || !value.engineEnabled}
+          placeholder="120000"
+          helperText="Per-field cap during prefetch. Leave empty for server default."
+        />
       </Stack>
     </Paper>
   );

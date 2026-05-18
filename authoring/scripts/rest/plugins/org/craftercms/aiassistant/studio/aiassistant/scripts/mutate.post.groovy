@@ -125,14 +125,14 @@ try {
     }
     String newJson
     if (parsed instanceof List) {
-      newJson = JsonOutput.prettyPrint(outRows)
+      newJson = JsonOutput.prettyPrint(JsonOutput.toJson(outRows))
     } else if (parsed instanceof Map) {
       Map pm = [:]
       pm.putAll((Map) parsed)
       pm.put('tools', outRows)
-      newJson = JsonOutput.prettyPrint(pm)
+      newJson = JsonOutput.prettyPrint(JsonOutput.toJson(pm))
     } else {
-      newJson = JsonOutput.prettyPrint([tools: outRows])
+      newJson = JsonOutput.prettyPrint(JsonOutput.toJson([tools: outRows]))
     }
     ops.writeStudioConfiguration(siteId, StudioAiUserSiteTools.USER_TOOLS_REGISTRY_PATH, newJson.getBytes('UTF-8'))
     if (scriptName) {
