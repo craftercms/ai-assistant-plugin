@@ -75124,22 +75124,52 @@ const AI_ASSISTANT_JOYRIDE_STEPS = [
  */
 const AI_ASSISTANT_PLUGIN_VERSION = '1.0.0';
 
-const STORAGE_KEY = 'org.craftercms.aiassistant.joyride.seenVersion';
-function joyrideSeenPluginVersion() {
+const STORAGE_KEY_PREFIX = 'org.craftercms.aiassistant.joyride.seenVersion';
+/** @deprecated Global key from pre–per-site joyride; cleared when read so other sites are not blocked. */
+const LEGACY_STORAGE_KEY = STORAGE_KEY_PREFIX;
+function storageKeyForSite(siteId) {
+    return `${STORAGE_KEY_PREFIX}.${siteId.trim()}`;
+}
+function clearLegacyJoyrideSeenIfPresent() {
     try {
-        const v = localStorage.getItem(STORAGE_KEY);
+        if (localStorage.getItem(LEGACY_STORAGE_KEY) != null) {
+            localStorage.removeItem(LEGACY_STORAGE_KEY);
+        }
+    }
+    catch {
+        /* ignore */
+    }
+}
+function joyrideSeenPluginVersion(siteId) {
+    const sid = (siteId || '').trim();
+    if (!sid) {
+        return null;
+    }
+    try {
+        const v = localStorage.getItem(storageKeyForSite(sid));
         return v?.trim() || null;
     }
     catch {
         return null;
     }
 }
-function shouldShowConfigurationJoyride() {
-    return joyrideSeenPluginVersion() !== AI_ASSISTANT_PLUGIN_VERSION;
+/** True when this site has not completed/skipped the tour for the current plugin version. */
+function shouldShowConfigurationJoyride(siteId) {
+    const sid = (siteId || '').trim();
+    if (!sid) {
+        return false;
+    }
+    clearLegacyJoyrideSeenIfPresent();
+    return joyrideSeenPluginVersion(sid) !== AI_ASSISTANT_PLUGIN_VERSION;
 }
-function markConfigurationJoyrideSeen() {
+function markConfigurationJoyrideSeen(siteId) {
+    const sid = (siteId || '').trim();
+    if (!sid) {
+        return;
+    }
     try {
-        localStorage.setItem(STORAGE_KEY, AI_ASSISTANT_PLUGIN_VERSION);
+        localStorage.setItem(storageKeyForSite(sid), AI_ASSISTANT_PLUGIN_VERSION);
+        clearLegacyJoyrideSeenIfPresent();
     }
     catch {
         /* ignore quota / private mode */
@@ -75181,25 +75211,26 @@ function JoyrideSpeechBubble(props) {
                                 flexShrink: 0
                             }, children: jsx$1(Icon, { fontSize: "small" }) }), jsxs(Box, { sx: { minWidth: 0, flex: 1 }, children: [jsx$1(Typography, { variant: "subtitle1", fontWeight: 700, gutterBottom: true, children: step.title }), jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { whiteSpace: 'pre-line' }, children: step.body })] })] }), jsxs(Stack$1, { direction: "row", justifyContent: "space-between", alignItems: "center", children: [jsxs(Typography, { variant: "caption", color: "text.secondary", children: [stepIndex + 1, " of ", stepCount] }), jsxs(Stack$1, { direction: "row", spacing: 1, children: [jsx$1(Button, { size: "small", color: "inherit", onClick: onSkip, children: "Skip tour" }), jsx$1(Button, { size: "small", variant: "contained", onClick: onNext, children: isLast ? 'Done' : 'Next' })] })] })] }) }));
 }
-function useAiAssistantConfigurationJoyride(onNavigateTab) {
+function useAiAssistantConfigurationJoyride(onNavigateTab, siteId) {
     const [phase, setPhase] = useState('idle');
     const [stepIndex, setStepIndex] = useState(0);
     const [panelReady, setPanelReady] = useState(false);
+    const studioSiteId = (siteId || '').trim();
     const dismissJoyride = useCallback(() => {
-        markConfigurationJoyrideSeen();
+        markConfigurationJoyrideSeen(studioSiteId);
         setPhase('idle');
         setStepIndex(0);
-    }, []);
+    }, [studioSiteId]);
     const onPanelReady = useCallback(() => {
         setPanelReady(true);
     }, []);
     useEffect(() => {
-        if (!panelReady || phase !== 'idle')
+        if (!panelReady || phase !== 'idle' || !studioSiteId)
             return;
-        if (shouldShowConfigurationJoyride()) {
+        if (shouldShowConfigurationJoyride(studioSiteId)) {
             setPhase('welcome');
         }
-    }, [panelReady, phase]);
+    }, [panelReady, phase, studioSiteId]);
     const activeStep = phase === 'tour' && stepIndex >= 0 && stepIndex < AI_ASSISTANT_JOYRIDE_STEPS.length
         ? AI_ASSISTANT_JOYRIDE_STEPS[stepIndex]
         : null;
@@ -75355,11 +75386,13 @@ function AiAssistantProjectToolsConfigurationPanel(props) {
     const agentsCatalogRef = useRef(null);
     const recipesConfigRef = useRef(null);
     const { ref: rootRef, isFullscreen: toolFullscreen, toggleFullscreen: toggleToolFullscreen } = useDomFullscreen();
+    const activeSite = useActiveSiteId();
+    const studioSiteId = useMemo(() => effectiveStudioSiteId(activeSite), [activeSite]);
     const joyrideNavigateTab = useCallback((value) => {
         setPendingTabSwitch(null);
         setTab(value);
     }, []);
-    const { phase: joyridePhase, activeStep: joyrideActiveStep, activeStepIndex: joyrideActiveStepIndex, onPanelReady: joyrideOnPanelReady, startTour: joyrideStartTour, replayJoyride: joyrideReplay, dismissJoyride: joyrideDismiss, goNext: joyrideGoNext } = useAiAssistantConfigurationJoyride(joyrideNavigateTab);
+    const { phase: joyridePhase, activeStep: joyrideActiveStep, activeStepIndex: joyrideActiveStepIndex, onPanelReady: joyrideOnPanelReady, startTour: joyrideStartTour, replayJoyride: joyrideReplay, dismissJoyride: joyrideDismiss, goNext: joyrideGoNext } = useAiAssistantConfigurationJoyride(joyrideNavigateTab, studioSiteId);
     const joyrideTourActive = joyridePhase === 'tour';
     const joyrideBusy = joyridePhase === 'welcome' || joyrideTourActive;
     useEffect(() => {

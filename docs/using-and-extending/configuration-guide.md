@@ -301,10 +301,10 @@ Field reference: [spec.md — Central agent catalog](../internals/spec.md) · [l
 
 ### 4b. Configuration Tour (Joyride)
 
-On first open of **Project Tools → AI Assistant** for a **new plugin version**, a short welcome dialog offers **Show me around**. The tour highlights **Secrets → UI → Agents → Integrations** with speech bubbles anchored to each tab. Authors can **Skip tour** anytime, click the dimmed backdrop (**Dismiss tour**), or press **Escape** (popover close).
+On first open of **Project Tools → AI Assistant** on a **site** for a **new plugin version**, a short welcome dialog offers **Show me around**. The tour highlights **Secrets → UI → Agents → Integrations** with speech bubbles anchored to each tab. Authors can **Skip tour** anytime, click the dimmed backdrop (**Dismiss tour**), or press **Escape** (popover close).
 
 - **Replay:** **UI** tab → **Show setup tour** (does not reset “seen” for auto-popup on version bump until you finish or skip again).
-- **Version storage:** Browser **`localStorage`** key `org.craftercms.aiassistant.joyride.seenVersion` (aligned with plugin version in `sources/src/aiAssistantPluginVersion.ts`).
+- **Version storage:** Browser **`localStorage`** per site: `org.craftercms.aiassistant.joyride.seenVersion.<siteId>` (value aligned with plugin version in `sources/src/aiAssistantPluginVersion.ts`). Each Crafter site gets its own first-run tour; upgrading the plugin version re-offers the tour on every site until dismissed again.
 
 Maintainers: step copy in `sources/src/aiAssistantJoyrideSteps.ts`; routing logic in `sources/src/AiAssistantJoyride.tsx`.
 

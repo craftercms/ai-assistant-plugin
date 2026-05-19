@@ -117,28 +117,30 @@ export interface UseAiAssistantConfigurationJoyrideResult {
 }
 
 export function useAiAssistantConfigurationJoyride(
-  onNavigateTab: (tab: AiAssistantJoyrideTab) => void
+  onNavigateTab: (tab: AiAssistantJoyrideTab) => void,
+  siteId: string
 ): UseAiAssistantConfigurationJoyrideResult {
   const [phase, setPhase] = useState<AiAssistantJoyridePhase>('idle');
   const [stepIndex, setStepIndex] = useState(0);
   const [panelReady, setPanelReady] = useState(false);
+  const studioSiteId = (siteId || '').trim();
 
   const dismissJoyride = useCallback(() => {
-    markConfigurationJoyrideSeen();
+    markConfigurationJoyrideSeen(studioSiteId);
     setPhase('idle');
     setStepIndex(0);
-  }, []);
+  }, [studioSiteId]);
 
   const onPanelReady = useCallback(() => {
     setPanelReady(true);
   }, []);
 
   useEffect(() => {
-    if (!panelReady || phase !== 'idle') return;
-    if (shouldShowConfigurationJoyride()) {
+    if (!panelReady || phase !== 'idle' || !studioSiteId) return;
+    if (shouldShowConfigurationJoyride(studioSiteId)) {
       setPhase('welcome');
     }
-  }, [panelReady, phase]);
+  }, [panelReady, phase, studioSiteId]);
 
   const activeStep =
     phase === 'tour' && stepIndex >= 0 && stepIndex < AI_ASSISTANT_JOYRIDE_STEPS.length

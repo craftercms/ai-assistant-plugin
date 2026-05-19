@@ -24,6 +24,7 @@ import AiAssistantScriptsSandboxConfiguration from './AiAssistantScriptsSandboxC
 import AiAssistantSecretsConfiguration from './AiAssistantSecretsConfiguration';
 import AiAssistantStudioUiSettings from './AiAssistantStudioUiSettings';
 import { aiAssistantProjectToolsPanelContentSx } from './aiAssistantProjectToolsFormSx';
+import useActiveSiteId from '@craftercms/studio-ui/hooks/useActiveSiteId';
 import { useDomFullscreen } from './aiAssistantDomFullscreen';
 import {
   AiAssistantJoyrideTourPopover,
@@ -31,6 +32,7 @@ import {
   useAiAssistantConfigurationJoyride
 } from './AiAssistantJoyride';
 import { AI_ASSISTANT_JOYRIDE_STEPS } from './aiAssistantJoyrideSteps';
+import { effectiveStudioSiteId } from './aiAssistantStudioUiConfig';
 
 /** Sub-tabs inside Project Tools → Integrations. */
 export type AiAssistantIntegrationsSubTab = 'llms' | 'imagegen' | 'tools' | 'mcp';
@@ -122,6 +124,8 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
   const recipesConfigRef = useRef<AiAssistantIntentRecipesConfigurationHandle>(null);
   const { ref: rootRef, isFullscreen: toolFullscreen, toggleFullscreen: toggleToolFullscreen } =
     useDomFullscreen<HTMLDivElement>();
+  const activeSite = useActiveSiteId();
+  const studioSiteId = useMemo(() => effectiveStudioSiteId(activeSite), [activeSite]);
 
   const joyrideNavigateTab = useCallback((value: typeof tab) => {
     setPendingTabSwitch(null);
@@ -137,7 +141,7 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
     replayJoyride: joyrideReplay,
     dismissJoyride: joyrideDismiss,
     goNext: joyrideGoNext
-  } = useAiAssistantConfigurationJoyride(joyrideNavigateTab);
+  } = useAiAssistantConfigurationJoyride(joyrideNavigateTab, studioSiteId);
   const joyrideTourActive = joyridePhase === 'tour';
   const joyrideBusy = joyridePhase === 'welcome' || joyrideTourActive;
 
