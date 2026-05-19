@@ -37078,8 +37078,7 @@ var recipes = [
 			" vs ",
 			"difference between",
 			"pros and cons",
-			"how does",
-			"work"
+			"how does"
 		],
 		dontMatchHints: [
 			"latest news",
