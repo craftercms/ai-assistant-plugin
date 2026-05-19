@@ -580,7 +580,7 @@ ${asstLine}"""
 
   /**
    * Broad visual / reference language — used for **longer** prompts when a URL/host is present (see
-   * {@link #isAuthoringIntentExpansionCandidate}); **short** prompts use length alone (still require CMS tooling signal).
+   * {@link #isAuthoringIntentExpansionCandidate}); **short** prompts use length alone (still require repository tooling signal).
    */
   private static final Pattern AUTHORING_INTENT_EXPANSION_VISUAL = Pattern.compile(
     '(?i)(\\blook\\s+like\\b|\\bsimilar\\s+to\\b|\\bmatch(?:es)?\\b|\\bresemble\\b|\\bfeel\\s+like\\b|\\bstyled?\\s+like\\b|\\bsame\\s+(look|style)\\b|\\bvisual\\s+(transform|overhaul|refresh|redesign)\\b|\\bredesign\\b|\\bbranding\\b|\\bmockup\\b|\\btheme\\b|\\b(css|stylesheet|scss|less)\\b.*\\b(template|templates?|ftl|layout|site|page)\\b|\\b(template|templates?|ftl|layout)\\b.*\\b(css|stylesheet|theme)\\b)'
@@ -589,7 +589,7 @@ ${asstLine}"""
   /** Author-visible text (after stripping Studio blocks) this long or shorter is treated as likely underspecified. */
   private static final int AUTHORING_INTENT_EXPANSION_SHORT_VISIBLE_MAX_CHARS = 320
 
-  /** Live / current-events lookup — route to {@code web_research} + {@code WebSearch}, not CMS tools. */
+  /** Live / current-events lookup — route to {@code web_research} + {@code WebSearch}, not tools. */
   private static final Pattern WEB_RESEARCH_SIGNAL = Pattern.compile(
     '(?i)(\\b(latest|recent|current|today\'?s|breaking)\\s+news\\b|\\bnews\\s+(on|about|for)\\b|\\bheadlines?\\b|' +
       '\\bcurrent\\s+events?\\b|\\bsearch\\s+the\\s+web\\b|\\bweb\\s+search\\b|\\bon\\s+the\\s+web\\b|' +
@@ -599,7 +599,7 @@ ${asstLine}"""
       '\\bresearch\\s+\\d+\\s+\\w+)'
   )
 
-  /** General knowledge / explanation — route to {@code llm_research} with CMS tools off. */
+  /** General knowledge / explanation — route to {@code llm_research} with tools off. */
   private static final Pattern LLM_RESEARCH_SIGNAL = Pattern.compile(
     '(?i)(\\bexplain\\s+(?:what|how|why)|\\bwhat\\s+is\\b|\\bwhat\\s+are\\b|\\btell\\s+me\\s+about\\b|' +
       '\\bcompare\\s+|\\bdifference\\s+between\\b|\\bpros\\s+and\\s+cons\\b|\\bhow\\s+does\\s+.+\\s+work\\b)'
@@ -758,7 +758,7 @@ ${asstLine}"""
     return WEB_RESEARCH_SIGNAL.matcher(v).find()
   }
 
-  /** Timeless Q&A — answer from model knowledge with CMS tools disabled for the turn. */
+  /** Timeless Q&A — answer from model knowledge with tools disabled for the turn. */
   static boolean authorVisibleSuggestsLlmResearch(String fullOrUserPrompt) {
     def v = stripStudioInjectedPromptBlocks((fullOrUserPrompt ?: '').toString())?.trim()
     if (!v) {

@@ -44,7 +44,7 @@ import {
   Tooltip,
   Typography
 } from '@mui/material';
-import { readAgentCatalogId, withAgentCatalogId } from './agentCatalogId';
+import { ensureAgentCatalogId, newAgentCatalogId, readAgentCatalogId } from './agentCatalogId';
 import type { PromptConfig } from './agentConfig';
 import { normalizeEnabledBuiltInToolsRaw } from './agentConfig';
 import AiAssistantSiteOrchestrationToolsForm from './AiAssistantSiteOrchestrationToolsForm';
@@ -230,7 +230,7 @@ function AgentAdvancedAgentFields(props: {
           Expert skills (markdown URLs)
         </FormLabel>
         <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5, mb: 1 }}>
-          Public http(s) URLs indexed for <strong>QueryExpertGuidance</strong> when CMS tools are enabled (OpenAI and
+          Public http(s) URLs indexed for <strong>QueryExpertGuidance</strong> when tools are enabled (OpenAI and
           compatible providers).
         </Typography>
         <Stack spacing={1.5}>
@@ -320,7 +320,7 @@ function CmsToolCheckboxes(props: {
   return (
     <Box sx={{ maxHeight: 220, overflowY: 'auto', border: 1, borderColor: 'divider', borderRadius: 1, p: 1 }}>
       <FormLabel component="legend" sx={{ fontSize: '1.05rem', fontWeight: 600, color: 'text.primary', mb: 0.5 }}>
-        CMS Tools for This Agent:
+        Tools for this agent:
       </FormLabel>
       <FormGroup>
         {STUDIO_AI_BUILTIN_TOOL_IDS.map((id) => (
@@ -381,11 +381,11 @@ function normalizeCatalogForSave(f: CentralAgentsFile): CentralAgentsFile {
       return out;
     }
     const label = String(e.label ?? e.name ?? '').trim() || 'Untitled assistant';
-    const id = readAgentCatalogId(e as Record<string, unknown>);
-    const outChat = withAgentCatalogId(
-      { ...(e as Record<string, unknown>), mode: 'chat', label },
-      id
-    ) as CentralAgentFileEntry;
+    const outChat = ensureAgentCatalogId({
+      ...(e as Record<string, unknown>),
+      mode: 'chat',
+      label
+    }) as CentralAgentFileEntry;
     const recChat = outChat as Record<string, unknown>;
     delete recChat.prompt;
     delete recChat.schedule;
@@ -650,8 +650,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
     setDraft({
       mode: 'chat',
       label: 'New assistant',
-      agentId: '',
-      id: '',
+      agentId: newAgentCatalogId(),
       llm: 'openAI',
       llmSecretKey: 'openai_api_key',
       llmModel: 'gpt-4o-mini',
@@ -691,7 +690,12 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
     resetSiteOrchDraft();
     setAgentDialogFullscreen(false);
     const entry = sanitizeScriptLlmModelField(catalog.agents[index]);
-    setDraft({ ...entry });
+    const mode = String(entry.mode ?? 'chat').toLowerCase();
+    setDraft(
+      mode === 'autonomous'
+        ? { ...entry }
+        : (ensureAgentCatalogId({ ...entry } as Record<string, unknown>) as CentralAgentFileEntry)
+    );
     setChatPromptRows(rawPromptsToEditorRows(entry.prompts));
     setExpertSkillRows(rawExpertSkillsToEditorRows(entry.expertSkills ?? entry.expertSkill));
     const tbcRaw = entry.translateBatchConcurrency ?? entry.translate_batch_concurrency;
@@ -733,10 +737,10 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
             delete x.prompts;
             return x as CentralAgentFileEntry;
           })()
-        : ({
-            ...advancedMerged,
+        : (ensureAgentCatalogId({
+            ...(advancedMerged as Record<string, unknown>),
             prompts: serializeCentralCatalogPrompts(chatPromptRows) ?? []
-          } as CentralAgentFileEntry);
+          }) as CentralAgentFileEntry);
     if (editIndex < 0) next.agents.push(mergedDraft);
     else next.agents[editIndex] = mergedDraft;
     setCatalog(next);
@@ -1421,14 +1425,12 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                                 scope: String(d.scope ?? 'project')
                               } as CentralAgentFileEntry;
                             }
-                            return {
+                            return ensureAgentCatalogId({
                               ...d,
                               mode: 'chat',
                               label: String(d.label ?? d.name ?? 'Assistant').trim() || 'Assistant',
-                              agentId: readAgentCatalogId(d as Record<string, unknown>),
-                              id: readAgentCatalogId(d as Record<string, unknown>),
                               prompts: []
-                            } as CentralAgentFileEntry;
+                            } as Record<string, unknown>) as CentralAgentFileEntry;
                           });
                         }}
                       />
@@ -1455,13 +1457,11 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                         size="small"
                       />
                       <TextField
-                        label="Agent id (optional for OpenAI-only)"
-                        value={String(draft.agentId ?? draft.id ?? '')}
-                        onChange={(ev) =>
-                          setDraft((d) => (d ? { ...d, agentId: ev.target.value, id: ev.target.value } : d))
-                        }
+                        label="Agent id"
+                        value={String(draft.agentId ?? readAgentCatalogId(draft as Record<string, unknown>) ?? '')}
                         fullWidth
                         size="small"
+                        InputProps={{ readOnly: true }}
                       />
                       <TextField
                         label="MUI icon id (optional)"
@@ -1479,7 +1479,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                             onChange={(ev) => setDraft((d) => (d ? { ...d, enableTools: ev.target.checked } : d))}
                           />
                         }
-                        label="Enable CMS tools (native tool loop)"
+                        label="Enable tools (native tool loop)"
                       />
                       <FormControlLabel
                         control={
@@ -1583,7 +1583,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                                   }
                                   label={
                                     <Typography variant="body2">
-                                      Omit CMS tools when this chip is used (omitTools)
+                                      Omit tools when this chip is used (omitTools)
                                     </Typography>
                                   }
                                 />
@@ -1615,7 +1615,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                             />
                           ) : (
                             <Typography variant="body2" color="text.secondary">
-                              Turn on <strong>Enable CMS tools</strong> on the General tab to choose per-agent CMS tools.
+                              Turn on <strong>Enable tools</strong> on the General tab to choose per-agent built-in tools.
                             </Typography>
                           )}
                           <AgentAdvancedAgentFields

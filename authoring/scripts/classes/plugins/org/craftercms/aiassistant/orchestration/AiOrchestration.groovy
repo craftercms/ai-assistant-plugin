@@ -1806,7 +1806,7 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
   }
 
   /**
-   * When a matched recipe sets {@code toolsLoopDisable}, turn off CMS tools for this turn (e.g. {@code llm_research}).
+   * When a matched recipe sets {@code toolsLoopDisable}, turn off tools for this turn (e.g. {@code llm_research}).
    */
   private static void applyIntentRecipeRouteEffects(Map springAi, Map route) {
     if (!(springAi instanceof Map)) {
@@ -1824,7 +1824,7 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     if (Boolean.TRUE.equals(tel.get('toolsLoopDisable'))) {
       springAi.useTools = false
       log.info(
-        'Tools-loop: recipe {} toolsLoopDisable — CMS tools off for this turn agentId={}',
+        'Tools-loop: recipe {} toolsLoopDisable — tools off for this turn agentId={}',
         tel.get('recipeId')?.toString()?.trim() ?: '(unknown)',
         springAi.agentId ?: ''
       )
@@ -2324,7 +2324,7 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     if (zeroBasedRound > 0) {
       return ''
     }
-    return 'Applying your request with the appropriate CMS tools.\n'
+    return 'Applying your request with the appropriate tools.\n'
   }
 
   /**
@@ -4534,7 +4534,7 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       if (recipes == null || recipes.isEmpty()) {
         log.warn('Intent recipe routing skipped: recipe catalog is empty after bundled + site custom merge.')
         result.userTextForToolsLoop =
-          '[Studio — intent recipe catalog is empty (bundled JSON not loaded, site override removed all recipes, or custom JSON invalid). **CMS tools are still available** — use normal CMS judgement **with strict content-vs-code discipline**:\n' +
+          '[Studio — intent recipe catalog is empty (bundled JSON not loaded, site override removed all recipes, or custom JSON invalid). **tools are still available** — use normal CMS judgement **with strict content-vs-code discipline**:\n' +
           '- When **Current content item repository path** or **Request anchor** is **`/site/.../*.xml`** and the author asks to change **copy, field values, or tone** without naming **FTL**, **template**, or **CSS**: **GetContent** then **WriteContent** (or **update_content** then **WriteContent**) on **that same repository .xml path** — preserve **`<page>` / `<component>`** structure and existing field tag names from the file you read; map labels to element ids via **GetContentTypeFormDefinition** when needed.\n' +
           '- **Do not** call **update_template** for that scenario; **do not** **WriteContent** a **`.ftl`** path with page/component XML bodies; **do not** invent **`/static-assets/styles.css`** or other asset paths unless the author explicitly asked for stylesheet/asset work **or** **GetContent** on the item you edit already referenced that exact path and the task requires editing that file.\n' +
           '- If copy still looks wrong after XML saves, **analyze_template** / **GetContent** on **display-template** is **read-only diagnosis** — explain findings; **do not** patch FTL for a **content-only** goal.\n\n' +
@@ -4831,7 +4831,7 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
           '[Studio — recipe intent router: no confident CMS workflow on **this message**. **Repository path** metadata describes which item is open in Studio — it is **not** by itself a request to read or write the repository. For chat-only work (stories, Q&A, revising a prior assistant reply), answer in prose and **do not** call GetContent or WriteContent unless **this turn** explicitly asks to read or edit repository content.]\n\n'
       } else {
         noMatchHint =
-          '[Studio — recipe intent router: no confident recipe match; proceed with normal judgement and only use CMS tools when **this turn** clearly requires repository work.]\n\n'
+          '[Studio — recipe intent router: no confident recipe match; proceed with normal judgement and only use tools when **this turn** clearly requires repository work.]\n\n'
       }
       String routingEnginePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
       result.userTextForToolsLoop = expansionWirePrefix + routingEnginePrefix + noMatchHint + (userTextAfterGuard ?: '')
@@ -5249,7 +5249,7 @@ An automated reviewer compared your last reply to the original author request an
 **What you still need to do:**
 ${c ?: 'Re-read the original request, use tools as needed, and produce a complete answer for the author.'}
 
-Use CMS tools if repository work is still missing. **Do not** stream a new **## Plan** for this follow-up — continue against the **## Plan** and **📋** checklist you already gave the author (run any missing verification tools, then mark those steps). Then write the updated final answer under **## Plan Execution** with the **same** **📋** checklist and final **✅ / ❌ / ⚠️** markers as required by policy."""
+Use tools if repository work is still missing. **Do not** stream a new **## Plan** for this follow-up — continue against the **## Plan** and **📋** checklist you already gave the author (run any missing verification tools, then mark those steps). Then write the updated final answer under **## Plan Execution** with the **same** **📋** checklist and final **✅ / ❌ / ⚠️** markers as required by policy."""
   }
 
   /** Collapses whitespace and normalizes quotes so substring checks survive minor typography / unicode differences. */
@@ -5264,7 +5264,7 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
   }
 
   /**
-   * Detects memorized lazy “execute the request / CMS tools …” slop (older assistant builds quoted it in {@code [TOOL-GUARD]}).
+   * Detects memorized lazy “execute the request / tools …” slop models sometimes quote in {@code [TOOL-GUARD]}.
    * Used only to strip matching lines from streamed assistant text — the native tool loop does **not** block on plan shape.
    */
   private static boolean containsKnownForbiddenMetaPlan(String t) {
@@ -5272,26 +5272,26 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
     if (!n) {
       return false
     }
-    if (n.contains('execute the user request using the cms tools described in the studio authoring system message')) {
+    if (n.contains('execute the user request using the tools described in the studio authoring system message')) {
       return true
     }
-    if (n.contains('execute the user request using the cms tools described')) {
+    if (n.contains('execute the user request using the tools described')) {
       return true
     }
     // Singular “tool” variants models sometimes emit.
-    if (n.contains('execute the user request using the cms tool described')) {
+    if (n.contains('execute the user request using the tool described')) {
       return true
     }
-    if (n.contains('using the cms tool described in the studio authoring system message')) {
+    if (n.contains('using the tool described in the studio authoring system message')) {
       return true
     }
-    if (n.contains('using the cms tools described in the studio authoring system message')) {
+    if (n.contains('using the tools described in the studio authoring system message')) {
       return true
     }
-    if (n.contains('execute the user request') && n.contains('cms tools') && n.contains('system message')) {
+    if (n.contains('execute the user request') && n.contains('tools') && n.contains('system message')) {
       return true
     }
-    if (n.contains('execute the user request') && n.contains('cms tool') && n.contains('system message')) {
+    if (n.contains('execute the user request') && n.contains('tool') && n.contains('system message')) {
       return true
     }
     if (n.contains('execute the user request') && n.contains('studio authoring') && n.contains('message')) {
@@ -5772,7 +5772,7 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
                 )
               } else {
                 log.info(
-                  'Tools-loop tools-on: no assistant text to stream before tool_calls (common for some models); CMS tools still run. agentId={} round={}',
+                  'Tools-loop tools-on: no assistant text to stream before tool_calls (common for some models); tools still run. agentId={} round={}',
                   agentId,
                   round
                 )
@@ -6158,7 +6158,7 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
       if (intentTel instanceof Map && Boolean.TRUE.equals(intentTel.get('generateImageToolUnavailable'))) {
         return synthesizeGenerateImageUnavailableMarkdown()
       }
-      throw new IllegalStateException('CMS tools: empty tool list')
+      throw new IllegalStateException('tools: empty tool list')
     }
     Map<String, FunctionToolCallback> byName = toolCallbacksByName(effectiveTools)
     List<Map> wireMessages = deepCloneWireMessages(baseWire)

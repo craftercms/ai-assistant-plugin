@@ -4,7 +4,6 @@
     {
       "mode": "chat",
       "agentId": "019c7237-478b-7f98-9a5c-87144c3fb010",
-      "id": "019c7237-478b-7f98-9a5c-87144c3fb010",
       "label": "Authoring Assistant",
       "icon": "@mui/icons-material/AutoAwesomeRounded",
       "llm": "openAI",

@@ -2,7 +2,7 @@
 
 Documentation here is aimed at **maintainers**, **integrators**, and anyone debugging **server-side behavior**, contracts, and orchestration—not at day-to-day site configuration (see **[`docs/using-and-extending/`](../using-and-extending/README.md)** for that).
 
-**Diagrams:** **[`../architecture-diagrams.md`](../architecture-diagrams.md)** — system context, logical layers, stream request path, build pipeline, autonomous scheduler, LLM transports.
+**Diagrams:** **[`../architecture-diagrams.md`](../architecture-diagrams.md)** — system context, logical layers, stream request path, build pipeline, autonomous scheduler, LLM transports. **Tool vocabulary:** [architecture-diagrams § Tool terminology](../architecture-diagrams.md#tool-terminology).
 
 ## Documents
 
@@ -10,7 +10,7 @@ Documentation here is aimed at **maintainers**, **integrators**, and anyone debu
 |----------|----------------|
 | [**spec.md**](spec.md) | **Official requirements & mechanics specification** — product surfaces, `ui.xml` / agent contracts, form engine, macros, autonomous widget, REST contracts, **`studio-ui.json`** runtime flags (**[#studio-ui-flags-studio-uijson](spec.md#studio-ui-flags-studio-uijson)**); must stay aligned with code. **Product requirements:** [**product-requirements.md**](../using-and-extending/product-requirements.md) |
 | [**stream-endpoint-design.md**](stream-endpoint-design.md) | SSE stream (`/ai/stream`) contract and classpath notes |
-| [**chat-and-tools-runtime.md**](chat-and-tools-runtime.md) | CMS tool wiring, MCP Streamable HTTP client, expert skills, SSE/stream behavior, REST body fields, troubleshooting |
+| [**chat-and-tools-runtime.md**](chat-and-tools-runtime.md) | tool wiring, MCP Streamable HTTP client, expert skills, SSE/stream behavior, REST body fields, troubleshooting |
 | [**intent-recipe-routing.md**](intent-recipe-routing.md) | **Pre-tools** intent recipe routing (eligibility → match pass → expansion rematch) and how it affects the native tools loop; admin UI: **[configuration-guide §9.0](../using-and-extending/configuration-guide.md#cg-9-0)** |
 | [**studio-aiassistant-jvm-parameters.md**](../using-and-extending/studio-aiassistant-jvm-parameters.md) | JVM **`-D`** / `System.getProperty` tuning (timeouts, HTTP/MCP caps, optional key/model defaults) |
 | [**reference-spring-ai-completions-with-tools.md**](reference-spring-ai-completions-with-tools.md) | Archived Spring AI pattern reference (may diverge from current wiring) |
@@ -26,4 +26,4 @@ Logger categories for Studio when troubleshooting server-side behavior. **JVM-on
 
 ## User-facing Configuration
 
-**Admins:** **[`docs/using-and-extending/installation.md`](../using-and-extending/installation.md)** (install the plugin), then **[`docs/using-and-extending/configuration-guide.md`](../using-and-extending/configuration-guide.md)** (configure the site). **`<llm>` ids, env + XML (tools-loop chat / Claude first):** **[`llm-configuration.md`](../using-and-extending/llm-configuration.md)**. **JVM-only tuning:** **[`studio-aiassistant-jvm-parameters.md`](../using-and-extending/studio-aiassistant-jvm-parameters.md)**. **CMS tools, SSE, MCP, troubleshooting:** **[`chat-and-tools-runtime.md`](chat-and-tools-runtime.md)**.
+**Admins:** **[`docs/using-and-extending/installation.md`](../using-and-extending/installation.md)** (install the plugin), then **[`docs/using-and-extending/configuration-guide.md`](../using-and-extending/configuration-guide.md)** (configure the site). **`<llm>` ids, env + XML (tools-loop chat / Claude first):** **[`llm-configuration.md`](../using-and-extending/llm-configuration.md)**. **JVM-only tuning:** **[`studio-aiassistant-jvm-parameters.md`](../using-and-extending/studio-aiassistant-jvm-parameters.md)**. **tools, SSE, MCP, troubleshooting:** **[`chat-and-tools-runtime.md`](chat-and-tools-runtime.md)**.

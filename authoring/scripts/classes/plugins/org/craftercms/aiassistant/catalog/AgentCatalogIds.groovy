@@ -9,6 +9,6 @@ final class AgentCatalogIds {
     if (!(entry instanceof Map)) {
       return ''
     }
-    return (entry.agentId ?: entry.id ?: '').toString().trim()
+    return (entry.agentId ?: '').toString().trim()
   }
 }

@@ -1162,7 +1162,7 @@ final class AuthoringIntentRecipeCatalog {
       sb.append('bindings: ').append(bindingNames.join(', ')).append('\n')
       sb.append('(Prefetch snapshots: initial.* at turn start; current.* updates after WriteContent on the same path.)\n')
     }
-    sb.append('\n**Align ## Plan and CMS tools with these phases** (visitor-visible outcomes; do not treat this block as a substitute for calling tools when work is required):\n\n')
+    sb.append('\n**Align ## Plan and tools with these phases** (visitor-visible outcomes; do not treat this block as a substitute for calling tools when work is required):\n\n')
     appendPhase(sb, 'Context', recipe?.phases, 'context', initialBindings, currentBindings, maxExpand)
     appendPhase(sb, 'Action', recipe?.phases, 'action', initialBindings, currentBindings, maxExpand)
     appendPhase(sb, 'Confirmation', recipe?.phases, 'confirmation', initialBindings, currentBindings, maxExpand)

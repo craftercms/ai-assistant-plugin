@@ -12,7 +12,7 @@ import org.springframework.ai.chat.client.DefaultChatClientBuilder
 
 /**
  * LLM runtime: <strong>Anthropic Claude</strong> via Spring AI {@link AnthropicChatModel}.
- * Native CMS tools are executed by Spring AI (not the OpenAI RestClient loop in {@link AiOrchestration}).
+ * Native built-in tools are executed by Spring AI (not the OpenAI RestClient loop in {@link AiOrchestration}).
  */
 class AnthropicSpringAiLlmRuntime implements StudioAiLlmRuntime {
 

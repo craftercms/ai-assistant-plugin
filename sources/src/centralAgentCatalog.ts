@@ -2,7 +2,7 @@
  * Central AI Assistant agent catalog: `config/studio/ai-assistant/agents.json`
  * Chat agents use entries with `mode: "chat"` (or omitted mode). Autonomous agents use `mode: "autonomous"`.
  */
-import { readAgentCatalogId } from './agentCatalogId';
+import { readAgentCatalogId, withAgentCatalogId } from './agentCatalogId';
 import type { AgentConfig, AgentLlm, PromptConfig } from './agentConfig';
 import { AI_ASSISTANT_DEFAULT_AGENT_ID, normalizeEnabledBuiltInToolsRaw } from './agentConfig';
 import type { AutonomousAgentDefinition } from './autonomousAssistantsConfig';
@@ -276,6 +276,16 @@ function stripAgentSecrets(entry: CentralAgentFileEntry): CentralAgentFileEntry 
   return rec as CentralAgentFileEntry;
 }
 
+/** Normalizes chat rows: `agentId` only (drops legacy duplicate `id` on load). */
+function normalizeCatalogEntry(entry: CentralAgentFileEntry): CentralAgentFileEntry {
+  const mode = normalizeMode(entry.mode);
+  if (mode === 'autonomous') {
+    return stripAgentSecrets(entry);
+  }
+  const agentId = readAgentCatalogId(entry as Record<string, unknown>);
+  return stripAgentSecrets(withAgentCatalogId(entry as Record<string, unknown>, agentId) as CentralAgentFileEntry);
+}
+
 function parseCentralAgentsFromContentPayload(raw: unknown): CentralAgentsFile | null {
   if (raw == null) return null;
   let data: unknown;
@@ -293,7 +303,7 @@ function parseCentralAgentsFromContentPayload(raw: unknown): CentralAgentsFile |
     return null;
   }
   if (!isCentralAgentsFileShape(data)) return null;
-  const agents = (data.agents as CentralAgentFileEntry[]).map(stripAgentSecrets);
+  const agents = (data.agents as CentralAgentFileEntry[]).map(normalizeCatalogEntry);
   return { version: typeof data.version === 'number' ? data.version : 1, agents };
 }
 

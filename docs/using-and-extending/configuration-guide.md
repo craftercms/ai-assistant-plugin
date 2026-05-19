@@ -83,7 +83,7 @@ These screenshots show **Project Tools** (where you install the plugin and open 
 
 ![Edit agent dialog for a single catalog entry](../images/ai-assistant-studio/ai-assistant-edit-agent-dialog.png)
 
-*Provider, model, image generator, CMS tools checklist, and optional quick-prompt chips.*
+*Provider, model, image generator, built-in tools checklist, and optional quick-prompt chips.*
 
 ### Integrations → Tools (and MCP sub-tab)
 
@@ -272,7 +272,7 @@ Configure chat and autonomous agents in **Project Tools → AI Assistant → Age
 Each **chat** row (`mode: chat` or omitted) is one Helper picker entry (and one form accordion row when enabled on the field). Typical fields:
 
 - **`label`** — Display name.
-- **`agentId`** or **`id`** — Stable id sent as **`agentId`** on stream/chat.
+- **`agentId`** — System-generated UUID for the row (read-only in Project Tools). Sent as **`agentId`** on stream/chat; do not change after go-live.
 - **`llm`** — **`openAI`**, **`claude`**, **`xAI`**, **`deepSeek`**, **`llama`**, **`gemini`**, or **`script:{id}`**. Unsupported hosted-only values (**`aiassistant`**, **`hostedchat`**, …) return **HTTP 400**.
 - **`llmModel`**, **`imageModel`**, **`imageGenerator`**, **`enableTools`**, **`enabledBuiltInTools`**, **`prompts`**, **`expertSkills`**, etc.
 - **`llmSecretKey`** (optional) — In Project Tools, pick a row from **Secrets** for this agent: the built-in slot for the agent’s current **`llm`** provider, or a **custom** secret key. When set, runtime resolves that entry from **`secrets.json`** instead of only the provider default row. Omit to use the provider’s default secret row.
@@ -429,8 +429,6 @@ config/studio/scripts/aiassistant/prompts/<KEY>.md
 
 **Finding keys:** Search **`ToolPrompts.groovy`** in this plugin repo for `p('SOME_KEY',` — the first argument is the filename stem (`SOME_KEY.md`). The canonical list is **`ToolPromptsOverrideCatalog.groovy`** (`KEYS`).
 
-**Upgrades:** If your site still has overrides under **legacy** names, **rename** files to the keys in `ToolPromptsOverrideCatalog.KEYS` (e.g. `DESC_GET_CONTENT.md` → `CMS_CONTENT_DESC_GET_CONTENT.md`). Authoring policy overrides use **`GENERAL_LLM_*.md`** (e.g. `GENERAL_LLM_AUTHORING_INSTRUCTIONS.md`); the filename stem must match the catalog key exactly.
-
 **Overlap (`GENERAL_LLM_AUTHORING_INSTRUCTIONS` vs `GENERAL_LLM_USER_MESSAGE_TOOLS_POLICY_PREFIX`):** The large **system** prompt holds full workflow and edge cases. The shorter **user-prefix** repeats the highest-signal plan/tool rules because many models weight the start of the user message heavily. When editing overrides, change **both** only if you need the same wording in both places; otherwise adjust the system file for detail and the user-prefix file for “above the fold” reminders.
 
 **Example — tighten the main authoring system prompt** (file on disk: `config/studio/scripts/aiassistant/prompts/GENERAL_LLM_AUTHORING_INSTRUCTIONS.md`):
@@ -438,7 +436,7 @@ config/studio/scripts/aiassistant/prompts/<KEY>.md
 ```markdown
 ## OUR STUDIO POLICY (override)
 
-You are assisting CrafterCMS authors. Use CMS tools when they are on the wire. Prefer small, verifiable edits.
+You are assisting CrafterCMS authors. Use tools when they are on the wire. Prefer small, verifiable edits.
 (…your full replacement text; this file replaces the entire shipped default for this key…)
 ```
 
@@ -459,7 +457,7 @@ config/studio/scripts/aiassistant/config/tools.json
 | Field | Effect |
 |-------|--------|
 | **`disabledBuiltInTools`** | JSON array of **tool names to hide** (compared case‑insensitively). Example: `["GenerateImage", "FetchHttpUrl"]` removes those tools from the catalog. |
-| **`enabledBuiltInTools`** | If this array is **non‑empty**, it is a **whitelist** of **built‑in CMS** tool names to **keep**; every other built‑in is removed **except** **`InvokeSiteUserTool`** and any **`mcp_*`** tools (unless those appear in **`disabledBuiltInTools`** / **`disabledMcpTools`**). Names must match the registered tool string **exactly** (case‑sensitive). If **omitted** or **empty**, all built‑ins are available minus **`disabledBuiltInTools`**. |
+| **`enabledBuiltInTools`** | If this array is **non‑empty**, it is a **whitelist** of **built‑in** tool wire names to **keep**; every other built‑in is removed **except** **`InvokeSiteUserTool`** and any **`mcp_*`** tools (unless those appear in **`disabledBuiltInTools`** / **`disabledMcpTools`**). Names must match the registered tool string **exactly** (case‑sensitive). If **omitted** or **empty**, all built‑ins are available minus **`disabledBuiltInTools`**. |
 
 **Registered built-in wire names** — use these strings verbatim in **`disabledBuiltInTools`**, **`enabledBuiltInTools`**, and **`omitTools`**. Canonical UI list: **`sources/src/studioAiOrchestrationToolIds.ts`** (`STUDIO_AI_BUILTIN_TOOL_IDS`); server registration in **`AiOrchestrationTools.groovy`**. When MCP is enabled, the server also registers dynamic **`mcp_<serverId>_<toolName>`** tools (sanitized); those are not listed here.
 

@@ -19,7 +19,7 @@ export interface ExpertSkillConfig {
 
 export interface AgentConfig {
   /**
-   * Stable agent id for stream `agentId` and merge/dedupe; from **`agentId`** or **`id`** in `agents.json`.
+   * Stable agent id for stream `agentId` and merge/dedupe; from **`agentId`** in `agents.json`.
    * With **label**, forms the composite {@link agentStableKey}. May be empty when omitted in config.
    */
   id: string;
@@ -34,11 +34,11 @@ export interface AgentConfig {
   llm?: AgentLlm;
   /**
    * When false (`enableTools: false` in `agents.json`), the plugin sends `enableTools: false` so OpenAI
-   * requests omit CMS function tools. Omitted or true: default (tools on for OpenAI).
+   * requests omit function tools. Omitted or true: default (tools on for OpenAI).
    */
   enableTools?: boolean;
   /**
-   * Optional subset of built-in CMS tool wire names (e.g. `GetContent`, `WriteContent`). Forwarded on stream POST as
+   * Optional subset of built-in tool wire names (e.g. `GetContent`, `WriteContent`). Forwarded on stream POST as
    * `enabledBuiltInTools` when non-empty. Include `mcp:*` to allow all MCP tools. Omitted = full catalog (subject to site `tools.json`).
    */
   enabledBuiltInTools?: string[];
@@ -96,7 +96,7 @@ export function agentFormPropertyName(a: Pick<AgentConfig, 'id' | 'label'>): str
 export const AI_ASSISTANT_AGENT_LABEL_FALLBACK = 'AI Assistant';
 
 /**
- * Default catalog **{@code agentId}** when none is configured (empty — authors should set id in `agents.json`).
+ * Default catalog **{@code agentId}** when none is configured (empty — authors should set `agentId` in `agents.json`).
  */
 export const AI_ASSISTANT_DEFAULT_AGENT_ID = '';
 
@@ -129,7 +129,7 @@ export function dropPlaceholderAgentsWhenRicherMatchesExist(agents: AgentConfig[
 export type PromptConfig = {
   userText: string;
   additionalContext?: string;
-  /** When true, chip-triggered request sends {@code omitTools} — OpenAI omits CMS tools for that LLM call (copy/generation focus). */
+  /** When true, chip-triggered request sends {@code omitTools} — OpenAI omits tools for that LLM call (copy/generation focus). */
   omitTools?: boolean;
 };
 

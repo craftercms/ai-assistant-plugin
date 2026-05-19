@@ -701,7 +701,7 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
             Built-in tools (<code>{TOOLS_JSON_REL}</code>):
           </Typography>
           <Typography variant="body2" color="text.secondary" paragraph>
-            Allowlists and intent-recipe routing for CMS tools. Saved with the same site file as MCP settings (
+            Allowlists and intent-recipe routing for built-in tools. Saved with the same site file as MCP settings (
             <code>scripts/aiassistant/config/tools.json</code>).
           </Typography>
           <AiAssistantToolsMcpForm

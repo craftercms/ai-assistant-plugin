@@ -6,6 +6,20 @@ Visual reference for the **Studio AI Assistant** plugin: system context, configu
 
 ---
 
+<a id="tool-terminology"></a>
+
+## Tool terminology
+
+| Term | Meaning |
+|------|---------|
+| **Tools** | Anything the model can invoke in the **tools loop** (function calling), plus site configuration that registers them. |
+| **Built-in tools** | Plugin-shipped wires (`GetContent`, `WriteContent`, `publish_content`, …). Site **`disabledBuiltInTools`** / **`enabledBuiltInTools`** apply to this set only. |
+| **Scripted tools** | Site Groovy under **`user-tools/`**, invoked via **`InvokeSiteUserTool`**. |
+| **MCP tools** | Remote tools registered as **`mcp_<server>_<name>`** when **`mcpEnabled`** is true. |
+| **Recipe skills** | **Intent recipes** — orchestration that runs **before** the tools loop (match, prefetch, prelude, optional **`toolsLoopDisable`**). They route and prepare tool use; they are not another wire name beside `GetContent`. |
+
+---
+
 ## Diagram index by audience
 
 | Audience | Section | What you get |
@@ -164,7 +178,7 @@ flowchart TB
 
 | Artifact | Purpose |
 |----------|---------|
-| **`agents.json`** | Chat agents (`mode: chat`) and autonomous agents (`mode: autonomous`); **`agentId`** / **`id`**, **`llm`**, models, tools policy, prompts |
+| **`agents.json`** | Chat agents (`mode: chat`) and autonomous agents (`mode: autonomous`); **`agentId`**, **`llm`**, models, tools policy, prompts |
 | **`secrets.json`** | API keys and headers; referenced as **`${secret:…}`** from agents and MCP |
 | **`ui.xml`** | Registers **Helper**, optional **AutonomousAssistants**, **TinyMCE** external plugin URL |
 | **`studio-ui.json`** | Toolbar/sidebar visibility, XB image scope, bulk form-control helpers |
@@ -477,7 +491,7 @@ flowchart TD
   X --> TL
   C --> AN["Anthropic ChatClient tools"]
   S --> SG["Site Groovy StudioAiLlmRuntime"]
-  TL --> CMS["CMS native tools + optional MCP"]
+  TL --> CMS["Built-in tools + MCP"]
   AN --> CMS
 ```
 

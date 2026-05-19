@@ -35,7 +35,7 @@ export interface AutonomousAgentDefinition {
   /** Optional markdown URLs for OpenAI **QueryExpertGuidance** (same shape as Helper `<expertSkill>` rows). */
   expertSkills?: ExpertSkillConfig[];
   /**
-   * Optional subset of CMS tool wire names for autonomous runs (same as chat stream **enabledBuiltInTools**).
+   * Optional subset of built-in tool wire names for autonomous runs (same as chat stream **enabledBuiltInTools**).
    * Include **mcp:*** to keep all MCP tools.
    */
   enabledBuiltInTools?: string[];

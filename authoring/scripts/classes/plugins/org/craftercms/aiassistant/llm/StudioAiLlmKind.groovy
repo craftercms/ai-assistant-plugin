@@ -42,7 +42,7 @@ final class StudioAiLlmKind {
   /** Bundle: {@code nativeToolTransport} value selecting the tools-loop RestClient path. */
   static final String NATIVE_TRANSPORT_TOOLS_LOOP_WIRE = 'toolsLoopWire'
 
-  /** Spring AI OpenAI ChatModel + RestClient native-tool loop (CMS tools on the wire). */
+  /** Spring AI OpenAI ChatModel + RestClient native-tool loop (tools on the wire). */
   static final String OPENAI_NATIVE = 'openAI'
 
   /** OpenAI vendor + other LLMs on the same tools-loop REST surface; see {@link StudioAiProviderCredentials}. */

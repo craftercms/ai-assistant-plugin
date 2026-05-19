@@ -14,7 +14,7 @@ import java.util.Map
 import java.util.Set
 
 /**
- * Optional site project policy for built-in CMS tools: {@code config/studio/scripts/aiassistant/config/tools.json}
+ * Optional site project policy for built-in tools: {@code config/studio/scripts/aiassistant/config/tools.json}
  * (Studio module path {@link #TOOLS_JSON_PATH}).
  * <p>
  * JSON shape (all keys optional):

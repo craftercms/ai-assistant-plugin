@@ -185,7 +185,7 @@ export default function AiAssistantIntentRecipePhaseHintsField(props: AiAssistan
 
             <Box>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.75 }}>
-                CMS tool names (hints)
+                Tool wire names (hints)
               </Typography>
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                 {INTENT_RECIPE_WIRE_TOOL_OPTIONS.map((tool) => (

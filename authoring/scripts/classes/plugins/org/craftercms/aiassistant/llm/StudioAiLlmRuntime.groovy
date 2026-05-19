@@ -13,7 +13,7 @@ interface StudioAiLlmRuntime {
   /** Same as map {@code llm} / {@link StudioAiLlmKind} normalized values. */
   String normalizedKind()
 
-  /** When true, {@link AiOrchestration} may run native function-tool loops for CMS tools. */
+  /** When true, {@link AiOrchestration} may run native function-tool loops for tools. */
   boolean supportsNativeStudioTools()
 
   /**

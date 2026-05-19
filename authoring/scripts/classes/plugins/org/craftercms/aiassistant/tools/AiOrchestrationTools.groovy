@@ -177,7 +177,7 @@ class AiOrchestrationTools {
   }
 
   /**
-   * Sandbox repository path from CMS tool arguments. Prefer {@code path}; also accept {@code contentPath}
+   * Sandbox repository path from built-in tool arguments. Prefer {@code path}; also accept {@code contentPath}
    * (same key as {@code update_content} / authoring context) and a few other aliases models send.
    */
   /** Used by {@link plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeEngine} for GetContent-style path keys. */
@@ -2190,7 +2190,7 @@ class AiOrchestrationTools {
 
   /**
    * Applies {@link StudioAiAssistantProjectConfig} whitelist/blacklist to the tool catalog.
-   * When {@code enabledBuiltInTools} is set, it filters <strong>built-in</strong> CMS tool names only;
+   * When {@code enabledBuiltInTools} is set, it filters <strong>built-in</strong> built-in tool names only;
    * {@code InvokeSiteUserTool} and {@code mcp_*} tools are always retained unless listed in {@code disabledBuiltInTools}.
    */
   private static void applyToolCatalogFilters(List tools, Map projectCfg) {
@@ -2405,7 +2405,7 @@ class AiOrchestrationTools {
     Map cfg = projectCfg instanceof Map ? projectCfg : StudioAiAssistantProjectConfig.load(ops)
     List<String> names = wireNamesForPlanDeferCatalog(ops, cfg, toolsLoopSessionBundle)
     StringBuilder sb = new StringBuilder()
-    sb.append('## Wired CMS tools (this session)\n\n')
+    sb.append('## Wired tools (this session)\n\n')
     sb.append(
       'Use exact wire names in **`tool_calls`**. Prefer a **recipe** from the catalog above when it clearly fits the step; use a single tool when one call is enough or no recipe matches.\n\n'
     )
@@ -2415,7 +2415,7 @@ class AiOrchestrationTools {
       sb.append('| wire name | notes |\n')
       sb.append('|-----------|-------|\n')
       for (String wire : names) {
-        String notes = 'built-in CMS / general'
+        String notes = 'built-in / general'
         if ('InvokeSiteUserTool'.equals(wire)) {
           notes = 'site Groovy tools — pass **toolId** from registry below'
         }

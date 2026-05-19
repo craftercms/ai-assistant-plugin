@@ -26,10 +26,10 @@ export default function AiAssistantSiteOrchestrationToolsForm(props: AiAssistant
       </Typography>
       <Paper variant="outlined" sx={{ p: 2.5 }}>
         <Typography variant="subtitle2" gutterBottom>
-          Built-In CMS Tools
+          Built-in tools
         </Typography>
         <Typography variant="body2" color="text.secondary" paragraph>
-          Optional lists use exact wire names. If <strong>Whitelist</strong> is non-empty, only those built-ins stay;
+          Optional lists use exact wire names. If <strong>Whitelist</strong> is non-empty, only those built-in tools stay;
           <code> InvokeSiteUserTool</code> and dynamic <code>mcp_*</code> tools still register unless disabled under MCP.
         </Typography>
         <Stack spacing={2}>

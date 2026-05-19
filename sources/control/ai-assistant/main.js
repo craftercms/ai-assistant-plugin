@@ -118,7 +118,7 @@ function cqChatAgentFromCentralJsonEntry(e) {
     .trim()
     .toLowerCase();
   if (mode === 'autonomous') return null;
-  var id = String(e.agentId != null ? e.agentId : e.id != null ? e.id : '').trim();
+  var id = String(e.agentId != null ? e.agentId : '').trim();
   var label = String(e.label != null ? e.label : e.name != null ? e.name : '').trim();
   if (!label) return null;
   var out = { id: id, label: label, prompts: [] };

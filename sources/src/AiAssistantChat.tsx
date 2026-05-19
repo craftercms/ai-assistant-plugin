@@ -239,14 +239,17 @@ function stripForbiddenLazyPlanLines(raw: string): string {
   const lineForbidden = (trimmed: string): boolean => {
     const n = normLine(trimmed);
     if (!n) return false;
-    if (n.includes('execute the user request using the cms tools described in the studio authoring system message')) {
+    if (n.includes('execute the user request using the tools described in the studio authoring system message')) {
       return true;
     }
-    if (n.includes('execute the user request using the cms tools described')) return true;
-    if (n.includes('execute the user request using the cms tool described')) return true;
-    if (n.includes('using the cms tools described in the studio authoring system message')) return true;
-    if (n.includes('using the cms tool described in the studio authoring system message')) return true;
-    if (n.includes('execute the user request') && n.includes('cms tool') && n.includes('system message')) {
+    if (n.includes('execute the user request using the tools described')) return true;
+    if (n.includes('execute the user request using the tool described')) return true;
+    if (n.includes('using the tools described in the studio authoring system message')) return true;
+    if (n.includes('using the tool described in the studio authoring system message')) return true;
+    if (n.includes('execute the user request') && n.includes('tools') && n.includes('system message')) {
+      return true;
+    }
+    if (n.includes('execute the user request') && n.includes('tool') && n.includes('system message')) {
       return true;
     }
     if (n.includes('execute the user request') && n.includes('studio authoring') && n.includes('message')) {
@@ -1391,7 +1394,7 @@ export interface AiAssistantChatProps {
    */
   enableTools?: boolean;
   /**
-   * Optional subset of CMS tool wire names (POST **enabledBuiltInTools**). Include **`mcp:*`** for all MCP tools.
+   * Optional subset of built-in tool wire names (POST **enabledBuiltInTools**). Include **`mcp:*`** for all MCP tools.
    */
   enabledBuiltInTools?: string[];
   /** Optional per-agent markdown RAG URLs (OpenAI); sent as `expertSkills` on stream POST. */

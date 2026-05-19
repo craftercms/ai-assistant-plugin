@@ -67,7 +67,7 @@ final class StudioAiToolRegistry {
 
   private static volatile Map<String, AbstractStudioAiTool> coreByWireNameCache
 
-  /** Returns the immutable list of built-in CMS / general orchestration tool instances. */
+  /** Returns the immutable list of built-in / general orchestration tool instances. */
   static List<AbstractStudioAiTool> coreTools() {
     return CORE_TOOLS
   }

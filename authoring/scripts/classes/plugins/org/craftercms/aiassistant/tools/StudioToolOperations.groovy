@@ -65,7 +65,7 @@ import javax.imageio.ImageIO
  * (Newer Studio branches may add v2 {@code write}; do not assume it here.)
  * Publish: {@code cstudioDeploymentService} ({@link org.craftercms.studio.api.v1.service.deployment.DeploymentService})
  * {@code deploy(site, environment, paths, scheduledDate, approver, submissionComment, scheduleDateNow)}.</p>
- * <p>Tools-loop / CMS tool callbacks run on Reactor/HTTP client worker threads where {@link SecurityContextHolder} is empty.
+ * <p>Tools-loop / tool callbacks run on Reactor/HTTP client worker threads where {@link SecurityContextHolder} is empty.
  * Studio resolves the current user from that holder ({@code SecurityServiceImpl#getCurrentUser}), so we install a
  * <strong>copy</strong> of the servlet thread's context around bean calls.</p>
  */
@@ -416,7 +416,7 @@ class StudioToolOperations {
       if (!LOGGED_MISSING_SECURITY_CONTEXT) {
         LOGGED_MISSING_SECURITY_CONTEXT = true
         log.warn(
-          'StudioToolOperations: SecurityContext was not captured on the HTTP thread; tools-loop / CMS tool callbacks may fail with SubjectNotFoundException. Ensure AiOrchestration builds the chat client on an authenticated servlet thread (or anonymous is not treated as authenticated in your Spring Security setup).'
+          'StudioToolOperations: SecurityContext was not captured on the HTTP thread; tools-loop / tool callbacks may fail with SubjectNotFoundException. Ensure AiOrchestration builds the chat client on an authenticated servlet thread (or anonymous is not treated as authenticated in your Spring Security setup).'
         )
       }
       return work.call()

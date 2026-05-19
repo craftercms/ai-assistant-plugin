@@ -1,4 +1,4 @@
-# Chat, CMS Tools, and Runtime Behavior
+# Chat, Tools, and Runtime Behavior
 
 Companion to **[`spec.md`](spec.md)** for tools, REST bodies, MCP, and runtime troubleshooting contracts. When those behaviors change, update **this file** and the relevant **`spec.md`** sections.
 
@@ -6,7 +6,7 @@ Companion to **[`spec.md`](spec.md)** for tools, REST bodies, MCP, and runtime t
 
 **Hosted-only `<llm>` values are not supported:** chat runs against **your configured provider** (**`openAI`**, **`claude`**, **`script:{id}`**, etc.). Unknown or plugin-name spellings (e.g. **`aiassistant`**, **`hostedchat`**) are **rejected** by **`StudioAiLlmKind.normalize`** (**HTTP 400**).
 
-**Remote tools:** use **MCP**, **`InvokeSiteUserTool`**, or site Groovy when you need APIs beyond the built-in CMS catalog. Catalog **`agentId`** fields identify rows in **`agents.json`** only.
+**Remote tools:** use **MCP**, **`InvokeSiteUserTool`**, or site Groovy when you need APIs beyond the built-in tool catalog. Catalog **`agentId`** fields identify rows in **`agents.json`** only.
 
 **LLM ids, keys, and provider behavior:** [llm-configuration.md](../using-and-extending/llm-configuration.md)  
 **Admin checklist and `ui.xml` surfaces:** [configuration-guide.md](../using-and-extending/configuration-guide.md)  
@@ -14,7 +14,7 @@ Companion to **[`spec.md`](spec.md)** for tools, REST bodies, MCP, and runtime t
 
 ---
 
-## Crafter Studio Version (CMS Tools)
+## Crafter Studio version (tools)
 
 **Native function tool** calls that read/write repository content (`GetContent`, `WriteContent`, etc.) are wired to **CrafterCMS 4.5.x** Studio Java APIs:
 
@@ -25,9 +25,9 @@ Companion to **[`spec.md`](spec.md)** for tools, REST bodies, MCP, and runtime t
 - **`GetContentTypeFormDefinition`:** Prefer **`contentPath`** (same repository path as the page/component XML). The server reads **`<content-type>`** from that file so the model must not guess types from filenames (e.g. `/site/website/index.xml` → **`/page/index`** is wrong). If **`contentPath`** and **`contentTypeId`** disagree, **`contentPath`** wins.
 - **`GenerateImage` (OpenAI only):** Calls **`POST /v1/images/generations`** with the same API key as chat. The image model comes only from **`<imageModel>`** / POST **`imageModel`** (no JVM default). OpenAI’s Images API targets **GPT Image** models. The request does not send **`response_format`** (rejected for GPT image); the tool adds **`output_format`** where appropriate and sets **`url`** to a **`data:`** URL when the API returns **`b64_json`** only (the raw tool map omits **`b64_json`** once **`url`** is populated so the payload is not doubled). Configure **`size`** / **`quality`** per OpenAI’s GPT Image docs; persist assets under **`/static-assets/`** for production. In the **native tools-loop**, **`GenerateImage`** results with a **`data:`** bitmap are **not** sent in full on the **`role:tool` wire** (that would exceed the chat context limit). The server stores the bitmap keyed by **`tool_call_id`**, sends the model a **compact** JSON (**`inlineImageRef`** + instructions), and expands **`studio-ai-inline-image://…`** placeholders into the real image URL in the **final** assistant text delivered to Studio.
 
-**Conversation vs focused generation (native tools path — all AI panel surfaces):** The same rules apply whether the author opens the assistant from **Experience Builder / ICE** (preview sidebar), the **floating dialog**, or the **content-type form assistant** (`authoringSurface: formEngine`). Normal chat turns register CMS **function tools** when the agent / request enables them. **`AiAssistantChat`** prepends an **abbreviated prior-turn block** (last several user/assistant messages, capped in size) on every send so each HTTP request stays single-shot while preserving context. For a **focused copy or generation step**, send **`omitTools: true`** on that POST (or set **`&lt;omitTools&gt;true&lt;/omitTools&gt;`** on a quick **`&lt;prompt&gt;`** in ui.xml); that **one** request omits tool schemas so more context remains for large payloads (e.g. serialized form XML or expanded content macros). **`omitTools`** overrides **`enableTools`** for that round-trip only on **any** surface.
+**Conversation vs focused generation (native tools path — all AI panel surfaces):** The same rules apply whether the author opens the assistant from **Experience Builder / ICE** (preview sidebar), the **floating dialog**, or the **content-type form assistant** (`authoringSurface: formEngine`). Normal chat turns register **function tools** when the agent / request enables them. **`AiAssistantChat`** prepends an **abbreviated prior-turn block** (last several user/assistant messages, capped in size) on every send so each HTTP request stays single-shot while preserving context. For a **focused copy or generation step**, send **`omitTools: true`** on that POST (or set **`&lt;omitTools&gt;true&lt;/omitTools&gt;`** on a quick **`&lt;prompt&gt;`** in ui.xml); that **one** request omits tool schemas so more context remains for large payloads (e.g. serialized form XML or expanded content macros). **`omitTools`** overrides **`enableTools`** for that round-trip only on **any** surface.
 
-**Intent recipe routing (pre-tools):** When enabled in site **`tools.json`**, preview chat runs an **eligibility gate**, then **recipe match** (deterministic signals → optional LLM router → optional expansion rematch) **before** the native tools loop. Matched recipes may prefetch **`GetContent`**, disable CMS tools for chat-only work (`llm_research`), or force a first tool. Full pipeline, telemetry fields, and maintainer checklist: **[`intent-recipe-routing.md`](intent-recipe-routing.md)**.
+**Intent recipe routing (pre-tools):** When enabled in site **`tools.json`**, preview chat runs an **eligibility gate**, then **recipe match** (deterministic signals → optional LLM router → optional expansion rematch) **before** the native tools loop. Matched recipes may prefetch **`GetContent`**, disable tools for chat-only work (`llm_research`), or force a first tool. Full pipeline, telemetry fields, and maintainer checklist: **[`intent-recipe-routing.md`](intent-recipe-routing.md)**.
 
 ---
 
@@ -82,7 +82,7 @@ Each **`agentId`** value is sent on **`/ai/stream`** and **`/ai/agent/chat`** as
 
 ## Central agents merge (`AiAssistantCentralAgentsMerge`)
 
-On **`/ai/stream`** and **`/ai/agent/chat`**, when the POST body omits **`llm`**, **`llmModel`**, **`imageModel`**, or **`imageGenerator`**, the server copies missing fields from **`config/studio/ai-assistant/agents.json`** (Project Tools → Agents). Matching uses **`agentId`** or **`id`** **===** request **`agentId`**; if **`agentId`** is absent, the first **`mode: chat`** row (or omitted mode) is used.
+On **`/ai/stream`** and **`/ai/agent/chat`**, when the POST body omits **`llm`**, **`llmModel`**, **`imageModel`**, or **`imageGenerator`**, the server copies missing fields from **`config/studio/ai-assistant/agents.json`** (Project Tools → Agents). Matching uses catalog **`agentId`** **===** request **`agentId`**; if **`agentId`** is absent, the first **`mode: chat`** row (or omitted mode) is used.
 
 ---
 
@@ -92,7 +92,7 @@ On **`/ai/stream`** and **`/ai/agent/chat`**, when the POST body omits **`llm`**
 
 ## MCP Client Tools (Streamable HTTP) {#mcp-client-tools-streamable-http}
 
-Sites can attach **remote MCP servers** so **tools-loop chat** agents (and other **native-tool** agents) gain **extra function tools** beyond the built-in CMS catalog. Configuration lives in **`config/studio/scripts/aiassistant/config/tools.json`**. MCP is **off by default**: set JSON boolean **`mcpEnabled`** to **`true`** in that file to load **`mcpServers`** (site config only — not a JVM env var). The same file continues to hold **`disabledBuiltInTools`** / **`enabledBuiltInTools`** as today.
+Sites can attach **remote MCP servers** so **tools-loop chat** agents (and other **native-tool** agents) gain **extra function tools** beyond the built-in tool catalog. Configuration lives in **`config/studio/scripts/aiassistant/config/tools.json`**. MCP is **off by default**: set JSON boolean **`mcpEnabled`** to **`true`** in that file to load **`mcpServers`** (site config only — not a JVM env var). The same file continues to hold **`disabledBuiltInTools`** / **`enabledBuiltInTools`** as today.
 
 ### `tools.json` Fields
 
@@ -107,7 +107,7 @@ Sites can attach **remote MCP servers** so **tools-loop chat** agents (and other
 - Each MCP tool from **`tools/list`** becomes a Studio tool whose name is **`mcp_<serverId>_<mcpToolName>`** (non-alphanumeric segments collapsed to `_`, total length capped at **64** characters to match the **tools-loop** wire’s tool-name constraints).
 - **Per chat request**, when the plugin builds **`AiOrchestrationTools`**, it runs **`initialize`** → **`notifications/initialized`** → **`tools/list`** for **each** configured server, then keeps a **single session** (including **`Mcp-Session-Id`** when returned) for all **`tools/call`** invocations from that request.
 - **Security:** MCP **`url`** values use the **same SSRF policy** as **`FetchHttpUrl`** (`StudioToolOperations.validateOutboundHttpUrlForSsrf`). Host allowlists and disabling outbound fetch (which also blocks MCP) are **JVM-only** — see **[studio-aiassistant-jvm-parameters.md](../using-and-extending/studio-aiassistant-jvm-parameters.md)** (`aiassistant.httpFetch.*`).
-- **Whitelist:** When **`enabledBuiltInTools`** is a non-empty whitelist, **built-in** CMS tools are filtered to that list, but **`mcp_*`** tools and **`InvokeSiteUserTool`** are **still registered** unless their wire names appear in **`disabledBuiltInTools`** / **`disabledMcpTools`**.
+- **Whitelist:** When **`enabledBuiltInTools`** is a non-empty whitelist, **built-in** built-in tools are filtered to that list, but **`mcp_*`** tools and **`InvokeSiteUserTool`** are **still registered** unless their wire names appear in **`disabledBuiltInTools`** / **`disabledMcpTools`**.
 - **Response size:** MCP HTTP bodies are capped server-side (default **500000** characters); JVM override: **[studio-aiassistant-jvm-parameters.md](../using-and-extending/studio-aiassistant-jvm-parameters.md)** (`aiassistant.mcp.maxResponseChars`).
 
 ---
@@ -218,7 +218,7 @@ The plugin sends preparatory tool results as **JSON** (including `nextStep` and 
 
 ### `WriteContent` / `IllegalStateException` (contentService)
 
-CMS tools call Studio **in-process** (`cstudioContentService`, configuration beans, etc.). There is **no HTTP fallback** to Studio REST. If write/read fails, check Studio logs for the wrapped exception and ensure the plugin runs in the **authoring** web app with a full Spring context.
+Built-in tools call Studio **in-process** (`cstudioContentService`, configuration beans, etc.). There is **no HTTP fallback** to Studio REST. If write/read fails, check Studio logs for the wrapped exception and ensure the plugin runs in the **authoring** web app with a full Spring context.
 
 ### `PermissionException` / `SubjectNotFoundException: Current subject was not found`
 

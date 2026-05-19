@@ -7,7 +7,7 @@ import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
 /**
  * Shared build-time and execute-time state for {@link StudioAiOrchestrationTool} implementations.
  * Snapshots Studio beans, converters, and agent-scoped safeguards once per orchestration turn.
- * Produced exclusively through {@link Builder} helpers so CMS tools and prefetch engines stay aligned.
+ * Produced exclusively through {@link Builder} helpers so tools and prefetch engines stay aligned.
  */
 class StudioAiToolContext {
 
@@ -166,7 +166,7 @@ class StudioAiToolContext {
     /**
      * Validates mandatory {@link #ops} then freezes immutable {@link StudioAiToolContext}.
      * Throws {@link IllegalArgumentException} when ops is absent.
-     * Returns ready-to-run context for CMS tools.
+     * Returns ready-to-run context for tools.
      */
     StudioAiToolContext build() {
       if (ops == null) {

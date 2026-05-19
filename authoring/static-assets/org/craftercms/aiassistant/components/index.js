@@ -29971,18 +29971,21 @@ function stripForbiddenLazyPlanLines(raw) {
         const n = normLine(trimmed);
         if (!n)
             return false;
-        if (n.includes('execute the user request using the cms tools described in the studio authoring system message')) {
+        if (n.includes('execute the user request using the tools described in the studio authoring system message')) {
             return true;
         }
-        if (n.includes('execute the user request using the cms tools described'))
+        if (n.includes('execute the user request using the tools described'))
             return true;
-        if (n.includes('execute the user request using the cms tool described'))
+        if (n.includes('execute the user request using the tool described'))
             return true;
-        if (n.includes('using the cms tools described in the studio authoring system message'))
+        if (n.includes('using the tools described in the studio authoring system message'))
             return true;
-        if (n.includes('using the cms tool described in the studio authoring system message'))
+        if (n.includes('using the tool described in the studio authoring system message'))
             return true;
-        if (n.includes('execute the user request') && n.includes('cms tool') && n.includes('system message')) {
+        if (n.includes('execute the user request') && n.includes('tools') && n.includes('system message')) {
+            return true;
+        }
+        if (n.includes('execute the user request') && n.includes('tool') && n.includes('system message')) {
             return true;
         }
         if (n.includes('execute the user request') && n.includes('studio authoring') && n.includes('message')) {
@@ -32085,7 +32088,7 @@ function agentStableKey(a) {
  */
 const AI_ASSISTANT_AGENT_LABEL_FALLBACK = 'AI Assistant';
 /**
- * Default catalog **{@code agentId}** when none is configured (empty — authors should set id in `agents.json`).
+ * Default catalog **{@code agentId}** when none is configured (empty — authors should set `agentId` in `agents.json`).
  */
 const AI_ASSISTANT_DEFAULT_AGENT_ID = '';
 /** Keep first occurrence per {@link agentStableKey} (order preserved). */
@@ -32710,16 +32713,26 @@ const batchActions = /*#__PURE__*/ createAction('BATCH_ACTIONS');
 function readAgentCatalogId(entry) {
     if (!entry)
         return '';
-    return String(entry.agentId ?? entry.id ?? '').trim();
+    return String(entry.agentId ?? '').trim();
 }
-/** Persist `agentId` and `id` on a catalog row. */
-function withAgentCatalogId(entry, id) {
-    const trimmed = id.trim();
-    return {
-        ...entry,
-        agentId: trimmed,
-        id: trimmed
-    };
+/** New opaque id for a chat agent catalog row. */
+function newAgentCatalogId() {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+    }
+    return `agent-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+/** Ensures `agentId` is set (generates when missing) and drops duplicate `id` alias. */
+function ensureAgentCatalogId(entry) {
+    const existing = readAgentCatalogId(entry);
+    return withAgentCatalogId(entry, existing || newAgentCatalogId());
+}
+/** Persist `agentId` on a catalog row (drops duplicate `id` alias). */
+function withAgentCatalogId(entry, agentId) {
+    const trimmed = agentId.trim();
+    const out = { ...entry, agentId: trimmed };
+    delete out.id;
+    return out;
 }
 
 /**
@@ -32990,6 +33003,15 @@ function stripAgentSecrets(entry) {
     delete rec.llmApiKeyPresent;
     return rec;
 }
+/** Normalizes chat rows: `agentId` only (drops legacy duplicate `id` on load). */
+function normalizeCatalogEntry(entry) {
+    const mode = normalizeMode(entry.mode);
+    if (mode === 'autonomous') {
+        return stripAgentSecrets(entry);
+    }
+    const agentId = readAgentCatalogId(entry);
+    return stripAgentSecrets(withAgentCatalogId(entry, agentId));
+}
 function parseCentralAgentsFromContentPayload(raw) {
     if (raw == null)
         return null;
@@ -33013,7 +33035,7 @@ function parseCentralAgentsFromContentPayload(raw) {
     }
     if (!isCentralAgentsFileShape(data))
         return null;
-    const agents = data.agents.map(stripAgentSecrets);
+    const agents = data.agents.map(normalizeCatalogEntry);
     return { version: typeof data.version === 'number' ? data.version : 1, agents };
 }
 function unwrapConfigurationEnvelope(raw) {
@@ -35746,7 +35768,7 @@ function serializeToolsPolicyToJson(state) {
  */
 function AiAssistantSiteOrchestrationToolsForm(props) {
     const { value, onChange } = props;
-    return (jsxs(Stack$1, { spacing: 3, children: [jsxs(Typography, { variant: "body2", color: "text.secondary", children: ["Intent recipe routing and the recipe catalog are configured under the ", jsx$1("strong", { children: "Recipes" }), " tab."] }), jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Built-In CMS Tools" }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Optional lists use exact wire names. If ", jsx$1("strong", { children: "Whitelist" }), " is non-empty, only those built-ins stay;", jsx$1("code", { children: " InvokeSiteUserTool" }), " and dynamic ", jsx$1("code", { children: "mcp_*" }), " tools still register unless disabled under MCP."] }), jsxs(Stack$1, { spacing: 2, children: [jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [...BUILTIN_TOOL_NAME_OPTIONS], value: value.disabledBuiltInTools, onChange: (_, v) => onChange({ ...value, disabledBuiltInTools: v.map(String) }), renderTags: (tagValue, getTagProps) => tagValue.map((option, index) => (createElement(Chip, { variant: "outlined", label: option, size: "small", ...getTagProps({ index }), key: `${option}-${index}` }))), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Hide built-in tools", placeholder: "e.g. GenerateImage", size: "small" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [...BUILTIN_TOOL_NAME_OPTIONS], value: value.enabledBuiltInTools, onChange: (_, v) => onChange({ ...value, enabledBuiltInTools: v.map(String) }), renderTags: (tagValue, getTagProps) => tagValue.map((option, index) => (createElement(Chip, { variant: "outlined", label: option, size: "small", ...getTagProps({ index }), key: `${option}-${index}` }))), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Whitelist built-in tools (optional)", placeholder: "Leave empty for no whitelist", size: "small" })) })] })] })] }));
+    return (jsxs(Stack$1, { spacing: 3, children: [jsxs(Typography, { variant: "body2", color: "text.secondary", children: ["Intent recipe routing and the recipe catalog are configured under the ", jsx$1("strong", { children: "Recipes" }), " tab."] }), jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Built-in tools" }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Optional lists use exact wire names. If ", jsx$1("strong", { children: "Whitelist" }), " is non-empty, only those built-in tools stay;", jsx$1("code", { children: " InvokeSiteUserTool" }), " and dynamic ", jsx$1("code", { children: "mcp_*" }), " tools still register unless disabled under MCP."] }), jsxs(Stack$1, { spacing: 2, children: [jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [...BUILTIN_TOOL_NAME_OPTIONS], value: value.disabledBuiltInTools, onChange: (_, v) => onChange({ ...value, disabledBuiltInTools: v.map(String) }), renderTags: (tagValue, getTagProps) => tagValue.map((option, index) => (createElement(Chip, { variant: "outlined", label: option, size: "small", ...getTagProps({ index }), key: `${option}-${index}` }))), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Hide built-in tools", placeholder: "e.g. GenerateImage", size: "small" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [...BUILTIN_TOOL_NAME_OPTIONS], value: value.enabledBuiltInTools, onChange: (_, v) => onChange({ ...value, enabledBuiltInTools: v.map(String) }), renderTags: (tagValue, getTagProps) => tagValue.map((option, index) => (createElement(Chip, { variant: "outlined", label: option, size: "small", ...getTagProps({ index }), key: `${option}-${index}` }))), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Whitelist built-in tools (optional)", placeholder: "Leave empty for no whitelist", size: "small" })) })] })] })] }));
 }
 
 const BASE$1 = '/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/scripts';
@@ -36146,7 +36168,7 @@ function mergeAgentAdvancedCatalogFields(draft, expertSkillRows, translateBatchS
 }
 function AgentAdvancedAgentFields(props) {
     const { draft, setDraft, expertSkillRows, setExpertSkillRows, translateBatchStr, setTranslateBatchStr } = props;
-    return (jsxs(Stack$1, { spacing: 2, sx: { width: '100%' }, children: [jsxs(Box, { children: [jsx$1(FormLabel, { component: "legend", sx: { fontSize: '1.05rem', fontWeight: 600, color: 'text.primary' }, children: "Expert skills (markdown URLs)" }), jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mt: 0.5, mb: 1 }, children: ["Public http(s) URLs indexed for ", jsx$1("strong", { children: "QueryExpertGuidance" }), " when CMS tools are enabled (OpenAI and compatible providers)."] }), jsx$1(Stack$1, { spacing: 1.5, children: expertSkillRows.map((row, idx) => (jsxs(Box, { sx: { border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5, pr: 5, position: 'relative' }, children: [jsx$1(IconButton, { size: "small", "aria-label": "Remove expert skill", sx: { position: 'absolute', right: 4, top: 4 }, onClick: () => setExpertSkillRows(expertSkillRows.filter((_, i) => i !== idx)), children: jsx$1(DeleteOutlineRounded, { fontSize: "small" }) }), jsxs(Stack$1, { spacing: 1, children: [jsx$1(TextField, { label: "Name (optional)", value: row.name, onChange: (ev) => {
+    return (jsxs(Stack$1, { spacing: 2, sx: { width: '100%' }, children: [jsxs(Box, { children: [jsx$1(FormLabel, { component: "legend", sx: { fontSize: '1.05rem', fontWeight: 600, color: 'text.primary' }, children: "Expert skills (markdown URLs)" }), jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mt: 0.5, mb: 1 }, children: ["Public http(s) URLs indexed for ", jsx$1("strong", { children: "QueryExpertGuidance" }), " when tools are enabled (OpenAI and compatible providers)."] }), jsx$1(Stack$1, { spacing: 1.5, children: expertSkillRows.map((row, idx) => (jsxs(Box, { sx: { border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5, pr: 5, position: 'relative' }, children: [jsx$1(IconButton, { size: "small", "aria-label": "Remove expert skill", sx: { position: 'absolute', right: 4, top: 4 }, onClick: () => setExpertSkillRows(expertSkillRows.filter((_, i) => i !== idx)), children: jsx$1(DeleteOutlineRounded, { fontSize: "small" }) }), jsxs(Stack$1, { spacing: 1, children: [jsx$1(TextField, { label: "Name (optional)", value: row.name, onChange: (ev) => {
                                                 const v = ev.target.value;
                                                 setExpertSkillRows(expertSkillRows.map((r, i) => (i === idx ? { ...r, name: v } : r)));
                                             }, fullWidth: true, size: "small" }), jsx$1(TextField, { label: "Markdown URL", value: row.url, onChange: (ev) => {
@@ -36159,7 +36181,7 @@ function AgentAdvancedAgentFields(props) {
 }
 function CmsToolCheckboxes(props) {
     const { draft, onToggle } = props;
-    return (jsxs(Box, { sx: { maxHeight: 220, overflowY: 'auto', border: 1, borderColor: 'divider', borderRadius: 1, p: 1 }, children: [jsx$1(FormLabel, { component: "legend", sx: { fontSize: '1.05rem', fontWeight: 600, color: 'text.primary', mb: 0.5 }, children: "CMS Tools for This Agent:" }), jsx$1(FormGroup, { children: STUDIO_AI_BUILTIN_TOOL_IDS.map((id) => (jsx$1(FormControlLabel, { control: jsx$1(Checkbox, { size: "small", checked: allToolIdsCheckedState(draft).has(id), onChange: (ev) => onToggle(id, ev.target.checked) }), label: jsx$1(Typography, { variant: "body2", sx: { fontFamily: 'monospace' }, children: id }) }, id))) })] }));
+    return (jsxs(Box, { sx: { maxHeight: 220, overflowY: 'auto', border: 1, borderColor: 'divider', borderRadius: 1, p: 1 }, children: [jsx$1(FormLabel, { component: "legend", sx: { fontSize: '1.05rem', fontWeight: 600, color: 'text.primary', mb: 0.5 }, children: "Tools for this agent:" }), jsx$1(FormGroup, { children: STUDIO_AI_BUILTIN_TOOL_IDS.map((id) => (jsx$1(FormControlLabel, { control: jsx$1(Checkbox, { size: "small", checked: allToolIdsCheckedState(draft).has(id), onChange: (ev) => onToggle(id, ev.target.checked) }), label: jsx$1(Typography, { variant: "body2", sx: { fontFamily: 'monospace' }, children: id }) }, id))) })] }));
 }
 /** Apply safe defaults before persisting so authors can save drafts from the panel without pre-filling every field. */
 function normalizeCatalogForSave(f) {
@@ -36197,8 +36219,11 @@ function normalizeCatalogForSave(f) {
             return out;
         }
         const label = String(e.label ?? e.name ?? '').trim() || 'Untitled assistant';
-        const id = readAgentCatalogId(e);
-        const outChat = withAgentCatalogId({ ...e, mode: 'chat', label }, id);
+        const outChat = ensureAgentCatalogId({
+            ...e,
+            mode: 'chat',
+            label
+        });
         const recChat = outChat;
         delete recChat.prompt;
         delete recChat.schedule;
@@ -36442,8 +36467,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
         setDraft({
             mode: 'chat',
             label: 'New assistant',
-            agentId: '',
-            id: '',
+            agentId: newAgentCatalogId(),
             llm: 'openAI',
             llmSecretKey: 'openai_api_key',
             llmModel: 'gpt-4o-mini',
@@ -36481,7 +36505,10 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
         resetSiteOrchDraft();
         setAgentDialogFullscreen(false);
         const entry = sanitizeScriptLlmModelField(catalog.agents[index]);
-        setDraft({ ...entry });
+        const mode = String(entry.mode ?? 'chat').toLowerCase();
+        setDraft(mode === 'autonomous'
+            ? { ...entry }
+            : ensureAgentCatalogId({ ...entry }));
         setChatPromptRows(rawPromptsToEditorRows(entry.prompts));
         setExpertSkillRows(rawExpertSkillsToEditorRows(entry.expertSkills ?? entry.expertSkill));
         const tbcRaw = entry.translateBatchConcurrency ?? entry.translate_batch_concurrency;
@@ -36521,10 +36548,10 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
                 delete x.prompts;
                 return x;
             })()
-            : {
+            : ensureAgentCatalogId({
                 ...advancedMerged,
                 prompts: serializeCentralCatalogPrompts(chatPromptRows) ?? []
-            };
+            });
         if (editIndex < 0)
             next.agents.push(mergedDraft);
         else
@@ -36725,16 +36752,14 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
                                                                 scope: String(d.scope ?? 'project')
                                                             };
                                                         }
-                                                        return {
+                                                        return ensureAgentCatalogId({
                                                             ...d,
                                                             mode: 'chat',
                                                             label: String(d.label ?? d.name ?? 'Assistant').trim() || 'Assistant',
-                                                            agentId: readAgentCatalogId(d),
-                                                            id: readAgentCatalogId(d),
                                                             prompts: []
-                                                        };
+                                                        });
                                                     });
-                                                } }), label: "Autonomous (scheduled)" }), mode === 'chat' ? (jsxs(Fragment, { children: [jsxs(Tabs, { value: agentDialogTab, onChange: (_, v) => setAgentDialogTab(v), sx: { borderBottom: 1, borderColor: 'divider', minHeight: 40 }, children: [jsx$1(Tab, { label: "General", value: "general" }), jsx$1(Tab, { label: "Advanced", value: "advanced" })] }), agentDialogTab === 'general' ? (jsxs(Stack$1, { spacing: 2, sx: { pt: 2.5, width: '100%' }, children: [jsx$1(TextField, { label: "Label", value: String(draft.label ?? ''), onChange: (ev) => setDraft((d) => (d ? { ...d, label: ev.target.value } : d)), fullWidth: true, size: "small" }), jsx$1(TextField, { label: "Agent id (optional for OpenAI-only)", value: String(draft.agentId ?? draft.id ?? ''), onChange: (ev) => setDraft((d) => (d ? { ...d, agentId: ev.target.value, id: ev.target.value } : d)), fullWidth: true, size: "small" }), jsx$1(TextField, { label: "MUI icon id (optional)", value: String(draft.icon ?? ''), onChange: (ev) => setDraft((d) => (d ? { ...d, icon: ev.target.value } : d)), fullWidth: true, size: "small", placeholder: "@mui/icons-material/AutoAwesomeRounded" }), llmVendorImageRows, jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: draft.enableTools !== false, onChange: (ev) => setDraft((d) => (d ? { ...d, enableTools: ev.target.checked } : d)) }), label: "Enable CMS tools (native tool loop)" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: draft.openAsPopup === true ||
+                                                } }), label: "Autonomous (scheduled)" }), mode === 'chat' ? (jsxs(Fragment, { children: [jsxs(Tabs, { value: agentDialogTab, onChange: (_, v) => setAgentDialogTab(v), sx: { borderBottom: 1, borderColor: 'divider', minHeight: 40 }, children: [jsx$1(Tab, { label: "General", value: "general" }), jsx$1(Tab, { label: "Advanced", value: "advanced" })] }), agentDialogTab === 'general' ? (jsxs(Stack$1, { spacing: 2, sx: { pt: 2.5, width: '100%' }, children: [jsx$1(TextField, { label: "Label", value: String(draft.label ?? ''), onChange: (ev) => setDraft((d) => (d ? { ...d, label: ev.target.value } : d)), fullWidth: true, size: "small" }), jsx$1(TextField, { label: "Agent id", value: String(draft.agentId ?? readAgentCatalogId(draft) ?? ''), fullWidth: true, size: "small", InputProps: { readOnly: true } }), jsx$1(TextField, { label: "MUI icon id (optional)", value: String(draft.icon ?? ''), onChange: (ev) => setDraft((d) => (d ? { ...d, icon: ev.target.value } : d)), fullWidth: true, size: "small", placeholder: "@mui/icons-material/AutoAwesomeRounded" }), llmVendorImageRows, jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: draft.enableTools !== false, onChange: (ev) => setDraft((d) => (d ? { ...d, enableTools: ev.target.checked } : d)) }), label: "Enable tools (native tool loop)" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: draft.openAsPopup === true ||
                                                                     String(draft.openAsPopup ?? '').trim().toLowerCase() === 'true', onChange: (ev) => setDraft((d) => {
                                                                     if (!d)
                                                                         return d;
@@ -36770,7 +36795,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
                                                                                                         delete next.omitTools;
                                                                                                     return next;
                                                                                                 }));
-                                                                                            } }), label: jsx$1(Typography, { variant: "body2", children: "Omit CMS tools when this chip is used (omitTools)" }) })] })] }, idx))) }), jsx$1(Button, { sx: { mt: 1 }, size: "small", startIcon: jsx$1(AddRounded, {}), disabled: chatPromptRows.length >= 10, onClick: () => setChatPromptRows([...chatPromptRows, { userText: '', additionalContext: '' }]), children: "Add prompt" })] })] })) : (jsxs(Stack$1, { spacing: 2, sx: { pt: 2.5, width: '100%' }, children: [draft.enableTools !== false ? (jsx$1(CmsToolCheckboxes, { draft: draft, onToggle: (toolId, checked) => setDraft((d) => (d ? setToolCheckedOnEntry(d, toolId, checked) : d)) })) : (jsxs(Typography, { variant: "body2", color: "text.secondary", children: ["Turn on ", jsx$1("strong", { children: "Enable CMS tools" }), " on the General tab to choose per-agent CMS tools."] })), jsx$1(AgentAdvancedAgentFields, { draft: draft, setDraft: setDraft, expertSkillRows: expertSkillRows, setExpertSkillRows: setExpertSkillRows, translateBatchStr: translateBatchStr, setTranslateBatchStr: setTranslateBatchStr }), advancedSiteOrchestrationPanel] }))] })) : (jsxs(Fragment, { children: [jsxs(Tabs, { value: agentDialogTab, onChange: (_, v) => setAgentDialogTab(v), sx: { borderBottom: 1, borderColor: 'divider', minHeight: 40 }, children: [jsx$1(Tab, { label: "General", value: "general" }), jsx$1(Tab, { label: "Advanced", value: "advanced" })] }), agentDialogTab === 'general' ? (jsxs(Stack$1, { spacing: 2, sx: { pt: 2.5, width: '100%' }, children: [jsx$1(TextField, { label: "Agent name", value: String(draft.name ?? ''), onChange: (ev) => setDraft((d) => (d ? { ...d, name: ev.target.value } : d)), fullWidth: true, size: "small" }), jsx$1(TextField, { label: "Schedule (Quartz cron)", value: String(draft.schedule ?? ''), onChange: (ev) => setDraft((d) => (d ? { ...d, schedule: ev.target.value } : d)), fullWidth: true, size: "small", helperText: "Quartz cron, e.g. every minute: 0 * * * * ?" }), jsx$1(TextField, { label: "System prompt", value: String(draft.prompt ?? ''), onChange: (ev) => setDraft((d) => (d ? { ...d, prompt: ev.target.value } : d)), fullWidth: true, multiline: true, minRows: 4, size: "small", helperText: "Instructions for each scheduled run.", placeholder: 'e.g. On each run: scan /site/website/news/ for draft items older than 7 days, ' +
+                                                                                            } }), label: jsx$1(Typography, { variant: "body2", children: "Omit tools when this chip is used (omitTools)" }) })] })] }, idx))) }), jsx$1(Button, { sx: { mt: 1 }, size: "small", startIcon: jsx$1(AddRounded, {}), disabled: chatPromptRows.length >= 10, onClick: () => setChatPromptRows([...chatPromptRows, { userText: '', additionalContext: '' }]), children: "Add prompt" })] })] })) : (jsxs(Stack$1, { spacing: 2, sx: { pt: 2.5, width: '100%' }, children: [draft.enableTools !== false ? (jsx$1(CmsToolCheckboxes, { draft: draft, onToggle: (toolId, checked) => setDraft((d) => (d ? setToolCheckedOnEntry(d, toolId, checked) : d)) })) : (jsxs(Typography, { variant: "body2", color: "text.secondary", children: ["Turn on ", jsx$1("strong", { children: "Enable tools" }), " on the General tab to choose per-agent built-in tools."] })), jsx$1(AgentAdvancedAgentFields, { draft: draft, setDraft: setDraft, expertSkillRows: expertSkillRows, setExpertSkillRows: setExpertSkillRows, translateBatchStr: translateBatchStr, setTranslateBatchStr: setTranslateBatchStr }), advancedSiteOrchestrationPanel] }))] })) : (jsxs(Fragment, { children: [jsxs(Tabs, { value: agentDialogTab, onChange: (_, v) => setAgentDialogTab(v), sx: { borderBottom: 1, borderColor: 'divider', minHeight: 40 }, children: [jsx$1(Tab, { label: "General", value: "general" }), jsx$1(Tab, { label: "Advanced", value: "advanced" })] }), agentDialogTab === 'general' ? (jsxs(Stack$1, { spacing: 2, sx: { pt: 2.5, width: '100%' }, children: [jsx$1(TextField, { label: "Agent name", value: String(draft.name ?? ''), onChange: (ev) => setDraft((d) => (d ? { ...d, name: ev.target.value } : d)), fullWidth: true, size: "small" }), jsx$1(TextField, { label: "Schedule (Quartz cron)", value: String(draft.schedule ?? ''), onChange: (ev) => setDraft((d) => (d ? { ...d, schedule: ev.target.value } : d)), fullWidth: true, size: "small", helperText: "Quartz cron, e.g. every minute: 0 * * * * ?" }), jsx$1(TextField, { label: "System prompt", value: String(draft.prompt ?? ''), onChange: (ev) => setDraft((d) => (d ? { ...d, prompt: ev.target.value } : d)), fullWidth: true, multiline: true, minRows: 4, size: "small", helperText: "Instructions for each scheduled run.", placeholder: 'e.g. On each run: scan /site/website/news/ for draft items older than 7 days, ' +
                                                                 'list their internal names, and suggest one-line social posts for each.' }), jsxs(FormControl, { fullWidth: true, size: "small", variant: "outlined", children: [jsx$1(InputLabel, { id: "cq-central-scope", children: "Scope" }), jsxs(Select, { labelId: "cq-central-scope", label: "Scope", value: String(draft.scope ?? 'project'), onChange: (ev) => setDraft((d) => (d ? { ...d, scope: ev.target.value } : d)), children: [jsx$1(MenuItem, { value: "project", children: "project" }), jsx$1(MenuItem, { value: "user", children: "user" }), jsx$1(MenuItem, { value: "role", children: "role" })] })] }), llmVendorImageRows] })) : (jsxs(Stack$1, { spacing: 2, sx: { pt: 2.5, width: '100%' }, children: [jsx$1(CmsToolCheckboxes, { draft: draft, onToggle: (toolId, checked) => setDraft((d) => (d ? setToolCheckedOnEntry(d, toolId, checked) : d)) }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: draft.manageOtherAgentsHumanTasks === true ||
                                                                     String(draft.manageOtherAgentsHumanTasks).toLowerCase() === 'true', onChange: (ev) => setDraft((d) => (d ? { ...d, manageOtherAgentsHumanTasks: ev.target.checked } : d)) }), label: "Manage other agents\u2019 human tasks" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: draft.startAutomatically !== false, onChange: (ev) => setDraft((d) => (d ? { ...d, startAutomatically: ev.target.checked } : d)) }), label: "Start automatically (with supervisor)" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: draft.stopOnFailure !== false, onChange: (ev) => setDraft((d) => (d ? { ...d, stopOnFailure: ev.target.checked } : d)) }), label: "Stop on failure" }), jsx$1(AgentAdvancedAgentFields, { draft: draft, setDraft: setDraft, expertSkillRows: expertSkillRows, setExpertSkillRows: setExpertSkillRows, translateBatchStr: translateBatchStr, setTranslateBatchStr: setTranslateBatchStr }), advancedSiteOrchestrationPanel] }))] }))] }));
                             })() }), jsxs(DialogActions, { sx: { flexShrink: 0 }, children: [jsx$1(Button, { onClick: closeDialog, children: "Cancel" }), jsx$1(Button, { variant: "contained", onClick: applyDraft, children: "Apply to catalog" })] })] })] }));
@@ -38303,7 +38328,7 @@ function AiAssistantIntentRecipePhaseHintsField(props) {
                         appendTemplateLine(line);
                     }
                     setTemplatePick(null);
-                }, renderInput: (params) => (jsx$1(TextField, { ...params, size: "small", label: "Insert template line", placeholder: "Pick a bundled hint to append" })) })) : null, jsx$1(Stack$1, { direction: "row", justifyContent: "flex-end", children: jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(BuildRounded, {}), onClick: (e) => setHelperFlyoutAnchor(e.currentTarget), "aria-haspopup": "dialog", "aria-expanded": Boolean(helperFlyoutAnchor), children: "Tools & placeholders\u2026" }) }), jsx$1(Popover, { open: Boolean(helperFlyoutAnchor), anchorEl: helperFlyoutAnchor, onClose: () => setHelperFlyoutAnchor(null), anchorOrigin: { vertical: 'bottom', horizontal: 'right' }, transformOrigin: { vertical: 'top', horizontal: 'right' }, slotProps: { paper: { sx: { maxWidth: 520 } } }, children: jsxs(Box, { sx: { p: 2, maxHeight: 'min(70vh, 560px)', overflow: 'auto' }, children: [jsxs(Typography, { variant: "subtitle2", gutterBottom: true, children: ["Insert into ", PHASE_LABELS$1[phaseKey].toLowerCase(), " hints"] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 2 }, children: "Tool names and placeholders for hints; token reference for prefetch step JSON args below." }), jsxs(Stack$1, { spacing: 2, children: [jsx$1(AiAssistantIntentRecipePrefetchBindingsHelp, {}), jsxs(Box, { children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 0.75 }, children: "CMS tool names (hints)" }), jsx$1(Box, { sx: { display: 'flex', flexWrap: 'wrap', gap: 0.5 }, children: INTENT_RECIPE_WIRE_TOOL_OPTIONS.map((tool) => (jsx$1(Chip, { label: tool, size: "small", variant: "outlined", onClick: () => appendToolToNewHint(tool), sx: { fontFamily: 'monospace', fontSize: 11, cursor: 'pointer' } }, tool))) })] }), bindingNames.length > 0 ? (jsxs(Box, { children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 0.75 }, children: "Prefetch placeholders (from engine step bindings)" }), jsx$1(Box, { sx: { display: 'flex', flexWrap: 'wrap', gap: 0.5 }, children: bindingNames.flatMap((name) => [
+                }, renderInput: (params) => (jsx$1(TextField, { ...params, size: "small", label: "Insert template line", placeholder: "Pick a bundled hint to append" })) })) : null, jsx$1(Stack$1, { direction: "row", justifyContent: "flex-end", children: jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(BuildRounded, {}), onClick: (e) => setHelperFlyoutAnchor(e.currentTarget), "aria-haspopup": "dialog", "aria-expanded": Boolean(helperFlyoutAnchor), children: "Tools & placeholders\u2026" }) }), jsx$1(Popover, { open: Boolean(helperFlyoutAnchor), anchorEl: helperFlyoutAnchor, onClose: () => setHelperFlyoutAnchor(null), anchorOrigin: { vertical: 'bottom', horizontal: 'right' }, transformOrigin: { vertical: 'top', horizontal: 'right' }, slotProps: { paper: { sx: { maxWidth: 520 } } }, children: jsxs(Box, { sx: { p: 2, maxHeight: 'min(70vh, 560px)', overflow: 'auto' }, children: [jsxs(Typography, { variant: "subtitle2", gutterBottom: true, children: ["Insert into ", PHASE_LABELS$1[phaseKey].toLowerCase(), " hints"] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 2 }, children: "Tool names and placeholders for hints; token reference for prefetch step JSON args below." }), jsxs(Stack$1, { spacing: 2, children: [jsx$1(AiAssistantIntentRecipePrefetchBindingsHelp, {}), jsxs(Box, { children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 0.75 }, children: "Tool wire names (hints)" }), jsx$1(Box, { sx: { display: 'flex', flexWrap: 'wrap', gap: 0.5 }, children: INTENT_RECIPE_WIRE_TOOL_OPTIONS.map((tool) => (jsx$1(Chip, { label: tool, size: "small", variant: "outlined", onClick: () => appendToolToNewHint(tool), sx: { fontFamily: 'monospace', fontSize: 11, cursor: 'pointer' } }, tool))) })] }), bindingNames.length > 0 ? (jsxs(Box, { children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 0.75 }, children: "Prefetch placeholders (from engine step bindings)" }), jsx$1(Box, { sx: { display: 'flex', flexWrap: 'wrap', gap: 0.5 }, children: bindingNames.flatMap((name) => [
                                                 jsx$1(Chip, { label: `{{initial.${name}}}`, size: "small", variant: "outlined", onClick: () => setHintChips([...hintChips, `{{initial.${name}}}`]), sx: { fontFamily: 'monospace', fontSize: 11, cursor: 'pointer' } }, `initial-${name}`),
                                                 jsx$1(Chip, { label: `{{current.${name}}}`, size: "small", variant: "outlined", onClick: () => setHintChips([...hintChips, `{{current.${name}}}`]), sx: { fontFamily: 'monospace', fontSize: 11, cursor: 'pointer' } }, `current-${name}`)
                                             ]) })] })) : (jsxs(Typography, { variant: "caption", color: "text.secondary", children: ["Add prefetch engine steps below to enable placeholder chips for", ' ', jsx$1("code", { children: '{{initial.name}}' }), " / ", jsx$1("code", { children: '{{current.name}}' }), "."] })), phaseKey === 'action' ? (jsxs(Paper, { variant: "outlined", sx: { p: 1.5, bgcolor: 'action.hover' }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Action tool flow" }), jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 1.5 }, children: ["Build one hint like", ' ', jsx$1("em", { children: "Use update_content or GetContent \u2192 revise XML \u2192 WriteContent; preserve structure\u2026" })] }), jsxs(Stack$1, { spacing: 1.5, children: [jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [...INTENT_RECIPE_WIRE_TOOL_OPTIONS], value: flowTools, onChange: (_, v) => setFlowTools(v.map(String).filter(Boolean)), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Tools in flow (ordered)", size: "small", placeholder: "update_content, GetContent, WriteContent" })), renderTags: (value, getTagProps) => value.map((option, index) => (createElement(Chip, { ...getTagProps({ index }), key: `${option}-${index}`, label: option, size: "small", sx: { fontFamily: 'monospace', fontSize: 11 } }))) }), jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 1, children: [jsx$1(TextField, { label: "After \u2192", value: flowMiddle, onChange: (e) => setFlowMiddle(e.target.value), size: "small", fullWidth: true, placeholder: "revise XML" }), jsx$1(TextField, { label: "After ;", value: flowSuffix, onChange: (e) => setFlowSuffix(e.target.value), size: "small", fullWidth: true, placeholder: "preserve <page>/<component> structure\u2026" })] }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(AutoFixHighRounded, {}), onClick: () => {
@@ -38507,7 +38532,7 @@ function AiAssistantIntentRecipeRoutingFields(props) {
     const { value: valueProp, onChange } = props;
     const value = valueProp ?? defaultIntentRecipeRoutingFormState();
     const patch = (partial) => onChange({ ...value, ...partial });
-    return (jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Intent recipe routing" }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Optional pre-tools router: classifies the author message, runs read-only prefetch steps from a matched recipe, then prepends guidance to the main CMS tool loop." }), jsxs(Stack$1, { spacing: 2, children: [jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.enabled, onChange: (_, c) => patch({ enabled: c }), size: "small" }), label: "Enable intent recipe router" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.engineEnabled, onChange: (_, c) => patch({ engineEnabled: c }), size: "small", disabled: !value.enabled }), label: "Prefetch engine (server read-only tool steps before tools loop)" }), jsx$1(TextField, { label: "Min confidence (0\u20131)", value: value.minConfidence, onChange: (ev) => patch({ minConfidence: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled, helperText: "Router must meet this confidence to apply a recipe (default 0.55)." }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.requestClarificationOnUnmatched, onChange: (_, c) => patch({ requestClarificationOnUnmatched: c }), size: "small", disabled: !value.enabled }), label: "Tools-off clarification when unmatched" }), jsx$1(TextField, { label: "Custom recipes path (optional)", value: value.customRecipesPath, onChange: (ev) => patch({ customRecipesPath: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled, placeholder: "/scripts/aiassistant/config/intent-recipes.json", helperText: "Studio module path; merged over bundled defaults by recipe id." }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.eligibilityGateEnabled, onChange: (_, c) => patch({ eligibilityGateEnabled: c }), size: "small", disabled: !value.enabled }), label: "Eligibility gate (filter short / non-CMS messages before routing)" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.wholeTurnJsonRouterEnabled, onChange: (_, c) => patch({ wholeTurnJsonRouterEnabled: c }), size: "small", disabled: !value.enabled }), label: "Whole-turn JSON router" }), jsx$1(TextField, { label: "Prefetch max steps (optional)", value: value.engineMaxSteps, onChange: (ev) => patch({ engineMaxSteps: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled || !value.engineEnabled, placeholder: "8", helperText: "Cap read-only prefetch steps in the recipe engine. Leave empty for server default." }), jsx$1(TextField, { label: "Prefetch max total characters (optional)", value: value.engineMaxTotalChars, onChange: (ev) => patch({ engineMaxTotalChars: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled || !value.engineEnabled, placeholder: "200000", helperText: "Total characters loaded across prefetch steps. Leave empty for server default." }), jsx$1(TextField, { label: "Prefetch max field characters (optional)", value: value.engineMaxFieldChars, onChange: (ev) => patch({ engineMaxFieldChars: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled || !value.engineEnabled, placeholder: "120000", helperText: "Per-field cap during prefetch. Leave empty for server default." })] })] }));
+    return (jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Intent recipe routing" }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Optional pre-tools router: classifies the author message, runs read-only prefetch steps from a matched recipe, then prepends guidance to the main tools loop." }), jsxs(Stack$1, { spacing: 2, children: [jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.enabled, onChange: (_, c) => patch({ enabled: c }), size: "small" }), label: "Enable intent recipe router" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.engineEnabled, onChange: (_, c) => patch({ engineEnabled: c }), size: "small", disabled: !value.enabled }), label: "Prefetch engine (server read-only tool steps before tools loop)" }), jsx$1(TextField, { label: "Min confidence (0\u20131)", value: value.minConfidence, onChange: (ev) => patch({ minConfidence: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled, helperText: "Router must meet this confidence to apply a recipe (default 0.55)." }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.requestClarificationOnUnmatched, onChange: (_, c) => patch({ requestClarificationOnUnmatched: c }), size: "small", disabled: !value.enabled }), label: "Tools-off clarification when unmatched" }), jsx$1(TextField, { label: "Custom recipes path (optional)", value: value.customRecipesPath, onChange: (ev) => patch({ customRecipesPath: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled, placeholder: "/scripts/aiassistant/config/intent-recipes.json", helperText: "Studio module path; merged over bundled defaults by recipe id." }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.eligibilityGateEnabled, onChange: (_, c) => patch({ eligibilityGateEnabled: c }), size: "small", disabled: !value.enabled }), label: "Eligibility gate (filter short / non-CMS messages before routing)" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.wholeTurnJsonRouterEnabled, onChange: (_, c) => patch({ wholeTurnJsonRouterEnabled: c }), size: "small", disabled: !value.enabled }), label: "Whole-turn JSON router" }), jsx$1(TextField, { label: "Prefetch max steps (optional)", value: value.engineMaxSteps, onChange: (ev) => patch({ engineMaxSteps: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled || !value.engineEnabled, placeholder: "8", helperText: "Cap read-only prefetch steps in the recipe engine. Leave empty for server default." }), jsx$1(TextField, { label: "Prefetch max total characters (optional)", value: value.engineMaxTotalChars, onChange: (ev) => patch({ engineMaxTotalChars: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled || !value.engineEnabled, placeholder: "200000", helperText: "Total characters loaded across prefetch steps. Leave empty for server default." }), jsx$1(TextField, { label: "Prefetch max field characters (optional)", value: value.engineMaxFieldChars, onChange: (ev) => patch({ engineMaxFieldChars: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled || !value.engineEnabled, placeholder: "120000", helperText: "Per-field cap during prefetch. Leave empty for server default." })] })] }));
 }
 
 function _extends() {
@@ -74282,7 +74307,7 @@ function AiAssistantScriptsSandboxConfiguration(props) {
                                 setRegistryDirty(false);
                                 setToolsPolicyDirty(false);
                                 void reload();
-                            }, children: "Reload" }) }), showToolsBuiltIn ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["Built-in tools (", jsx$1("code", { children: TOOLS_JSON_REL }), "):"] }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Allowlists and intent-recipe routing for CMS tools. Saved with the same site file as MCP settings (", jsx$1("code", { children: "scripts/aiassistant/config/tools.json" }), ")."] }), jsx$1(AiAssistantToolsMcpForm, { sections: "builtIn", value: toolsPolicy, onChange: (next) => {
+                            }, children: "Reload" }) }), showToolsBuiltIn ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["Built-in tools (", jsx$1("code", { children: TOOLS_JSON_REL }), "):"] }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Allowlists and intent-recipe routing for built-in tools. Saved with the same site file as MCP settings (", jsx$1("code", { children: "scripts/aiassistant/config/tools.json" }), ")."] }), jsx$1(AiAssistantToolsMcpForm, { sections: "builtIn", value: toolsPolicy, onChange: (next) => {
                                     setToolsPolicy(next);
                                     setToolsPolicyDirty(true);
                                 } }), showToolsUser ? null : (jsx$1(Stack$1, { direction: "row", spacing: 1, sx: { mt: 2 }, flexWrap: "wrap", alignItems: "center", children: jsx$1(Button, { size: "small", variant: "contained", startIcon: savingToolsPolicy ? jsx$1(CircularProgress, { size: 16, color: "inherit" }) : jsx$1(SaveRounded, {}), disabled: savingToolsPolicy || !toolsPolicyDirty, onClick: () => void saveToolsPolicy(), children: "Save tools policy" }) }))] })) : null, showMcp ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["MCP (", jsx$1("code", { children: TOOLS_JSON_REL }), "):"] }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Optional Streamable HTTP MCP servers. Wire names look like", ' ', jsx$1("code", { children: "mcp_<serverId>_<toolName>" }), ". Written to", ' ', jsx$1("code", { children: "scripts/aiassistant/config/tools.json" }), " on Save."] }), jsx$1(AiAssistantToolsMcpForm, { sections: "mcp", value: toolsPolicy, onChange: (next) => {
@@ -75080,7 +75105,7 @@ const AI_ASSISTANT_JOYRIDE_STEPS = [
         tab: 'integrations',
         title: 'Integrations',
         Icon: ExtensionOutlined,
-        body: 'Optional extras: script-based LLMs, image generators, CMS tools, and MCP servers.\n\n' +
+        body: 'Optional extras: script-based LLMs, image generators, built-in tools, scripted tools, and MCP servers.\n\n' +
             'Skip this until you need something beyond the defaults.'
     },
     {

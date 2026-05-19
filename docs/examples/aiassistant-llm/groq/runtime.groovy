@@ -1,7 +1,7 @@
 // Copy to: config/studio/scripts/aiassistant/llm/groq/runtime.groovy
 // Agent: <llm>script:groq</llm>
 //
-// Groq Cloud — **Groq** chat model ids only (`<llmModel>` / POST `llmModel`) + native CMS tools via Studio’s tools-loop HTTP.
+// Groq Cloud — **Groq** chat model ids only (`<llmModel>` / POST `llmModel`) + native built-in tools via Studio’s tools-loop HTTP.
 //
 // **Spring AI** is vendor-neutral (Anthropic, Ollama, Azure, many chat hosts). This sample imports `OpenAiApi` /
 // `OpenAiChatModel` from the **`spring-ai-openai`** library module — those types implement one **HTTP JSON contract**
@@ -29,7 +29,7 @@
 // Model list: https://console.groq.com/docs/models
 //
 // Built-in GenerateImage / expert embeddings use Studio’s separate image-and-embedding configuration (not GROQ_API_KEY); see plugin docs.
-// Native CMS tools: this sample returns **session-bundle** keys (`toolsLoopChatPreferMaxCompletionTokens`, `toolsLoopChatMaxCompletionOutTokens`,
+// Native built-in tools: this sample returns **session-bundle** keys (`toolsLoopChatPreferMaxCompletionTokens`, `toolsLoopChatMaxCompletionOutTokens`,
 // `toolsLoopChatMaxWirePayloadChars`) so orchestration can emit `max_completion_tokens` and shrink oversized tool-loop JSON (vendor-neutral; see
 // **StudioAiLlmKind** and docs/using-and-extending/script-llm-bring-your-own-backend.md). This script optionally reads
 // `GROQ_TOOLS_LOOP_MAX_COMPLETION_TOKENS` / `GROQ_TOOLS_LOOP_MAX_WIRE_CHARS` and maps them into that bundle (core does not read those env vars).

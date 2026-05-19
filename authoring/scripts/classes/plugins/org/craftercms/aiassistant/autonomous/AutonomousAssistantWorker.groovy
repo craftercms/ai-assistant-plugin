@@ -197,7 +197,7 @@ final class AutonomousAssistantWorker {
           autonomousContract +
           '\n\n**Studio tools:** This request includes the same CrafterCMS Studio tool catalog as interactive chat ' +
           '(function definitions on the API). Call tools when you need real repository or CMS data. ' +
-          'For drafting or transforming text **without** using other CMS tools in that inner model call, use the ' +
+          'For drafting or transforming text **without** using other tools in that inner model call, use the ' +
           '**GenerateTextNoTools** tool (single completion; result includes **assistantText**). ' +
           'When you are finished using tools, your **final** assistant message must be **only** the single JSON object ' +
           'described above (no markdown fences, no commentary outside JSON).'

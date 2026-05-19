@@ -81,7 +81,7 @@ final class McpWireStudioAiTool extends AbstractStudioAiTool {
 
   /**
    * Builds Spring AI {@link org.springframework.ai.tool.function.FunctionToolCallback} bridging MCP RPC + SSE progress listeners.
-   * Wraps execution with {@link AiOrchestrationTools#runWithToolProgress} for parity with CMS tools.
+   * Wraps execution with {@link AiOrchestrationTools#runWithToolProgress} for parity with tools.
    * Reuses ctx converters for typed result marshaling back into chat transcripts.
    */
   @Override

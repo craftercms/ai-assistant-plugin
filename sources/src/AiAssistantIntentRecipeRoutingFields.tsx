@@ -28,7 +28,7 @@ export default function AiAssistantIntentRecipeRoutingFields(props: AiAssistantI
       </Typography>
       <Typography variant="body2" color="text.secondary" paragraph>
         Optional pre-tools router: classifies the author message, runs read-only prefetch steps from a matched recipe,
-        then prepends guidance to the main CMS tool loop.
+        then prepends guidance to the main tools loop.
       </Typography>
       <Stack spacing={2}>
         <FormControlLabel

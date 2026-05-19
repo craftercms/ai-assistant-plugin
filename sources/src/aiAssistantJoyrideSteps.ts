@@ -50,7 +50,7 @@ export const AI_ASSISTANT_JOYRIDE_STEPS: AiAssistantJoyrideStep[] = [
     title: 'Integrations',
     Icon: ExtensionOutlined,
     body:
-      'Optional extras: script-based LLMs, image generators, CMS tools, and MCP servers.\n\n' +
+      'Optional extras: script-based LLMs, image generators, built-in tools, scripted tools, and MCP servers.\n\n' +
       'Skip this until you need something beyond the defaults.'
   },
   {

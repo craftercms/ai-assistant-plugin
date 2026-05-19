@@ -19,7 +19,7 @@ abstract class AbstractStudioAiTool implements StudioAiOrchestrationTool {
   }
 
   /**
-   * Defaults to {@code null} so orchestration treats this as an unbucketed CMS tool unless overridden.
+   * Defaults to {@code null} so orchestration treats this as an unbucketed built-in tool unless overridden.
    */
   @Override
   String pipelineStage() {
@@ -27,7 +27,7 @@ abstract class AbstractStudioAiTool implements StudioAiOrchestrationTool {
   }
 
   /**
-   * {@code false} for mutating MCP/CMS tools; recipe-engine-safe tools override with {@code true}.
+   * {@code false} for mutating MCP/built-in tools; recipe-engine-safe tools override with {@code true}.
    */
   @Override
   boolean recipeEngineReadOnly() {

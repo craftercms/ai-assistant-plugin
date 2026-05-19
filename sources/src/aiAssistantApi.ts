@@ -92,17 +92,17 @@ export interface StreamChatArgs {
    */
   previewToken?: string;
   /**
-   * When false, server omits OpenAI CMS function tools (from agents.json `enableTools`). Omitted defaults to tools on.
+   * When false, server omits function tools (from agents.json `enableTools`). Omitted defaults to tools on.
    * May be string when passed from serialized widget props.
    */
   enableTools?: boolean | string;
   /**
-   * When true, this request omits CMS function tools (copy / image-style generation steps). Overrides enableTools for one round-trip only.
+   * When true, this request omits function tools (copy / image-style generation steps). Overrides enableTools for one round-trip only.
    * Same behavior for Experience Builder/ICE preview chat, floating dialog, and form-engine assistant (`authoringSurface`).
    */
   omitTools?: boolean;
   /**
-   * Optional subset of CMS tool wire names for this request (POST **enabledBuiltInTools**). Include **`mcp:*`**
+   * Optional subset of built-in tool wire names for this request (POST **enabledBuiltInTools**). Include **`mcp:*`**
    * to retain all MCP tools after site policy. Omitted = full catalog (subject to site **tools.json**).
    */
   enabledBuiltInTools?: string[];

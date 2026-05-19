@@ -1,7 +1,7 @@
 package plugins.org.craftercms.aiassistant.tools.spi
 
 /**
- * Contract for a built-in CMS tool registered on the orchestration catalog.
+ * Contract for a built-in tool registered on the orchestration catalog.
  * Implementations expose JSON-schema-shaped inputs plus Studio execution hooks consumed by Spring AI adapters.
  */
 interface StudioAiOrchestrationTool {

@@ -32,7 +32,7 @@ class GetCrafterizingPlaybookTool extends AbstractStudioAiTool {
       charCount             : md.length(),
       loadedFromEditableFile: fromEditableFile,
       playbookFileName      : CrafterizingPlaybookLoader.PLAYBOOK_FILE_NAME,
-      hint                  : 'Use when planning or executing full HTML-template-to-CrafterCMS (crafterization) work; follow phases and critical rules, then use CMS tools to read/write content.'
+      hint                  : 'Use when planning or executing full HTML-template-to-CrafterCMS (crafterization) work; follow phases and critical rules, then use tools to read/write content.'
     ]
   }
 }

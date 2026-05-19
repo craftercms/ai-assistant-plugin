@@ -6,7 +6,7 @@ Site script LLMs (**`<llm>script:{id}</llm>`**) are **not** required to call bui
 
 **Spring AI** is **not** tied to the OpenAI vendor: it is a multi-provider integration layer (Anthropic, Ollama, Azure, OpenAI, and others). This plugin sometimes uses types from the **`spring-ai-openai`** artifact because that module implements a **widely reused chat-completions JSON API** many hosts expose — the **`OpenAi*`** Java names reflect that **HTTP wire**, not “your stack must be OpenAI.”
 
-**Tools-compatible LLM:** A chat host whose HTTP API matches what Studio’s **native CMS tools** path expects (the same request/response shape the built-in **`openAI`** row uses through Spring **`OpenAiApi`**). Groq, xAI, and others can be **different vendors**; env names such as **`SCRIPT_LLM_OPENAI_COMPAT_BASE_URL`** are fixed plugin conventions, not a claim your backend is OpenAI’s product.
+**Tools-compatible LLM:** A chat host whose HTTP API matches what Studio’s **native built-in tools** path expects (the same request/response shape the built-in **`openAI`** row uses through Spring **`OpenAiApi`**). Groq, xAI, and others can be **different vendors**; env names such as **`SCRIPT_LLM_OPENAI_COMPAT_BASE_URL`** are fixed plugin conventions, not a claim your backend is OpenAI’s product.
 
 ## What You Must Return
 
@@ -16,7 +16,7 @@ Implement **`StudioAiLlmRuntime`** (or a **Map** with **`buildSessionBundle`** �
 |-----|------|
 | **`chatClient`** | Spring AI **`ChatClient`** (typically **`DefaultChatClientBuilder`** around your **`ChatModel`**). |
 | **`chatModel`** | Spring AI **`ChatModel`** for your provider. |
-| **`tools`** | Built with **`AiOrchestrationTools.build(...)`** when CMS tools should be available (same arguments pattern as **`OpenAiSpringAiLlmRuntime`** / **`AnthropicSpringAiLlmRuntime`**). |
+| **`tools`** | Built with **`AiOrchestrationTools.build(...)`** when tools should be available (same arguments pattern as **`OpenAiSpringAiLlmRuntime`** / **`AnthropicSpringAiLlmRuntime`**). |
 | **`useTools`** | Mirrors **`req.enableTools`**. |
 | **`studioOps`** | Pass through **`req.studioOps`**. |
 | **`toolsLoopChatApiKey`** | API key the **native tools REST loop** uses toward **`/v1/chat/completions`** on your chat host. |
@@ -65,7 +65,7 @@ Same **`OpenAiApi` + `OpenAiChatModel`** types from Spring AI’s **`spring-ai-o
 
 **Example `llmModel`:** `meta-llama/llama-4-scout-17b-16e-instruct` — set on the agent, or export **`GROQ_LLM_MODEL`** / **`SCRIPT_LLM_MODEL`** with the same value for a site-wide default. Confirm the id is still listed under [Groq models](https://console.groq.com/docs/models) before relying on it in production.
 
-When **`script:groq`** runs **native CMS tools**, the sample returns **`toolsLoopChatPreferMaxCompletionTokens: true`** plus **`toolsLoopChatMaxCompletionOutTokens`** / **`toolsLoopChatMaxWirePayloadChars`** (from optional **`GROQ_TOOLS_LOOP_*`** env in the script, or your own values) so orchestration matches Groq’s **`max_completion_tokens`** expectations and can shrink oversized tool-loop payloads. Any other script LLM can set the same bundle keys for a non-Groq host without core reading vendor-specific environment variables.
+When **`script:groq`** runs **native built-in tools**, the sample returns **`toolsLoopChatPreferMaxCompletionTokens: true`** plus **`toolsLoopChatMaxCompletionOutTokens`** / **`toolsLoopChatMaxWirePayloadChars`** (from optional **`GROQ_TOOLS_LOOP_*`** env in the script, or your own values) so orchestration matches Groq’s **`max_completion_tokens`** expectations and can shrink oversized tool-loop payloads. Any other script LLM can set the same bundle keys for a non-Groq host without core reading vendor-specific environment variables.
 
 ## Anthropic-style Session
 

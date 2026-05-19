@@ -1,8 +1,8 @@
 # Intent Recipe Routing (Pre-Tools) and Tools Loop
 
-Companion to **[`chat-and-tools-runtime.md`](chat-and-tools-runtime.md)** and **[`spec.md`](spec.md)**. Describes how preview chat classifies an author turn **before** the native CMS tools loop runs, and how that classification affects tool availability, prefetch, and prompts.
+Companion to **[`chat-and-tools-runtime.md`](chat-and-tools-runtime.md)** and **[`spec.md`](spec.md)**. Describes how preview chat classifies an author turn **before** the native tools loop runs, and how that classification affects tool availability, prefetch, and prompts.
 
-**Audience:** Maintainers debugging `intent-recipe-routing` SSE telemetry, `skipped_eligibility`, wrong recipe matches, or CMS tools firing on chat-only turns.
+**Audience:** Maintainers debugging `intent-recipe-routing` SSE telemetry, `skipped_eligibility`, wrong recipe matches, or tools firing on chat-only turns.
 
 **Configuration:** Project Tools → AI Assistant → **Recipes** tab (`tools.json` → `intentRecipeRouting` flags + site **`intent-recipes.json`** catalog). Bundled defaults ship in the plugin JAR: `authoring/scripts/classes/plugins/org/craftercms/aiassistant/recipes/authoring-intent-recipes-default.json`. Site overrides: `config/studio/scripts/aiassistant/intent-recipes.json` (path configurable via **custom recipes path**). Admin overview: **[configuration-guide.md §9.0](../using-and-extending/configuration-guide.md#cg-9-0)**. **Broader architecture:** [Architecture & diagrams](../architecture-diagrams.md#logical-architecture-design) (recipe prelude in the orchestration layer).
 
@@ -12,7 +12,7 @@ Companion to **[`chat-and-tools-runtime.md`](chat-and-tools-runtime.md)** and **
 
 - **Repository anchor** (`contentPath`, Request anchor on `/site/.../*.xml`) is **context** — which item is open in Studio.
 - **CMS intent** follows the **current author message** (`Current request:` line on the wire), not keywords buried in `[Prior conversation …]`.
-- A **repo anchor alone** must not add structural competitors for `modify_page_content` or force CMS tools on creative / chat-only turns.
+- A **repo anchor alone** must not add structural competitors for `modify_page_content` or force tools on creative / chat-only turns.
 
 ---
 
@@ -218,7 +218,7 @@ Fails here mean routing never called the router LLM and never ran prefetch — r
 - Run **prefetch** (e.g. `GetContent` for the anchored path)
 - Optionally run **intent expansion + pass-2 rematch** when pass 1 misses
 
-It is **not** “eligible to chat” (chat always proceeds) and **not** “eligible for CMS tools” (the **tools loop** often still runs after a skip — see optional diagram: `skipped_eligibility` → **E**).
+It is **not** “eligible to chat” (chat always proceeds) and **not** “eligible for tools” (the **tools loop** often still runs after a skip — see optional diagram: `skipped_eligibility` → **E**).
 
 **Class:** `AuthoringPreviewContext`  
 **Method:** `intentRecipeRouterEligibilitySkipReason(fullPrompt)`  
@@ -291,7 +291,7 @@ See **[Routing at a glance](#routing-at-a-glance-default)** for the simplified d
    - **Enrich** when zero patterns matched (catalog table for context).
    - Retest `deterministicMatch` on clarified text → one hit → `deterministic_after_clarify`.
 
-3. **Defer to plan loop** (default) — Still **multiple** hits → `deferToPlanLoop`, `ambiguous_multi_defer_plan` (no JSON router). Still **zero** hits → `deferToPlanLoop`, `no_deterministic_defer_plan`. Prelude prepends **`GENERAL_LLM_AUTHORING_INTENT_ROUTING_DEFER_PLAN_HINT`** plus **`[Studio — plan defer: recipe + tool catalog]`** (`AuthoringIntentRecipeCatalog.formatPlanDeferOrchestrationContextBlock`: intent recipe catalog + wired CMS tools + site **`InvokeSiteUserTool`** registry). Policy: **prefer a matching recipe** for a step when it clearly fits; use individual wire tools when one call suffices or no recipe matches. After round 0 emits **## Plan**, the tools loop may log **`Intent recipe routing: plan-step deterministic hints`**, set **`planStepRecipeMatches`**, and prepend **`[Studio — plan-step recipe hints]`** to the user wire once (`matchRecipesForPlanSteps`).
+3. **Defer to plan loop** (default) — Still **multiple** hits → `deferToPlanLoop`, `ambiguous_multi_defer_plan` (no JSON router). Still **zero** hits → `deferToPlanLoop`, `no_deterministic_defer_plan`. Prelude prepends **`GENERAL_LLM_AUTHORING_INTENT_ROUTING_DEFER_PLAN_HINT`** plus **`[Studio — plan defer: recipe + tool catalog]`** (`AuthoringIntentRecipeCatalog.formatPlanDeferOrchestrationContextBlock`: intent recipe catalog + wired tools + site **`InvokeSiteUserTool`** registry). Policy: **prefer a matching recipe** for a step when it clearly fits; use individual wire tools when one call suffices or no recipe matches. After round 0 emits **## Plan**, the tools loop may log **`Intent recipe routing: plan-step deterministic hints`**, set **`planStepRecipeMatches`**, and prepend **`[Studio — plan-step recipe hints]`** to the user wire once (`matchRecipesForPlanSteps`).
 
 4. **Optional JSON whole-turn router** — Only when `wholeTurnJsonRouterEnabled: true` and zero hits after clarify: legacy catalog classifier + `minConfidence` + deterministic fallback.
 
@@ -382,7 +382,7 @@ Use these fields to see whether a turn failed at **preconditions**, **routing (m
 
 ## Maintainer checklist (routing regressions)
 
-When chat-only turns hit CMS tools:
+When chat-only turns hit tools:
 
 1. Confirm **`Current request:`** is present on the wire (client sends abbreviated prior block + current line).
 2. Check `eligibilityGateEnabled` in telemetry — if false (default), ignore `skipped_eligibility` unless the site turned the gate on.
@@ -397,6 +397,6 @@ When chat-only turns hit CMS tools:
 
 ## Related docs
 
-- **[`chat-and-tools-runtime.md`](chat-and-tools-runtime.md)** — CMS tool wiring, SSE, MCP, troubleshooting  
+- **[`chat-and-tools-runtime.md`](chat-and-tools-runtime.md)** — tool wiring, SSE, MCP, troubleshooting  
 - **[`configuration-guide.md`](../using-and-extending/configuration-guide.md)** — Project Tools UI, `tools.json`  
 - **[`maintainer-review-checklist.md`](maintainer-review-checklist.md)** — review anti-patterns

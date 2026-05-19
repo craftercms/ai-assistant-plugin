@@ -3,7 +3,7 @@
 Defines **`<llm>`** identifiers, env/XML keys, merge rules, and the provider capability matrix. Keep this file and **[`spec.md`](../internals/spec.md)** aligned when those contracts change.
 
 **For site admins:** [configuration-guide.md](configuration-guide.md) (**Secrets** tab → **`secrets.json`**; per-agent **`llmSecretKey`** in **Agents**)  
-**For CMS tools, SSE, REST bodies, expert skills, MCP, and troubleshooting:** [chat-and-tools-runtime.md](../internals/chat-and-tools-runtime.md)  
+**For tools, SSE, REST bodies, expert skills, MCP, and troubleshooting:** [chat-and-tools-runtime.md](../internals/chat-and-tools-runtime.md)  
 **For script LLMs and `user-tools/`:** [studio-plugins-guide.md](studio-plugins-guide.md) · **Script LLM — full session bundle (BYO backend):** [script-llm-bring-your-own-backend.md](script-llm-bring-your-own-backend.md)  
 **For pluggable image backends (`imageGenerator`, `imagegen/` scripts, site overrides):** [image-generation.md](image-generation.md) · **Integrators:** [scripted-tools-and-imagegen.md](scripted-tools-and-imagegen.md) (Groovy closure, `context` map, return shape)  
 **For `ui.xml` contracts, macros, and REST:** [spec.md](../internals/spec.md) · **Doc index:** [README.md](../README.md)
@@ -16,13 +16,13 @@ Rows list **supported** backends. **Hosted-only** SaaS adapters (**`aiassistant`
 
 | `<llm>` wire value | Aliases (normalized) | Required configuration | Optional `agents.json` / env | What you get |
 |--------------------|----------------------|-------------------------|-------------------------|--------------|
-| **`openAI`** | `openai`, `open-ai` | **API key:** host env **`OPENAI_API_KEY`** (recommended). | **`llmModel`**, **`imageModel`**, **`llmApiKey`** (testing only). | **CMS tools**, **GenerateImage** (when `imageModel` + key allow), **expertSkills** → **QueryExpertGuidance**. |
+| **`openAI`** | `openai`, `open-ai` | **API key:** host env **`OPENAI_API_KEY`** (recommended). | **`llmModel`**, **`imageModel`**, **`llmApiKey`** (testing only). | **Built-in tools**, **GenerateImage** (when `imageModel` + key allow), **expertSkills** → **QueryExpertGuidance**. |
 | **`xAI`** | `x-ai`, `grok` | **`XAI_API_KEY`** | **`XAI_OPENAI_BASE_URL`** (tools-loop chat base URL). **`<llmModel>`**. Same stack as **`openAI`**. | Same tool surface as **OpenAI** row. |
 | **`deepSeek`** | `deep-seek` | **`DEEPSEEK_API_KEY`** | **`DEEPSEEK_OPENAI_BASE_URL`** (optional). **`<llmModel>`**. | Same tool surface as **OpenAI** row. |
 | **`llama`** | `ollama`, `meta-llama`, `meta_llama` | Often **`LLAMA_API_KEY`** (Ollama may accept a placeholder). | **`LLAMA_OPENAI_BASE_URL`** or **`OLLAMA_OPENAI_BASE_URL`**. **`<llmModel>`**. | Same tool surface as **OpenAI** row. |
 | **`genesis`** / **`gemini`** | `gemini`, `google`, `google-genai`, `google_genai` | **`GEMINI_API_KEY`** or **`GOOGLE_API_KEY`** | **`GEMINI_OPENAI_BASE_URL`** / **`GOOGLE_GENAI_OPENAI_BASE_URL`**. **`<llmModel>`**. | Same tool surface as **OpenAI** row. |
-| **`claude`** | `anthropic` | **`ANTHROPIC_API_KEY`** | **`<llmModel>`**. **`<openAiApiKey>`** — *testing only* for Anthropic when no **`ANTHROPIC_API_KEY`** (see runtime doc). | **CMS tools** via Spring AI **Anthropic** (not the OpenAI RestClient loop). **GenerateImage** / embeddings that still use OpenAI key material are described in the runtime doc. **Expert skills** when configured. |
-| **`script:{id}`** | — | Site Groovy under **`config/studio/scripts/aiassistant/llm/{id}/runtime.groovy`** (or `llm.groovy`) implementing **`StudioAiLlmRuntime`** or the documented **Map** bundle contract. | Bundle chooses **tools-loop** vs Anthropic-style transport. | **Configurable** by the script (CMS tools, custom behavior). |
+| **`claude`** | `anthropic` | **`ANTHROPIC_API_KEY`** | **`<llmModel>`**. **`<openAiApiKey>`** — *testing only* for Anthropic when no **`ANTHROPIC_API_KEY`** (see runtime doc). | **Built-in tools** via Spring AI **Anthropic** (not the OpenAI RestClient loop). **GenerateImage** / embeddings that still use OpenAI key material are described in the runtime doc. **Expert skills** when configured. |
+| **`script:{id}`** | — | Site Groovy under **`config/studio/scripts/aiassistant/llm/{id}/runtime.groovy`** (or `llm.groovy`) implementing **`StudioAiLlmRuntime`** or the documented **Map** bundle contract. | Bundle chooses **tools-loop** vs Anthropic-style transport. | **Configurable** by the script (tools, custom behavior). |
 
 ---
 
@@ -32,7 +32,7 @@ Configure agents in **Project Tools → AI Assistant → Agents** (file: **`conf
 
 **Always set `llm` on each row** from the summary table. Configure provider keys on the Studio host per vendor column.
 
-### Recommended: OpenAI with CMS Tools (+ Optional Image)
+### Recommended: OpenAI with tools (+ Optional Image)
 
 ```json
 {
@@ -92,10 +92,10 @@ When **`siteId`** + **`agentId`** match a catalog row, the server may **copy `ll
 | **`llmModel`** | Tool-capable rows | Provider chat model id when the provider uses it. |
 | **`imageGenerator`** | **GenerateImage** | Blank = default wire when configured; **`none`**/**`off`**/**`disabled`**; **`script:{id}`** for site Groovy under **`/scripts/aiassistant/imagegen/{id}/`**. |
 | **`imageModel`** | **GenerateImage** (wire path) | Required when the model should call **GenerateImage** on the default wire. |
-| **`agentId`** / **`id`** | Chat rows | Stable id sent as **`agentId`** on stream/chat; used for catalog merge and form toggles. |
+| **`agentId`** | Chat rows | System-generated UUID (Project Tools). Sent on stream/chat; used for catalog merge and form toggles. |
 | **`llmSecretKey`** | Production | Optional; **`secrets.json`** entry key (custom secret or built-in provider row). Set in Project Tools → Agents. |
 | **`llmApiKey`** | Testing | Per-agent key when no **env** / secrets row; discouraged in production. |
-| **`enableTools`** | Tool-capable | When **`false`**, CMS tools are off for that agent (subject to per-request **`omitTools`**). |
+| **`enableTools`** | Tool-capable | When **`false`**, tools are off for that agent (subject to per-request **`omitTools`**). |
 | **`expertSkills`** | Tools-loop + Claude (tools on) | Markdown URL skills → **QueryExpertGuidance**. |
 
 ---

@@ -78,7 +78,7 @@ The **entire script file** is evaluated once per invocation with **`GroovyShell`
 
 | Binding | Type | Description |
 |---------|------|-------------|
-| **`studio`** | `StudioToolOperations` | Same helper surface as built-in CMS tools (content read/write, config reads, etc.). |
+| **`studio`** | `StudioToolOperations` | Same helper surface as built-in tools (content read/write, config reads, etc.). |
 | **`args`** | `Map` | Copy of the **`args`** object from the tool call (never null; may be empty). |
 | **`toolId`** | `String` | Registered id for this run. |
 | **`siteId`** | `String` | Effective site id (`studio.resolveEffectiveSiteId('')`). |

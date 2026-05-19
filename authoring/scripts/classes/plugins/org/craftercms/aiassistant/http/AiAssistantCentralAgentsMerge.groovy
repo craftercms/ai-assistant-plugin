@@ -40,7 +40,7 @@ final class AiAssistantCentralAgentsMerge {
   }
 
   /**
-   * Locates the catalog row matching {@code wantedAgentId} when provided (legacy + modern id fields).
+   * Locates the catalog row matching {@code wantedAgentId} when provided ({@code agentId}).
    * Skips autonomous rows when searching by id.
    * Falls back to the first non-autonomous chat row so anonymous POSTs still inherit defaults.
    */
@@ -109,7 +109,7 @@ final class AiAssistantCentralAgentsMerge {
 
   /**
    * Fills missing {@code imageModel}, {@code llmModel}, {@code llm}, and/or {@code imageGenerator} on {@code body}
-   * from the site's central agents catalog. Matches catalog {@code agentId} / {@code id} when
+   * from the site's central agents catalog. Matches catalog {@code agentId} when
    * request {@code agentId} is set; otherwise uses the first {@code mode: chat} row (or omitted mode).
    */
   static void mergeStreamAgentFieldsFromSiteAgentsFileIfMissing(
