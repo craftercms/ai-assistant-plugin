@@ -87,6 +87,15 @@ final class AuthoringIntentRefineWithTools {
     String system = (systemText ?: '').toString() + '\n\n' + ToolPrompts.getLlm_AUTHORING_INTENT_REFINE_TOOLS_APPENDIX()
     String agentId = (toolsLoopSessionBundle?.agentId ?: '').toString()
     String phase = (workerPhasePrefix ?: 'AuthoringIntentRefine').toString()
+    Map refineBundle = toolsLoopSessionBundle instanceof Map ?
+      new LinkedHashMap((Map) toolsLoopSessionBundle) :
+      new LinkedHashMap()
+    if (maxOutTokens > 0) {
+      refineBundle.intentRefineMaxOutTokens = maxOutTokens
+    }
+    if (readTimeoutMs > 0) {
+      refineBundle.intentRefineReadTimeoutMs = readTimeoutMs
+    }
     try {
       Map loopOut = AiOrchestration.runAuthoringIntentRefineNativeToolLoop(
         key,
@@ -97,7 +106,7 @@ final class AuthoringIntentRefineWithTools {
         agentId,
         maxRounds,
         wireBaseUrl,
-        toolsLoopSessionBundle,
+        refineBundle,
         phase
       )
       recordRefineTelemetry(toolsLoopSessionBundle, phase, loopOut)
@@ -161,9 +170,7 @@ final class AuthoringIntentRefineWithTools {
     return '[Studio — refine tool probe (facts for planner)]\n' + raw + '\n\n'
   }
 
-  /**
-   * Keeps only read/lookup callbacks allowed during routing refine ({@link #REFINE_WIRE_ALLOWLIST} plus {@code mcp_*}).
-   */
+  /** Keeps only read/lookup callbacks on {@link #REFINE_WIRE_ALLOWLIST} (no MCP wildcard). */
   static List filterRefineTools(List tools) {
     if (!tools) {
       return []
@@ -177,7 +184,7 @@ final class AuthoringIntentRefineWithTools {
       if (!n) {
         return
       }
-      if (REFINE_WIRE_ALLOWLIST.contains(n) || n.startsWith('mcp_')) {
+      if (REFINE_WIRE_ALLOWLIST.contains(n)) {
         out << t
       }
     }

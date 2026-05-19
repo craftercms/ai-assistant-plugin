@@ -87,8 +87,9 @@ export function parseRegistryDocument(raw: string): UserToolRegistryDocument {
   let parsed: unknown;
   try {
     parsed = JSON.parse(trimmed);
-  } catch {
-    return { wrapper: 'empty', tools: [] };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`Invalid user-tools registry JSON: ${msg}`);
   }
   if (Array.isArray(parsed)) {
     const tools: UserToolRegistryRow[] = [];

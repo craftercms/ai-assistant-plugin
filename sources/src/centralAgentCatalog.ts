@@ -189,7 +189,6 @@ export function entryToChatAgent(entry: CentralAgentFileEntry): AgentConfig | nu
   if (typeof entry.imageModel === 'string' && entry.imageModel.trim()) out.imageModel = entry.imageModel.trim();
   if (typeof entry.imageGenerator === 'string' && entry.imageGenerator.trim())
     out.imageGenerator = entry.imageGenerator.trim();
-  if (typeof entry.llmApiKey === 'string' && entry.llmApiKey.trim()) out.llmApiKey = entry.llmApiKey.trim();
   if (enableTools !== undefined) out.enableTools = enableTools;
   const popRaw = entry.openAsPopup;
   if (popRaw === true || String(popRaw ?? '').trim().toLowerCase() === 'true') out.openAsPopup = true;
@@ -222,7 +221,6 @@ export function entryToAutonomousDefinition(entry: CentralAgentFileEntry): Auton
     entry.imageGenerator != null && String(entry.imageGenerator).trim()
       ? String(entry.imageGenerator).trim()
       : undefined;
-  const llmApiKey = entry.llmApiKey != null ? String(entry.llmApiKey).trim() : undefined;
   const manageOtherAgentsHumanTasks =
     entry.manageOtherAgentsHumanTasks === true ||
     String(entry.manageOtherAgentsHumanTasks ?? '').toLowerCase() === 'true';
@@ -243,7 +241,6 @@ export function entryToAutonomousDefinition(entry: CentralAgentFileEntry): Auton
     llmModel,
     ...(imageModel ? { imageModel } : {}),
     ...(imageGenerator ? { imageGenerator } : {}),
-    ...(llmApiKey ? { llmApiKey } : {}),
     ...(manageOtherAgentsHumanTasks ? { manageOtherAgentsHumanTasks: true } : {}),
     ...(startAutomatically === false ? { startAutomatically: false } : {}),
     ...(stopOnFailure === false ? { stopOnFailure: false } : {})
@@ -265,6 +262,15 @@ export function catalogAutonomousAgents(file: CentralAgentsFile): AutonomousAgen
   return file.agents.map((e) => entryToAutonomousDefinition(e)).filter(Boolean) as AutonomousAgentDefinition[];
 }
 
+/** Removes provider API key fields from a catalog entry (never persist secrets in agents.json). */
+function stripAgentSecrets(entry: CentralAgentFileEntry): CentralAgentFileEntry {
+  const rec = { ...entry } as Record<string, unknown>;
+  delete rec.llmApiKey;
+  delete rec.openAiApiKey;
+  delete rec.llmApiKeyPresent;
+  return rec as CentralAgentFileEntry;
+}
+
 function parseCentralAgentsFromContentPayload(raw: unknown): CentralAgentsFile | null {
   if (raw == null) return null;
   let data: unknown;
@@ -282,7 +288,8 @@ function parseCentralAgentsFromContentPayload(raw: unknown): CentralAgentsFile |
     return null;
   }
   if (!isCentralAgentsFileShape(data)) return null;
-  return { version: typeof data.version === 'number' ? data.version : 1, agents: data.agents as CentralAgentFileEntry[] };
+  const agents = (data.agents as CentralAgentFileEntry[]).map(stripAgentSecrets);
+  return { version: typeof data.version === 'number' ? data.version : 1, agents };
 }
 
 function unwrapConfigurationEnvelope(raw: unknown): unknown {

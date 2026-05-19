@@ -26,7 +26,7 @@ import { aiAssistantProjectToolsPanelContentSx } from './aiAssistantProjectTools
 import { useDomFullscreen } from './aiAssistantDomFullscreen';
 
 /** Sub-tabs inside Project Tools → Integrations. */
-export type AiAssistantIntegrationsSubTab = 'llms' | 'imagegen' | 'tools' | 'mcp' | 'scripts';
+export type AiAssistantIntegrationsSubTab = 'llms' | 'imagegen' | 'tools' | 'mcp';
 
 export type AiAssistantProjectToolsTab =
   | 'ui'
@@ -34,6 +34,8 @@ export type AiAssistantProjectToolsTab =
   | 'recipes'
   | 'integrations'
   | 'prompts'
+  /** @deprecated Opens Integrations → Tools (legacy widget id). */
+  | 'scripts'
   /** @deprecated Opens Integrations with the matching sub-tab. */
   | AiAssistantIntegrationsSubTab;
 
@@ -45,6 +47,9 @@ function resolveProjectToolsTabs(defaultTab: AiAssistantProjectToolsTab): {
   tab: 'ui' | 'agents' | 'recipes' | 'integrations' | 'prompts';
   integrationsSub: AiAssistantIntegrationsSubTab;
 } {
+  if (defaultTab === 'scripts') {
+    return { tab: 'integrations', integrationsSub: 'tools' };
+  }
   if (isIntegrationsSubTab(defaultTab)) {
     return { tab: 'integrations', integrationsSub: defaultTab };
   }
@@ -74,16 +79,12 @@ function projectToolsTabLabel(t: AiAssistantProjectToolsTab): string {
       return 'Tools';
     case 'mcp':
       return 'MCP';
-    case 'scripts':
-      return 'Scripts';
     default:
       return t;
   }
 }
 
-function integrationsSandboxPanel(
-  sub: AiAssistantIntegrationsSubTab
-): 'tools' | 'mcp' | 'llms' | 'imagegen' | 'scripts' {
+function integrationsSandboxPanel(sub: AiAssistantIntegrationsSubTab): AiAssistantIntegrationsSubTab {
   return sub;
 }
 

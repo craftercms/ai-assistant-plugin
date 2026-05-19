@@ -513,8 +513,10 @@ function AiAssistantAutonomousAssistantsImpl(props: Readonly<AiAssistantAutonomo
   }, [siteId]);
 
   const defs = useMemo(() => {
-    if (!centralAgentsFile) return [];
-    return catalogAutonomousAgents(centralAgentsFile);
+    if (centralAgentsFile === undefined) {
+      return [];
+    }
+    return catalogAutonomousAgents(centralAgentsFile ?? defaultCentralAgentsFile());
   }, [centralAgentsFile]);
   const listTitle = useMemo(() => widgetTitleText(merged), [merged]);
   const listTitleTranslated = usePossibleTranslation(listTitle);

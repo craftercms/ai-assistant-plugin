@@ -185,12 +185,9 @@ function mergeAgentAdvancedCatalogFields(
     delete rec.translateBatchConcurrency;
     delete rec.translate_batch_concurrency;
   }
-  const key = String(rec.llmApiKey ?? rec.openAiApiKey ?? '').trim();
-  if (key) rec.llmApiKey = key;
-  else {
-    delete rec.llmApiKey;
-    delete rec.openAiApiKey;
-  }
+  delete rec.llmApiKey;
+  delete rec.openAiApiKey;
+  delete rec.llmApiKeyPresent;
   return rec as CentralAgentFileEntry;
 }
 
@@ -283,28 +280,11 @@ function AgentAdvancedAgentFields(props: {
         placeholder="25"
         helperText="Default parallelism for TranslateContentBatch when the model omits maxConcurrency. Leave empty for server default (25)."
       />
-      <TextField
-        label="LLM API key override (optional, not recommended)"
-        value={String(draft.llmApiKey ?? draft.openAiApiKey ?? '')}
-        onChange={(ev) => {
-          const v = ev.target.value;
-          setDraft((d) => {
-            if (!d) return d;
-            const next = { ...d } as Record<string, unknown>;
-            if (v.trim()) next.llmApiKey = v;
-            else {
-              delete next.llmApiKey;
-              delete next.openAiApiKey;
-            }
-            return next as CentralAgentFileEntry;
-          });
-        }}
-        fullWidth
-        size="small"
-        type="password"
-        autoComplete="off"
-        helperText="Testing only. Prefer host OPENAI_API_KEY or provider env vars. Stored in site config and sent on chat requests."
-      />
+      <Typography variant="caption" color="text.secondary" display="block">
+        Provider API keys are not stored in <strong>agents.json</strong>. Configure{' '}
+        <strong>OPENAI_API_KEY</strong> / provider env vars on the Studio host, or pass a per-request key from the
+        client when testing.
+      </Typography>
     </Stack>
   );
 }

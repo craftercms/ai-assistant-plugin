@@ -2232,8 +2232,41 @@ class AiOrchestrationTools {
    * @param ops Studio tool operations (site sandbox)
    * @param projectCfg site {@code tools.json} policy map (loaded when null)
    */
-  static List<String> wireNamesForPlanDeferCatalog(StudioToolOperations ops, Map projectCfg) {
+  /** Wire names from the live tools-loop session bundle when present. */
+  private static List<String> wireNamesFromSessionCallbacks(Map toolsLoopSessionBundle) {
+    if (!(toolsLoopSessionBundle instanceof Map)) {
+      return []
+    }
+    Object tools = toolsLoopSessionBundle.get('tools')
+    if (!(tools instanceof List)) {
+      return []
+    }
+    LinkedHashSet<String> names = new LinkedHashSet<>()
+    for (def t : (List) tools) {
+      if (t instanceof FunctionToolCallback) {
+        String n = ((FunctionToolCallback) t).getToolDefinition()?.name()?.trim()
+        if (n) {
+          names.add(n)
+        }
+      }
+    }
+    return new ArrayList<>(names)
+  }
+
+  /**
+   * Wire names for plan-defer planner context. Prefers the live session tool list when {@code toolsLoopSessionBundle}
+   * exposes {@code tools}; otherwise builds from site policy via {@link #build(StudioToolOperations)}.
+   */
+  static List<String> wireNamesForPlanDeferCatalog(
+    StudioToolOperations ops,
+    Map projectCfg,
+    Map toolsLoopSessionBundle = null
+  ) {
     Map cfg = projectCfg instanceof Map ? projectCfg : StudioAiAssistantProjectConfig.load(ops)
+    List<String> sessionNames = wireNamesFromSessionCallbacks(toolsLoopSessionBundle)
+    if (sessionNames) {
+      return filterPlanDeferWireNames(sessionNames, cfg)
+    }
     List tools = build(
       { Object result, java.lang.reflect.Type rt -> result },
       ops,
@@ -2308,13 +2341,18 @@ class AiOrchestrationTools {
    * Maintainer / session-debug summary: whether the plan-defer recipe + tools block was built and what it lists.
    * Emitted on SSE {@code intentRecipeRouting} when {@code deferToPlanLoop} is true.
    */
-  static Map planDeferCatalogTelemetry(StudioToolOperations ops, Map projectCfg, String catalogBlock) {
+  static Map planDeferCatalogTelemetry(
+    StudioToolOperations ops,
+    Map projectCfg,
+    String catalogBlock,
+    Map toolsLoopSessionBundle = null
+  ) {
     Map cfg = projectCfg instanceof Map ? projectCfg : StudioAiAssistantProjectConfig.load(ops)
     String block = (catalogBlock ?: '').toString()
     boolean hasMarker = block.contains('[Studio — plan defer: recipe + tool catalog]')
     boolean sent = block.trim().length() > 0 && hasMarker
 
-    List<String> wireNames = wireNamesForPlanDeferCatalog(ops, cfg) ?: []
+    List<String> wireNames = wireNamesForPlanDeferCatalog(ops, cfg, toolsLoopSessionBundle) ?: []
     List<Map> userEntries = StudioAiUserSiteTools.loadRegistryEntries(ops) ?: []
     List<String> userToolIds = []
     for (Map e : userEntries) {
@@ -2350,9 +2388,22 @@ class AiOrchestrationTools {
   /**
    * Markdown table of wired tools for plan-defer prompts (companion to intent recipe catalog).
    */
-  static String formatPlanDeferToolsCatalogMarkdown(StudioToolOperations ops, Map projectCfg) {
+  /** Escapes user/site text for markdown table cells in planner catalogs. */
+  private static String markdownTableCell(String raw) {
+    String s = (raw ?: '').toString().trim()
+    if (!s) {
+      return ''
+    }
+    return s.replace('|', '\\|').replace('`', '\'').replaceAll(/[\r\n]+/, ' ').trim()
+  }
+
+  static String formatPlanDeferToolsCatalogMarkdown(
+    StudioToolOperations ops,
+    Map projectCfg,
+    Map toolsLoopSessionBundle = null
+  ) {
     Map cfg = projectCfg instanceof Map ? projectCfg : StudioAiAssistantProjectConfig.load(ops)
-    List<String> names = wireNamesForPlanDeferCatalog(ops, cfg)
+    List<String> names = wireNamesForPlanDeferCatalog(ops, cfg, toolsLoopSessionBundle)
     StringBuilder sb = new StringBuilder()
     sb.append('## Wired CMS tools (this session)\n\n')
     sb.append(
@@ -2377,8 +2428,8 @@ class AiOrchestrationTools {
       sb.append('| toolId | description |\n')
       sb.append('|--------|-------------|\n')
       for (Map e : userEntries) {
-        String id = e.id?.toString()?.trim() ?: ''
-        String desc = (e.description ?: '').toString().trim()
+        String id = markdownTableCell(e.id?.toString())
+        String desc = markdownTableCell((e.description ?: '').toString())
         if (desc.length() > 160) {
           desc = desc.substring(0, 157) + '…'
         }

@@ -408,7 +408,20 @@ class AiOrchestration {
    * timeouts (JDK default is often ~60s) before the outer pipeline budget cancels. Override
    * {@code aiassistant.openai.restReadTimeoutMs} (60_000–1_260_000).
    */
-  private static int resolveChatCompletionsRestReadTimeoutMs() {
+  private static int resolveChatCompletionsRestReadTimeoutMs(Map toolsLoopSessionBundle = null) {
+    if (toolsLoopSessionBundle instanceof Map) {
+      Object refineMs = toolsLoopSessionBundle.get('intentRefineReadTimeoutMs')
+      if (refineMs instanceof Number) {
+        int n = ((Number) refineMs).intValue()
+        if (n < 60_000) {
+          return 60_000
+        }
+        if (n > 1_260_000) {
+          return 1_260_000
+        }
+        return n
+      }
+    }
     try {
       def p = System.getProperty('aiassistant.openai.restReadTimeoutMs')
       if (p != null && p.toString().trim()) {
@@ -426,14 +439,18 @@ class AiOrchestration {
    * Adds sane connect timeouts so hung upstream chats surface quickly.
    * Shared by RestClient native-tools transports.
    */
-  private static SimpleClientHttpRequestFactory chatCompletionsRestRequestFactory() {
+  private static SimpleClientHttpRequestFactory chatCompletionsRestRequestFactory(Map toolsLoopSessionBundle = null) {
     def rf = new SimpleClientHttpRequestFactory()
-    rf.setReadTimeout(resolveChatCompletionsRestReadTimeoutMs())
+    rf.setReadTimeout(resolveChatCompletionsRestReadTimeoutMs(toolsLoopSessionBundle))
     rf.setConnectTimeout(30_000)
     return rf
   }
 
-  private static RestClient.Builder chatCompletionsRestClientBuilder(String apiKey, String wireBaseUrl = null) {
+  private static RestClient.Builder chatCompletionsRestClientBuilder(
+    String apiKey,
+    String wireBaseUrl = null,
+    Map toolsLoopSessionBundle = null
+  ) {
     String base = (wireBaseUrl ?: '').toString().trim()
     if (!base) {
       base = (OpenAiApiConstants.DEFAULT_BASE_URL ?: 'https://api.openai.com').toString().trim()
@@ -442,7 +459,7 @@ class AiOrchestration {
     RestClient.builder()
       .baseUrl(base)
       .defaultHeader(HttpHeaders.AUTHORIZATION, 'Bearer ' + apiKey)
-      .requestFactory(chatCompletionsRestRequestFactory())
+      .requestFactory(chatCompletionsRestRequestFactory(toolsLoopSessionBundle))
   }
 
   /**
@@ -3144,13 +3161,14 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     String apiKey,
     String jsonBody,
     boolean logFailuresAsWarn = false,
-    String wireBaseUrl = null
+    String wireBaseUrl = null,
+    Map toolsLoopSessionBundle = null
   ) {
     jsonBody = chatCompletionsWireBodyApplyNeoTemperaturePolicy(jsonBody)
     final int maxTries = 3
     for (int attempt = 1; attempt <= maxTries; attempt++) {
       try {
-        return httpPostChatCompletionsReadBodyOnce(apiKey, jsonBody, logFailuresAsWarn, wireBaseUrl)
+        return httpPostChatCompletionsReadBodyOnce(apiKey, jsonBody, logFailuresAsWarn, wireBaseUrl, toolsLoopSessionBundle)
       } catch (RestClientResponseException e) {
         if (e.getStatusCode()?.value() != 429 || attempt >= maxTries) {
           throw e
@@ -3177,10 +3195,11 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     String apiKey,
     String jsonBody,
     boolean logFailuresAsWarn,
-    String wireBaseUrl
+    String wireBaseUrl,
+    Map toolsLoopSessionBundle = null
   ) {
     aiAssistantToolWorkerDiagPhase("native_tools_RestClient_POST_/v1/chat/completions stream=false jsonChars=${(jsonBody ?: '').toString().length()}")
-    chatCompletionsRestClientBuilder(apiKey, wireBaseUrl)
+    chatCompletionsRestClientBuilder(apiKey, wireBaseUrl, toolsLoopSessionBundle)
       .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
       .build()
       .post()
@@ -3413,12 +3432,12 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     ]
     List wireTools = buildWireToolsFromCallbacks(toolCallbacks)
     if (!wireTools) {
-      return [text: '', refineToolsRan: false]
+      return [text: '', refineToolsRan: false, maxToolRounds: Math.max(0, maxToolRounds)]
     }
     Map<String, FunctionToolCallback> byName = toolCallbacksByName(toolCallbacks)
     int rounds = Math.max(0, maxToolRounds)
     if (rounds <= 0) {
-      return [text: '', refineToolsRan: false]
+      return [text: '', refineToolsRan: false, maxToolRounds: rounds]
     }
     log.info(
       'AuthoringIntentRefineWithTools: starting native tool loop phase={} agentId={} model={} tools={} maxRounds={}',
@@ -3446,7 +3465,7 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     )
     return [
       text           : (loopOut?.text ?: '').toString(),
-      refineToolsRan : true,
+      refineToolsRan : Boolean.TRUE.equals(loopOut?.toolsRan),
       maxToolRounds  : rounds
     ]
   }
@@ -4774,12 +4793,14 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
             routerVisible,
             ops,
             cfg,
-            activePass.catalogMd?.toString()
+            activePass.catalogMd?.toString(),
+            toolsLoopSessionBundle
           )
         if (probeBlock?.trim()) {
           deferCatalogBlock = probeBlock + (deferCatalogBlock ?: '')
         }
-        planDeferCatalogTel = AiOrchestrationTools.planDeferCatalogTelemetry(ops, cfg, deferCatalogBlock ?: '')
+        planDeferCatalogTel =
+          AiOrchestrationTools.planDeferCatalogTelemetry(ops, cfg, deferCatalogBlock ?: '', toolsLoopSessionBundle)
         if (deferCatalogBlock?.trim()) {
           noMatchHint += '\n\n' + deferCatalogBlock
         }
@@ -5554,6 +5575,7 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
     def slurper = new JsonSlurper()
     String assistantAccum = ''
     boolean finished = false
+    boolean toolsRan = false
     boolean previousRoundHadRepoMutation = false
     Set<String> writeContentPathsThisTurn = new LinkedHashSet<>()
     Boolean lastPreviewContentGoalFound = null
@@ -5595,7 +5617,14 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
         tool_choice: toolChoice,
         stream: false
       ]
-      int effMaxOut = clampMaxOutTokensForToolsLoopWire(model, 16000, toolsLoopSessionBundle)
+      int toolsLoopMaxOut = 16000
+      if (toolsLoopSessionBundle instanceof Map && toolsLoopSessionBundle.intentRefineMaxOutTokens instanceof Number) {
+        int refineOut = ((Number) toolsLoopSessionBundle.intentRefineMaxOutTokens).intValue()
+        if (refineOut > 0) {
+          toolsLoopMaxOut = refineOut
+        }
+      }
+      int effMaxOut = clampMaxOutTokensForToolsLoopWire(model, toolsLoopMaxOut, toolsLoopSessionBundle)
       reqMap.putAll(chatCompletionOutputLimitParams(model, effMaxOut, toolsLoopSessionBundle))
       int maxWire = StudioAiLlmKind.toolsLoopChatMaxWirePayloadCharsFromBundle(toolsLoopSessionBundle)
       shrinkToolsLoopWirePayloadIfOverBudget(reqMap, wireMessages, wireTools, maxWire)
@@ -5606,7 +5635,7 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
           jsonBody.length(),
           agentId,
           model,
-          resolveChatCompletionsRestReadTimeoutMs()
+          resolveChatCompletionsRestReadTimeoutMs(toolsLoopSessionBundle)
         )
       }
       emitRoundWaitSse(ssePreToolAssistantText, round, model, agentId, jsonBody.length(), previousRoundHadRepoMutation)
@@ -5614,7 +5643,7 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
         Thread.currentThread().interrupt()
         throw new InterruptedException(AIASSISTANT_PIPELINE_CANCELLED)
       }
-      String raw = httpPostChatCompletionsReadBody(apiKey, jsonBody, false, wireBaseUrl)
+      String raw = httpPostChatCompletionsReadBody(apiKey, jsonBody, false, wireBaseUrl, toolsLoopSessionBundle)
       if (cancelRequested != null && cancelRequested.get()) {
         Thread.currentThread().interrupt()
         throw new InterruptedException(AIASSISTANT_PIPELINE_CANCELLED)
@@ -5795,6 +5824,7 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
           def fn = tc.get('function') as Map
           String fnName = fn instanceof Map ? (fn.get('name')?.toString() ?: '') : ''
           String argsStr = fn instanceof Map ? (fn.get('arguments')?.toString() ?: '{}') : '{}'
+          toolsRan = true
           def toolPol =
             plugins.org.craftercms.aiassistant.tools.loop.ToolsLoopWirePolicyRegistry.policyFor(fnName)
           if ('write_content'.equals(toolPol.normalizeArgsId)) {
@@ -6067,7 +6097,8 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
     return [
       text              : (assistantAccum ?: ''),
       previewGoalFound  : lastPreviewContentGoalFound,
-      previewGoalPhrase : (lastPreviewContentGoalPhrase ?: '')
+      previewGoalPhrase : (lastPreviewContentGoalPhrase ?: ''),
+      toolsRan          : toolsRan
     ]
   }
 

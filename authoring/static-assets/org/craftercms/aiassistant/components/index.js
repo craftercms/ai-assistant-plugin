@@ -32877,8 +32877,6 @@ function entryToChatAgent(entry) {
         out.imageModel = entry.imageModel.trim();
     if (typeof entry.imageGenerator === 'string' && entry.imageGenerator.trim())
         out.imageGenerator = entry.imageGenerator.trim();
-    if (typeof entry.llmApiKey === 'string' && entry.llmApiKey.trim())
-        out.llmApiKey = entry.llmApiKey.trim();
     if (enableTools !== undefined)
         out.enableTools = enableTools;
     const popRaw = entry.openAsPopup;
@@ -32916,7 +32914,6 @@ function entryToAutonomousDefinition(entry) {
     const imageGenerator = entry.imageGenerator != null && String(entry.imageGenerator).trim()
         ? String(entry.imageGenerator).trim()
         : undefined;
-    const llmApiKey = entry.llmApiKey != null ? String(entry.llmApiKey).trim() : undefined;
     const manageOtherAgentsHumanTasks = entry.manageOtherAgentsHumanTasks === true ||
         String(entry.manageOtherAgentsHumanTasks ?? '').toLowerCase() === 'true';
     const startAutomatically = entry.startAutomatically === false || String(entry.startAutomatically ?? '').toLowerCase() === 'false'
@@ -32934,7 +32931,6 @@ function entryToAutonomousDefinition(entry) {
         llmModel,
         ...(imageModel ? { imageModel } : {}),
         ...(imageGenerator ? { imageGenerator } : {}),
-        ...(llmApiKey ? { llmApiKey } : {}),
         ...(manageOtherAgentsHumanTasks ? { manageOtherAgentsHumanTasks: true } : {}),
         ...(startAutomatically === false ? { startAutomatically: false } : {}),
         ...(stopOnFailure === false ? { stopOnFailure: false } : {})
@@ -32952,6 +32948,14 @@ function catalogChatAgents(file) {
 }
 function catalogAutonomousAgents(file) {
     return file.agents.map((e) => entryToAutonomousDefinition(e)).filter(Boolean);
+}
+/** Removes provider API key fields from a catalog entry (never persist secrets in agents.json). */
+function stripAgentSecrets(entry) {
+    const rec = { ...entry };
+    delete rec.llmApiKey;
+    delete rec.openAiApiKey;
+    delete rec.llmApiKeyPresent;
+    return rec;
 }
 function parseCentralAgentsFromContentPayload(raw) {
     if (raw == null)
@@ -32976,7 +32980,8 @@ function parseCentralAgentsFromContentPayload(raw) {
     }
     if (!isCentralAgentsFileShape(data))
         return null;
-    return { version: typeof data.version === 'number' ? data.version : 1, agents: data.agents };
+    const agents = data.agents.map(stripAgentSecrets);
+    return { version: typeof data.version === 'number' ? data.version : 1, agents };
 }
 function unwrapConfigurationEnvelope(raw) {
     if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
@@ -34384,9 +34389,10 @@ function AiAssistantAutonomousAssistantsImpl(props) {
         };
     }, [siteId]);
     const defs = useMemo(() => {
-        if (!centralAgentsFile)
+        if (centralAgentsFile === undefined) {
             return [];
-        return catalogAutonomousAgents(centralAgentsFile);
+        }
+        return catalogAutonomousAgents(centralAgentsFile ?? defaultCentralAgentsFile());
     }, [centralAgentsFile]);
     const listTitle = useMemo(() => widgetTitleText(merged), [merged]);
     const listTitleTranslated = usePossibleTranslation(listTitle);
@@ -35238,6 +35244,13 @@ function defaultToolsPolicyFormState() {
         extraFields: undefined
     };
 }
+/** Form/JSON field: accept only finite integers (no rounding). */
+function strictIntegerFormField(raw) {
+    if (raw == null || raw === '')
+        return '';
+    const n = Number(raw);
+    return Number.isFinite(n) && Number.isInteger(n) ? String(n) : '';
+}
 function parseIntentRecipeRoutingFromUnknown(raw) {
     const base = defaultIntentRecipeRoutingFormState();
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -35254,12 +35267,7 @@ function parseIntentRecipeRoutingFromUnknown(raw) {
     if (o.minConfidence != null) {
         minC = String(o.minConfidence).trim() || base.minConfidence;
     }
-    const numField = (key) => {
-        if (o[key] == null || o[key] === '')
-            return '';
-        const n = Number(o[key]);
-        return Number.isFinite(n) ? String(Math.round(n)) : '';
-    };
+    const numField = (key) => strictIntegerFormField(o[key]);
     return {
         enabled: 'enabled' in o ? Boolean(o.enabled) : true,
         engineEnabled: 'engineEnabled' in o ? Boolean(o.engineEnabled) : true,
@@ -35295,26 +35303,17 @@ function intentRecipeRoutingToJsonObject(state) {
     if (state.wholeTurnJsonRouterEnabled) {
         obj.wholeTurnJsonRouterEnabled = true;
     }
-    const maxSteps = state.engineMaxSteps.trim();
+    const maxSteps = strictIntegerFormField(state.engineMaxSteps);
     if (maxSteps) {
-        const n = Math.round(Number(maxSteps));
-        if (Number.isFinite(n)) {
-            obj.engineMaxSteps = n;
-        }
+        obj.engineMaxSteps = Number(maxSteps);
     }
-    const maxTotal = state.engineMaxTotalChars.trim();
+    const maxTotal = strictIntegerFormField(state.engineMaxTotalChars);
     if (maxTotal) {
-        const n = Math.round(Number(maxTotal));
-        if (Number.isFinite(n)) {
-            obj.engineMaxTotalChars = n;
-        }
+        obj.engineMaxTotalChars = Number(maxTotal);
     }
-    const maxField = state.engineMaxFieldChars.trim();
+    const maxField = strictIntegerFormField(state.engineMaxFieldChars);
     if (maxField) {
-        const n = Math.round(Number(maxField));
-        if (Number.isFinite(n)) {
-            obj.engineMaxFieldChars = n;
-        }
+        obj.engineMaxFieldChars = Number(maxField);
     }
     return obj;
 }
@@ -35804,13 +35803,9 @@ function mergeAgentAdvancedCatalogFields(draft, expertSkillRows, translateBatchS
         delete rec.translateBatchConcurrency;
         delete rec.translate_batch_concurrency;
     }
-    const key = String(rec.llmApiKey ?? rec.openAiApiKey ?? '').trim();
-    if (key)
-        rec.llmApiKey = key;
-    else {
-        delete rec.llmApiKey;
-        delete rec.openAiApiKey;
-    }
+    delete rec.llmApiKey;
+    delete rec.openAiApiKey;
+    delete rec.llmApiKeyPresent;
     return rec;
 }
 function AgentAdvancedAgentFields(props) {
@@ -35824,21 +35819,7 @@ function AgentAdvancedAgentFields(props) {
                                             }, fullWidth: true, size: "small", placeholder: "https://example.com/docs/guide.md" }), jsx$1(TextField, { label: "When to use (optional)", value: row.description, onChange: (ev) => {
                                                 const v = ev.target.value;
                                                 setExpertSkillRows(expertSkillRows.map((r, i) => (i === idx ? { ...r, description: v } : r)));
-                                            }, fullWidth: true, size: "small", multiline: true, minRows: 2 })] })] }, idx))) }), jsx$1(Button, { sx: { mt: 1 }, size: "small", startIcon: jsx$1(AddRounded, {}), onClick: () => setExpertSkillRows([...expertSkillRows, { name: '', url: '', description: '' }]), children: "Add expert skill" })] }), jsx$1(TextField, { label: "Translate batch concurrency (1\u201364, optional)", value: translateBatchStr, onChange: (ev) => setTranslateBatchStr(ev.target.value), fullWidth: true, size: "small", placeholder: "25", helperText: "Default parallelism for TranslateContentBatch when the model omits maxConcurrency. Leave empty for server default (25)." }), jsx$1(TextField, { label: "LLM API key override (optional, not recommended)", value: String(draft.llmApiKey ?? draft.openAiApiKey ?? ''), onChange: (ev) => {
-                    const v = ev.target.value;
-                    setDraft((d) => {
-                        if (!d)
-                            return d;
-                        const next = { ...d };
-                        if (v.trim())
-                            next.llmApiKey = v;
-                        else {
-                            delete next.llmApiKey;
-                            delete next.openAiApiKey;
-                        }
-                        return next;
-                    });
-                }, fullWidth: true, size: "small", type: "password", autoComplete: "off", helperText: "Testing only. Prefer host OPENAI_API_KEY or provider env vars. Stored in site config and sent on chat requests." })] }));
+                                            }, fullWidth: true, size: "small", multiline: true, minRows: 2 })] })] }, idx))) }), jsx$1(Button, { sx: { mt: 1 }, size: "small", startIcon: jsx$1(AddRounded, {}), onClick: () => setExpertSkillRows([...expertSkillRows, { name: '', url: '', description: '' }]), children: "Add expert skill" })] }), jsx$1(TextField, { label: "Translate batch concurrency (1\u201364, optional)", value: translateBatchStr, onChange: (ev) => setTranslateBatchStr(ev.target.value), fullWidth: true, size: "small", placeholder: "25", helperText: "Default parallelism for TranslateContentBatch when the model omits maxConcurrency. Leave empty for server default (25)." }), jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", children: ["Provider API keys are not stored in ", jsx$1("strong", { children: "agents.json" }), ". Configure", ' ', jsx$1("strong", { children: "OPENAI_API_KEY" }), " / provider env vars on the Studio host, or pass a per-request key from the client when testing."] })] }));
 }
 function CmsToolCheckboxes(props) {
     const { draft, onToggle } = props;
@@ -73244,8 +73225,9 @@ function parseRegistryDocument(raw) {
     try {
         parsed = JSON.parse(trimmed);
     }
-    catch {
-        return { wrapper: 'empty', tools: [] };
+    catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new Error(`Invalid user-tools registry JSON: ${msg}`);
     }
     if (Array.isArray(parsed)) {
         const tools = [];
@@ -74534,6 +74516,9 @@ function isIntegrationsSubTab(t) {
     return t === 'llms' || t === 'imagegen' || t === 'tools' || t === 'mcp' || t === 'scripts';
 }
 function resolveProjectToolsTabs(defaultTab) {
+    if (defaultTab === 'scripts') {
+        return { tab: 'integrations', integrationsSub: 'tools' };
+    }
     if (isIntegrationsSubTab(defaultTab)) {
         return { tab: 'integrations', integrationsSub: defaultTab };
     }
@@ -74562,8 +74547,6 @@ function projectToolsTabLabel(t) {
             return 'Tools';
         case 'mcp':
             return 'MCP';
-        case 'scripts':
-            return 'Scripts';
         default:
             return t;
     }

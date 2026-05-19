@@ -98,6 +98,13 @@ export function defaultToolsPolicyFormState(): ToolsPolicyFormState {
   };
 }
 
+/** Form/JSON field: accept only finite integers (no rounding). */
+function strictIntegerFormField(raw: unknown): string {
+  if (raw == null || raw === '') return '';
+  const n = Number(raw);
+  return Number.isFinite(n) && Number.isInteger(n) ? String(n) : '';
+}
+
 function parseIntentRecipeRoutingFromUnknown(raw: unknown): IntentRecipeRoutingFormState {
   const base = defaultIntentRecipeRoutingFormState();
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -114,11 +121,7 @@ function parseIntentRecipeRoutingFromUnknown(raw: unknown): IntentRecipeRoutingF
   if (o.minConfidence != null) {
     minC = String(o.minConfidence).trim() || base.minConfidence;
   }
-  const numField = (key: string): string => {
-    if (o[key] == null || o[key] === '') return '';
-    const n = Number(o[key]);
-    return Number.isFinite(n) ? String(Math.round(n)) : '';
-  };
+  const numField = (key: string): string => strictIntegerFormField(o[key]);
   return {
     enabled: 'enabled' in o ? Boolean(o.enabled) : true,
     engineEnabled: 'engineEnabled' in o ? Boolean(o.engineEnabled) : true,
@@ -155,26 +158,17 @@ function intentRecipeRoutingToJsonObject(state: IntentRecipeRoutingFormState): R
   if (state.wholeTurnJsonRouterEnabled) {
     obj.wholeTurnJsonRouterEnabled = true;
   }
-  const maxSteps = state.engineMaxSteps.trim();
+  const maxSteps = strictIntegerFormField(state.engineMaxSteps);
   if (maxSteps) {
-    const n = Math.round(Number(maxSteps));
-    if (Number.isFinite(n)) {
-      obj.engineMaxSteps = n;
-    }
+    obj.engineMaxSteps = Number(maxSteps);
   }
-  const maxTotal = state.engineMaxTotalChars.trim();
+  const maxTotal = strictIntegerFormField(state.engineMaxTotalChars);
   if (maxTotal) {
-    const n = Math.round(Number(maxTotal));
-    if (Number.isFinite(n)) {
-      obj.engineMaxTotalChars = n;
-    }
+    obj.engineMaxTotalChars = Number(maxTotal);
   }
-  const maxField = state.engineMaxFieldChars.trim();
+  const maxField = strictIntegerFormField(state.engineMaxFieldChars);
   if (maxField) {
-    const n = Math.round(Number(maxField));
-    if (Number.isFinite(n)) {
-      obj.engineMaxFieldChars = n;
-    }
+    obj.engineMaxFieldChars = Number(maxField);
   }
   return obj;
 }
@@ -277,8 +271,8 @@ export function validateToolsPolicy(state: ToolsPolicyFormState): { ok: true } |
   const posInt = (label: string, raw: string): { ok: true } | { ok: false; message: string } => {
     const t = raw.trim();
     if (!t) return { ok: true };
-    const n = Math.round(Number(t));
-    if (!Number.isFinite(n) || n < 1) {
+    const n = Number(t);
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1) {
       return { ok: false, message: `${label} must be a positive integer when set.` };
     }
     return { ok: true };

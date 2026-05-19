@@ -180,7 +180,7 @@ final class AuthoringIntentRecipeCatalog {
       }
     }
 
-    Map routingSec = StudioAiAssistantProjectConfig.intentRecipeRoutingSection(projectCfg)
+    Map routingSec = StudioAiAssistantProjectConfig.intentRecipeRoutingSection(projectCfg) ?: [:]
     Object siteToolsSteps = routingSec.get('routingEngineSteps')
     if (siteToolsSteps instanceof List) {
       for (Object o : (List) siteToolsSteps) {
@@ -555,7 +555,7 @@ final class AuthoringIntentRecipeCatalog {
   }
 
   /**
-   * @return {@code [recipes: List<Map>, chatDefaults: Map]} or {@code null}
+   * @return {@code [recipes, chatDefaults, routingEngineSteps]} or {@code null}
    */
   static Map parseCatalogDocument(String raw) {
     if (!raw?.trim()) {
@@ -573,7 +573,7 @@ final class AuthoringIntentRecipeCatalog {
       Object arr = ((Map) root).get('recipes')
 
       if (!(arr instanceof List)) {
-        return [recipes: [], chatDefaults: chatDefaults]
+        return [recipes: [], chatDefaults: chatDefaults, routingEngineSteps: []]
       }
 
       List<Map> out = []
@@ -584,7 +584,17 @@ final class AuthoringIntentRecipeCatalog {
         }
       }
 
-      return [recipes: out, chatDefaults: chatDefaults]
+      List<Map> routingSteps = []
+      Object routingRaw = ((Map) root).get('routingEngineSteps')
+      if (routingRaw instanceof List) {
+        for (Object o : (List) routingRaw) {
+          if (o instanceof Map) {
+            routingSteps.add(new LinkedHashMap<>((Map) o))
+          }
+        }
+      }
+
+      return [recipes: out, chatDefaults: chatDefaults, routingEngineSteps: routingSteps]
     } catch (Throwable t) {
       log.warn('AuthoringIntentRecipeCatalog: JSON parse failed: {}', t.message)
       return null
@@ -1367,7 +1377,8 @@ final class AuthoringIntentRecipeCatalog {
     String routerVisible,
     StudioToolOperations ops,
     Map cfg,
-    String recipeCatalogMd = null
+    String recipeCatalogMd = null,
+    Map toolsLoopSessionBundle = null
   ) {
     StringBuilder sb = new StringBuilder()
     sb.append('[Studio — plan defer: recipe + tool catalog]\n\n')
@@ -1392,7 +1403,7 @@ final class AuthoringIntentRecipeCatalog {
       recipeMd = toRouterCatalogMarkdown(eligible)
     }
     sb.append('## Intent recipe catalog\n\n').append(recipeMd).append('\n\n')
-    sb.append(AiOrchestrationTools.formatPlanDeferToolsCatalogMarkdown(ops, cfg))
+    sb.append(AiOrchestrationTools.formatPlanDeferToolsCatalogMarkdown(ops, cfg, toolsLoopSessionBundle))
     sb.append('\n---\n\n')
     sb.toString()
   }
