@@ -1,22 +1,21 @@
 ---
-name: crafterq-studio-plugin
+name: ai-assistant-studio-plugin
 description: Maintains and extends the AI Assistant Crafter Studio plugin per in-repo Cursor rules and docs without regressing locked UX.
 ---
 
 # AI Assistant Studio plugin (this repository)
 
-Use this skill when editing **this repo**: `plugin-studio-crafterq` — Studio plugin (React bundle, form control `main.js`, server scripts, `authoring/static-assets`).
+Use this skill when editing **this repo**: `ai-assistant-plugin` — Studio plugin (React bundle, form control `main.js`, server scripts, `authoring/static-assets`).
 
-## Product language (do not conflate)
+## Product language
 
 - **Studio AI assistant** — The product-facing assistant in Studio (Helper, form control, optional autonomous runs). Prefer this in **author-facing** copy and docs.
 - **Two delivery modes** — **(1) Interactive chat** — authors drive each turn (Helper, form-engine control, preview/XB, optional TinyMCE). **(2) Autonomous assistants (experimental)** — the **`AutonomousAssistants`** Tools Panel widget runs **scheduled** server-side steps; see **`docs/internals/spec.md`**.
-- **Optional CrafterQ tools (integration)** — When a site wires them, the LLM may call tools that talk to a **CrafterQ** deployment (e.g. list agents, conversations, expert Q&A). This is an **add-on**, not the plugin core. **`llm: crafterQ`** (hosted-only) is **not** supported — use **`openAI`**, **`claude`**, **`script:{id}`**, etc.; see **`llm-configuration.md`**.
 
 ## Canonical local policy (read first)
 
 1. **`.cursor/rules/`** — Project rules (often `alwaysApply: true`). They override casual assumptions.
-   - **`crafterq-form-panel-contract.mdc`** — Form Engine assistant: agent visibility from `config.properties`, accordion-style panel in `AiAssistantFormControlPanel.tsx`, sync `sources/control/ai-assistant/main.js` copies, `yarn package` after TS or React changes.
+   - **`ai-assistant-form-panel-contract.mdc`** — Form Engine assistant: agent visibility from `config.properties`, accordion-style panel in `AiAssistantFormControlPanel.tsx`, sync `sources/control/ai-assistant/main.js` copies, `yarn package` after TS or React changes.
    - **`no-unauthorized-ui-changes.mdc`** — Do not change visible UI or UX or interaction unless the user explicitly requests it in the same task; feature work defaults to wiring, API, server, types, and build only.
 
 2. **`.cursor/skills/`** — Other Cursor skills for this repo. Prefer extending **this** skill when guidance applies repo-wide.

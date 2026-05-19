@@ -3,6 +3,7 @@ package plugins.org.craftercms.aiassistant.http
 import groovy.json.JsonSlurper
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import plugins.org.craftercms.aiassistant.catalog.AgentCatalogIds
 import plugins.org.craftercms.aiassistant.config.StudioAiSiteModuleText
 import plugins.org.craftercms.aiassistant.llm.StudioAiLlmKind
 import plugins.org.craftercms.aiassistant.orchestration.AiOrchestration
@@ -57,8 +58,7 @@ final class AiAssistantCentralAgentsMerge {
         if (isAutonomousEntry(entry)) {
           continue
         }
-        // Match crafterQAgentId or id on the catalog row.
-        String id = (entry.crafterQAgentId ?: entry.id ?: '').toString().trim()
+        String id = AgentCatalogIds.readId(entry)
         if (wanted == id) {
           return entry
         }
@@ -109,8 +109,8 @@ final class AiAssistantCentralAgentsMerge {
 
   /**
    * Fills missing {@code imageModel}, {@code llmModel}, {@code llm}, and/or {@code imageGenerator} on {@code body}
-   * from the site's central agents catalog. Matches {@code crafterQAgentId} or {@code id} when
-   * {@code agentId} is set; otherwise uses the first {@code mode: chat} row (or omitted mode).
+   * from the site's central agents catalog. Matches catalog {@code agentId} / {@code id} when
+   * request {@code agentId} is set; otherwise uses the first {@code mode: chat} row (or omitted mode).
    */
   static void mergeStreamAgentFieldsFromSiteAgentsFileIfMissing(
     Object applicationContext,

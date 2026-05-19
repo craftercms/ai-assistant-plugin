@@ -2,6 +2,10 @@
 
 **Install:** **[`using-and-extending/installation.md`](using-and-extending/installation.md)** (Studio **Plugin Management**, CLI, Marketplace **`copy`**, build-before-install). **Admins** configure and extend the plugin on a site via **[`using-and-extending/configuration-guide.md`](using-and-extending/configuration-guide.md)** (`ui.xml`, agents, keys, **Project Tools**, **`studio-ui.json`**, forms, sandbox scripts). **Official specifications** for implementers and packaging: **[`internals/spec.md`](internals/spec.md)** and **[`using-and-extending/studio-plugins-guide.md`](using-and-extending/studio-plugins-guide.md)**. Update those when behavior or packaging changes.
 
+## Diagrams
+
+**[Architecture & diagrams](architecture-diagrams.md)** — System context, configuration model, administrator setup flow, author surfaces, build pipeline, and stream request path (Mermaid).
+
 ## By Audience
 
 | Audience | Start Here |
@@ -11,7 +15,7 @@
 | **Product / review** — mandatory outcomes for authors, admins, and integrators | [Product requirements](using-and-extending/product-requirements.md) |
 | **LLM & image backends** — wire ids, secrets, **`script:`** LLM, **pluggable `GenerateImage`** | [LLM configuration](using-and-extending/llm-configuration.md) · [Script LLM — BYO backend](using-and-extending/script-llm-bring-your-own-backend.md) · Groq script sample: `docs/examples/aiassistant-llm/groq/runtime.groovy` · [Image generation](using-and-extending/image-generation.md) · JVM tuning: [studio-aiassistant-jvm-parameters.md](using-and-extending/studio-aiassistant-jvm-parameters.md) |
 | **Extension developers** — Rollup, descriptor, classpath, sandbox script layout | [Studio plugins guide](using-and-extending/studio-plugins-guide.md) · [Using & extending index](using-and-extending/README.md) |
-| **Maintainers** — **`spec.md`** (requirements & mechanics), streaming, tools runtime, review-style invariants | [Internals](internals/README.md) · [Maintainer review checklist](internals/maintainer-review-checklist.md) |
+| **Maintainers** — **`spec.md`** (requirements & mechanics), streaming, tools runtime, review-style invariants | [Internals](internals/README.md) · [Architecture diagrams](architecture-diagrams.md) · [Maintainer review checklist](internals/maintainer-review-checklist.md) |
 | **Plugin repo contributors** — clone, `yarn package`, policy, spec | [CONTRIBUTING.md](../CONTRIBUTING.md) |
 
 ## Topic → Document
@@ -30,8 +34,12 @@
 | JVM / `-D` tuning (timeouts, HTTP caps, key fallbacks) | [studio-aiassistant-jvm-parameters.md](using-and-extending/studio-aiassistant-jvm-parameters.md) |
 | Debug logging (loggers, Spring AI HTTP trace JVM flag) | [internals/README.md](internals/README.md#debug-logging) · JVM reference: [studio-aiassistant-jvm-parameters.md](using-and-extending/studio-aiassistant-jvm-parameters.md) |
 | MCP client (`mcpEnabled` + `mcpServers` in `tools.json`, Streamable HTTP) | [chat-and-tools-runtime.md](internals/chat-and-tools-runtime.md#mcp-client-tools-streamable-http) |
+| Intent recipe routing (maintainer) | [intent-recipe-routing.md](internals/intent-recipe-routing.md) · admin: [configuration-guide §9.0](using-and-extending/configuration-guide.md#cg-9-0) |
+| Site secrets (`secrets.json`, `${secret:}`) | [configuration-guide §4](using-and-extending/configuration-guide.md#cg-4) · [spec.md — secrets](internals/spec.md) |
+| Configuration tour (joyride) | [configuration-guide §4b](using-and-extending/configuration-guide.md#cg-joyride) |
 | REST/stream body, tools, MCP | [chat-and-tools-runtime.md](internals/chat-and-tools-runtime.md) |
 | Engineering contracts (`ui.xml` / stream / form / REST) | [internals/spec.md](internals/spec.md) |
+| Architecture, admin setup, author journeys, build/runtime | [architecture-diagrams.md](architecture-diagrams.md) |
 | Review-style invariants (perf, memory, SSE, Groovy pitfalls) | [internals/maintainer-review-checklist.md](internals/maintainer-review-checklist.md) |
 
 **Examples:** [`examples/`](examples/).

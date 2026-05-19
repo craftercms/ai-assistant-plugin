@@ -4,9 +4,9 @@ Companion to **[`spec.md`](spec.md)** for tools, REST bodies, MCP, and runtime t
 
 **Audience:** Maintainers and advanced integrators working on **tools**, **SSE**, or **Studio integration**. For **`<llm>`** selection and keys, see [llm-configuration.md](../using-and-extending/llm-configuration.md).
 
-**Hosted-only `<llm>` via removed remote chat integration:** earlier releases could use hosted **`llm`** values tied to a third-party API host. That path **has been removed**. Chat always runs against **your configured provider** (**`openAI`**, **`claude`**, **`script:{id}`**, etc.); legacy spellings such as **`crafterQ`**, **`aiassistant`**, and **`hostedchat`** are **rejected** by **`StudioAiLlmKind.normalize`** (**HTTP 400**).
+**Hosted-only `<llm>` values are not supported:** chat runs against **your configured provider** (**`openAI`**, **`claude`**, **`script:{id}`**, etc.). Unknown or plugin-name spellings (e.g. **`aiassistant`**, **`hostedchat`**) are **rejected** by **`StudioAiLlmKind.normalize`** (**HTTP 400**).
 
-**Optional CrafterQ tools (integration):** a CrafterQ deployment may still be reachable as **optional** function tools the model can call when a site wires them (e.g. list agents, list conversations, ask an expert). That is an **add-on integration**, not part of core Studio authoring UX and not implied by the **`crafterQAgentId`** XML tag name.
+**Remote tools:** use **MCP**, **`InvokeSiteUserTool`**, or site Groovy when you need APIs beyond the built-in CMS catalog. Catalog **`agentId`** fields identify rows in **`agents.json`** only.
 
 **LLM ids, keys, and provider behavior:** [llm-configuration.md](../using-and-extending/llm-configuration.md)  
 **Admin checklist and `ui.xml` surfaces:** [configuration-guide.md](../using-and-extending/configuration-guide.md)  
@@ -47,8 +47,8 @@ Use only for **local testing** when you cannot set **`OPENAI_API_KEY`** on the S
 
 ```xml
 <agent>
-  <!-- Stable agent id for stream/chat agentId + ui.xml merge (XML tag name is legacy: crafterQAgentId) -->
-  <crafterQAgentId>YOUR_AGENT_UUID</crafterQAgentId>
+  <!-- Stable agent id for stream/chat agentId -->
+  <agentId>YOUR_AGENT_UUID</agentId>
   <label>OpenAI tools</label>
   <llm>openAI</llm>
   <llmModel>gpt-4o-mini</llmModel>
@@ -68,7 +68,7 @@ See `craftercms-plugin.yaml` under `installation` → `configuration` → `agent
 
 ```xml
 <agent>
-  <crafterQAgentId>019c7237-478b-7f98-9a5c-87144c3fb010</crafterQAgentId>
+  <agentId>019c7237-478b-7f98-9a5c-87144c3fb010</agentId>
   <label>OpenAI authoring</label>
   <llm>openAI</llm>
   <llmModel>gpt-4o</llmModel>
@@ -76,13 +76,13 @@ See `craftercms-plugin.yaml` under `installation` → `configuration` → `agent
 </agent>
 ```
 
-Each **`crafterQAgentId`** value is the stable **`agentId`** sent on **`/ai/stream`** and **`/ai/agent/chat`** (the XML tag name is historical only).
+Each **`agentId`** value is sent on **`/ai/stream`** and **`/ai/agent/chat`** as POST **`agentId`**.
 
 ---
 
 ## Central agents merge (`AiAssistantCentralAgentsMerge`)
 
-On **`/ai/stream`** and **`/ai/agent/chat`**, when the POST body omits **`llm`**, **`llmModel`**, **`imageModel`**, or **`imageGenerator`**, the server copies missing fields from **`config/studio/ai-assistant/agents.json`** (Project Tools → Agents). Matching uses **`crafterQAgentId`** or **`id`** **===** request **`agentId`**; if **`agentId`** is absent, the first **`mode: chat`** row (or omitted mode) is used.
+On **`/ai/stream`** and **`/ai/agent/chat`**, when the POST body omits **`llm`**, **`llmModel`**, **`imageModel`**, or **`imageGenerator`**, the server copies missing fields from **`config/studio/ai-assistant/agents.json`** (Project Tools → Agents). Matching uses **`agentId`** or **`id`** **===** request **`agentId`**; if **`agentId`** is absent, the first **`mode: chat`** row (or omitted mode) is used.
 
 ---
 
@@ -118,7 +118,7 @@ Inside an `<agent>` that uses `<llm>openAI</llm>`, add one or more **`<expertSki
 
 ```xml
 <agent>
-  <crafterQAgentId>ANOTHER_AGENT_UUID</crafterQAgentId>
+  <agentId>ANOTHER_AGENT_UUID</agentId>
   <label>OpenAI with playbook</label>
   <llm>openAI</llm>
   <expertSkill
@@ -159,7 +159,7 @@ If a tool throws mid-stream (e.g. Spring AI `MessageAggregator` / `UndeclaredThr
 
 `POST` … `/ai/stream` and `/ai/agent/chat` accept:
 
-- `llm`: `openAI` | `xAI` | `deepSeek` | `llama` | `genesis` | `gemini` | `claude` | `script:{id}` — **required** on the wire after merge: missing, blank, invalid **`script:…`** ids, unknown strings, or legacy hosted-only ids (**`crafterQ`**, **`aiassistant`**, **`hostedchat`**, …) → **400** (`StudioAiLlmKind.normalize`). When **`siteId`** + **`agentId`** are set, the server may copy **`llm`** from the matching **`<agent>`** in **`/ui.xml`** if the POST omitted it. Matching aliases are normalized server-side (e.g. `grok` → xAI, `ollama` → llama). **`script:myid`** → **`scriptLlm:myid`** and loads site Groovy from `/scripts/aiassistant/llm/myid/runtime.groovy`.
+- `llm`: `openAI` | `xAI` | `deepSeek` | `llama` | `genesis` | `gemini` | `claude` | `script:{id}` — **required** on the wire after merge: missing, blank, invalid **`script:…`** ids, unknown strings, or unsupported ids (**`aiassistant`**, **`hostedchat`**, …) → **400** (`StudioAiLlmKind.normalize`). When **`siteId`** + **`agentId`** are set, the server may copy **`llm`** from the matching **`<agent>`** in **`/ui.xml`** if the POST omitted it. Matching aliases are normalized server-side (e.g. `grok` → xAI, `ollama` → llama). **`script:myid`** → **`scriptLlm:myid`** and loads site Groovy from `/scripts/aiassistant/llm/myid/runtime.groovy`.
 - `llmModel`: optional string
 - `imageModel`: optional string — OpenAI **Images** model id for **GenerateImage**; must be set on the agent and/or this body field when the model should call **GenerateImage** (no server default). Prefer **`gpt-image-1`** or **`gpt-image-1-mini`**.
 - `openAiApiKey`: optional string — **testing only**; per-provider precedence (OpenAI, xAI, DeepSeek, etc.): ignored when the matching server-side key is set (host **env** vars per **[llm-configuration.md](../using-and-extending/llm-configuration.md)**, plus JVM fallbacks in **[studio-aiassistant-jvm-parameters.md](../using-and-extending/studio-aiassistant-jvm-parameters.md)**). For **`claude`**, the same field can carry the Anthropic key when no **`ANTHROPIC_API_KEY`** is configured.

@@ -76,7 +76,7 @@ Patterns that have bitten us in review or production:
 | Topic | Document |
 |-------|----------|
 | Stream / SSE contracts | [stream-endpoint-design.md](stream-endpoint-design.md), [chat-and-tools-runtime.md](chat-and-tools-runtime.md) |
-| Form control / `yarn package` verify | [studio-plugins-guide.md](../using-and-extending/studio-plugins-guide.md), repo `.cursor/rules/crafterq-form-panel-contract.mdc` |
+| Form control / `yarn package` verify | [studio-plugins-guide.md](../using-and-extending/studio-plugins-guide.md), repo `.cursor/rules/ai-assistant-form-panel-contract.mdc` |
 | TinyMCE wiring (admin) | [tinymce-integration.md](../using-and-extending/tinymce-integration.md) |
 
 When a review item becomes a **stable invariant** of the product (author-visible or contractual), mirror the requirement in **`spec.md`** (or the relevant user-facing doc) in the same change set where appropriate. **Style-only or one-off nits** usually do not need a new checklist row.

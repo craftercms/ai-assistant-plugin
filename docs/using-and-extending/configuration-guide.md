@@ -12,6 +12,7 @@
 | [2](#cg-2) | Helper / Autonomous / toolbar — **`plugin`** element |
 | [3](#cg-3) | Agents (`config/studio/ai-assistant/agents.json`) |
 | [4](#cg-4) | Secrets and API keys |
+| [4b](#cg-joyride) | Configuration tour (first visit + replay) |
 | [5](#cg-5) | Form Engine control |
 | [6](#cg-6) | Autonomous assistants (overview) |
 | [7](#cg-7) | Checklist before support |
@@ -21,6 +22,7 @@
 
 | § | Topic |
 |---|--------|
+| [9.0](#cg-9-0) | Intent recipes (**Recipes** tab) |
 | [9.1](#cg-9-1) | Override tool / system prompt text (`prompts/*.md`) |
 | [9.2](#cg-9-2) | Enable / disable stock (built‑in) tools |
 | [9.3](#cg-9-3) | Scripted tools, script LLMs, image generators |
@@ -32,6 +34,23 @@
 
 **[Screenshots](#cg-screenshots)** — Project Tools entry and **AI Assistant Configuration** dialog (all tabs).
 
+**[Diagrams](#cg-diagrams)** — Administrator setup flow, configuration model, Project Tools tab map, author surfaces.
+
+---
+
+<a id="cg-diagrams"></a>
+
+## Diagrams
+
+Visual guides for administrators and authors (Mermaid). Full set: **[Architecture & diagrams](../architecture-diagrams.md)**.
+
+| Diagram | Link |
+|---------|------|
+| What to configure and where files live | [Configuration model](../architecture-diagrams.md#configuration-model-design) |
+| Recommended setup order | [Administrator setup workflow](../architecture-diagrams.md#administrator-setup-workflow) |
+| Project Tools tabs → repo paths | [Project Tools configuration map](../architecture-diagrams.md#project-tools-configuration-map) |
+| Where authors open chat | [Author experience](../architecture-diagrams.md#author-experience-user) |
+
 ---
 
 <a id="cg-screenshots"></a>
@@ -39,6 +58,8 @@
 ## Screenshots — Project Tools and AI Assistant Configuration
 
 These screenshots show **Project Tools** (where you install the plugin and open **AI Assistant**) and the tabbed **AI Assistant Configuration** dialog. Paths below are relative to this file (`docs/using-and-extending/`).
+
+**Note:** PNG files under `docs/images/ai-assistant-studio/` may not be checked into this repository; capture them locally after install if links 404. Current tabs are **UI**, **Agents**, **Recipes**, **Integrations** (LLMs / Image generators / Tools / MCP), **Secrets**, and **Prompts and Context** (older docs called some of these **Tools and MCP** / **Scripts**).
 
 ### Project Tools (Sidebar)
 
@@ -64,25 +85,25 @@ These screenshots show **Project Tools** (where you install the plugin and open 
 
 *Provider, model, image generator, CMS tools checklist, and optional quick-prompt chips.*
 
-### Tools and MCP Tab
+### Integrations → Tools (and MCP sub-tab)
 
-![AI Assistant Configuration modal with the Tools and MCP tab active](../images/ai-assistant-studio/ai-assistant-configuration-tools-tab.png)
+![AI Assistant Configuration — Integrations → Tools](../images/ai-assistant-studio/ai-assistant-configuration-tools-tab.png)
 
-*Built-in tool visibility, MCP client toggle, and user-tools registry (table + **Open in editor**).*
+*Under **Integrations → Tools**: built-in tool visibility and user-tools registry. **Integrations → MCP** holds the MCP client toggle and server rows.*
 
 <a id="cg-screenshots-mcp-github"></a>
 
 #### GitHub MCP (example in Project Tools)
 
-![Tools and MCP tab with MCP enabled and a GitHub Copilot Streamable HTTP server](../images/ai-assistant-studio/ai-assistant-configuration-tools-mcp-github.png)
+![Integrations → MCP with a GitHub Copilot Streamable HTTP server](../images/ai-assistant-studio/ai-assistant-configuration-tools-mcp-github.png)
 
 *Example **`mcpServers`** row: server id **`Github`**, URL **`https://api.githubcopilot.com/mcp/`**, **`Authorization`** header (use a real token in production; never commit tokens to the repo), **`readTimeoutMs`** **120000**. Same settings persist to **`config/studio/scripts/aiassistant/config/tools.json`** when you click **Save tools & MCP**. Match URL and headers to GitHub’s current **[Remote GitHub MCP Server](https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md)** documentation.*
 
-### Scripts Tab
+### Integrations → LLMs / Image generators
 
-![AI Assistant Configuration modal with the Scripts tab active](../images/ai-assistant-studio/ai-assistant-configuration-scripts-tab.png)
+![AI Assistant Configuration — Integrations (legacy filename: scripts tab)](../images/ai-assistant-studio/ai-assistant-configuration-scripts-tab.png)
 
-*Script image generators and script LLM backends under `scripts/aiassistant/…`.*
+***Integrations → LLMs** and **Image generators** edit script backends under `config/studio/scripts/aiassistant/llm/` and `…/imagegen/`.*
 
 ---
 
@@ -251,9 +272,10 @@ Configure chat and autonomous agents in **Project Tools → AI Assistant → Age
 Each **chat** row (`mode: chat` or omitted) is one Helper picker entry (and one form accordion row when enabled on the field). Typical fields:
 
 - **`label`** — Display name.
-- **`crafterQAgentId`** or **`id`** — Stable id sent as **`agentId`** on stream/chat.
-- **`llm`** — **`openAI`**, **`claude`**, **`xAI`**, **`deepSeek`**, **`llama`**, **`gemini`**, or **`script:{id}`**. Unsupported hosted-only values (**`crafterQ`**, **`aiassistant`**, …) return **HTTP 400**.
+- **`agentId`** or **`id`** — Stable id sent as **`agentId`** on stream/chat.
+- **`llm`** — **`openAI`**, **`claude`**, **`xAI`**, **`deepSeek`**, **`llama`**, **`gemini`**, or **`script:{id}`**. Unsupported hosted-only values (**`aiassistant`**, **`hostedchat`**, …) return **HTTP 400**.
 - **`llmModel`**, **`imageModel`**, **`imageGenerator`**, **`enableTools`**, **`enabledBuiltInTools`**, **`prompts`**, **`expertSkills`**, etc.
+- **`llmSecretKey`** (optional) — In Project Tools, pick a row from **Secrets** for this agent: the built-in slot for the agent’s current **`llm`** provider, or a **custom** secret key. When set, runtime resolves that entry from **`secrets.json`** instead of only the provider default row. Omit to use the provider’s default secret row.
 
 **Autonomous** rows use **`mode: autonomous`** with **`name`**, **`schedule`**, **`prompt`**, **`scope`**, and the same LLM fields.
 
@@ -268,9 +290,23 @@ Field reference: [spec.md — Central agent catalog](../internals/spec.md) · [l
 1. **Project Tools → Secrets** — Site registry at **`config/studio/scripts/aiassistant/config/secrets.json`**. On first open (or **`scripts/install-plugin.sh`** when the file is missing), the plugin seeds one row per built-in LLM provider with **`${env:VAR_NAME}`** (for example **`${env:OPENAI_API_KEY}`**). Authors may add custom keys and store **`${env:…}`**, Crafter **`${enc:…}`** ciphertext (from Studio **Encrypt Marked**), or plain text (encrypted on save). Resolved values are used **only on the server**; the UI never receives decrypted literals after save.
 2. **Studio host environment variables** — Still supported when referenced from **`secrets.json`** or as a direct fallback. Provider names and variables are listed in [llm-configuration.md](llm-configuration.md).
 3. **JVM system properties** — Advanced tuning and key fallbacks only; see **[studio-aiassistant-jvm-parameters.md](studio-aiassistant-jvm-parameters.md)**.
-4. **Per‑agent `llmApiKey` in `agents.json` or POST body** — **testing only**; discouraged in Git‑tracked sites.
+4. **Per‑agent `llmSecretKey` in `agents.json`** — Optional; references a **custom** key in **`secrets.json`** or the built-in provider row for the agent’s **`llm`** (Project Tools → Agents).
+5. **Per‑agent `llmApiKey` in `agents.json` or POST body** — **testing only**; discouraged in Git‑tracked sites.
 
-**Do not commit plaintext secrets** — prefer **`${env:…}`** on the Studio host or **`${enc:…}`** in **`secrets.json`**. MCP **`headers`** and other config strings may also use **`${secret:key}`** to reference an entry in **`secrets.json`**.
+**Do not commit plaintext secrets** — prefer **`${env:…}`** on the Studio host or **`${enc:…}`** in **`secrets.json`**. MCP **`headers`** and other config strings may also use **`${secret:key}`** to reference an entry in **`secrets.json`**. In **Integrations → MCP**, use the **Auth secret (custom)** control to bind a header to **`${secret:yourKey}`** without pasting the raw token in Git.
+
+---
+
+<a id="cg-joyride"></a>
+
+### 4b. Configuration Tour (Joyride)
+
+On first open of **Project Tools → AI Assistant** for a **new plugin version**, a short welcome dialog offers **Show me around**. The tour highlights **Secrets → UI → Agents → Integrations** with speech bubbles anchored to each tab. Authors can **Skip tour** anytime, click the dimmed backdrop (**Dismiss tour**), or press **Escape** (popover close).
+
+- **Replay:** **UI** tab → **Show setup tour** (does not reset “seen” for auto-popup on version bump until you finish or skip again).
+- **Version storage:** Browser **`localStorage`** key `org.craftercms.aiassistant.joyride.seenVersion` (aligned with plugin version in `sources/src/aiAssistantPluginVersion.ts`).
+
+Maintainers: step copy in `sources/src/aiAssistantJoyrideSteps.ts`; routing logic in `sources/src/AiAssistantJoyride.tsx`.
 
 ---
 
@@ -328,7 +364,7 @@ config/studio/ui.xml
 
 ```json
 {
-  "toolbar1": "... | aiAssistantOpen crafterqshortcuts crafterq",
+  "toolbar1": "... | aiAssistantOpen aiassistantShortcuts",
   "external_plugins": {
     "craftercms_aiassistant": "/studio/1/plugin/file?siteId=YOUR_SITE_ID&pluginId=org.craftercms.aiassistant.studio&type=aiassistant&name=tinymce&file=craftercms_aiassistant.js"
   },
@@ -345,6 +381,27 @@ Full toolbar list and keys: [tinymce-integration.md](tinymce-integration.md).
 ## Advanced Configuration (Prompts, Tools, Scripts, MCP)
 
 All paths in this section are under the **site** Git sandbox (`config/studio/scripts/aiassistant/…`). Commit changes and refresh Studio configuration as you do for other site scripts.
+
+<a id="cg-9-0"></a>
+
+### 9.0 Intent Recipes (Recipes Tab)
+
+**Studio:** **Project Tools → AI Assistant → Recipes**.
+
+**What it configures:**
+
+| Artifact | Path (default) | Role |
+|----------|----------------|------|
+| Recipe catalog | `config/studio/scripts/aiassistant/intent-recipes.json` | Named authoring flows (bundled defaults + site overrides) |
+| Routing policy | `config/studio/scripts/aiassistant/config/tools.json` → **`intentRecipeRouting`** | Enable/disable routing, custom catalog path, eligibility / JSON router flags |
+
+**Save behavior:** **Save** on the Recipes tab writes **both** the recipes JSON and the **`tools.json`** routing block (so routing flags stay in sync with the catalog editor).
+
+**Integrations → Tools** shows built-in tool allow/deny only; it does **not** host the recipe catalog editor.
+
+**Maintainer reference:** [intent-recipe-routing.md](../internals/intent-recipe-routing.md) (pipeline, telemetry, bundled `authoring-intent-recipes-default.json`).
+
+---
 
 <a id="cg-9-1"></a>
 
@@ -391,7 +448,7 @@ You are assisting CrafterCMS authors. Use CMS tools when they are on the wire. P
 
 ### 9.2 Enable / Disable Stock (Built‑In) Tools
 
-You can maintain **`tools.json`** in Git or use **Project Tools → AI Assistant → Tools and MCP** in Studio (form for built-ins + MCP; same tab as **`user-tools/registry.json`** and the Groovy tool list).
+You can maintain **`tools.json`** in Git or use **Project Tools → AI Assistant → Integrations → Tools** (built-in allow/deny; intent recipe **routing flags** are on the **Recipes** tab). **Integrations → MCP** edits **`mcpEnabled`** / **`mcpServers`**. **`user-tools/registry.json`** and Groovy tools share the **Tools** sub-tab.
 
 **Put JSON here:**
 
@@ -404,7 +461,7 @@ config/studio/scripts/aiassistant/config/tools.json
 | **`disabledBuiltInTools`** | JSON array of **tool names to hide** (compared case‑insensitively). Example: `["GenerateImage", "FetchHttpUrl"]` removes those tools from the catalog. |
 | **`enabledBuiltInTools`** | If this array is **non‑empty**, it is a **whitelist** of **built‑in CMS** tool names to **keep**; every other built‑in is removed **except** **`InvokeSiteUserTool`** and any **`mcp_*`** tools (unless those appear in **`disabledBuiltInTools`** / **`disabledMcpTools`**). Names must match the registered tool string **exactly** (case‑sensitive). If **omitted** or **empty**, all built‑ins are available minus **`disabledBuiltInTools`**. |
 
-**Registered built-in wire names** — use these strings verbatim in **`disabledBuiltInTools`**, **`enabledBuiltInTools`**, and **`omitTools`**. Canonical source: **`AiOrchestrationTools.groovy`**, `FunctionToolCallback.builder('…')`. When MCP is enabled, the server also registers dynamic **`mcp_<serverId>_<toolName>`** tools (sanitized); those are not listed here.
+**Registered built-in wire names** — use these strings verbatim in **`disabledBuiltInTools`**, **`enabledBuiltInTools`**, and **`omitTools`**. Canonical UI list: **`sources/src/studioAiOrchestrationToolIds.ts`** (`STUDIO_AI_BUILTIN_TOOL_IDS`); server registration in **`AiOrchestrationTools.groovy`**. When MCP is enabled, the server also registers dynamic **`mcp_<serverId>_<toolName>`** tools (sanitized); those are not listed here.
 
 | Wire name (PascalCase) |
 |------------------------|
@@ -422,9 +479,11 @@ config/studio/scripts/aiassistant/config/tools.json
 | `ListPagesAndComponents` |
 | `ListStudioContentTypes` |
 | `QueryExpertGuidance` |
+| `ResearchSiteContent` |
 | `TransformContentSubgraph` |
 | `TranslateContentBatch` |
 | `TranslateContentItem` |
+| `WebSearch` |
 | `WriteContent` |
 
 | Wire name (snake_case) |
@@ -522,7 +581,7 @@ Implement **`config/studio/scripts/aiassistant/llm/mybackend/runtime.groovy`** p
 
 Same file: **`config/studio/scripts/aiassistant/config/tools.json`**.
 
-**Studio (Project Tools):** When **MCP** is enabled and **Save tools & MCP** runs with at least one complete server row, Studio calls each server’s **`tools/list`**, opens a checklist so you can **enable or disable** individual **`mcp_*`** wire tools when tools are returned; if none are returned, the same dialog still lists **server status** (errors or empty catalogs) and you can **Save** to persist the rest of **`tools.json`** unchanged. Use **List MCP tools** anytime for a **read-only** preview without saving.
+**Studio (Project Tools):** **Integrations → MCP**. When **MCP** is enabled and you save with at least one complete server row, Studio calls each server’s **`tools/list`**, opens a checklist so you can **enable or disable** individual **`mcp_*`** wire tools when tools are returned; if none are returned, the same dialog still lists **server status** (errors or empty catalogs) and you can **Save** to persist the rest of **`tools.json`** unchanged. Use **List MCP tools** anytime for a **read-only** preview without saving. Per-server **Auth secret (custom)** maps a header to **`${secret:key}`** from **`secrets.json`** (see **§4**).
 
 | Field | Purpose |
 |-------|---------|
@@ -530,7 +589,7 @@ Same file: **`config/studio/scripts/aiassistant/config/tools.json`**.
 | **`mcpServers`** | Array of `{ "id": "…", "url": "https://host/…/mcp", "headers": { }, "readTimeoutMs": 120000 }` — **Streamable HTTP** MCP endpoint (`POST` on **`url`**). |
 | **`disabledMcpTools`** | Optional array of **wire** tool names to hide, e.g. **`mcp_docs_search`**. You can also list MCP wire names under **`disabledBuiltInTools`**. |
 
-Each MCP tool becomes a function named roughly **`mcp_<serverId>_<toolName>`** (sanitized, length‑capped). SSRF rules match **`FetchHttpUrl`**. In **`mcpServers[].headers`**, each value may use **`${env:VARIABLE_NAME}`**; Studio expands it from **`System.getenv`** on the Studio JVM (unset variable → empty string) before calling the MCP server.
+Each MCP tool becomes a function named roughly **`mcp_<serverId>_<toolName>`** (sanitized, length‑capped). SSRF rules match **`FetchHttpUrl`**. In **`mcpServers[].headers`**, each value may use **`${env:VARIABLE_NAME}`** (Studio JVM env) or **`${secret:key}`** ( **`secrets.json`** entry). Unset env → empty string before the MCP call.
 
 **Example:**
 
@@ -566,6 +625,7 @@ Full behavior, lifecycle, and limits: [chat-and-tools-runtime.md § MCP client t
 | Build, install, classpath, `user-tools/`, script LLM | [studio-plugins-guide.md](studio-plugins-guide.md) |
 | Macros, `omitTools`, ICE vs form engine, REST paths, human tasks | [spec.md](../internals/spec.md) |
 | SSE / stream endpoint design | [stream-endpoint-design.md](../internals/stream-endpoint-design.md) |
+| Intent recipe routing (maintainer) | [intent-recipe-routing.md](../internals/intent-recipe-routing.md) |
 | Doc map (internals vs using) | [README.md](../README.md) |
 
 ---
@@ -574,4 +634,4 @@ Full behavior, lifecycle, and limits: [chat-and-tools-runtime.md § MCP client t
 
 ### Related Documentation
 
-**[spec.md](../internals/spec.md)** — requirements and mechanics for surfaces, `ui.xml`, form vs preview, macros, autonomous REST. **[llm-configuration.md](llm-configuration.md)** — **`<llm>`** wire ids, env + XML, tool availability by provider. **[studio-plugins-guide.md](studio-plugins-guide.md)** — install, build output paths, **`user-tools/`**, script LLM layout. **[scripted-tools-and-imagegen.md](scripted-tools-and-imagegen.md)** — Groovy **`InvokeSiteUserTool`** / **`script:{id}`** image backends (this guide **§9.3**). **[chat-and-tools-runtime.md](../internals/chat-and-tools-runtime.md)** — REST POST bodies, MCP, SSE/tool-progress hints, troubleshooting. **[Advanced configuration](#cg-adv)** — site overrides (prompts, built-in tool policy, scripted tools, image backends, MCP). **[Screenshots — Project Tools and AI Assistant Configuration](#cg-screenshots)**.
+**[spec.md](../internals/spec.md)** — requirements and mechanics for surfaces, `ui.xml`, form vs preview, macros, autonomous REST, **`secrets.json`**. **[llm-configuration.md](llm-configuration.md)** — **`<llm>`** wire ids, env + XML, **`llmSecretKey`**, tool availability by provider. **[studio-plugins-guide.md](studio-plugins-guide.md)** — install, build output paths, Project Tools tabs, **`user-tools/`**, script LLM layout. **[intent-recipe-routing.md](../internals/intent-recipe-routing.md)** — pre-tools recipe pipeline (**§9.0** admin summary). **[scripted-tools-and-imagegen.md](scripted-tools-and-imagegen.md)** — Groovy **`InvokeSiteUserTool`** / **`script:{id}`** image backends (this guide **§9.3**). **[chat-and-tools-runtime.md](../internals/chat-and-tools-runtime.md)** — REST POST bodies, MCP, SSE/tool-progress hints, troubleshooting. **[Advanced configuration](#cg-adv)** — site overrides (recipes, prompts, built-in tool policy, scripted tools, image backends, MCP). **[Configuration tour](#cg-joyride)** · **[Screenshots](#cg-screenshots)**.

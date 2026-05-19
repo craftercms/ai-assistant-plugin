@@ -6,7 +6,7 @@
  * LLM backend (OpenAI, proxy, mock gateway, etc.) is whatever Studio/JVM is configured for — this script only drives HTTP.
  *
  * Requires: Node 18+, live Studio, CRAFTER_STUDIO_TOKEN.
- * **agentId:** `CHAT_AGENT_ID`, scenario `defaults.agentId`, first chat row `crafterQAgentId` in
+ * **agentId:** `CHAT_AGENT_ID`, scenario `defaults.agentId`, first chat row `agentId` in
  * `config/studio/ai-assistant/agents.json` (sandbox content API), else default UUID (`AI_ASSISTANT_DEFAULT_AGENT_ID`).
  *
  * Does not assert exact LLM wording; asserts HTTP 200 and stream completion (`metadata.completed`), or fails on
@@ -44,7 +44,7 @@ Env (required unless in JSON defaults):
 Agent id (first match wins):
   CHAT_AGENT_ID          Optional explicit id
   (else defaults.agentId in the scenario JSON if set and not a placeholder)
-  (else first crafterQAgentId from config/studio/ai-assistant/agents.json)
+  (else first agentId from config/studio/ai-assistant/agents.json)
   (else default UUID — same as AI_ASSISTANT_DEFAULT_AGENT_ID in agentConfig.ts)
 
 Optional:
@@ -111,7 +111,7 @@ function firstChatAgentIdFromCatalog(file) {
     if (!row || typeof row !== 'object') continue;
     const mode = String(row.mode ?? '').trim().toLowerCase();
     if (mode === 'autonomous') continue;
-    const id = String(row.crafterQAgentId ?? row.id ?? '').trim();
+    const id = String(row.agentId ?? row.id ?? '').trim();
     if (id) return id;
   }
   return null;

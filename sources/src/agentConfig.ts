@@ -19,7 +19,7 @@ export interface ExpertSkillConfig {
 
 export interface AgentConfig {
   /**
-   * Stable agent id for stream `agentId` and merge/dedupe; from **`crafterQAgentId`** or **`id`** in `agents.json`.
+   * Stable agent id for stream `agentId` and merge/dedupe; from **`agentId`** or **`id`** in `agents.json`.
    * With **label**, forms the composite {@link agentStableKey}. May be empty when omitted in config.
    */
   id: string;
@@ -96,7 +96,7 @@ export function agentFormPropertyName(a: Pick<AgentConfig, 'id' | 'label'>): str
 export const AI_ASSISTANT_AGENT_LABEL_FALLBACK = 'AI Assistant';
 
 /**
- * Default **{@code crafterQAgentId}** when none is configured (empty — authors should set id in `agents.json`).
+ * Default catalog **{@code agentId}** when none is configured (empty — authors should set id in `agents.json`).
  */
 export const AI_ASSISTANT_DEFAULT_AGENT_ID = '';
 
@@ -149,7 +149,7 @@ export const DEFAULT_AGENTS: AgentConfig[] = [DEFAULT_AGENT];
 
 /**
  * Default agents for the Form Engine AI Assistant control when `agents.json` is missing (see `main.js` fallback).
- * Keep **{@code crafterQAgentId}** in sync with `sources/control/ai-assistant/main.js` (`AIASSISTANT_FALLBACK_AGENTS`).
+ * Keep default **{@code id}** in sync with `sources/control/ai-assistant/main.js` (`AIASSISTANT_FALLBACK_AGENTS`).
  */
 export const DEFAULT_FORM_CONTROL_AGENTS: AgentConfig[] = [
   {

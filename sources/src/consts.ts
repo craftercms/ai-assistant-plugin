@@ -24,8 +24,6 @@ export const projectToolsStudioUiSettingsWidgetId = 'craftercms.components.aiass
 /*
 import { EmptyStateOption } from './AiAssistant';
 
-export const CrafterQResultMessageId = 'craftercms.aiassistant.CrafterQResult';
-
 // Legacy commented defaults removed — configure <llmModel> / <imageModel> in ui.xml (no server image-model fallback).
 
 // Lanaguge codes for speech to text

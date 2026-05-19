@@ -14,7 +14,7 @@ Crafter Studio plugin that adds **AI-assisted authoring**: configurable **agents
 | **Form engine control** | Per–content-type AI panel on forms |
 | **Helper widget** | `ui.xml` registration for the Experience Builder toolbar and, if you add it, the Studio **Tools Panel** list |
 | **Autonomous assistants** (optional and experimental) | Scheduled server-side runs + human tasks |
-| **Project Tools** (optional) | One **AI Assistant** entry (tabs: **UI** / **Agents** / **Tools and MCP** / **Scripts** / **Prompts and Context**) — `studio-ui.json` + bulk, `agents.json`, tool-prompt markdown overrides, `tools.json` (built-ins + MCP), `user-tools/registry.json` + Groovy tools, script imagegen + script LLMs under `scripts/aiassistant/…` · [Screenshots](docs/using-and-extending/configuration-guide.md#cg-screenshots) |
+| **Project Tools** (optional) | One **AI Assistant** entry (tabs: **UI** / **Agents** / **Recipes** / **Integrations** → LLMs · Image generators · Tools · MCP / **Secrets** / **Prompts and Context**) — `studio-ui.json` + bulk, `agents.json`, `intent-recipes.json`, `secrets.json`, `tools.json`, prompts, user tools, script LLMs/imagegen · [Screenshots](docs/using-and-extending/configuration-guide.md#cg-screenshots) |
 | **TinyMCE** (optional RTE wiring) | Toolbar actions + RTE config → chat / shortcuts |
 
 ## Capabilities (at a Glance)
@@ -24,7 +24,7 @@ Crafter Studio plugin that adds **AI-assisted authoring**: configurable **agents
 | **Site setup** | Agents, `ui.xml`, keys, Experience Builder, forms; optional TinyMCE | [Configuration guide](docs/using-and-extending/configuration-guide.md) |
 | **LLMs** | OpenAI, Anthropic, XAI, Ollama, Deepseek, scriptable (**`script:{id}`**) | [LLM configuration](docs/using-and-extending/llm-configuration.md) |
 | **Image generation** | OpenAI, scriptable (**`script:{id}`**) | [Image generation](docs/using-and-extending/image-generation.md) · [Scripted tools & imagegen](docs/using-and-extending/scripted-tools-and-imagegen.md) |
-| **Tools and MCP** | CMS / HTTP / optional hosted SaaS API tools / scriptable user tools; optional **MCP** (`mcpEnabled` + `mcpServers` in `tools.json`) | [Chat & tools runtime](docs/internals/chat-and-tools-runtime.md#mcp-client-tools-streamable-http) |
+| **Tools and MCP** | CMS / HTTP / scriptable user tools; optional **MCP** (`mcpEnabled` + `mcpServers` in `tools.json`); intent **recipes** on the **Recipes** tab | [Configuration guide §9](docs/using-and-extending/configuration-guide.md#cg-adv) · [Intent recipe routing](docs/internals/intent-recipe-routing.md) · [Chat & tools runtime](docs/internals/chat-and-tools-runtime.md#mcp-client-tools-streamable-http) |
 | **Core Config overrides** | **`tools.json`** (built-in allow/deny + MCP), **`prompts/*.md`**, same sandbox layout as script LLMs | [Studio plugins guide](docs/using-and-extending/studio-plugins-guide.md) |
 
 ## Documentation
@@ -47,6 +47,7 @@ Crafter Studio plugin that adds **AI-assisted authoring**: configurable **agents
 | **Official requirements & build specification** | [spec.md](docs/internals/spec.md) · [Studio plugins guide](docs/using-and-extending/studio-plugins-guide.md) |
 | **Behavior spec, streaming, runtime** | [Internals index](docs/internals/README.md) |
 | **Contributing (clone, build, policy, spec updates)** | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| **Architecture & diagrams** (admin, author, developer) | [architecture-diagrams.md](docs/architecture-diagrams.md) |
 | **Full doc index** | [docs/README.md](docs/README.md) |
 
 Questions: [CrafterCMS Community Slack](https://craftercms.com/slack).

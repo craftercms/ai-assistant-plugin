@@ -27,14 +27,14 @@ Example **`copy`** body (replace site and path):
 ```json
 {
   "siteId": "MySite",
-  "path": "/absolute/path/to/plugin-studio-crafterq"
+  "path": "/absolute/path/to/ai-assistant-plugin"
 }
 ```
 
 Example CLI:
 
 ```bash
-./crafter-cli copy-plugin -e local -s MySite --path /absolute/path/to/plugin-studio-crafterq
+./crafter-cli copy-plugin -e local -s MySite --path /absolute/path/to/ai-assistant-plugin
 ```
 
 Example **`curl`** (replace host, JWT, site, path):
@@ -43,7 +43,7 @@ Example **`curl`** (replace host, JWT, site, path):
 curl --location --request POST 'http://localhost:8080/studio/api/2/marketplace/copy' \
   --header 'Authorization: Bearer YOUR_JWT_TOKEN' \
   --header 'Content-Type: application/json' \
-  --data-raw '{"siteId":"MySite","path":"/absolute/path/to/plugin-studio-crafterq"}'
+  --data-raw '{"siteId":"MySite","path":"/absolute/path/to/ai-assistant-plugin"}'
 ```
 
 ## Build Before Install

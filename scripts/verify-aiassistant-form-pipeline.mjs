@@ -40,7 +40,7 @@ needFile(fetchAgents);
 const main = readFileSync(mainJs, 'utf8');
 needContains(mainJs, 'cqAgentsListCache.agents.length > 0', 'agent cache empty-guard');
 needContains(mainJs, 'cqCentralCatalogExclusiveChatAgents', 'central agents.json catalog');
-needContains(mainJs, 'CRAFTERQ_CENTRAL_AGENTS_SANDBOX_PATH', 'central agents path');
+needContains(mainJs, 'AI_ASSISTANT_CENTRAL_AGENTS_SANDBOX_PATH', 'central agents path');
 needContains(mainJs, 'cqNormalizePropertyList', 'property list normalization');
 needContains(mainJs, 'cqPropertyEntryName', 'property name/id matching');
 needContains(mainJs, 'cqFormFieldPropertiesFromRender', 'merged property sources');

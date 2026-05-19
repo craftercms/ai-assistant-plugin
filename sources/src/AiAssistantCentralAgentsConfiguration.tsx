@@ -44,6 +44,7 @@ import {
   Tooltip,
   Typography
 } from '@mui/material';
+import { readAgentCatalogId, withAgentCatalogId } from './agentCatalogId';
 import type { PromptConfig } from './agentConfig';
 import { normalizeEnabledBuiltInToolsRaw } from './agentConfig';
 import AiAssistantSiteOrchestrationToolsForm from './AiAssistantSiteOrchestrationToolsForm';
@@ -380,13 +381,11 @@ function normalizeCatalogForSave(f: CentralAgentsFile): CentralAgentsFile {
       return out;
     }
     const label = String(e.label ?? e.name ?? '').trim() || 'Untitled assistant';
-    const id = e.crafterQAgentId ?? e.id;
-    const outChat = {
-      ...e,
-      mode: 'chat',
-      label,
-      ...(id != null && String(id).trim() !== '' ? { crafterQAgentId: String(id).trim() } : {})
-    } as CentralAgentFileEntry;
+    const id = readAgentCatalogId(e as Record<string, unknown>);
+    const outChat = withAgentCatalogId(
+      { ...(e as Record<string, unknown>), mode: 'chat', label },
+      id
+    ) as CentralAgentFileEntry;
     const recChat = outChat as Record<string, unknown>;
     delete recChat.prompt;
     delete recChat.schedule;
@@ -651,7 +650,8 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
     setDraft({
       mode: 'chat',
       label: 'New assistant',
-      crafterQAgentId: '',
+      agentId: '',
+      id: '',
       llm: 'openAI',
       llmSecretKey: 'openai_api_key',
       llmModel: 'gpt-4o-mini',
@@ -1425,7 +1425,8 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                               ...d,
                               mode: 'chat',
                               label: String(d.label ?? d.name ?? 'Assistant').trim() || 'Assistant',
-                              crafterQAgentId: d.crafterQAgentId ?? d.id ?? '',
+                              agentId: readAgentCatalogId(d as Record<string, unknown>),
+                              id: readAgentCatalogId(d as Record<string, unknown>),
                               prompts: []
                             } as CentralAgentFileEntry;
                           });
@@ -1455,9 +1456,9 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                       />
                       <TextField
                         label="Agent id (optional for OpenAI-only)"
-                        value={String(draft.crafterQAgentId ?? draft.id ?? '')}
+                        value={String(draft.agentId ?? draft.id ?? '')}
                         onChange={(ev) =>
-                          setDraft((d) => (d ? { ...d, crafterQAgentId: ev.target.value, id: ev.target.value } : d))
+                          setDraft((d) => (d ? { ...d, agentId: ev.target.value, id: ev.target.value } : d))
                         }
                         fullWidth
                         size="small"

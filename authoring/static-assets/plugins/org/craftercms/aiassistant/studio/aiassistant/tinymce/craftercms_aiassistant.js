@@ -659,8 +659,6 @@
     /*
     import { EmptyStateOption } from './AiAssistant';
 
-    export const CrafterQResultMessageId = 'craftercms.aiassistant.CrafterQResult';
-
     // Legacy commented defaults removed — configure <llmModel> / <imageModel> in ui.xml (no server image-model fallback).
 
     // Lanaguge codes for speech to text
@@ -1007,182 +1005,6 @@
         prependMessages: [],
         shortcuts: []
     };
-    // const BASE_CONFIG: Partial<CrafterCMSAiAssistantConfig> = {
-    //   strings: {
-    //     crafterqDialog: 'Open AI Assistant',
-    //     crafterqShortcuts: 'AI Shortcuts'
-    //   },
-    //   prependMessages: [
-    //     // Answer the question based on the context below. The response should be in HTML format. The response should preserve any HTML formatting, links, and styles in the context.
-    //     // {
-    //     //   role: 'system',
-    //     //   content:
-    //     //     'Answer the question based on the context below in plain text format. Do not add quotes to your replies'
-    //     // }
-    //   ],
-    //   shortcuts: [
-    //     {
-    //       label: 'Elaborate',
-    //       messages: [
-    //         {
-    //           role: 'user',
-    //           content:
-    //             'Elaborate the text with descriptive language and more detailed explanations to make the writing easier to understand and increase the length of the content. Context: """{context}"""'
-    //         }
-    //       ]
-    //     },
-    //     {
-    //       label: 'Enhance',
-    //       messages: [
-    //         {
-    //           role: 'user',
-    //           content:
-    //             'Without losing its original meaning, enhance this text. Remove spelling and grammar errors, use descriptive language and best writing practices. Context: """{context}"""'
-    //         }
-    //       ]
-    //     },
-    //     {
-    //       label: 'Simplify',
-    //       messages: [
-    //         {
-    //           role: 'user',
-    //           content:
-    //             'Simplify the language and reduce the complexity in the following text so that the content is easy to understand. Context: """{context}"""'
-    //         }
-    //       ]
-    //     },
-    //     {
-    //       label: 'Summarize',
-    //       messages: [
-    //         {
-    //           role: 'user',
-    //           content: 'Concisely summarize the key concepts in the following text. Context: """{context}"""'
-    //         }
-    //       ]
-    //     },
-    //     {
-    //       label: 'Trim',
-    //       messages: [
-    //         {
-    //           role: 'user',
-    //           content:
-    //             'Remove redundant, repetitive, or non-essential writing in this text without changing the meaning or losing any key information. Context: """{context}"""'
-    //         }
-    //       ]
-    //     },
-    //     {
-    //       label: 'Update Style',
-    //       shortcuts: [
-    //         {
-    //           label: 'Business',
-    //           messages: [
-    //             {
-    //               role: 'user',
-    //               content: 'Rewrite this text using formal and business professional language. Context: """{context}"""'
-    //             }
-    //           ]
-    //         },
-    //         {
-    //           label: 'Legal',
-    //           messages: [
-    //             {
-    //               role: 'user',
-    //               content:
-    //                 'Rewrite this text using legal terminology and legal professional language. Context: """{context}"""'
-    //             }
-    //           ]
-    //         },
-    //         {
-    //           label: 'Poetic',
-    //           messages: [
-    //             {
-    //               role: 'user',
-    //               content:
-    //                 'Rewrite this text as a poem using poetic techniques without losing the original meaning. Context: """{context}"""'
-    //             }
-    //           ]
-    //         },
-    //         {
-    //           label: 'Journalism',
-    //           messages: [
-    //             {
-    //               role: 'user',
-    //               content:
-    //                 'Rewrite this text as a journalist using engaging language to convey the importance of the information. Context: """{context}"""'
-    //             }
-    //           ]
-    //         },
-    //         {
-    //           label: 'Medical',
-    //           messages: [
-    //             {
-    //               role: 'user',
-    //               content:
-    //                 'Rewrite this text as a medical professional using valid medical terminology. Context: """{context}"""'
-    //             }
-    //           ]
-    //         }
-    //       ]
-    //     },
-    //     {
-    //       label: 'Update Tone',
-    //       shortcuts: [
-    //         {
-    //           label: 'Professional',
-    //           messages: [
-    //             {
-    //               role: 'user',
-    //               content:
-    //                 'Rewrite this text using respectful, professional, polished, and formal language to convey deep expertise and competence. Context: """{context}"""'
-    //             }
-    //           ]
-    //         },
-    //         {
-    //           label: 'Confident',
-    //           messages: [
-    //             {
-    //               role: 'user',
-    //               content:
-    //                 'Rewrite this text using confident, optimistic, and compelling language to convey confidence. Context: """{context}"""'
-    //             }
-    //           ]
-    //         },
-    //         {
-    //           label: 'Direct',
-    //           messages: [
-    //             {
-    //               role: 'user',
-    //               content:
-    //                 'Rewrite this text to have direct language using only the essential information. Context: """{context}"""'
-    //             }
-    //           ]
-    //         },
-    //         {
-    //           label: 'Casual',
-    //           messages: [
-    //             {
-    //               role: 'user',
-    //               content:
-    //                 'Rewrite this text with informal and casual language to convey a casual conversation. Context: """{context}"""'
-    //             }
-    //           ]
-    //         },
-    //         {
-    //           label: 'Friendly',
-    //           messages: [
-    //             {
-    //               role: 'user',
-    //               content:
-    //                 'Rewrite this content using warm, comforting, and friendly language to convey understanding and empathy. Context: """{context}"""'
-    //             }
-    //           ]
-    //         }
-    //       ]
-    //     }
-    //   ],
-    //   oncrafterqDialog: (editor) => alert(editor, 'No action configured to handle opening the AI assistant.'),
-    //   onShortcutClick: (editor) => alert(editor, 'No action configured to handle shortcut click.')
-    // };
     const craftercms = window.craftercms;
     const tinymce = window.tinymce;
     const xb = craftercms?.xb;
@@ -1211,11 +1033,6 @@
             .subscribe(() => {
             setTimeout(() => editor.focus());
         });
-        // xb.fromTopic(CrafterQResultMessageId)
-        //   .pipe(takeUntil(xb.fromTopic(aiAssistantClosedMessageId)))
-        //   .subscribe(({ payload: { id, content } }) => {
-        //     handleChatActionClick(editor, id, content);
-        //   });
     };
     const createDefaultHandler = (config) => {
         return (editor, api, messages) => {
@@ -1331,8 +1148,6 @@
             });
         };
         registerShortcutsMenuButton('aiassistantShortcuts');
-        /** Legacy TinyMCE toolbar id — keep so existing RTE configs that reference `crafterqshortcuts` keep working. */
-        registerShortcutsMenuButton('crafterqshortcuts');
         editor.ui.registry.addSplitButton('aiassistant', {
             icon: 'aiassistant',
             tooltip: 'Open AI',

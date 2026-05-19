@@ -35,7 +35,7 @@ There is **no** `yarn test` / Vitest suite in `sources/package.json`. If you pre
 **`run-all.sh`** runs this **by default** as step **4/4** after live REST contracts (unless **`RUN_ALL_SKIP_STUDIO=1`** or **`RUN_ALL_SKIP_CHAT_SCENARIOS=1`**). The harness calls Studio **`ai/stream`**; the LLM backend is whatever Studio is configured for (OpenAI, a compatible proxy, etc.) — this repo does not embed a mock server.
 
 1. Optional: copy **`scenarios/chat-scenarios.example.json`** → **`scenarios/chat-scenarios.json`** and edit **`formEngineItemPath`** / **`contentPath`** / **`contentTypeId`** for your site.
-2. **`CHAT_AGENT_ID`** is optional: the runner resolves **`<crafterQAgentId>`** from site **ui.xml** via **`get_configuration`**, else uses the default UUID (`AI_ASSISTANT_DEFAULT_AGENT_ID` in `sources/src/agentConfig.ts`).
+2. **`CHAT_AGENT_ID`** is optional: the runner resolves **`agentId`** from **`config/studio/ai-assistant/agents.json`**, else uses the default UUID (`AI_ASSISTANT_DEFAULT_AGENT_ID` in `sources/src/agentConfig.ts`).
 3. Standalone (Node 18+):
 
 ```bash

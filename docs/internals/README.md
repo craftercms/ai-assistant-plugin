@@ -2,6 +2,8 @@
 
 Documentation here is aimed at **maintainers**, **integrators**, and anyone debugging **server-side behavior**, contracts, and orchestration—not at day-to-day site configuration (see **[`docs/using-and-extending/`](../using-and-extending/README.md)** for that).
 
+**Diagrams:** **[`../architecture-diagrams.md`](../architecture-diagrams.md)** — system context, logical layers, stream request path, build pipeline, autonomous scheduler, LLM transports.
+
 ## Documents
 
 | Document | What It Covers |
@@ -9,7 +11,7 @@ Documentation here is aimed at **maintainers**, **integrators**, and anyone debu
 | [**spec.md**](spec.md) | **Official requirements & mechanics specification** — product surfaces, `ui.xml` / agent contracts, form engine, macros, autonomous widget, REST contracts, **`studio-ui.json`** runtime flags (**[#studio-ui-flags-studio-uijson](spec.md#studio-ui-flags-studio-uijson)**); must stay aligned with code. **Product requirements:** [**product-requirements.md**](../using-and-extending/product-requirements.md) |
 | [**stream-endpoint-design.md**](stream-endpoint-design.md) | SSE stream (`/ai/stream`) contract and classpath notes |
 | [**chat-and-tools-runtime.md**](chat-and-tools-runtime.md) | CMS tool wiring, MCP Streamable HTTP client, expert skills, SSE/stream behavior, REST body fields, troubleshooting |
-| [**intent-recipe-routing.md**](intent-recipe-routing.md) | **Pre-tools** intent recipe routing (eligibility → match pass → expansion rematch) and how it affects the native tools loop |
+| [**intent-recipe-routing.md**](intent-recipe-routing.md) | **Pre-tools** intent recipe routing (eligibility → match pass → expansion rematch) and how it affects the native tools loop; admin UI: **[configuration-guide §9.0](../using-and-extending/configuration-guide.md#cg-9-0)** |
 | [**studio-aiassistant-jvm-parameters.md**](../using-and-extending/studio-aiassistant-jvm-parameters.md) | JVM **`-D`** / `System.getProperty` tuning (timeouts, HTTP/MCP caps, optional key/model defaults) |
 | [**reference-spring-ai-completions-with-tools.md**](reference-spring-ai-completions-with-tools.md) | Archived Spring AI pattern reference (may diverge from current wiring) |
 | [**maintainer-review-checklist.md**](maintainer-review-checklist.md) | **Lessons learned** — capture **anti-pattern → preferred pattern** when reviews surface systemic issues; React/TS (localStorage + SSE, bounded logs, Studio user identity, caches, markdown/sandbox, a11y) and Groovy (try/finally, thread pools, SSE terminal CAS, deep state copies) |

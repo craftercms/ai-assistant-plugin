@@ -2,7 +2,7 @@
 
 Companion to [spec.md](spec.md) for SSE/stream wire behavior. When stream URLs, body fields, or server-side stream semantics change, update **this file** and the relevant sections of **`spec.md`**.
 
-**Internals** — SSE contract and server-side stream behavior. **LLM matrix & keys:** [llm-configuration.md](../using-and-extending/llm-configuration.md). **Doc index:** [README.md](../README.md).
+**Internals** — SSE contract and server-side stream behavior. **LLM matrix & keys:** [llm-configuration.md](../using-and-extending/llm-configuration.md). **Doc index:** [README.md](../README.md). **Diagram:** [Interactive chat request path](../architecture-diagrams.md#interactive-chat-request-path-developer) · [User sequence](../architecture-diagrams.md#interactive-chat-journey-user).
 
 ## Goal
 
@@ -20,7 +20,7 @@ One endpoint: **agent ID + full prompt in, streamed response out**. The UI does 
 
 ## Server-Side Behavior
 
-- **LLM selection**: Per-agent **`&lt;llm&gt;`** in `ui.xml` (or widget JSON). **`StudioAiLlmKind.normalize`** accepts tool-loop vendors (**`openAI`**, **`xAI`**, **`deepSeek`**, **`llama`**, **`gemini`** / **`genesis`**, **`claude`**, **`script:{id}`**) and **rejects** blank values and legacy hosted-only ids (**`crafterQ`**, **`aiassistant`**, **`hostedchat`**, …). The client may omit **`llm`** when the agent has no **`<llm>`**; the server then **400**s unless **`siteId`** + **`agentId`** allow copying **`llm`** from **`/ui.xml`** — see **[llm-configuration.md](../using-and-extending/llm-configuration.md)**.
+- **LLM selection**: Per-agent **`&lt;llm&gt;`** in `ui.xml` (or widget JSON). **`StudioAiLlmKind.normalize`** accepts tool-loop vendors (**`openAI`**, **`xAI`**, **`deepSeek`**, **`llama`**, **`gemini`** / **`genesis`**, **`claude`**, **`script:{id}`**) and **rejects** blank values and unsupported ids (**`aiassistant`**, **`hostedchat`**, …). The client may omit **`llm`** when the agent has no **`<llm>`**; the server then **400**s unless **`siteId`** + **`agentId`** allow copying **`llm`** from **`/ui.xml`** — see **[llm-configuration.md](../using-and-extending/llm-configuration.md)**.
 - **Tools-loop (`openAI`, `xAI`, `deepSeek`, `llama`, `gemini`, …):** Spring AI **`OpenAiChatModel`** + **RestClient** with **`AiOrchestrationTools`** (native function calling). Requires provider API keys per **[llm-configuration.md](../using-and-extending/llm-configuration.md)**.
 - **`claude`:** Spring AI **`AnthropicChatModel`** tool loop (not the OpenAI RestClient path).
 - **`script:{id}`:** Site Groovy under **`config/studio/scripts/aiassistant/llm/{id}/`** returns a **`StudioAiLlmRuntime`** bundle; capabilities depend on the script.

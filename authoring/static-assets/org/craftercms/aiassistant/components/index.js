@@ -32085,7 +32085,7 @@ function agentStableKey(a) {
  */
 const AI_ASSISTANT_AGENT_LABEL_FALLBACK = 'AI Assistant';
 /**
- * Default **{@code crafterQAgentId}** when none is configured (empty — authors should set id in `agents.json`).
+ * Default catalog **{@code agentId}** when none is configured (empty — authors should set id in `agents.json`).
  */
 const AI_ASSISTANT_DEFAULT_AGENT_ID = '';
 /** Keep first occurrence per {@link agentStableKey} (order preserved). */
@@ -32342,8 +32342,6 @@ const projectToolsScriptsSandboxWidgetId = 'craftercms.components.aiassistant.Sc
 const projectToolsStudioUiSettingsWidgetId = 'craftercms.components.aiassistant.StudioUiSettings';
 /*
 import { EmptyStateOption } from './AiAssistant';
-
-export const CrafterQResultMessageId = 'craftercms.aiassistant.CrafterQResult';
 
 // Legacy commented defaults removed — configure <llmModel> / <imageModel> in ui.xml (no server image-model fallback).
 
@@ -32708,6 +32706,26 @@ const AutonomousAgentsMarkIcon = createSvgIcon$1(jsxs("svg", { viewBox: "0 0 48 
 const batchActions = /*#__PURE__*/ createAction('BATCH_ACTIONS');
 // endregion
 
+/** Stable agent id from a catalog row in `config/studio/ai-assistant/agents.json`. */
+function readAgentCatalogId(entry) {
+    if (!entry)
+        return '';
+    return String(entry.agentId ?? entry.id ?? '').trim();
+}
+/** Persist `agentId` and `id` on a catalog row. */
+function withAgentCatalogId(entry, id) {
+    const trimmed = id.trim();
+    return {
+        ...entry,
+        agentId: trimmed,
+        id: trimmed
+    };
+}
+
+/**
+ * Central AI Assistant agent catalog: `config/studio/ai-assistant/agents.json`
+ * Chat agents use entries with `mode: "chat"` (or omitted mode). Autonomous agents use `mode: "autonomous"`.
+ */
 /** Sandbox repo path — preferred read via content APIs (see {@link fetchCentralAgentsFile}). */
 const CENTRAL_AGENTS_SANDBOX_PATH = '/config/studio/ai-assistant/agents.json';
 /** Relative to `config/studio/` for {@code writeConfiguration} (Studio module {@code studio}). */
@@ -32851,7 +32869,7 @@ function entryToChatAgent(entry) {
     const mode = normalizeMode(entry.mode);
     if (mode === 'autonomous')
         return null;
-    const id = String(entry.crafterQAgentId ?? entry.id ?? '').trim();
+    const id = readAgentCatalogId(entry);
     const label = String(entry.label ?? entry.name ?? '').trim();
     if (!label)
         return null;
@@ -33073,7 +33091,8 @@ function defaultCentralAgentsFile() {
         agents: [
             {
                 mode: 'chat',
-                crafterQAgentId: AI_ASSISTANT_DEFAULT_AGENT_ID,
+                agentId: AI_ASSISTANT_DEFAULT_AGENT_ID,
+                id: AI_ASSISTANT_DEFAULT_AGENT_ID,
                 label: 'Authoring Assistant',
                 icon: '@mui/icons-material/AutoAwesomeRounded',
                 llm: 'openAI',
@@ -36178,13 +36197,8 @@ function normalizeCatalogForSave(f) {
             return out;
         }
         const label = String(e.label ?? e.name ?? '').trim() || 'Untitled assistant';
-        const id = e.crafterQAgentId ?? e.id;
-        const outChat = {
-            ...e,
-            mode: 'chat',
-            label,
-            ...(id != null && String(id).trim() !== '' ? { crafterQAgentId: String(id).trim() } : {})
-        };
+        const id = readAgentCatalogId(e);
+        const outChat = withAgentCatalogId({ ...e, mode: 'chat', label }, id);
         const recChat = outChat;
         delete recChat.prompt;
         delete recChat.schedule;
@@ -36428,7 +36442,8 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
         setDraft({
             mode: 'chat',
             label: 'New assistant',
-            crafterQAgentId: '',
+            agentId: '',
+            id: '',
             llm: 'openAI',
             llmSecretKey: 'openai_api_key',
             llmModel: 'gpt-4o-mini',
@@ -36714,11 +36729,12 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
                                                             ...d,
                                                             mode: 'chat',
                                                             label: String(d.label ?? d.name ?? 'Assistant').trim() || 'Assistant',
-                                                            crafterQAgentId: d.crafterQAgentId ?? d.id ?? '',
+                                                            agentId: readAgentCatalogId(d),
+                                                            id: readAgentCatalogId(d),
                                                             prompts: []
                                                         };
                                                     });
-                                                } }), label: "Autonomous (scheduled)" }), mode === 'chat' ? (jsxs(Fragment, { children: [jsxs(Tabs, { value: agentDialogTab, onChange: (_, v) => setAgentDialogTab(v), sx: { borderBottom: 1, borderColor: 'divider', minHeight: 40 }, children: [jsx$1(Tab, { label: "General", value: "general" }), jsx$1(Tab, { label: "Advanced", value: "advanced" })] }), agentDialogTab === 'general' ? (jsxs(Stack$1, { spacing: 2, sx: { pt: 2.5, width: '100%' }, children: [jsx$1(TextField, { label: "Label", value: String(draft.label ?? ''), onChange: (ev) => setDraft((d) => (d ? { ...d, label: ev.target.value } : d)), fullWidth: true, size: "small" }), jsx$1(TextField, { label: "Agent id (optional for OpenAI-only)", value: String(draft.crafterQAgentId ?? draft.id ?? ''), onChange: (ev) => setDraft((d) => (d ? { ...d, crafterQAgentId: ev.target.value, id: ev.target.value } : d)), fullWidth: true, size: "small" }), jsx$1(TextField, { label: "MUI icon id (optional)", value: String(draft.icon ?? ''), onChange: (ev) => setDraft((d) => (d ? { ...d, icon: ev.target.value } : d)), fullWidth: true, size: "small", placeholder: "@mui/icons-material/AutoAwesomeRounded" }), llmVendorImageRows, jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: draft.enableTools !== false, onChange: (ev) => setDraft((d) => (d ? { ...d, enableTools: ev.target.checked } : d)) }), label: "Enable CMS tools (native tool loop)" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: draft.openAsPopup === true ||
+                                                } }), label: "Autonomous (scheduled)" }), mode === 'chat' ? (jsxs(Fragment, { children: [jsxs(Tabs, { value: agentDialogTab, onChange: (_, v) => setAgentDialogTab(v), sx: { borderBottom: 1, borderColor: 'divider', minHeight: 40 }, children: [jsx$1(Tab, { label: "General", value: "general" }), jsx$1(Tab, { label: "Advanced", value: "advanced" })] }), agentDialogTab === 'general' ? (jsxs(Stack$1, { spacing: 2, sx: { pt: 2.5, width: '100%' }, children: [jsx$1(TextField, { label: "Label", value: String(draft.label ?? ''), onChange: (ev) => setDraft((d) => (d ? { ...d, label: ev.target.value } : d)), fullWidth: true, size: "small" }), jsx$1(TextField, { label: "Agent id (optional for OpenAI-only)", value: String(draft.agentId ?? draft.id ?? ''), onChange: (ev) => setDraft((d) => (d ? { ...d, agentId: ev.target.value, id: ev.target.value } : d)), fullWidth: true, size: "small" }), jsx$1(TextField, { label: "MUI icon id (optional)", value: String(draft.icon ?? ''), onChange: (ev) => setDraft((d) => (d ? { ...d, icon: ev.target.value } : d)), fullWidth: true, size: "small", placeholder: "@mui/icons-material/AutoAwesomeRounded" }), llmVendorImageRows, jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: draft.enableTools !== false, onChange: (ev) => setDraft((d) => (d ? { ...d, enableTools: ev.target.checked } : d)) }), label: "Enable CMS tools (native tool loop)" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: draft.openAsPopup === true ||
                                                                     String(draft.openAsPopup ?? '').trim().toLowerCase() === 'true', onChange: (ev) => setDraft((d) => {
                                                                     if (!d)
                                                                         return d;
@@ -75478,7 +75494,7 @@ function datasourceRepoPath(ds) {
     }
     return '';
 }
-/** Only the current Studio datasource type id — no legacy CrafterQ aliases; migrate old content types instead. */
+/** Only the current Studio datasource type id — no legacy aliases; migrate old content types instead. */
 function isAiAssistantImgDatasource(ds) {
     const typed = ds;
     const t = (typed?.type ?? '').trim();
@@ -75684,9 +75700,8 @@ const plugin = {
         [autonomousAgentsMarkWidgetId]: AutonomousAgentsMarkIcon,
         [formControlWidgetId]: AiAssistantFormControl,
         [logoWidgetId]: AiAssistantIcon,
-        /** Legacy SystemIcon ids (older ui.xml / bundles); same component as logoWidgetId (OpenAILogo). */
+        /** Legacy SystemIcon id (older ui.xml / bundles); same component as logoWidgetId. */
         'craftercms.components.aiassistant.AiAssistantLogo': AiAssistantIcon,
-        'craftercms.components.aiassistant.CrafterQLogo': AiAssistantIcon,
         [popoverWidgetId]: AiAssistantPopover,
         [dialogContentWidgetId]: AiAssistantDialogContent,
         [projectToolsAiAssistantConfigWidgetId]: AiAssistantProjectToolsConfiguration,

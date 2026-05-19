@@ -11,10 +11,10 @@
  */
 /* global CStudioForms, CStudioRemote, YAHOO, CStudioAuthoring, CStudioAuthoringContext, craftercms, DOMParser */
 
-var CRAFTERQ_FORM_CONTROL_WIDGET_ID = 'craftercms.components.aiassistant.FormControl';
-var CRAFTERQ_HELPER_WIDGET_ID = 'craftercms.components.aiassistant.Helper';
+var AI_ASSISTANT_FORM_CONTROL_WIDGET_ID = 'craftercms.components.aiassistant.FormControl';
+var AI_ASSISTANT_HELPER_WIDGET_ID = 'craftercms.components.aiassistant.Helper';
 /** Matches <plugin id="…"> in ui.xml for this Studio plugin */
-var CRAFTERQ_PLUGIN_ID = 'org.craftercms.aiassistant.studio';
+var AI_ASSISTANT_PLUGIN_ID = 'org.craftercms.aiassistant.studio';
 
 /** Default form-engine agents when agents.json is missing. `id` must match `AI_ASSISTANT_DEFAULT_AGENT_ID` in `sources/src/agentConfig.ts` (empty). */
 var AIASSISTANT_FALLBACK_AGENTS = [
@@ -44,7 +44,7 @@ function cqAgentPropName(agent) {
 }
 
 /** Sandbox repo path — use content APIs so missing file does not hit `get_configuration` (Studio ERROR 7000). */
-var CRAFTERQ_CENTRAL_AGENTS_SANDBOX_PATH = '/config/studio/ai-assistant/agents.json';
+var AI_ASSISTANT_CENTRAL_AGENTS_SANDBOX_PATH = '/config/studio/ai-assistant/agents.json';
 
 function cqApplyXsrfHeaders(xhr) {
   try {
@@ -66,7 +66,7 @@ function cqSandboxHasCentralAgentsFile(siteId) {
     xhr.send(
       JSON.stringify({
         siteId: siteId,
-        paths: [CRAFTERQ_CENTRAL_AGENTS_SANDBOX_PATH],
+        paths: [AI_ASSISTANT_CENTRAL_AGENTS_SANDBOX_PATH],
         preferContent: true
       })
     );
@@ -74,7 +74,7 @@ function cqSandboxHasCentralAgentsFile(siteId) {
     var j = JSON.parse(xhr.responseText);
     var resp = j.response || j;
     var miss = resp.missingItems;
-    if (Array.isArray(miss) && miss.indexOf(CRAFTERQ_CENTRAL_AGENTS_SANDBOX_PATH) !== -1) return false;
+    if (Array.isArray(miss) && miss.indexOf(AI_ASSISTANT_CENTRAL_AGENTS_SANDBOX_PATH) !== -1) return false;
     var items = resp.items;
     return !!(items && items.length && items[0]);
   } catch (e) {
@@ -89,7 +89,7 @@ function cqSyncFetchCentralAgentsJson(siteId) {
     '?site_id=' +
     encodeURIComponent(siteId) +
     '&path=' +
-    encodeURIComponent(CRAFTERQ_CENTRAL_AGENTS_SANDBOX_PATH) +
+    encodeURIComponent(AI_ASSISTANT_CENTRAL_AGENTS_SANDBOX_PATH) +
     '&edit=false';
   var xhr = new XMLHttpRequest();
   xhr.open('GET', '/studio/api/1/services/api/1/content/get-content.json' + qs, false);
@@ -118,7 +118,7 @@ function cqChatAgentFromCentralJsonEntry(e) {
     .trim()
     .toLowerCase();
   if (mode === 'autonomous') return null;
-  var id = String(e.crafterQAgentId != null ? e.crafterQAgentId : e.id != null ? e.id : '').trim();
+  var id = String(e.agentId != null ? e.agentId : e.id != null ? e.id : '').trim();
   var label = String(e.label != null ? e.label : e.name != null ? e.name : '').trim();
   if (!label) return null;
   var out = { id: id, label: label, prompts: [] };
@@ -877,8 +877,8 @@ function cqStartFormActionBarOffset(control) {
   } catch (ignore2) {}
 }
 
-CStudioForms.Controls.CrafterqAssistant =
-  CStudioForms.Controls.CrafterqAssistant ||
+CStudioForms.Controls.AiAssistant =
+  CStudioForms.Controls.AiAssistant ||
   function (id, form, owner, properties, constraints, readonly) {
     this.owner = owner;
     this.owner.registerField(this);
@@ -898,7 +898,7 @@ CStudioForms.Controls.CrafterqAssistant =
     return this;
   };
 
-YAHOO.extend(CStudioForms.Controls.CrafterqAssistant, CStudioForms.CStudioFormField, {
+YAHOO.extend(CStudioForms.Controls.AiAssistant, CStudioForms.CStudioFormField, {
   getLabel: function () {
     return 'Studio AI Assistant';
   },
@@ -969,7 +969,7 @@ YAHOO.extend(CStudioForms.Controls.CrafterqAssistant, CStudioForms.CStudioFormFi
           mount.textContent = 'Assistant: Failed to load plugin UI.';
           return;
         }
-        var FormCtl = plugin.widgets[CRAFTERQ_FORM_CONTROL_WIDGET_ID];
+        var FormCtl = plugin.widgets[AI_ASSISTANT_FORM_CONTROL_WIDGET_ID];
         var CrafterRoot = craftercms.utils.constants.components.get('craftercms.components.CrafterCMSNextBridge');
         if (!FormCtl || !CrafterRoot) {
           mount.textContent = 'Assistant: Form control widget is not registered in the plugin bundle.';
@@ -996,4 +996,4 @@ YAHOO.extend(CStudioForms.Controls.CrafterqAssistant, CStudioForms.CStudioFormFi
   }
 });
 
-CStudioAuthoring.Module.moduleLoaded('ai-assistant', CStudioForms.Controls.CrafterqAssistant);
+CStudioAuthoring.Module.moduleLoaded('ai-assistant', CStudioForms.Controls.AiAssistant);

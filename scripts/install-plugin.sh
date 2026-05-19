@@ -95,7 +95,7 @@ else
     if git -C "${SITE_REPO_PATH}" diff --staged --quiet; then
       echo "${AI_OK} No changes to commit (classes already up to date)."
     else
-      git -C "${SITE_REPO_PATH}" commit -m "Update CrafterQ plugin classes (Spring AI)"
+      git -C "${SITE_REPO_PATH}" commit -m "Update AI Assistant plugin classes (Spring AI)"
       echo "${AI_OK} Committed plugin classes in site sandbox."
     fi
   else

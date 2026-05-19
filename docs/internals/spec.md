@@ -18,11 +18,11 @@
 
 **Audience:** Maintainers and advanced integrators. **Configuration & LLM keys:** [llm-configuration.md](../using-and-extending/llm-configuration.md). **Doc index:** [README.md](../README.md).
 
-### Terminology (Product vs Integrations)
+### Terminology
 
-- **Studio AI assistant** — The authoring-facing assistant in Crafter Studio that this plugin provides: the form-engine control, the Helper widget on the Tools Panel or preview toolbar, optional autonomous scheduled runs, and **TinyMCE** when sites wire the RTE integration. Use this name for the product experience authors see.
-- **Optional CrafterQ integration (tools)** — A **separate** CrafterQ deployment can be wired in as **optional** LLM function tools (for example: list agents, list conversations, ask an expert agent). Sites enable them only when they add those tools to the agent catalog / MCP policy; they are **not** required for core authoring chat (CMS tools, scripts, HTTP fetch, etc.) and are **not** the product story of this plugin.
-- **Stable Studio `ui.xml` ids** — Per-agent stable **`agentId`** is still declared with the XML element **`crafterQAgentId`** (unchanged Studio schema token). Form-engine replies that apply field updates use the JSON object key **`aiassistantFormFieldUpdates`** (see § Content-type form assistant).
+- **Studio AI assistant** — The authoring-facing assistant in Crafter Studio that this plugin provides: the form-engine control, the Helper widget on the Tools Panel or preview toolbar, optional autonomous scheduled runs, and **TinyMCE** when sites wire the RTE integration.
+- **Agent catalog ids** — Chat rows in **`config/studio/ai-assistant/agents.json`** use **`agentId`** (and **`id`**) as the stable id sent on stream/chat as POST **`agentId`**.
+- **Optional remote tools** — Sites may add **MCP** servers, **user tools** (Groovy), or custom integrations; this plugin does not ship a separate remote chat product.
 
 ### Overview
 
@@ -30,6 +30,8 @@ This repository is a Crafter Studio plugin with **two main surfaces**:
 
 - **Interactive chat agent** — The Studio AI assistant surfaces above. Agents are configured per site; each agent selects an **LLM** and may enable **function tools**. Supported **`<llm>`** values, keys, and capabilities are listed in [llm-configuration.md](../using-and-extending/llm-configuration.md). Tools may include CMS operations, HTTP helpers, optional **MCP** remote tools when **`tools.json`** sets **`mcpEnabled: true`** (see [chat-and-tools-runtime.md](chat-and-tools-runtime.md#mcp-client-tools-streamable-http)), and site-defined Groovy tools.
 - **Experimental autonomous agent framework** — Optional **AutonomousAssistants** widget in the Tools Panel: **scheduled**, **server-side**, **in-memory** runs that reuse the interactive tool catalog for supported LLMs; see § [Autonomous assistants widget](#autonomous-assistants-widget-tools-panel).
+
+**Diagrams:** [Architecture & diagrams](../architecture-diagrams.md) — [system context](../architecture-diagrams.md#system-context-architecture), [logical layers](../architecture-diagrams.md#logical-architecture-design), [stream path](../architecture-diagrams.md#interactive-chat-request-path-developer), [component registration](../architecture-diagrams.md#studio-ui-component-registration-developer).
 
 It currently focuses on:
 
@@ -165,7 +167,7 @@ If the worker throws or the model response cannot be parsed as JSON, **`state.la
 - **TinyMCE plugin name**: `craftercms_aiassistant`
 - **Registered toolbar controls**:
   - `aiAssistantOpen` (button)
-  - `aiassistantShortcuts` (menu button; **`crafterqshortcuts`** still registered for older `studio-ui.json` toolbar strings)
+  - `aiassistantShortcuts` (menu button; **`aiassistantShortcuts`** still registered for older `studio-ui.json` toolbar strings)
   - `aiassistant` (split button)
 
 ##### Behavior
@@ -202,8 +204,8 @@ Defined in `sources/src/consts.ts`:
   - `popoverWidgetId`
   - `helperWidgetId`
   - `autonomousAssistantsWidgetId` (`craftercms.components.aiassistant.AutonomousAssistants`)
-  - `projectToolsAiAssistantConfigWidgetId` (`craftercms.components.aiassistant.ProjectToolsConfiguration`) — **Project Tools** single entry (**UI** / **Agents** / **Tools and MCP** / **Scripts** / **Prompts and Context** tabs); the bundle opens this shell in a **large modal dialog** for space and focus (legacy widget ids use the same dialog shell with a different default tab).
-  - `projectToolsCentralAgentsWidgetId`, `projectToolsScriptsSandboxWidgetId`, `projectToolsStudioUiSettingsWidgetId` — **legacy** widget ids; bundle still registers them and maps each to the same tabbed shell with the matching default tab (**ScriptsSandboxConfiguration** opens the **Tools and MCP** tab — `tools.json`, registry, and user Groovy — for sites that still have three merged tools until admins remove duplicates)
+  - `projectToolsAiAssistantConfigWidgetId` (`craftercms.components.aiassistant.ProjectToolsConfiguration`) — **Project Tools** single entry with tabs **UI**, **Agents**, **Recipes**, **Integrations** (sub-tabs: LLMs, Image generators, Tools, MCP), **Secrets**, **Prompts and Context**; opened in a **large modal dialog** (legacy widget ids open the same shell with a different default tab).
+  - `projectToolsCentralAgentsWidgetId`, `projectToolsScriptsSandboxWidgetId`, `projectToolsStudioUiSettingsWidgetId` — **legacy** widget ids; **`ScriptsSandboxConfiguration`** opens **Integrations → Tools** (`tools.json`, `user-tools/registry.json`, Groovy list); **`CentralAgentsConfiguration`** → **Agents**; **`StudioUiSettings`** → **UI**
 - **XB message topics**
   - `openAiAssistantMessageId` (`craftercms.aiassistant.OpenPanel`)
   - `aiAssistantClosedMessageId` (`craftercms.aiassistant.PanelClosed`)
@@ -223,8 +225,8 @@ Defined in `sources/src/consts.ts`:
 #### Common Gotchas
 
 - **Two widget entries**: If you configure the Helper in **both** Tools Panel and Preview Toolbar, update both widget entries when changing agent labels/prompts or you’ll still see old values depending on where you click.
-- **Form assistant agents**: Chat agents come **only** from **`config/studio/ai-assistant/agents.json`** (sync XHR in `main.js`), deduped by **crafterQAgentId** + **label** (same composite key as stream **`agentId`** + label).
-- **Form read-only / view mode**: When the content form is opened read-only (field or whole form), the form AI assistant **does not** load the plugin UI for that field: no portaled panel, no form-shell widen, and no `html.crafterq-form-panel-active` body inset.
+- **Form assistant agents**: Chat agents come **only** from **`config/studio/ai-assistant/agents.json`** (sync XHR in `main.js`), deduped by **agentId** + **label** (same composite key as stream **`agentId`** + label).
+- **Form read-only / view mode**: When the content form is opened read-only (field or whole form), the form AI assistant **does not** load the plugin UI for that field: no portaled panel, no form-shell widen, and no `html.aiassistant-form-panel-active` body inset.
 - **Commit required**: Studio reads `config/studio/ui.xml` from the site sandbox repo; changes are most reliable after the `ui.xml` edits are **committed** in the site’s `sandbox` git repository.
 
 <a id="studio-ui-flags-studio-uijson"></a>
@@ -248,11 +250,15 @@ Defined in `sources/src/consts.ts`:
 
 **Chat composer placeholders:** Example prompt text uses native **`placeholder`** on the main **`TextField`** (grey hint until the author types); central **`agents.json`** editor uses placeholders on quick-prompt and autonomous system-prompt fields.
 
+### Site secrets (`secrets.json`)
+
+**Path:** `config/studio/scripts/aiassistant/config/secrets.json` (Project Tools → **Secrets**). Stores named credential slots (built-in LLM provider rows seeded on install, plus custom keys). Values may use **`${env:VAR}`**, Crafter **`${enc:…}`**, or encrypted literals; the admin UI does not return decrypted secrets after save. Runtime resolves macros server-side for LLM calls and for **`${secret:key}`** in MCP **`headers`** and similar strings. Per-agent **`llmSecretKey`** in **`agents.json`** selects a **custom** secret entry (or the built-in row for the agent’s current **`llm`** provider)—see **[configuration-guide.md §4](../using-and-extending/configuration-guide.md#cg-4)**.
+
 ### Agent catalog (`agents.json`)
 
 Chat and autonomous agents are defined in **`config/studio/ai-assistant/agents.json`** (Project Tools → AI Assistant → Agents). The Helper, form control, preview overlay, and server stream merge read this file only.
 
-You can configure one or more **chat** agents (`mode: chat` or omitted) so the toolbar shows a **dropdown** when multiple agents exist, or opens chat **directly** when only one is configured. By default, chat opens in the **Experience Builder right (ICE) tools panel** and **edit mode** is turned on if it was off. Set **`openAsPopup: true`** on a row to use a **floating dialog** instead. Each chat row has **`label`**, optional **`icon`**, stable **`crafterQAgentId`** or **`id`** (stream **`agentId`**), **`llm`** / **`llmModel`** / **`imageModel`**, optional **`prompts`** (quick chips), **`enableTools`**, **`enabledBuiltInTools`**, etc. See **[llm-configuration.md](../using-and-extending/llm-configuration.md)**.
+You can configure one or more **chat** agents (`mode: chat` or omitted) so the toolbar shows a **dropdown** when multiple agents exist, or opens chat **directly** when only one is configured. By default, chat opens in the **Experience Builder right (ICE) tools panel** and **edit mode** is turned on if it was off. Set **`openAsPopup: true`** on a row to use a **floating dialog** instead. Each chat row has **`label`**, optional **`icon`**, stable **`agentId`** or **`id`** (stream **`agentId`**), **`llm`** / **`llmModel`** / **`imageModel`**, optional **`llmSecretKey`** (credentials from **`secrets.json`**), optional **`prompts`** (quick chips), **`enableTools`**, **`enabledBuiltInTools`**, etc. See **[llm-configuration.md](../using-and-extending/llm-configuration.md)**.
 
 **Autonomous** rows use **`mode: autonomous`** with **`name`**, **`schedule`**, **`prompt`**, **`scope`**, and the same LLM fields.
 
@@ -264,7 +270,7 @@ You can configure one or more **chat** agents (`mode: chat` or omitted) so the t
   "agents": [
     {
       "mode": "chat",
-      "crafterQAgentId": "00000000-0000-4000-8000-000000000002",
+      "agentId": "00000000-0000-4000-8000-000000000002",
       "label": "Authoring Assistant",
       "llm": "openAI",
       "llmModel": "gpt-4o-mini",
@@ -292,10 +298,10 @@ You can configure one or more **chat** agents (`mode: chat` or omitted) so the t
 }
 ```
 
-- **`crafterQAgentId`** / **`id`** — Stable id for stream **`agentId`** and form-engine visibility toggles.
+- **`agentId`** / **`id`** — Stable id for stream **`agentId`** and form-engine visibility toggles.
 - **`label`** — Display name in menus and chat chrome.
 - **`icon`** — Optional Studio **`SystemIcon`** id (e.g. **`@mui/icons-material/ChatRounded`**) or plugin widget id.
-- **`llm`** — Required for predictable routing (**`openAI`**, **`claude`**, **`script:{id}`**, …). Unsupported values (**`crafterQ`**, **`aiassistant`**, …) **fail** **`StudioAiLlmKind.normalize`**.
+- **`llm`** — Required for predictable routing (**`openAI`**, **`claude`**, **`script:{id}`**, …). Unsupported values (**`aiassistant`**, **`hostedchat`**, …) **fail** **`StudioAiLlmKind.normalize`**.
 - **`llmModel`**, **`imageModel`**, **`imageGenerator`**, **`llmApiKey`** (testing only), **`enableTools`**, **`enabledBuiltInTools`**, **`translateBatchConcurrency`** (1–64), **`expertSkills`**, **`openAsPopup`**, **`prompts`** — See Project Tools editor and **[llm-configuration.md](../using-and-extending/llm-configuration.md)**.
 
 **`ui.xml`** only registers widget **placement** (Helper, AutonomousAssistants, **`plugin`** line, optional **`ui="IconButton"`**). It does **not** define agents.
@@ -339,8 +345,8 @@ Defined in `sources/package.json`:
 
 ### Current Known Gaps / Limitations (As-Is)
 
-- **`crafterQAgentId` in `agents.json`**: Stable id field name in the catalog; **not** tied to whether optional CrafterQ remote tools are enabled.
-- **Optional CrafterQ tools**: Documented under **Terminology** above — integration-only; core plugin behavior does not depend on them.
+- **`agentId` in `agents.json`**: Stable id for stream/chat and form-engine visibility toggles.
+- **Optional remote tools**: MCP, user tools, or site Groovy (see **Terminology**).
 - **Studio AI assistant — autonomous**: Prototype only — in-memory state, no persistence across JVM restarts; not a replacement for scheduled jobs in production. See § Autonomous assistants above.
 
 ### AI Streaming Endpoint (Server-side)

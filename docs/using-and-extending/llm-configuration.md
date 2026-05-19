@@ -2,7 +2,7 @@
 
 Defines **`<llm>`** identifiers, env/XML keys, merge rules, and the provider capability matrix. Keep this file and **[`spec.md`](../internals/spec.md)** aligned when those contracts change.
 
-**For site admins:** [configuration-guide.md](configuration-guide.md)  
+**For site admins:** [configuration-guide.md](configuration-guide.md) (**Secrets** tab → **`secrets.json`**; per-agent **`llmSecretKey`** in **Agents**)  
 **For CMS tools, SSE, REST bodies, expert skills, MCP, and troubleshooting:** [chat-and-tools-runtime.md](../internals/chat-and-tools-runtime.md)  
 **For script LLMs and `user-tools/`:** [studio-plugins-guide.md](studio-plugins-guide.md) · **Script LLM — full session bundle (BYO backend):** [script-llm-bring-your-own-backend.md](script-llm-bring-your-own-backend.md)  
 **For pluggable image backends (`imageGenerator`, `imagegen/` scripts, site overrides):** [image-generation.md](image-generation.md) · **Integrators:** [scripted-tools-and-imagegen.md](scripted-tools-and-imagegen.md) (Groovy closure, `context` map, return shape)  
@@ -12,7 +12,7 @@ Defines **`<llm>`** identifiers, env/XML keys, merge rules, and the provider cap
 
 ## Summary Table
 
-Rows list **supported** backends. **Hosted-only** SaaS adapters (**`crafterQ`**, **`aiassistant`**, **`hostedchat`**, …) are **not** supported — **`StudioAiLlmKind.normalize`** throws (**HTTP 400**). **`ai-assistant`** is **not** a valid `<llm>` value either (that string names the Studio plugin / form control path, not a model provider); use **`openAI`**, **`claude`**, etc.
+Rows list **supported** backends. **Hosted-only** SaaS adapters (**`aiassistant`**, **`hostedchat`**, …) are **not** supported — **`StudioAiLlmKind.normalize`** throws (**HTTP 400**). **`ai-assistant`** is **not** a valid `<llm>` value either (that string names the Studio plugin / form control path, not a model provider); use **`openAI`**, **`claude`**, etc.
 
 | `<llm>` wire value | Aliases (normalized) | Required configuration | Optional `agents.json` / env | What you get |
 |--------------------|----------------------|-------------------------|-------------------------|--------------|
@@ -37,7 +37,7 @@ Configure agents in **Project Tools → AI Assistant → Agents** (file: **`conf
 ```json
 {
   "mode": "chat",
-  "crafterQAgentId": "00000000-0000-4000-8000-000000000002",
+  "agentId": "00000000-0000-4000-8000-000000000002",
   "label": "OpenAI authoring",
   "llm": "openAI",
   "llmModel": "gpt-4o-mini",
@@ -88,12 +88,13 @@ When **`siteId`** + **`agentId`** match a catalog row, the server may **copy `ll
 
 | Field | Applies to | Purpose |
 |-------|------------|---------|
-| **`llm`** | All | Selects backend; see summary table. Unsupported hosted ids (**`crafterQ`**, **`aiassistant`**, …) **fail normalize**. |
+| **`llm`** | All | Selects backend; see summary table. Unsupported hosted ids (**`aiassistant`**, **`hostedchat`**, …) **fail normalize**. |
 | **`llmModel`** | Tool-capable rows | Provider chat model id when the provider uses it. |
 | **`imageGenerator`** | **GenerateImage** | Blank = default wire when configured; **`none`**/**`off`**/**`disabled`**; **`script:{id}`** for site Groovy under **`/scripts/aiassistant/imagegen/{id}/`**. |
 | **`imageModel`** | **GenerateImage** (wire path) | Required when the model should call **GenerateImage** on the default wire. |
-| **`crafterQAgentId`** / **`id`** | Chat rows | Stable id sent as **`agentId`** on stream/chat; used for catalog merge and form toggles. |
-| **`llmApiKey`** | Testing | Per-agent key when no **env** key; discouraged in production. |
+| **`agentId`** / **`id`** | Chat rows | Stable id sent as **`agentId`** on stream/chat; used for catalog merge and form toggles. |
+| **`llmSecretKey`** | Production | Optional; **`secrets.json`** entry key (custom secret or built-in provider row). Set in Project Tools → Agents. |
+| **`llmApiKey`** | Testing | Per-agent key when no **env** / secrets row; discouraged in production. |
 | **`enableTools`** | Tool-capable | When **`false`**, CMS tools are off for that agent (subject to per-request **`omitTools`**). |
 | **`expertSkills`** | Tools-loop + Claude (tools on) | Markdown URL skills → **QueryExpertGuidance**. |
 
@@ -101,7 +102,7 @@ When **`siteId`** + **`agentId`** match a catalog row, the server may **copy `ll
 
 ## REST / Stream Body Keys (Reference)
 
-The client sends catalog fields on **`POST …/ai/stream`** and **`…/ai/agent/chat`**. Common keys: **`llm`**, **`llmModel`**, **`imageModel`**, **`imageGenerator`**, **`llmApiKey`**, **`agentId`**, **`expertSkills`**, preview **`contentPath`** / **`contentTypeId`**, **`omitTools`**, **`enableTools`**. Full list: [chat-and-tools-runtime.md § REST body](../internals/chat-and-tools-runtime.md#rest-body-advanced).
+The client sends catalog fields on **`POST …/ai/stream`** and **`…/ai/agent/chat`**. Common keys: **`llm`**, **`llmModel`**, **`imageModel`**, **`imageGenerator`**, **`llmSecretKey`**, **`llmApiKey`**, **`agentId`**, **`expertSkills`**, preview **`contentPath`** / **`contentTypeId`**, **`omitTools`**, **`enableTools`**. Full list: [chat-and-tools-runtime.md § REST body](../internals/chat-and-tools-runtime.md#rest-body-advanced).
 
 When **`siteId`** + **`agentId`** are present, the server may **merge** missing **`llm`**, **`llmModel`**, **`imageModel`**, and **`imageGenerator`** from **`config/studio/ai-assistant/agents.json`** before orchestration.
 

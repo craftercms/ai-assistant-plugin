@@ -2,6 +2,7 @@
  * Central AI Assistant agent catalog: `config/studio/ai-assistant/agents.json`
  * Chat agents use entries with `mode: "chat"` (or omitted mode). Autonomous agents use `mode: "autonomous"`.
  */
+import { readAgentCatalogId } from './agentCatalogId';
 import type { AgentConfig, AgentLlm, PromptConfig } from './agentConfig';
 import { AI_ASSISTANT_DEFAULT_AGENT_ID, normalizeEnabledBuiltInToolsRaw } from './agentConfig';
 import type { AutonomousAgentDefinition } from './autonomousAssistantsConfig';
@@ -162,7 +163,7 @@ export function isCentralAgentsFileShape(v: unknown): v is CentralAgentsFile {
 export function entryToChatAgent(entry: CentralAgentFileEntry): AgentConfig | null {
   const mode = normalizeMode(entry.mode);
   if (mode === 'autonomous') return null;
-  const id = String(entry.crafterQAgentId ?? entry.id ?? '').trim();
+  const id = readAgentCatalogId(entry as Record<string, unknown>);
   const label = String(entry.label ?? entry.name ?? '').trim();
   if (!label) return null;
   const llmRaw = String(entry.llm ?? '').trim();
@@ -374,7 +375,8 @@ export function defaultCentralAgentsFile(): CentralAgentsFile {
     agents: [
       {
         mode: 'chat',
-        crafterQAgentId: AI_ASSISTANT_DEFAULT_AGENT_ID,
+        agentId: AI_ASSISTANT_DEFAULT_AGENT_ID,
+        id: AI_ASSISTANT_DEFAULT_AGENT_ID,
         label: 'Authoring Assistant',
         icon: '@mui/icons-material/AutoAwesomeRounded',
         llm: 'openAI',
