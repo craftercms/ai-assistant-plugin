@@ -17,7 +17,7 @@ _coderabbit_review_required() {
   return 1
 }
 
-# Plugin source only (not Rollup bundles under authoring/static-assets, not shell/CI).
+# Plugin source only (not Rollup bundles under authoring/static-assets, not maintainer shell under scripts/).
 _coderabbit_default_review_dirs() {
   echo "sources authoring/scripts"
 }

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Local maintainer install helper (not the same as scripts/test/* — see scripts/README.md).
-# Runs `yarn package` from sources/ when Node is OK (same Rollup + form-pipeline verify as CI merge rules); does not run ESLint.
+# Runs `yarn package` from sources/ when Node is OK (Rollup + form-pipeline verify); does not run ESLint.
 
 # --- Hardcoded for local install: edit CRAFTER_DATA if your authoring data lives elsewhere ---
 CRAFTER_DATA="/home/russdanner/crafter-installs/4-4-xE/crafter-authoring/data"

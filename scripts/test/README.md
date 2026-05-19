@@ -28,7 +28,7 @@ Runs: **`bash -n`**, **`node --check`** on **`run-chat-scenarios.mjs`** (if `nod
 - **CI / headless / no Studio:** `RUN_ALL_SKIP_STUDIO=1 ./scripts/test/run-all.sh`
 - **Optional disposable site test** (not part of `run-all.sh`): `./scripts/test/integration/e2e-site-lifecycle.sh` — requires `scripts/test/integration/create-site.json`.
 
-There is **no** `yarn test` / Vitest suite in `sources/package.json`. If you prefer not to use `run-all.sh`, run the same steps by hand: `bash -n` on the shell scripts listed in `.github/workflows/scripts-test-integration.yml`, then `( cd sources && yarn package )`, then `./scripts/test/functional/rest-contracts.sh` (add `yarn lint` first if you want ESLint).
+There is **no** `yarn test` / Vitest suite in `sources/package.json`. If you prefer not to use `run-all.sh`, run the same steps by hand: `bash -n` on the shell scripts under `scripts/` (see what **`run-all.sh`** invokes), then `( cd sources && yarn package )`, then `./scripts/test/functional/rest-contracts.sh` (add `yarn lint` first if you want ESLint).
 
 ## Chat scenario harness (functionality + basic performance)
 

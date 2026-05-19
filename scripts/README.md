@@ -1,4 +1,4 @@
-# Repo `scripts/` (maintainer + CI)
+# Repo `scripts/` (maintainer tooling)
 
 This directory is **for people working on the plugin repo** (local install, smoke checks, build verification). It is **not** the same tree as Studio site sandbox scripts under `config/studio/scripts/…`.
 

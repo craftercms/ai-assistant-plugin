@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type SyntheticEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type SyntheticEvent } from 'react';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import FullscreenExitRounded from '@mui/icons-material/FullscreenExitRounded';
 import FullscreenRounded from '@mui/icons-material/FullscreenRounded';
@@ -25,6 +25,12 @@ import AiAssistantSecretsConfiguration from './AiAssistantSecretsConfiguration';
 import AiAssistantStudioUiSettings from './AiAssistantStudioUiSettings';
 import { aiAssistantProjectToolsPanelContentSx } from './aiAssistantProjectToolsFormSx';
 import { useDomFullscreen } from './aiAssistantDomFullscreen';
+import {
+  AiAssistantJoyrideTourPopover,
+  AiAssistantJoyrideWelcomeDialog,
+  useAiAssistantConfigurationJoyride
+} from './AiAssistantJoyride';
+import { AI_ASSISTANT_JOYRIDE_STEPS } from './aiAssistantJoyrideSteps';
 
 /** Sub-tabs inside Project Tools → Integrations. */
 export type AiAssistantIntegrationsSubTab = 'llms' | 'imagegen' | 'tools' | 'mcp';
@@ -117,8 +123,33 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
   const { ref: rootRef, isFullscreen: toolFullscreen, toggleFullscreen: toggleToolFullscreen } =
     useDomFullscreen<HTMLDivElement>();
 
+  const joyrideNavigateTab = useCallback((value: typeof tab) => {
+    setPendingTabSwitch(null);
+    setTab(value);
+  }, []);
+
+  const {
+    phase: joyridePhase,
+    activeStep: joyrideActiveStep,
+    activeStepIndex: joyrideActiveStepIndex,
+    onPanelReady: joyrideOnPanelReady,
+    startTour: joyrideStartTour,
+    replayJoyride: joyrideReplay,
+    dismissJoyride: joyrideDismiss,
+    goNext: joyrideGoNext
+  } = useAiAssistantConfigurationJoyride(joyrideNavigateTab);
+  const joyrideTourActive = joyridePhase === 'tour';
+  const joyrideBusy = joyridePhase === 'welcome' || joyrideTourActive;
+
+  useEffect(() => {
+    joyrideOnPanelReady();
+  }, [joyrideOnPanelReady]);
+
   const handleTabsChange = useCallback(
     (_: SyntheticEvent, value: typeof tab) => {
+      if (joyrideTourActive) {
+        return;
+      }
       if (tab === 'agents' && agentsCatalogDirty && value !== 'agents') {
         setPendingTabSwitch({ from: 'agents', to: value });
         return;
@@ -129,7 +160,7 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
       }
       setTab(value);
     },
-    [tab, agentsCatalogDirty, recipesDirty]
+    [tab, agentsCatalogDirty, recipesDirty, joyrideTourActive]
   );
 
   const handleIntegrationsSubChange = useCallback((_: SyntheticEvent, value: AiAssistantIntegrationsSubTab) => {
@@ -205,12 +236,12 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
           allowScrollButtonsMobile
           sx={{ flex: '1 1 auto', minWidth: 0 }}
         >
-          <Tab label="UI" value="ui" />
-          <Tab label="Agents" value="agents" />
-          <Tab label="Recipes" value="recipes" />
-          <Tab label="Integrations" value="integrations" />
-          <Tab label="Secrets" value="secrets" />
-          <Tab label="Prompts and Context" value="prompts" />
+          <Tab label="UI" value="ui" data-aiassistant-project-tools-tab="ui" />
+          <Tab label="Agents" value="agents" data-aiassistant-project-tools-tab="agents" />
+          <Tab label="Recipes" value="recipes" data-aiassistant-project-tools-tab="recipes" />
+          <Tab label="Integrations" value="integrations" data-aiassistant-project-tools-tab="integrations" />
+          <Tab label="Secrets" value="secrets" data-aiassistant-project-tools-tab="secrets" />
+          <Tab label="Prompts and Context" value="prompts" data-aiassistant-project-tools-tab="prompts" />
         </Tabs>
         <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0, borderLeft: 1, borderColor: 'divider', px: 0.5 }}>
           <Tooltip title={toolFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
@@ -232,7 +263,12 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
           ...aiAssistantProjectToolsPanelContentSx
         }}
       >
-        {tab === 'ui' ? <AiAssistantStudioUiSettings /> : null}
+        {tab === 'ui' ? (
+          <AiAssistantStudioUiSettings
+            onReplayConfigurationJoyride={joyrideReplay}
+            configurationJoyrideActive={joyrideBusy}
+          />
+        ) : null}
         {tab === 'agents' ? (
           <AiAssistantCentralAgentsConfiguration
             ref={agentsCatalogRef}
@@ -268,6 +304,20 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
         {tab === 'secrets' ? <AiAssistantSecretsConfiguration /> : null}
         {tab === 'prompts' ? <AiAssistantScriptsSandboxConfiguration panel="prompts" /> : null}
       </Box>
+
+      {joyridePhase === 'welcome' ? (
+        <AiAssistantJoyrideWelcomeDialog onShowAround={joyrideStartTour} onCancel={joyrideDismiss} />
+      ) : null}
+      <AiAssistantJoyrideTourPopover
+        open={joyrideTourActive}
+        step={joyrideActiveStep}
+        activeTab={tab}
+        anchorScopeRef={rootRef}
+        stepIndex={joyrideActiveStepIndex}
+        stepCount={AI_ASSISTANT_JOYRIDE_STEPS.length}
+        onNext={joyrideGoNext}
+        onSkip={joyrideDismiss}
+      />
 
       <Dialog open={pendingTabSwitch != null} onClose={cancelPendingTabSwitch} maxWidth="sm" fullWidth>
         <DialogTitle>Unsaved changes</DialogTitle>

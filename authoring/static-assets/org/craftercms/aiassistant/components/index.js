@@ -75,7 +75,14 @@ const ArrowForwardRounded = craftercms.utils.constants.components.get('@mui/icon
 const FormatListBulletedRounded = craftercms.utils.constants.components.get('@mui/icons-material/FormatListBulletedRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/FormatListBulletedRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/FormatListBulletedRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/FormatListBulletedRounded');
 const VisibilityOffRounded = craftercms.utils.constants.components.get('@mui/icons-material/VisibilityOffRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/VisibilityOffRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/VisibilityOffRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/VisibilityOffRounded');
 const VisibilityRounded = craftercms.utils.constants.components.get('@mui/icons-material/VisibilityRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/VisibilityRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/VisibilityRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/VisibilityRounded');
+const ExploreOutlined = craftercms.utils.constants.components.get('@mui/icons-material/ExploreOutlined') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/ExploreOutlined'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/ExploreOutlined')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/ExploreOutlined');
 const Autocomplete$1 = craftercms.libs.MaterialUI.Autocomplete && Object.prototype.hasOwnProperty.call(craftercms.libs.MaterialUI.Autocomplete, 'default') ? craftercms.libs.MaterialUI.Autocomplete['default'] : craftercms.libs.MaterialUI.Autocomplete;
+const SmartToyOutlined = craftercms.utils.constants.components.get('@mui/icons-material/SmartToyOutlined') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/SmartToyOutlined'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/SmartToyOutlined')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/SmartToyOutlined');
+const CheckCircleOutlineRounded = craftercms.utils.constants.components.get('@mui/icons-material/CheckCircleOutlineRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/CheckCircleOutlineRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/CheckCircleOutlineRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/CheckCircleOutlineRounded');
+const ExtensionOutlined = craftercms.utils.constants.components.get('@mui/icons-material/ExtensionOutlined') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/ExtensionOutlined'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/ExtensionOutlined')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/ExtensionOutlined');
+const GroupsOutlined = craftercms.utils.constants.components.get('@mui/icons-material/GroupsOutlined') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/GroupsOutlined'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/GroupsOutlined')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/GroupsOutlined');
+const VpnKeyOutlined = craftercms.utils.constants.components.get('@mui/icons-material/VpnKeyOutlined') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/VpnKeyOutlined'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/VpnKeyOutlined')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/VpnKeyOutlined');
+const ViewQuiltOutlined = craftercms.utils.constants.components.get('@mui/icons-material/ViewQuiltOutlined') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/ViewQuiltOutlined'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/ViewQuiltOutlined')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/ViewQuiltOutlined');
 
 /*
  * Copyright (C) 2007-2022 Crafter Software Corporation. All Rights Reserved.
@@ -74797,7 +74804,8 @@ function rowToOption(row) {
     const label = String(row?.label ?? '').trim();
     return { id: id.startsWith('/') ? id : `/${id}`, label: label ? `${label} (${id})` : id };
 }
-function AiAssistantStudioUiSettings() {
+function AiAssistantStudioUiSettings(props) {
+    const { onReplayConfigurationJoyride, configurationJoyrideActive = false } = props;
     const activeSite = useActiveSiteId();
     const siteId = useMemo(() => effectiveStudioSiteId(activeSite), [activeSite]);
     const [draft, setDraft] = useState(() => ({ ...DEFAULT_AI_ASSISTANT_STUDIO_UI_CONFIG }));
@@ -74930,7 +74938,7 @@ function AiAssistantStudioUiSettings() {
     if (!siteId) {
         return (jsx$1(Box, { sx: { p: 2 }, children: jsx$1(Alert, { severity: "info", children: "Select a site to edit AI Assistant UI and bulk form settings." }) }));
     }
-    return (jsxs(Box, { sx: { p: 2, maxWidth: 960 }, children: [jsx$1(Typography, { variant: "h6", gutterBottom: true, children: "UI Configuration:" }), loadError ? jsx$1(Alert, { severity: "warning", children: loadError }) : null, !loaded ? jsx$1(Alert, { severity: "info", children: "Loading\u2026" }) : null, saveError ? jsx$1(Alert, { severity: "error", children: saveError }) : null, jsxs(Stack$1, { spacing: 3, sx: { mt: 2, opacity: loaded ? 1 : 0.5, pointerEvents: loaded ? 'auto' : 'none' }, children: [jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: draft.showAiAssistantsInTopNavigation !== false, onChange: (_, v) => {
+    return (jsxs(Box, { sx: { p: 2, maxWidth: 960 }, children: [jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", gap: 2, flexWrap: "wrap", children: [jsx$1(Typography, { variant: "h6", sx: { mb: 0 }, children: "UI Configuration:" }), onReplayConfigurationJoyride ? (jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(ExploreOutlined, {}), onClick: onReplayConfigurationJoyride, disabled: configurationJoyrideActive, children: "Show setup tour" })) : null] }), loadError ? jsx$1(Alert, { severity: "warning", children: loadError }) : null, !loaded ? jsx$1(Alert, { severity: "info", children: "Loading\u2026" }) : null, saveError ? jsx$1(Alert, { severity: "error", children: saveError }) : null, jsxs(Stack$1, { spacing: 3, sx: { mt: 2, opacity: loaded ? 1 : 0.5, pointerEvents: loaded ? 'auto' : 'none' }, children: [jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: draft.showAiAssistantsInTopNavigation !== false, onChange: (_, v) => {
                                 setDraft((d) => ({ ...d, showAiAssistantsInTopNavigation: v }));
                                 setDirty(true);
                             } }), label: "Show AI Assistants in top navigation (preview toolbar)" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: draft.showAutonomousAiAssistantsInSidebar === true, onChange: (_, v) => {
@@ -75026,6 +75034,227 @@ function useDomFullscreen() {
     return { ref, isFullscreen, toggleFullscreen };
 }
 
+const AI_ASSISTANT_JOYRIDE_STEPS = [
+    {
+        id: 'secrets-start',
+        tab: 'secrets',
+        title: 'Start with Secrets',
+        Icon: VpnKeyOutlined,
+        body: 'Add your LLM API key here, or point a row at an environment variable on the Studio server.\n\n' +
+            'Chat and agents use these credentials at runtime — that is all you need to get started.'
+    },
+    {
+        id: 'ui',
+        tab: 'ui',
+        title: 'Studio UI',
+        Icon: ViewQuiltOutlined,
+        body: 'Tune how the assistant appears in Studio.\n\n' +
+            'Add the AI Assistant control to content entry forms when you want authors to chat while they edit.'
+    },
+    {
+        id: 'agents',
+        tab: 'agents',
+        title: 'Agents',
+        Icon: GroupsOutlined,
+        body: 'Fine-tune or add chat agents that authors pick in forms and the helper.\n\n' +
+            'Add and configure autonomous agents (experimental) when you need them on a schedule.'
+    },
+    {
+        id: 'integrations',
+        tab: 'integrations',
+        title: 'Integrations',
+        Icon: ExtensionOutlined,
+        body: 'Optional extras: script-based LLMs, image generators, CMS tools, and MCP servers.\n\n' +
+            'Skip this until you need something beyond the defaults.'
+    },
+    {
+        id: 'secrets-finish',
+        tab: 'secrets',
+        title: "You're all set",
+        Icon: CheckCircleOutlineRounded,
+        body: 'When you are ready, save your secrets and try the assistant from a content form or the Studio helper.\n\n' +
+            'You can reopen this guide from the UI tab or when a new plugin version is installed.'
+    }
+];
+
+/**
+ * Plugin release version for client-side features (e.g. configuration joyride).
+ * Keep in sync with `craftercms-plugin.yaml` → `plugin.version`.
+ */
+const AI_ASSISTANT_PLUGIN_VERSION = '1.0.0';
+
+const STORAGE_KEY = 'org.craftercms.aiassistant.joyride.seenVersion';
+function joyrideSeenPluginVersion() {
+    try {
+        const v = localStorage.getItem(STORAGE_KEY);
+        return v?.trim() || null;
+    }
+    catch {
+        return null;
+    }
+}
+function shouldShowConfigurationJoyride() {
+    return joyrideSeenPluginVersion() !== AI_ASSISTANT_PLUGIN_VERSION;
+}
+function markConfigurationJoyrideSeen() {
+    try {
+        localStorage.setItem(STORAGE_KEY, AI_ASSISTANT_PLUGIN_VERSION);
+    }
+    catch {
+        /* ignore quota / private mode */
+    }
+}
+
+function projectToolsTabAnchorSelector(tab) {
+    return `[data-aiassistant-project-tools-tab="${tab}"]`;
+}
+function JoyrideSpeechBubble(props) {
+    const { step, stepIndex, stepCount, onNext, onSkip, isLast } = props;
+    const Icon = step.Icon;
+    return (jsx$1(Paper, { elevation: 8, sx: {
+            p: 2,
+            maxWidth: 360,
+            borderRadius: 2,
+            position: 'relative',
+            '&::before': {
+                content: '""',
+                position: 'absolute',
+                top: -8,
+                left: '50%',
+                transform: 'translateX(-50%)',
+                width: 0,
+                height: 0,
+                borderLeft: '8px solid transparent',
+                borderRight: '8px solid transparent',
+                borderBottom: (theme) => `8px solid ${theme.palette.background.paper}`
+            }
+        }, children: jsxs(Stack$1, { spacing: 1.5, children: [jsxs(Stack$1, { direction: "row", spacing: 1.5, alignItems: "flex-start", children: [jsx$1(Box, { sx: {
+                                width: 40,
+                                height: 40,
+                                borderRadius: '50%',
+                                bgcolor: 'primary.main',
+                                color: 'primary.contrastText',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0
+                            }, children: jsx$1(Icon, { fontSize: "small" }) }), jsxs(Box, { sx: { minWidth: 0, flex: 1 }, children: [jsx$1(Typography, { variant: "subtitle1", fontWeight: 700, gutterBottom: true, children: step.title }), jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { whiteSpace: 'pre-line' }, children: step.body })] })] }), jsxs(Stack$1, { direction: "row", justifyContent: "space-between", alignItems: "center", children: [jsxs(Typography, { variant: "caption", color: "text.secondary", children: [stepIndex + 1, " of ", stepCount] }), jsxs(Stack$1, { direction: "row", spacing: 1, children: [jsx$1(Button, { size: "small", color: "inherit", onClick: onSkip, children: "Skip tour" }), jsx$1(Button, { size: "small", variant: "contained", onClick: onNext, children: isLast ? 'Done' : 'Next' })] })] })] }) }));
+}
+function useAiAssistantConfigurationJoyride(onNavigateTab) {
+    const [phase, setPhase] = useState('idle');
+    const [stepIndex, setStepIndex] = useState(0);
+    const [panelReady, setPanelReady] = useState(false);
+    const dismissJoyride = useCallback(() => {
+        markConfigurationJoyrideSeen();
+        setPhase('idle');
+        setStepIndex(0);
+    }, []);
+    const onPanelReady = useCallback(() => {
+        setPanelReady(true);
+    }, []);
+    useEffect(() => {
+        if (!panelReady || phase !== 'idle')
+            return;
+        if (shouldShowConfigurationJoyride()) {
+            setPhase('welcome');
+        }
+    }, [panelReady, phase]);
+    const activeStep = phase === 'tour' && stepIndex >= 0 && stepIndex < AI_ASSISTANT_JOYRIDE_STEPS.length
+        ? AI_ASSISTANT_JOYRIDE_STEPS[stepIndex]
+        : null;
+    useLayoutEffect(() => {
+        if (phase !== 'tour' || !activeStep)
+            return;
+        onNavigateTab(activeStep.tab);
+    }, [phase, activeStep, onNavigateTab]);
+    const startTour = useCallback(() => {
+        setStepIndex(0);
+        setPhase('tour');
+    }, []);
+    const replayJoyride = useCallback(() => {
+        setStepIndex(0);
+        setPhase('welcome');
+    }, []);
+    const goNext = useCallback(() => {
+        if (stepIndex >= AI_ASSISTANT_JOYRIDE_STEPS.length - 1) {
+            dismissJoyride();
+            return;
+        }
+        setStepIndex((i) => i + 1);
+    }, [stepIndex, dismissJoyride]);
+    return {
+        phase,
+        activeStep,
+        activeStepIndex: stepIndex,
+        onPanelReady,
+        startTour,
+        replayJoyride,
+        dismissJoyride,
+        goNext
+    };
+}
+function AiAssistantJoyrideWelcomeDialog(props) {
+    const { onShowAround, onCancel } = props;
+    return (jsxs(Dialog, { open: true, onClose: onCancel, maxWidth: "xs", fullWidth: true, children: [jsx$1(DialogContent, { sx: { pt: 3, pb: 1 }, children: jsxs(Stack$1, { spacing: 2, alignItems: "center", textAlign: "center", children: [jsx$1(Box, { sx: {
+                                width: 88,
+                                height: 88,
+                                borderRadius: '50%',
+                                bgcolor: 'primary.light',
+                                color: 'primary.main',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }, children: jsx$1(SmartToyOutlined, { sx: { fontSize: 52 } }) }), jsx$1(Typography, { variant: "h6", component: "h2", fontWeight: 700, children: "Welcome to the Studio AI Assistant" }), jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "I can walk you through the configuration tabs so you know where to add API keys, set up agents, and explore optional integrations. It only takes a minute." })] }) }), jsxs(DialogActions, { sx: { px: 3, pb: 2.5, justifyContent: 'center', gap: 1 }, children: [jsx$1(Button, { onClick: onCancel, color: "inherit", children: "Cancel" }), jsx$1(Button, { variant: "contained", onClick: onShowAround, children: "Show me around" })] })] }));
+}
+function resolveJoyrideTabAnchor(step, scope) {
+    const root = scope ?? document;
+    const el = root.querySelector(projectToolsTabAnchorSelector(step.tab));
+    if (!el)
+        return null;
+    el.scrollIntoView({ block: 'nearest', inline: 'center' });
+    return el;
+}
+function AiAssistantJoyrideTourPopover(props) {
+    const { open, step, activeTab, anchorScopeRef, stepIndex, stepCount, onNext, onSkip } = props;
+    const [anchorEl, setAnchorEl] = useState(null);
+    useLayoutEffect(() => {
+        if (!open || !step || activeTab !== step.tab) {
+            setAnchorEl(null);
+            return;
+        }
+        const syncAnchor = () => {
+            setAnchorEl(resolveJoyrideTabAnchor(step, anchorScopeRef?.current ?? null));
+        };
+        syncAnchor();
+        const raf = requestAnimationFrame(syncAnchor);
+        return () => cancelAnimationFrame(raf);
+    }, [open, step, activeTab, anchorScopeRef]);
+    if (!open || !step) {
+        return null;
+    }
+    const isLast = stepIndex >= stepCount - 1;
+    const popoverOpen = Boolean(anchorEl) && activeTab === step.tab;
+    return (jsxs(Fragment, { children: [jsx$1(Box, { component: "button", type: "button", "aria-label": "Dismiss tour", onClick: onSkip, sx: {
+                    position: 'fixed',
+                    inset: 0,
+                    m: 0,
+                    p: 0,
+                    border: 0,
+                    cursor: 'default',
+                    bgcolor: 'rgba(0, 0, 0, 0.35)',
+                    zIndex: (theme) => theme.zIndex.modal - 1
+                } }), jsx$1(Popover, { open: popoverOpen, anchorEl: anchorEl, onClose: onSkip, anchorOrigin: { vertical: 'bottom', horizontal: 'center' }, transformOrigin: { vertical: 'top', horizontal: 'center' }, disableScrollLock: true, slotProps: {
+                    paper: {
+                        sx: {
+                            mt: 1.5,
+                            overflow: 'visible',
+                            bgcolor: 'transparent',
+                            boxShadow: 'none'
+                        }
+                    }
+                }, sx: { zIndex: (theme) => theme.zIndex.modal }, children: jsx$1(JoyrideSpeechBubble, { step: step, stepIndex: stepIndex, stepCount: stepCount, onNext: onNext, onSkip: onSkip, isLast: isLast }) })] }));
+}
+
 function isIntegrationsSubTab(t) {
     return t === 'llms' || t === 'imagegen' || t === 'tools' || t === 'mcp' || t === 'scripts';
 }
@@ -75085,7 +75314,20 @@ function AiAssistantProjectToolsConfigurationPanel(props) {
     const agentsCatalogRef = useRef(null);
     const recipesConfigRef = useRef(null);
     const { ref: rootRef, isFullscreen: toolFullscreen, toggleFullscreen: toggleToolFullscreen } = useDomFullscreen();
+    const joyrideNavigateTab = useCallback((value) => {
+        setPendingTabSwitch(null);
+        setTab(value);
+    }, []);
+    const { phase: joyridePhase, activeStep: joyrideActiveStep, activeStepIndex: joyrideActiveStepIndex, onPanelReady: joyrideOnPanelReady, startTour: joyrideStartTour, replayJoyride: joyrideReplay, dismissJoyride: joyrideDismiss, goNext: joyrideGoNext } = useAiAssistantConfigurationJoyride(joyrideNavigateTab);
+    const joyrideTourActive = joyridePhase === 'tour';
+    const joyrideBusy = joyridePhase === 'welcome' || joyrideTourActive;
+    useEffect(() => {
+        joyrideOnPanelReady();
+    }, [joyrideOnPanelReady]);
     const handleTabsChange = useCallback((_, value) => {
+        if (joyrideTourActive) {
+            return;
+        }
         if (tab === 'agents' && agentsCatalogDirty && value !== 'agents') {
             setPendingTabSwitch({ from: 'agents', to: value });
             return;
@@ -75095,7 +75337,7 @@ function AiAssistantProjectToolsConfigurationPanel(props) {
             return;
         }
         setTab(value);
-    }, [tab, agentsCatalogDirty, recipesDirty]);
+    }, [tab, agentsCatalogDirty, recipesDirty, joyrideTourActive]);
     const handleIntegrationsSubChange = useCallback((_, value) => {
         setIntegrationsSub(value);
     }, []);
@@ -75150,12 +75392,12 @@ function AiAssistantProjectToolsConfigurationPanel(props) {
             minHeight: 0,
             alignSelf: 'stretch',
             ...(toolFullscreen ? { bgcolor: 'background.default' } : {})
-        }, children: [jsxs(Stack$2, { direction: "row", alignItems: "stretch", sx: { flexShrink: 0, borderBottom: 1, borderColor: 'divider' }, children: [jsxs(Tabs$1, { value: tab, onChange: handleTabsChange, variant: "scrollable", scrollButtons: "auto", allowScrollButtonsMobile: true, sx: { flex: '1 1 auto', minWidth: 0 }, children: [jsx$1(Tab$1, { label: "UI", value: "ui" }), jsx$1(Tab$1, { label: "Agents", value: "agents" }), jsx$1(Tab$1, { label: "Recipes", value: "recipes" }), jsx$1(Tab$1, { label: "Integrations", value: "integrations" }), jsx$1(Tab$1, { label: "Secrets", value: "secrets" }), jsx$1(Tab$1, { label: "Prompts and Context", value: "prompts" })] }), jsx$1(Box$1, { sx: { display: 'flex', alignItems: 'center', flexShrink: 0, borderLeft: 1, borderColor: 'divider', px: 0.5 }, children: jsx$1(Tooltip$1, { title: toolFullscreen ? 'Exit fullscreen' : 'Fullscreen', children: jsx$1(IconButton$1, { size: "small", "aria-label": toolFullscreen ? 'Exit fullscreen' : 'Enter fullscreen', onClick: () => toggleToolFullscreen(), children: toolFullscreen ? jsx$1(FullscreenExitRounded, {}) : jsx$1(FullscreenRounded, {}) }) }) })] }), jsxs(Box$1, { sx: {
+        }, children: [jsxs(Stack$2, { direction: "row", alignItems: "stretch", sx: { flexShrink: 0, borderBottom: 1, borderColor: 'divider' }, children: [jsxs(Tabs$1, { value: tab, onChange: handleTabsChange, variant: "scrollable", scrollButtons: "auto", allowScrollButtonsMobile: true, sx: { flex: '1 1 auto', minWidth: 0 }, children: [jsx$1(Tab$1, { label: "UI", value: "ui", "data-aiassistant-project-tools-tab": "ui" }), jsx$1(Tab$1, { label: "Agents", value: "agents", "data-aiassistant-project-tools-tab": "agents" }), jsx$1(Tab$1, { label: "Recipes", value: "recipes", "data-aiassistant-project-tools-tab": "recipes" }), jsx$1(Tab$1, { label: "Integrations", value: "integrations", "data-aiassistant-project-tools-tab": "integrations" }), jsx$1(Tab$1, { label: "Secrets", value: "secrets", "data-aiassistant-project-tools-tab": "secrets" }), jsx$1(Tab$1, { label: "Prompts and Context", value: "prompts", "data-aiassistant-project-tools-tab": "prompts" })] }), jsx$1(Box$1, { sx: { display: 'flex', alignItems: 'center', flexShrink: 0, borderLeft: 1, borderColor: 'divider', px: 0.5 }, children: jsx$1(Tooltip$1, { title: toolFullscreen ? 'Exit fullscreen' : 'Fullscreen', children: jsx$1(IconButton$1, { size: "small", "aria-label": toolFullscreen ? 'Exit fullscreen' : 'Enter fullscreen', onClick: () => toggleToolFullscreen(), children: toolFullscreen ? jsx$1(FullscreenExitRounded, {}) : jsx$1(FullscreenRounded, {}) }) }) })] }), jsxs(Box$1, { sx: {
                     flex: '1 1 auto',
                     minHeight: 0,
                     overflow: 'auto',
                     ...aiAssistantProjectToolsPanelContentSx
-                }, children: [tab === 'ui' ? jsx$1(AiAssistantStudioUiSettings, {}) : null, tab === 'agents' ? (jsx$1(AiAssistantCentralAgentsConfiguration, { ref: agentsCatalogRef, onDirtyChange: setAgentsCatalogDirty })) : null, tab === 'recipes' ? (jsx$1(AiAssistantIntentRecipesConfiguration, { ref: recipesConfigRef, onDirtyChange: setRecipesDirty })) : null, tab === 'integrations' ? (jsxs(Box$1, { sx: { display: 'flex', flexDirection: 'column', minHeight: '100%' }, children: [jsxs(Tabs$1, { value: integrationsSub, onChange: handleIntegrationsSubChange, variant: "scrollable", scrollButtons: "auto", allowScrollButtonsMobile: true, sx: { flexShrink: 0, borderBottom: 1, borderColor: 'divider', px: 1 }, children: [jsx$1(Tab$1, { label: "LLMs", value: "llms" }), jsx$1(Tab$1, { label: "Image Generators", value: "imagegen" }), jsx$1(Tab$1, { label: "Tools", value: "tools" }), jsx$1(Tab$1, { label: "MCP", value: "mcp" })] }), jsx$1(Box$1, { sx: { flex: '1 1 auto', minHeight: 0 }, children: jsx$1(AiAssistantScriptsSandboxConfiguration, { panel: integrationsSandboxPanel(integrationsSub) }, integrationsSub === 'tools' || integrationsSub === 'mcp' ? 'tools-policy' : integrationsSub) })] })) : null, tab === 'secrets' ? jsx$1(AiAssistantSecretsConfiguration, {}) : null, tab === 'prompts' ? jsx$1(AiAssistantScriptsSandboxConfiguration, { panel: "prompts" }) : null] }), jsxs(Dialog$1, { open: pendingTabSwitch != null, onClose: cancelPendingTabSwitch, maxWidth: "sm", fullWidth: true, children: [jsx$1(DialogTitle$1, { children: "Unsaved changes" }), jsx$1(DialogContent$1, { children: jsxs(Typography$1, { variant: "body2", paragraph: true, children: ["Save, discard, or stay on", ' ', jsx$1("strong", { children: pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.from) : '' }), " before opening", ' ', jsx$1("strong", { children: pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.to) : '' }), "."] }) }), jsxs(DialogActions$1, { children: [jsxs(Button$1, { onClick: cancelPendingTabSwitch, disabled: tabLeaveSaveBusy, children: ["Stay on ", pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.from) : 'this tab'] }), jsx$1(Button$1, { color: "warning", onClick: () => void discardPendingTabSwitch(), disabled: tabLeaveSaveBusy, children: "Discard changes" }), jsx$1(Button$1, { variant: "contained", onClick: () => void saveAndPendingTabSwitch(), disabled: tabLeaveSaveBusy, children: tabLeaveSaveBusy ? 'Saving…' : 'Save and continue' })] })] })] }));
+                }, children: [tab === 'ui' ? (jsx$1(AiAssistantStudioUiSettings, { onReplayConfigurationJoyride: joyrideReplay, configurationJoyrideActive: joyrideBusy })) : null, tab === 'agents' ? (jsx$1(AiAssistantCentralAgentsConfiguration, { ref: agentsCatalogRef, onDirtyChange: setAgentsCatalogDirty })) : null, tab === 'recipes' ? (jsx$1(AiAssistantIntentRecipesConfiguration, { ref: recipesConfigRef, onDirtyChange: setRecipesDirty })) : null, tab === 'integrations' ? (jsxs(Box$1, { sx: { display: 'flex', flexDirection: 'column', minHeight: '100%' }, children: [jsxs(Tabs$1, { value: integrationsSub, onChange: handleIntegrationsSubChange, variant: "scrollable", scrollButtons: "auto", allowScrollButtonsMobile: true, sx: { flexShrink: 0, borderBottom: 1, borderColor: 'divider', px: 1 }, children: [jsx$1(Tab$1, { label: "LLMs", value: "llms" }), jsx$1(Tab$1, { label: "Image Generators", value: "imagegen" }), jsx$1(Tab$1, { label: "Tools", value: "tools" }), jsx$1(Tab$1, { label: "MCP", value: "mcp" })] }), jsx$1(Box$1, { sx: { flex: '1 1 auto', minHeight: 0 }, children: jsx$1(AiAssistantScriptsSandboxConfiguration, { panel: integrationsSandboxPanel(integrationsSub) }, integrationsSub === 'tools' || integrationsSub === 'mcp' ? 'tools-policy' : integrationsSub) })] })) : null, tab === 'secrets' ? jsx$1(AiAssistantSecretsConfiguration, {}) : null, tab === 'prompts' ? jsx$1(AiAssistantScriptsSandboxConfiguration, { panel: "prompts" }) : null] }), joyridePhase === 'welcome' ? (jsx$1(AiAssistantJoyrideWelcomeDialog, { onShowAround: joyrideStartTour, onCancel: joyrideDismiss })) : null, jsx$1(AiAssistantJoyrideTourPopover, { open: joyrideTourActive, step: joyrideActiveStep, activeTab: tab, anchorScopeRef: rootRef, stepIndex: joyrideActiveStepIndex, stepCount: AI_ASSISTANT_JOYRIDE_STEPS.length, onNext: joyrideGoNext, onSkip: joyrideDismiss }), jsxs(Dialog$1, { open: pendingTabSwitch != null, onClose: cancelPendingTabSwitch, maxWidth: "sm", fullWidth: true, children: [jsx$1(DialogTitle$1, { children: "Unsaved changes" }), jsx$1(DialogContent$1, { children: jsxs(Typography$1, { variant: "body2", paragraph: true, children: ["Save, discard, or stay on", ' ', jsx$1("strong", { children: pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.from) : '' }), " before opening", ' ', jsx$1("strong", { children: pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.to) : '' }), "."] }) }), jsxs(DialogActions$1, { children: [jsxs(Button$1, { onClick: cancelPendingTabSwitch, disabled: tabLeaveSaveBusy, children: ["Stay on ", pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.from) : 'this tab'] }), jsx$1(Button$1, { color: "warning", onClick: () => void discardPendingTabSwitch(), disabled: tabLeaveSaveBusy, children: "Discard changes" }), jsx$1(Button$1, { variant: "contained", onClick: () => void saveAndPendingTabSwitch(), disabled: tabLeaveSaveBusy, children: tabLeaveSaveBusy ? 'Saving…' : 'Save and continue' })] })] })] }));
 }
 /**
  * Single Project Tools surface: **UI** (`studio-ui.json` + bulk), **Agents** (`agents.json`), **Recipes** (intent router + site overrides),
