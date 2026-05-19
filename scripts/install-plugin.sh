@@ -103,5 +103,22 @@ else
   fi
 fi
 
+SECRETS_EXAMPLE="${PLUGIN_PATH}/docs/examples/aiassistant-config/secrets.json"
+SECRETS_DEST="${SITE_REPO_PATH}/config/studio/scripts/aiassistant/config/secrets.json"
+if [[ -f "${SECRETS_EXAMPLE}" ]]; then
+  if [[ ! -d "${SITE_REPO_PATH}" ]]; then
+    echo "${AI_WARN} Warning: site sandbox not found; skipping secrets.json seed." >&2
+  elif [[ -f "${SECRETS_DEST}" ]]; then
+    echo "${AI_OK} secrets.json already present at ${SECRETS_DEST}"
+  else
+    mkdir -p "$(dirname "${SECRETS_DEST}")"
+    cp "${SECRETS_EXAMPLE}" "${SECRETS_DEST}"
+    echo "${AI_INFO} Seeded default LLM secrets at ${SECRETS_DEST}"
+    if git -C "${SITE_REPO_PATH}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      git -C "${SITE_REPO_PATH}" add config/studio/scripts/aiassistant/config/secrets.json
+    fi
+  fi
+fi
+
 echo
 echo "${AI_OK} Done."

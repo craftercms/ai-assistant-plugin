@@ -1,6 +1,7 @@
 import org.slf4j.LoggerFactory
 import plugins.org.craftercms.aiassistant.imagegen.StudioAiScriptImageGenLoader
 import plugins.org.craftercms.aiassistant.prompt.ToolPromptsOverrideCatalog
+import plugins.org.craftercms.aiassistant.secrets.StudioAiAssistantSecretsService
 import plugins.org.craftercms.aiassistant.tools.StudioAiUserSiteTools
 import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
 
@@ -138,15 +139,38 @@ for (String pk : ToolPromptsOverrideCatalog.KEYS) {
   }
 }
 
+List<Map> knownSecrets = []
+List<Map> customSecrets = []
+String secretsStudioPath = ''
+String secretsError = null
+boolean secretsSeeded = false
+try {
+  secretsSeeded = StudioAiAssistantSecretsService.ensureDefaultSecretsFileIfMissing(ops)
+  Map secretsAdmin = StudioAiAssistantSecretsService.adminIndex(ops)
+  if (secretsAdmin instanceof Map) {
+    knownSecrets = secretsAdmin.knownSecrets instanceof List ? (List<Map>) secretsAdmin.knownSecrets : []
+    customSecrets = secretsAdmin.customSecrets instanceof List ? (List<Map>) secretsAdmin.customSecrets : []
+    secretsStudioPath = secretsAdmin.studioPath?.toString() ?: ''
+  }
+} catch (Throwable t) {
+  secretsError = t.message ?: t.toString()
+  idxLog.warn('scripts index: secrets admin index failed siteId={}: {}', siteId, secretsError)
+}
+
 response.setContentType('application/json')
 return [
-  ok                  : true,
-  siteId              : siteId,
-  registryStudioPath  : registryRel,
-  registryText        : registryText,
+  ok                   : true,
+  siteId               : siteId,
+  registryStudioPath   : registryRel,
+  registryText         : registryText,
   registryTextTruncated: registryTextTruncated,
-  tools               : toolsOut,
-  imageGenerators       : imageOut,
-  llmScripts          : llmOut,
-  toolPromptOverrides : promptRows
+  tools                : toolsOut,
+  imageGenerators      : imageOut,
+  llmScripts           : llmOut,
+  toolPromptOverrides  : promptRows,
+  secretsStudioPath    : secretsStudioPath,
+  knownSecrets         : knownSecrets,
+  customSecrets        : customSecrets,
+  secretsError         : secretsError,
+  secretsSeeded        : secretsSeeded
 ]

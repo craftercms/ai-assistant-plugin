@@ -26,7 +26,9 @@ jobs:
           bash -n scripts/test/integration/include/plugin-stream-probe.inc.sh
           bash -n scripts/test/integration/include/reporting.inc.sh
           bash -n scripts/lib/studio-auth.sh
-          bash -n scripts/lib/coderabbit-review.sh
+          bash -n scripts/coderabbit-review.sh
+          bash -n authoring/scripts/rest/plugins/org/craftercms/aiassistant/studio/aiassistant/secrets/index.get.groovy
+          bash -n authoring/scripts/rest/plugins/org/craftercms/aiassistant/studio/aiassistant/secrets/mutate.post.groovy
           bash -n scripts/lib/emoji.inc.sh
           bash -n scripts/test/run-all.sh
           node --check scripts/test/functional/run-chat-scenarios.mjs

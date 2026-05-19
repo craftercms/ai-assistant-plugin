@@ -35,7 +35,7 @@ class AnthropicSpringAiLlmRuntime implements StudioAiLlmRuntime {
   @Override
   Map buildSessionBundle(StudioAiRuntimeBuildRequest req) {
     def orch = req.orchestration
-    String apiKey = StudioAiProviderCredentials.resolveAnthropicApiKey(req.llmApiKeyFromRequest)
+    String apiKey = StudioAiProviderCredentials.resolveAnthropicApiKey(req.llmApiKeyFromRequest, req.llmSecretKeyFromAgent)
     if (!apiKey?.trim()) {
       throw new IllegalStateException(
         'LLM is Claude (Anthropic) but no API key was found. Set ANTHROPIC_API_KEY or JVM crafter.anthropic.apiKey on Studio. For local testing only, optional agent <llmApiKey> in ui.xml.'

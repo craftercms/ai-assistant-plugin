@@ -15,6 +15,8 @@ export interface AutonomousAgentDefinition {
   /** Optional GenerateImage backend (same semantics as interactive chat **imageGenerator**). */
   imageGenerator?: string;
   llmApiKey?: string;
+  /** {@code secrets.json} entry id for LLM credentials (not used for script LLMs). */
+  llmSecretKey?: string;
   /**
    * When true, the model may set `ownerAgentId` on new human tasks and dismiss/complete tasks owned by other agents.
    * Default false: only this agent’s tasks are modified.

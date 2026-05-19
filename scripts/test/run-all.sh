@@ -13,8 +13,6 @@ set -euo pipefail
 #   RUN_ALL_SKIP_STUDIO=1          Skip live Studio steps (rest-contracts + chat scenarios); bash -n + yarn package only.
 #   RUN_ALL_SKIP_CHAT_SCENARIOS=1 Skip only the chat scenario runner (still runs live rest-contracts when Studio is on).
 #   RUN_ALL_WITH_LINT=1            Also run `yarn lint` in sources/ before `yarn package`.
-#   RUN_ALL_SKIP_CODERABBIT=1      Skip CodeRabbit after package (alias: SKIP_CODERABBIT=1).
-#   RUN_ALL_WITH_CODERABBIT=1      Require CodeRabbit CLI (alias: WITH_CODERABBIT=1).
 #   CRAFTER_STUDIO_URL, INTEGRATION_SITE_ID — passed through when Studio checks run; CHAT_SITE_ID defaults to INTEGRATION_SITE_ID.
 #   CHAT_AGENT_ID — optional override; otherwise run-chat-scenarios.mjs discovers ui.xml or uses the default agent UUID.
 #   CHAT_SCENARIOS_FILE, CHAT_PREVIEW_TOKEN, CHAT_TURN_TIMEOUT_MS — see scripts/test/README.md.
@@ -24,8 +22,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 # shellcheck source=../lib/studio-auth.sh
 source "${REPO_ROOT}/scripts/lib/studio-auth.sh"
-# shellcheck source=../lib/coderabbit-review.sh
-source "${REPO_ROOT}/scripts/lib/coderabbit-review.sh"
 
 _RUN_TOTAL=3
 if [[ "${RUN_ALL_SKIP_STUDIO:-}" != "1" ]]; then
@@ -51,7 +47,8 @@ bash -n "${REPO_ROOT}/scripts/test/integration/e2e-site-lifecycle.sh"
 bash -n "${REPO_ROOT}/scripts/test/integration/include/plugin-stream-probe.inc.sh"
 bash -n "${REPO_ROOT}/scripts/test/integration/include/reporting.inc.sh"
 bash -n "${REPO_ROOT}/scripts/lib/studio-auth.sh"
-bash -n "${REPO_ROOT}/scripts/lib/coderabbit-review.sh"
+bash -n "${REPO_ROOT}/authoring/scripts/rest/plugins/org/craftercms/aiassistant/studio/aiassistant/secrets/index.get.groovy"
+bash -n "${REPO_ROOT}/authoring/scripts/rest/plugins/org/craftercms/aiassistant/studio/aiassistant/secrets/mutate.post.groovy"
 bash -n "${REPO_ROOT}/scripts/lib/emoji.inc.sh"
 bash -n "${REPO_ROOT}/scripts/test/run-all.sh"
 if command -v node >/dev/null 2>&1; then
@@ -71,7 +68,6 @@ fi
   fi
   yarn package
 )
-coderabbit_review_uncommitted "${REPO_ROOT}" || fail "CodeRabbit review failed"
 echo "${AI_OK} OK"
 
 if [[ "${RUN_ALL_SKIP_STUDIO:-}" == "1" ]]; then

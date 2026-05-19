@@ -21,6 +21,7 @@ import AiAssistantIntentRecipesConfiguration, {
   type AiAssistantIntentRecipesConfigurationHandle
 } from './AiAssistantIntentRecipesConfiguration';
 import AiAssistantScriptsSandboxConfiguration from './AiAssistantScriptsSandboxConfiguration';
+import AiAssistantSecretsConfiguration from './AiAssistantSecretsConfiguration';
 import AiAssistantStudioUiSettings from './AiAssistantStudioUiSettings';
 import { aiAssistantProjectToolsPanelContentSx } from './aiAssistantProjectToolsFormSx';
 import { useDomFullscreen } from './aiAssistantDomFullscreen';
@@ -33,6 +34,7 @@ export type AiAssistantProjectToolsTab =
   | 'agents'
   | 'recipes'
   | 'integrations'
+  | 'secrets'
   | 'prompts'
   /** @deprecated Opens Integrations → Tools (legacy widget id). */
   | 'scripts'
@@ -44,7 +46,7 @@ function isIntegrationsSubTab(t: AiAssistantProjectToolsTab): t is AiAssistantIn
 }
 
 function resolveProjectToolsTabs(defaultTab: AiAssistantProjectToolsTab): {
-  tab: 'ui' | 'agents' | 'recipes' | 'integrations' | 'prompts';
+  tab: 'ui' | 'agents' | 'recipes' | 'integrations' | 'secrets' | 'prompts';
   integrationsSub: AiAssistantIntegrationsSubTab;
 } {
   if (defaultTab === 'scripts') {
@@ -69,6 +71,8 @@ function projectToolsTabLabel(t: AiAssistantProjectToolsTab): string {
       return 'Recipes';
     case 'integrations':
       return 'Integrations';
+    case 'secrets':
+      return 'Secrets';
     case 'prompts':
       return 'Prompts and Context';
     case 'llms':
@@ -205,6 +209,7 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
           <Tab label="Agents" value="agents" />
           <Tab label="Recipes" value="recipes" />
           <Tab label="Integrations" value="integrations" />
+          <Tab label="Secrets" value="secrets" />
           <Tab label="Prompts and Context" value="prompts" />
         </Tabs>
         <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0, borderLeft: 1, borderColor: 'divider', px: 0.5 }}>
@@ -260,6 +265,7 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
             </Box>
           </Box>
         ) : null}
+        {tab === 'secrets' ? <AiAssistantSecretsConfiguration /> : null}
         {tab === 'prompts' ? <AiAssistantScriptsSandboxConfiguration panel="prompts" /> : null}
       </Box>
 
@@ -290,7 +296,7 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
 
 /**
  * Single Project Tools surface: **UI** (`studio-ui.json` + bulk), **Agents** (`agents.json`), **Recipes** (intent router + site overrides),
- * **Integrations** (sub-tabs: **LLMs**, **Image Generators**, **Tools**, **MCP**), **Prompts and Context** (tool markdown overrides).
+ * **Integrations** (sub-tabs: **LLMs**, **Image Generators**, **Tools**, **MCP**), **Secrets** (site API keys), **Prompts and Context** (tool markdown overrides).
  * Opens in a **large dialog** when the Project Tools entry mounts so authors stay focused and get more space than the default tool pane.
  * Primary widget id: {@link projectToolsAiAssistantConfigWidgetId}. Legacy ids still mount this component with a fixed default tab.
  */

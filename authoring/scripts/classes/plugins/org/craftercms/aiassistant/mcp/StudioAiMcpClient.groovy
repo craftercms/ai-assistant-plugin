@@ -4,6 +4,8 @@ import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import plugins.org.craftercms.aiassistant.secrets.StudioAiAssistantSecretsContext
+import plugins.org.craftercms.aiassistant.secrets.StudioAiSecretMacroResolver
 import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
 
 import java.io.BufferedReader
@@ -331,7 +333,7 @@ final class StudioAiMcpClient {
     }
     readTimeout = Math.min(600_000, Math.max(10_000, readTimeout))
 
-    Map<String, String> hdrs = normalizeHeaderMap(spec.headers)
+    Map<String, String> hdrs = normalizeHeaderMap(ops, spec.headers)
     McpConnection conn = new McpConnection(sid, url, hdrs, readTimeout)
 
     Map initParams = [
@@ -373,49 +375,27 @@ final class StudioAiMcpClient {
     return [connection: conn, tools: tools]
   }
 
-  private static final java.util.regex.Pattern ENV_MACRO = java.util.regex.Pattern.compile('\\$\\{env:([A-Za-z0-9_.]+)\\}')
-
   /**
-   * Expands {@code ${env:VAR}} placeholders using {@link System#getenv} on the Studio JVM.
-   * Unknown or unset variables expand to an empty string. Replacement uses {@link java.util.regex.Matcher#quoteReplacement}
-   * so expanded values may contain {@code $} or backslashes.
+   * Expands {@code ${env:…}}, {@code ${enc:…}}, and {@code ${secret:…}} for MCP header values.
    */
   static String expandEnvMacrosInString(String input) {
-    if (input == null) {
-      return ''
-    }
-    String s = input.toString()
-    if (!s.contains('${env:')) {
-      return s
-    }
-    java.util.regex.Matcher m = ENV_MACRO.matcher(s)
-    StringBuffer sb = new StringBuffer()
-    while (m.find()) {
-      String name = m.group(1)
-      String val = ''
-      try {
-        String gv = System.getenv(name)
-        if (gv != null) {
-          val = gv
-        }
-      } catch (Throwable ignored) {
-      }
-      m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(val))
-    }
-    m.appendTail(sb)
-    return sb.toString()
+    String siteId = StudioAiAssistantSecretsContext.currentSiteId()
+    Object ctx = StudioAiAssistantSecretsContext.currentApplicationContext()
+    return StudioAiSecretMacroResolver.expand(siteId, ctx, input)
   }
 
-  private static Map<String, String> normalizeHeaderMap(Object headers) {
+  private static Map<String, String> normalizeHeaderMap(StudioToolOperations ops, Object headers) {
     if (!(headers instanceof Map)) {
       return [:]
     }
+    String siteId = ops != null ? ops.resolveEffectiveSiteId('') : StudioAiAssistantSecretsContext.currentSiteId()
+    Object ctx = ops != null ? ops.applicationContext : StudioAiAssistantSecretsContext.currentApplicationContext()
     Map<String, String> out = new LinkedHashMap<>()
     for (Map.Entry e : ((Map) headers).entrySet()) {
       String k = e.key != null ? e.key.toString().trim() : ''
       String v = e.value != null ? e.value.toString() : ''
       if (k) {
-        out.put(k, expandEnvMacrosInString(v))
+        out.put(k, StudioAiSecretMacroResolver.expand(siteId, ctx, v))
       }
     }
     return out

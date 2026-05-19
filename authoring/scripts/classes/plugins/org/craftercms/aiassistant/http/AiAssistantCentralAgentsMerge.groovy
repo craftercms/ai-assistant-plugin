@@ -126,7 +126,8 @@ final class AiAssistantCentralAgentsMerge {
     String imgGenBody =
       (body.imageGenerator ?: body.get('image-generator') ?: body.image_generator)?.toString()?.trim() ?: ''
     String llmTransportBody = (body.llm ?: body.get('llm'))?.toString()?.trim() ?: ''
-    if (imgBody && llmModelBody && imgGenBody && llmTransportBody) {
+    String llmSecretBody = body.llmSecretKey?.toString()?.trim() ?: ''
+    if (imgBody && llmModelBody && imgGenBody && llmTransportBody && llmSecretBody) {
       return
     }
     String site = (siteId ?: '').toString().trim()
@@ -148,6 +149,7 @@ final class AiAssistantCentralAgentsMerge {
     String catalogLlmModel = textField(row, 'llmModel')
     String catalogImgGen = textField(row, 'imageGenerator')
     String catalogLlm = textField(row, 'llm')
+    String catalogLlmSecret = textField(row, 'llmSecretKey')
     if (!imgBody && catalogImg) {
       String imgNorm = AiOrchestration.normalizeImagesApiModelId(catalogImg)
       body.put('imageModel', imgNorm)
@@ -181,6 +183,14 @@ final class AiAssistantCentralAgentsMerge {
       log.info(
         'Central agents merge: copied llm="{}" into POST body siteId={} agent={}',
         catalogLlm,
+        site,
+        agentId ?: '(first chat agent)'
+      )
+    }
+    if (!llmSecretBody && catalogLlmSecret) {
+      body.put('llmSecretKey', catalogLlmSecret)
+      log.info(
+        'Central agents merge: copied llmSecretKey into POST body siteId={} agent={}',
         site,
         agentId ?: '(first chat agent)'
       )

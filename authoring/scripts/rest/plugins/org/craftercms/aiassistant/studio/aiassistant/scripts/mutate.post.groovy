@@ -4,6 +4,7 @@ import groovy.json.JsonSlurper
 import org.springframework.security.core.context.SecurityContextHolder
 import plugins.org.craftercms.aiassistant.http.AiHttpProxy
 import plugins.org.craftercms.aiassistant.prompt.ToolPromptsLoader
+import plugins.org.craftercms.aiassistant.secrets.StudioAiAssistantSecretsService
 import plugins.org.craftercms.aiassistant.tools.StudioAiUserSiteTools
 import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
 
@@ -79,6 +80,25 @@ try {
     }
     ops.publishConfigChangeRefresh(siteId)
     return [ok: true, message: 'Deleted', repoPath: rp]
+  }
+  if ('savesecrets' == action) {
+    Object entriesRaw = reqBody.entries
+    if (!(entriesRaw instanceof List)) {
+      response.status = HttpServletResponse.SC_BAD_REQUEST
+      return [ok: false, message: 'Missing entries array']
+    }
+    List<Map> entries = []
+    for (Object o : (List) entriesRaw) {
+      if (o instanceof Map) {
+        entries.add((Map) o)
+      }
+    }
+    try {
+      return StudioAiAssistantSecretsService.saveAdminEntries(ops, entries)
+    } catch (IllegalStateException ise) {
+      response.status = HttpServletResponse.SC_BAD_REQUEST
+      return [ok: false, message: ise.message ?: 'Secrets save failed']
+    }
   }
   if ('removeusertool' == action) {
     String tid = reqBody.toolId?.toString()?.trim() ?: ''

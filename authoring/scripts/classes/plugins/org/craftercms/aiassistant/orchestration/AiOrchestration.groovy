@@ -688,31 +688,23 @@ For **content XML** (pages/components): do not invent a new element tree — pre
   }
 
   /**
-   * Resolution order: {@code OPENAI_API_KEY} env, {@code crafter.openai.apiKey} JVM,
-   * {@code OPENAI_API_KEY} JVM, then optional {@code fromWidgetOrRequest} (agent config / POST body — testing only).
+   * OpenAI-style key resolution (embeddings, legacy paths). Prefer {@link StudioAiProviderCredentials}.
    */
   static String resolveApiKey(String fromWidgetOrRequest = null) {
-    def fromEnv = System.getenv('OPENAI_API_KEY')
-    if (fromEnv?.trim()) return fromEnv.trim()
-    def p = System.getProperty('crafter.openai.apiKey')
-    if (p?.trim()) return p.trim()
-    p = System.getProperty('OPENAI_API_KEY')
-    if (p?.trim()) return p.trim()
-    def w = (fromWidgetOrRequest ?: '').toString().trim()
-    return w ?: ''
+    return StudioAiProviderCredentials.resolveApiKey(StudioAiLlmKind.OPENAI_NATIVE, fromWidgetOrRequest)
   }
 
   /**
    * Vendor-aware API key for orchestration callers. When {@code llmNormalized} is omitted, defaults to OpenAI resolution
    * (expert-skill embeddings and legacy image paths).
    */
-  static String resolveLlmApiKey(String fromWidgetOrRequest = null, String llmNormalized = null) {
+  static String resolveLlmApiKey(String fromWidgetOrRequest = null, String llmNormalized = null, String preferredSecretKey = null) {
     String kind = (llmNormalized ?: StudioAiLlmKind.OPENAI_NATIVE).toString()
     if (StudioAiLlmKind.isAnthropicClaude(kind)) {
-      return StudioAiProviderCredentials.resolveAnthropicApiKey(fromWidgetOrRequest)
+      return StudioAiProviderCredentials.resolveAnthropicApiKey(fromWidgetOrRequest, preferredSecretKey)
     }
     if (StudioAiLlmKind.useToolsLoopChatRestClientBuiltInKinds(kind) || StudioAiLlmKind.isScriptHostedLlm(kind)) {
-      return StudioAiProviderCredentials.resolveApiKey(kind, fromWidgetOrRequest)
+      return StudioAiProviderCredentials.resolveApiKey(kind, fromWidgetOrRequest, preferredSecretKey)
     }
     return resolveApiKey(fromWidgetOrRequest)
   }
@@ -721,10 +713,7 @@ For **content XML** (pages/components): do not invent a new element tree — pre
    * For logs only: which path {@link #resolveApiKey(String)} took (mirrors resolution order; no secret material).
    */
   static String apiKeyResolutionSource() {
-    if (System.getenv('OPENAI_API_KEY')?.toString()?.trim()) return 'OPENAI_API_KEY(env)'
-    if (System.getProperty('crafter.openai.apiKey')?.trim()) return 'crafter.openai.apiKey(jvm)'
-    if (System.getProperty('OPENAI_API_KEY')?.trim()) return 'OPENAI_API_KEY(jvm)'
-    return 'widget-or-request'
+    return StudioAiProviderCredentials.apiKeyResolutionSourceForLog(StudioAiLlmKind.OPENAI_NATIVE)
   }
 
   /**
@@ -1184,7 +1173,8 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     boolean fullSuppressRepoWrites = false,
     String protectedFormItemPath = null,
     boolean enableTools = true,
-    String imageGeneratorParam = null
+    String imageGeneratorParam = null,
+    String llmSecretKeyFromAgent = null
   ) {
     def converter = { Object result, java.lang.reflect.Type returnType -> toolResultToWireString(result, returnType) }
     /** Spring AI tool callbacks run on Reactor/HTTP-client threads; copy servlet SecurityContext for Studio permission checks. */
@@ -1216,6 +1206,7 @@ For **content XML** (pages/components): do not invent a new element tree — pre
       llmNormalized: llmNorm,
       llmModelParam: chatModelParam,
       llmApiKeyFromRequest: llmApiKeyFromRequest,
+      llmSecretKeyFromAgent: llmSecretKeyFromAgent,
       toolProgressListener: toolProgressListener,
       imageModelParam: imageModelParam,
       imageGeneratorParam: imageGeneratorParam,
@@ -6615,7 +6606,8 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
     boolean formEngineClientForward = false,
     String formEngineItemPathRaw = null,
     boolean enableTools = true,
-    String imageGenerator = null
+    String imageGenerator = null,
+    String llmSecretKey = null
   ) {
     try {
       aiAssistantPipelineCancelBindingClear()
@@ -6630,7 +6622,7 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
           fullSuppress = true
         }
       }
-      def springAi = buildSpringAiChatClient(agentId, chatId, llm, chatModel, llmApiKey, null, imageModel, fullSuppress, protNorm, enableTools, imageGenerator)
+      def springAi = buildSpringAiChatClient(agentId, chatId, llm, chatModel, llmApiKey, null, imageModel, fullSuppress, protNorm, enableTools, imageGenerator, llmSecretKey)
       if (formEngineClientForward && !StudioAiLlmKind.useToolsLoopChatRestClient(springAi.llm, springAi)) {
         log.warn(
           'Form-engine client-apply: llm is {} (not a tools-loop RestClient row). Use openAI / xAI / deepSeek / llama / genesis (gemini) on this agent for native RestClient tools + best compliance with aiassistantFormFieldUpdates.',
@@ -7383,7 +7375,8 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
     boolean formEngineClientForward = false,
     String formEngineItemPathRaw = null,
     boolean enableTools = true,
-    String imageGenerator = null
+    String imageGenerator = null,
+    String llmSecretKey = null
   ) {
     OutputStream out = null
     try {
@@ -7441,7 +7434,7 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
           fullSuppress = true
         }
       }
-      def springAi = buildSpringAiChatClient(agentId, chatId, llm, chatModel, llmApiKey, toolProgressListener, imageModel, fullSuppress, protNorm, enableTools, imageGenerator)
+      def springAi = buildSpringAiChatClient(agentId, chatId, llm, chatModel, llmApiKey, toolProgressListener, imageModel, fullSuppress, protNorm, enableTools, imageGenerator, llmSecretKey)
       if (formEngineClientForward && !StudioAiLlmKind.useToolsLoopChatRestClient(springAi.llm, springAi)) {
         log.warn(
           'Form-engine client-apply: llm is {} (not a tools-loop RestClient row). Use openAI / xAI / deepSeek / llama / genesis (gemini) on this agent for native RestClient tools + best compliance with aiassistantFormFieldUpdates.',

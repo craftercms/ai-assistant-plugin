@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# Shared CodeRabbit CLI hook for scripts/test/run-all.sh.
-# Requires emoji.inc.sh (via studio-auth.sh): AI_SKIP, AI_TEST, AI_FAIL.
+# Optional CodeRabbit CLI review (run manually from repo root).
+# Requires emoji.inc.sh: source scripts/lib/emoji.inc.sh (or studio-auth.sh) for AI_SKIP, AI_TEST, AI_FAIL.
 
 # Returns 0 when any skip env is set.
 _coderabbit_review_skip() {
@@ -91,3 +91,12 @@ coderabbit_review_uncommitted() {
 coderabbit_review_agent() {
   coderabbit_review_uncommitted "$@"
 }
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  set -euo pipefail
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+  REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+  # shellcheck source=lib/emoji.inc.sh
+  source "${SCRIPT_DIR}/lib/emoji.inc.sh"
+  coderabbit_review_uncommitted "${REPO_ROOT}"
+fi

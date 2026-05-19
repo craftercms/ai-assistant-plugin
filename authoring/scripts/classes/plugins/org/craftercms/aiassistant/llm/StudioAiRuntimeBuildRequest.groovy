@@ -26,6 +26,8 @@ class StudioAiRuntimeBuildRequest {
   String llmModelParam
   /** Optional per-agent key from POST / ui.xml ({@code llmApiKey}); {@link OpenAiSpringAiLlmRuntime} maps this to {@code apiKeyFromRequest}. */
   String llmApiKeyFromRequest
+  /** Optional {@code secrets.json} entry id from agents.json ({@code llmSecretKey}). */
+  String llmSecretKeyFromAgent
   Closure toolProgressListener
   /** OpenAI Images API default model from agent **{@code <imageModel>}** / POST **{@code imageModel}** only (no JVM fallback). */
   String imageModelParam

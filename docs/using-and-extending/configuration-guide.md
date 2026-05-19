@@ -265,11 +265,12 @@ Field reference: [spec.md — Central agent catalog](../internals/spec.md) · [l
 
 ### 4. Secrets and API Keys (Recommended Order)
 
-1. **Studio host environment variables** — Preferred for production API keys and base URLs. Provider names and variables are listed in [llm-configuration.md](llm-configuration.md).
-2. **Per‑agent `llmApiKey` in `agents.json`** — **testing only**; discouraged in Git‑tracked sites. Precedence vs host env is described in [chat-and-tools-runtime.md § OpenAI API key](../internals/chat-and-tools-runtime.md#openai-api-key-server-side).
+1. **Project Tools → Secrets** — Site registry at **`config/studio/scripts/aiassistant/config/secrets.json`**. On first open (or **`scripts/install-plugin.sh`** when the file is missing), the plugin seeds one row per built-in LLM provider with **`${env:VAR_NAME}`** (for example **`${env:OPENAI_API_KEY}`**). Authors may add custom keys and store **`${env:…}`**, Crafter **`${enc:…}`** ciphertext (from Studio **Encrypt Marked**), or plain text (encrypted on save). Resolved values are used **only on the server**; the UI never receives decrypted literals after save.
+2. **Studio host environment variables** — Still supported when referenced from **`secrets.json`** or as a direct fallback. Provider names and variables are listed in [llm-configuration.md](llm-configuration.md).
 3. **JVM system properties** — Advanced tuning and key fallbacks only; see **[studio-aiassistant-jvm-parameters.md](studio-aiassistant-jvm-parameters.md)**.
+4. **Per‑agent `llmApiKey` in `agents.json` or POST body** — **testing only**; discouraged in Git‑tracked sites.
 
-**Do not commit secrets** — prefer **`OPENAI_API_KEY`**, **`ANTHROPIC_API_KEY`**, and related provider env vars on the Studio host.
+**Do not commit plaintext secrets** — prefer **`${env:…}`** on the Studio host or **`${enc:…}`** in **`secrets.json`**. MCP **`headers`** and other config strings may also use **`${secret:key}`** to reference an entry in **`secrets.json`**.
 
 ---
 
@@ -297,7 +298,8 @@ Separate **AutonomousAssistants** widget in **`ui.xml`** (placement only). Agent
 - [ ] **`ui.xml`** committed; Studio **Sync** performed if you rely on git‑backed sandbox.
 - [ ] Helper / Autonomous / toolbar widgets are **nested under the correct parents** in **`config/studio/ui.xml`** (**§1** A / B / D), and the **`plugin`** line matches **§2**.
 - [ ] **`config/studio/ai-assistant/agents.json`** saved with at least one chat agent (Project Tools → Agents).
-- [ ] For **OpenAI‑wire / Claude / …**: host **env** API keys set (per [llm-configuration.md](llm-configuration.md)), or testing‑only **`llmApiKey`** on an agent row.
+- [ ] **Secrets** tab: **`secrets.json`** configured (env macros and/or encrypted values) for LLM providers you use.
+- [ ] For **OpenAI‑wire / Claude / …**: host **env** vars referenced from **Secrets**, or testing‑only **`llmApiKey`** on an agent row.
 - [ ] For **GenerateImage**: **`imageModel`** set on the agent (or body) when that tool is used.
 - [ ] **`llm`** is a **supported** provider (**`openAI`**, **`claude`**, **`script:{id}`**, …).
 

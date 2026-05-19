@@ -55,6 +55,8 @@ export interface AgentConfig {
    * Used only when `OPENAI_API_KEY` / JVM keys are unset. For local testing.
    */
   llmApiKey?: string;
+  /** Key in site {@code secrets.json} for this agent's LLM credentials (e.g. {@code openai_api_key}). Omitted for script LLMs. */
+  llmSecretKey?: string;
   prompts?: PromptConfig[];
   /** Markdown URLs for server-side QueryExpertGuidance (Spring AI vector store); OpenAI agents only. */
   expertSkills?: ExpertSkillConfig[];

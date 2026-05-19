@@ -1,4 +1,5 @@
 import { STUDIO_AI_BUILTIN_TOOL_IDS, STUDIO_AI_MCP_ALL_TOKEN } from './studioAiOrchestrationToolIds';
+import { mcpAuthorizationHeaderForSecretKey, secretKeyFromSecretRefHeaderValue } from './aiAssistantSecretsModel';
 
 /** Built-in wire names for hide/whitelist pickers (excludes the agent-only `mcp:*` sentinel). */
 export const BUILTIN_TOOL_NAME_OPTIONS: readonly string[] = STUDIO_AI_BUILTIN_TOOL_IDS.filter(
@@ -14,6 +15,8 @@ export interface McpServerFormRow {
   id: string;
   url: string;
   readTimeoutMs: string;
+  /** Custom secret from {@code secrets.json} for {@code Authorization: Bearer ${secret:…}}. */
+  authSecretKey: string;
   headerPairs: McpHeaderPair[];
 }
 
@@ -184,16 +187,37 @@ function headersObjectFromPairs(pairs: McpHeaderPair[]): Record<string, string> 
   return Object.keys(o).length ? o : undefined;
 }
 
+function mcpServerHeadersToJson(
+  headerPairs: McpHeaderPair[],
+  authSecretKey: string
+): Record<string, string> | undefined {
+  const o: Record<string, string> = { ...(headersObjectFromPairs(headerPairs) ?? {}) };
+  const authKey = authSecretKey.trim();
+  if (authKey) {
+    o.Authorization = mcpAuthorizationHeaderForSecretKey(authKey);
+  }
+  return Object.keys(o).length ? o : undefined;
+}
+
 function mcpServerRowFromUnknown(m: unknown): McpServerFormRow {
   if (!m || typeof m !== 'object' || Array.isArray(m)) {
-    return { id: '', url: '', readTimeoutMs: '', headerPairs: [{ key: '', value: '' }] };
+    return { id: '', url: '', readTimeoutMs: '', authSecretKey: '', headerPairs: [{ key: '', value: '' }] };
   }
   const rec = m as Record<string, unknown>;
   const headersRaw = rec.headers;
+  let authSecretKey = '';
   const headerPairs: McpHeaderPair[] = [];
   if (headersRaw && typeof headersRaw === 'object' && !Array.isArray(headersRaw)) {
     for (const [k, v] of Object.entries(headersRaw as Record<string, unknown>)) {
-      headerPairs.push({ key: k, value: v != null ? String(v) : '' });
+      const val = v != null ? String(v) : '';
+      if (k.trim().toLowerCase() === 'authorization') {
+        const sk = secretKeyFromSecretRefHeaderValue(val);
+        if (sk) {
+          authSecretKey = sk;
+          continue;
+        }
+      }
+      headerPairs.push({ key: k, value: val });
     }
   }
   if (headerPairs.length === 0) {
@@ -203,6 +227,7 @@ function mcpServerRowFromUnknown(m: unknown): McpServerFormRow {
     id: rec.id != null ? String(rec.id) : '',
     url: rec.url != null ? String(rec.url) : '',
     readTimeoutMs: rec.readTimeoutMs != null ? String(rec.readTimeoutMs) : '',
+    authSecretKey,
     headerPairs
   };
 }
@@ -319,7 +344,7 @@ export function buildMcpToolsPreviewBody(state: ToolsPolicyFormState): {
         return null;
       }
       const rec: Record<string, unknown> = { id, url };
-      const headers = headersObjectFromPairs(r.headerPairs);
+      const headers = mcpServerHeadersToJson(r.headerPairs, r.authSecretKey);
       if (headers) {
         rec.headers = headers;
       }
@@ -346,7 +371,7 @@ export function serializeToolsPolicyToJson(state: ToolsPolicyFormState): string 
         return null;
       }
       const rec: Record<string, unknown> = { id, url };
-      const headers = headersObjectFromPairs(r.headerPairs);
+      const headers = mcpServerHeadersToJson(r.headerPairs, r.authSecretKey);
       if (headers) {
         rec.headers = headers;
       }

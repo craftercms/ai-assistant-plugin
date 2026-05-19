@@ -70,6 +70,7 @@ for (Object raw : (List) agents) {
   String imageModel = a.imageModel?.toString()?.trim() ?: ''
   String imageGenerator = a.imageGenerator?.toString()?.trim() ?: ''
   String llmApiKey = a.llmApiKey?.toString()
+  String llmSecretKey = a.llmSecretKey?.toString()?.trim() ?: ''
   boolean manageOtherAgentsHumanTasks =
     Boolean.TRUE.equals(a.get('manageOtherAgentsHumanTasks')) ||
     'true'.equalsIgnoreCase(a.get('manageOtherAgentsHumanTasks')?.toString())
@@ -126,6 +127,7 @@ for (Object raw : (List) agents) {
     imageModel                  : imageModel,
     imageGenerator              : imageGenerator,
     llmApiKey                : llmApiKey,
+    llmSecretKey             : llmSecretKey,
     manageOtherAgentsHumanTasks : manageOtherAgentsHumanTasks,
     startAutomatically          : startAutomatically,
     stopOnFailure               : stopOnFailure

@@ -6,6 +6,7 @@ import plugins.org.craftercms.aiassistant.http.AiAssistantCentralAgentsMerge
 import plugins.org.craftercms.aiassistant.orchestration.AiOrchestration
 import plugins.org.craftercms.aiassistant.prompt.ToolPromptsSiteContext
 import plugins.org.craftercms.aiassistant.rag.ExpertSkillVectorRegistry
+import plugins.org.craftercms.aiassistant.secrets.StudioAiAssistantSecretsContext
 import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
 
 /**
@@ -68,6 +69,7 @@ if (AuthoringPreviewContext.isFormEngineSurface(body?.authoringSurface)) {
 promptForOrchestration = AuthoringPreviewContext.appendAgentDateTimeContext(promptForOrchestration)
 def chatId = body.chatId?.toString()
 def llmApiKey = (body?.apiKey ?: body?.llmApiKey ?: body?.openAiApiKey)?.toString()
+def llmSecretKey = body?.llmSecretKey?.toString()?.trim() ?: null
 if (siteIdBody) {
   try {
     request.setAttribute('aiassistant.siteId', siteIdBody)
@@ -148,6 +150,7 @@ if (!prompt) {
 try {
   String siteForPrompts = (siteIdBody ?: params?.siteId?.toString()?.trim() ?: '')
   ToolPromptsSiteContext.enter(applicationContext, siteForPrompts)
+  StudioAiAssistantSecretsContext.bind(siteForPrompts, applicationContext)
   try {
     def formEngineClientForward = AuthoringPreviewContext.isFormEngineSurface(body?.authoringSurface) && AuthoringPreviewContext.isTruthy(body?.formEngineClientJsonApply)
     def formEngineItemPathRaw = body?.formEngineItemPath?.toString()
@@ -160,9 +163,10 @@ try {
     } catch (Throwable ignoredAie) {
     }
     def orchestration = new AiOrchestration(request, response, applicationContext, params, pluginConfig)
-    return orchestration.chatProxy(agentId, promptForOrchestration, chatId, llm, llmModel, llmApiKey, imageModel, formEngineClientForward, formEngineItemPathRaw, enableTools, imageGenerator)
+    return orchestration.chatProxy(agentId, promptForOrchestration, chatId, llm, llmModel, llmApiKey, imageModel, formEngineClientForward, formEngineItemPathRaw, enableTools, imageGenerator, llmSecretKey)
   } finally {
     ToolPromptsSiteContext.exit()
+    StudioAiAssistantSecretsContext.clear()
   }
 } catch (IllegalStateException ise) {
   response.setStatus(HttpServletResponse.SC_BAD_REQUEST)

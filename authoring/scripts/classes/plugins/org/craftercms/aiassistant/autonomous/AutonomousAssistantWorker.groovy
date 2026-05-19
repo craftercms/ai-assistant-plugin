@@ -23,6 +23,7 @@ import plugins.org.craftercms.aiassistant.llm.StudioAiLlmRuntimeFactory
 import plugins.org.craftercms.aiassistant.llm.StudioAiRuntimeBuildRequest
 import plugins.org.craftercms.aiassistant.orchestration.AiOrchestration
 import plugins.org.craftercms.aiassistant.prompt.ToolPromptsSiteContext
+import plugins.org.craftercms.aiassistant.secrets.StudioAiAssistantSecretsContext
 import plugins.org.craftercms.aiassistant.rag.ExpertSkillVectorRegistry
 import plugins.org.craftercms.aiassistant.tools.AiOrchestrationTools
 import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
@@ -71,7 +72,8 @@ final class AutonomousAssistantWorker {
           "AutonomousAssistantWorker requires a tools-loop llm (openAI, xAI, deepSeek, llama, genesis/gemini) or script:… site Groovy LLM with tools-loop bundle fields; got llm='${llm}' (normalized='${normLlm}'). Claude (claude) is not supported for autonomous runs yet."
         )
       }
-      String llmImageExpertKey = AiOrchestration.resolveLlmApiKey(definition?.llmApiKey)
+      String agentSecretKey = definition?.llmSecretKey?.toString()?.trim() ?: ''
+      String llmImageExpertKey = AiOrchestration.resolveLlmApiKey(definition?.llmApiKey, normLlm, agentSecretKey ?: null)
       String chatApiKey = ''
       String model = ''
       String wireBaseUrl = ''
@@ -136,6 +138,7 @@ final class AutonomousAssistantWorker {
         }
         String imageGenSpec = (definition?.imageGenerator ?: '').toString().trim()
         ToolPromptsSiteContext.enter(app, (siteId ?: '').toString())
+        StudioAiAssistantSecretsContext.bind((siteId ?: '').toString(), app)
         try {
         String imageModel = (definition?.imageModel ?: '').toString().trim()
         if (imageModel) {
@@ -161,6 +164,7 @@ final class AutonomousAssistantWorker {
           llmNormalized: normLlm,
           llmModelParam: definition?.llmModel?.toString(),
           llmApiKeyFromRequest: definition?.llmApiKey?.toString(),
+          llmSecretKeyFromAgent: agentSecretKey ?: null,
           toolProgressListener: null,
           imageModelParam: definition?.imageModel?.toString(),
           imageGeneratorParam: imageGenSpec ?: null,
@@ -244,6 +248,7 @@ final class AutonomousAssistantWorker {
         )
         } finally {
           ToolPromptsSiteContext.exit()
+          StudioAiAssistantSecretsContext.clear()
         }
       }
       Map parsed = tryParseJsonObject(assistant)

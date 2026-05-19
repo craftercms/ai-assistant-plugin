@@ -10,6 +10,7 @@ import plugins.org.craftercms.aiassistant.http.AiAssistantCentralAgentsMerge
 import plugins.org.craftercms.aiassistant.orchestration.AiOrchestration
 import plugins.org.craftercms.aiassistant.prompt.ToolPromptsSiteContext
 import plugins.org.craftercms.aiassistant.rag.ExpertSkillVectorRegistry
+import plugins.org.craftercms.aiassistant.secrets.StudioAiAssistantSecretsContext
 import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
 
 /**
@@ -158,6 +159,7 @@ try {
     }
   }
   def llmApiKey = (body?.llmApiKey ?: body?.openAiApiKey ?: body?.apiKey)?.toString()
+  def llmSecretKey = body?.llmSecretKey?.toString()?.trim() ?: null
   def openAiModel = body?.llmModel?.toString()
   def imageModelRaw = body?.imageModel?.toString()
   def imageModel = null
@@ -212,10 +214,11 @@ try {
 
   String siteForPrompts = (siteIdBody ?: params?.siteId?.toString()?.trim() ?: '')
   ToolPromptsSiteContext.enter(applicationContext, siteForPrompts)
+  StudioAiAssistantSecretsContext.bind(siteForPrompts, applicationContext)
   try {
     try {
       def orchestration = new AiOrchestration(request, response, applicationContext, params, pluginConfig)
-      def result = orchestration.chatStreamWithSpringAi(agentId, promptForOrchestration.toString(), chatId, llm, openAiModel, llmApiKey, imageModel, formEngineClientForward, formEngineItemPathRaw, enableTools, imageGenerator)
+      def result = orchestration.chatStreamWithSpringAi(agentId, promptForOrchestration.toString(), chatId, llm, openAiModel, llmApiKey, imageModel, formEngineClientForward, formEngineItemPathRaw, enableTools, imageGenerator, llmSecretKey)
       if (result != null) {
         if (response.isCommitted()) {
           log.warn('chatStreamWithSpringAi returned error map but response already committed (SSE). Client should read metadata.error from stream. result={}', result)
@@ -281,6 +284,7 @@ try {
   }
   } finally {
     ToolPromptsSiteContext.exit()
+    StudioAiAssistantSecretsContext.clear()
   }
 } catch (Throwable outer) {
   if (response?.isCommitted()) {

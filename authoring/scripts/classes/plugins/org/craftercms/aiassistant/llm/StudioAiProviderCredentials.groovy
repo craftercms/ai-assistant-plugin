@@ -1,6 +1,9 @@
 package plugins.org.craftercms.aiassistant.llm
 
 import org.springframework.ai.openai.api.common.OpenAiApiConstants
+import plugins.org.craftercms.aiassistant.secrets.StudioAiAssistantSecretsCatalog
+import plugins.org.craftercms.aiassistant.secrets.StudioAiAssistantSecretsContext
+import plugins.org.craftercms.aiassistant.secrets.StudioAiAssistantSecretsService
 
 import java.util.Locale
 
@@ -82,14 +85,16 @@ final class StudioAiProviderCredentials {
     return b + '/v1/images/generations'
   }
 
-  static String resolveApiKey(String llmNormalized, String fromWidgetOrRequest = null) {
+  static String resolveApiKey(String llmNormalized, String fromWidgetOrRequest = null, String preferredSecretKey = null) {
     String n = (llmNormalized ?: '').toString()
     String w = (fromWidgetOrRequest ?: '').toString().trim()
+    String secretKey = (preferredSecretKey ?: '').toString().trim() ?: StudioAiAssistantSecretsCatalog.secretKeyForLlmKind(n)
     if (StudioAiLlmKind.OPENAI_NATIVE == n) {
       return resolveLlmProviderApiKey(
         'OPENAI_API_KEY',
         'crafter.openai.apiKey',
         'OPENAI_API_KEY',
+        secretKey ?: 'openai_api_key',
         w
       )
     }
@@ -98,6 +103,7 @@ final class StudioAiProviderCredentials {
         'XAI_API_KEY',
         'crafter.xai.apiKey',
         'XAI_API_KEY',
+        secretKey ?: 'xai_api_key',
         w
       )
     }
@@ -106,6 +112,7 @@ final class StudioAiProviderCredentials {
         'DEEPSEEK_API_KEY',
         'crafter.deepseek.apiKey',
         'DEEPSEEK_API_KEY',
+        secretKey ?: 'deepseek_api_key',
         w
       )
     }
@@ -115,6 +122,7 @@ final class StudioAiProviderCredentials {
         'LLAMA_API_KEY',
         'crafter.llama.apiKey',
         'LLAMA_API_KEY',
+        secretKey ?: 'llama_api_key',
         w
       )
       return k ?: 'ollama'
@@ -124,11 +132,13 @@ final class StudioAiProviderCredentials {
         'GEMINI_API_KEY',
         'crafter.gemini.apiKey',
         'GOOGLE_API_KEY',
+        secretKey ?: 'gemini_api_key',
         w
       ) ?: resolveLlmProviderApiKey(
         'GOOGLE_API_KEY',
         'crafter.google.apiKey',
         'GOOGLE_API_KEY',
+        'google_api_key',
         ''
       )
     }
@@ -137,6 +147,10 @@ final class StudioAiProviderCredentials {
 
   static String apiKeyResolutionSourceForLog(String llmNormalized) {
     String n = (llmNormalized ?: '').toString()
+    String secretKey = StudioAiAssistantSecretsCatalog.secretKeyForLlmKind(n)
+    if (secretKey && resolveFromSiteSecrets(secretKey)) {
+      return "secrets.json(${secretKey})"
+    }
     if (StudioAiLlmKind.OPENAI_NATIVE == n) {
       return llmStyleSource('OPENAI_API_KEY', 'crafter.openai.apiKey', 'OPENAI_API_KEY')
     }
@@ -171,7 +185,8 @@ final class StudioAiProviderCredentials {
     }
     String n = (llmNormalized ?: '').toString()
     if (StudioAiLlmKind.OPENAI_NATIVE == n) {
-      return !System.getenv('OPENAI_API_KEY')?.toString()?.trim() &&
+      return !resolveFromSiteSecrets('openai_api_key')?.trim() &&
+        !System.getenv('OPENAI_API_KEY')?.toString()?.trim() &&
         !System.getProperty('crafter.openai.apiKey')?.trim() &&
         !System.getProperty('OPENAI_API_KEY')?.trim()
     }
@@ -249,17 +264,22 @@ final class StudioAiProviderCredentials {
     return plugins.org.craftercms.aiassistant.orchestration.AiOrchestration.llmCanonicalizeApiModelToken(raw)
   }
 
-  static String resolveAnthropicApiKey(String fromWidgetOrRequest = null) {
+  static String resolveAnthropicApiKey(String fromWidgetOrRequest = null, String preferredSecretKey = null) {
+    String secretKey = (preferredSecretKey ?: '').toString().trim() ?: 'anthropic_api_key'
     resolveLlmProviderApiKey(
       'ANTHROPIC_API_KEY',
       'crafter.anthropic.apiKey',
       'ANTHROPIC_API_KEY',
+      secretKey,
       (fromWidgetOrRequest ?: '').toString().trim()
     )
   }
 
   static String anthropicApiKeySourceForLog() {
-    llmStyleSource('ANTHROPIC_API_KEY', 'crafter.anthropic.apiKey', 'ANTHROPIC_API_KEY')
+    if (resolveFromSiteSecrets('anthropic_api_key')) {
+      return 'secrets.json(anthropic_api_key)'
+    }
+    return llmStyleSource('ANTHROPIC_API_KEY', 'crafter.anthropic.apiKey', 'ANTHROPIC_API_KEY')
   }
 
   static String resolveAnthropicChatModel(String fromRequestOrAgent) {
@@ -282,14 +302,46 @@ final class StudioAiProviderCredentials {
     return ''
   }
 
-  private static String resolveLlmProviderApiKey(String envName, String jvmPrimary, String jvmAlt, String widget) {
+  /**
+   * Resolution order: site {@code secrets.json} entry, process env, JVM properties, then optional widget/request (testing).
+   */
+  private static String resolveLlmProviderApiKey(
+    String envName,
+    String jvmPrimary,
+    String jvmAlt,
+    String secretKey,
+    String widget
+  ) {
+    String fromSecrets = resolveFromSiteSecrets(secretKey)
+    if (fromSecrets?.trim()) {
+      return fromSecrets.trim()
+    }
     def e = System.getenv(envName)
-    if (e?.toString()?.trim()) return e.toString().trim()
+    if (e?.toString()?.trim()) {
+      return e.toString().trim()
+    }
     def p = System.getProperty(jvmPrimary)
-    if (p?.trim()) return p.trim()
+    if (p?.trim()) {
+      return p.trim()
+    }
     p = System.getProperty(jvmAlt)
-    if (p?.trim()) return p.trim()
+    if (p?.trim()) {
+      return p.trim()
+    }
     return (widget ?: '').toString().trim()
+  }
+
+  private static String resolveFromSiteSecrets(String secretKey) {
+    String key = (secretKey ?: '').toString().trim()
+    if (!key) {
+      return ''
+    }
+    String siteId = StudioAiAssistantSecretsContext.currentSiteId()
+    Object ctx = StudioAiAssistantSecretsContext.currentApplicationContext()
+    if (!siteId) {
+      return ''
+    }
+    return StudioAiAssistantSecretsService.resolveSecretKey(siteId, ctx, key)
   }
 
   private static String llmStyleSource(String envName, String jvmPrimary, String jvmAlt) {

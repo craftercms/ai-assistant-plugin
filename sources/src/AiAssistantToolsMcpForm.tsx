@@ -1,13 +1,19 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import useActiveSiteId from '@craftercms/studio-ui/hooks/useActiveSiteId';
 import AddRounded from '@mui/icons-material/AddRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import {
   Autocomplete,
   Button,
   Chip,
+  FormControl,
   FormControlLabel,
   IconButton,
+  InputLabel,
   Link,
+  MenuItem,
   Paper,
+  Select,
   Stack,
   Switch,
   Table,
@@ -18,11 +24,14 @@ import {
   TextField,
   Typography
 } from '@mui/material';
+import { fetchAiAssistantSecretsIndex } from './aiAssistantSecretsApi';
+import { customSecretKeysFromSecretsIndex } from './aiAssistantSecretsModel';
+import { effectiveStudioSiteId } from './aiAssistantStudioUiConfig';
 import type { McpServerFormRow, ToolsPolicyFormState } from './aiAssistantToolsMcpUiModel';
 import AiAssistantSiteOrchestrationToolsForm from './AiAssistantSiteOrchestrationToolsForm';
 
 function emptyMcpServerRow(): McpServerFormRow {
-  return { id: '', url: '', readTimeoutMs: '', headerPairs: [{ key: '', value: '' }] };
+  return { id: '', url: '', readTimeoutMs: '', authSecretKey: '', headerPairs: [{ key: '', value: '' }] };
 }
 
 export type AiAssistantToolsMcpFormSections = 'builtIn' | 'mcp' | 'both';
@@ -36,8 +45,29 @@ export interface AiAssistantToolsMcpFormProps {
 
 export default function AiAssistantToolsMcpForm(props: AiAssistantToolsMcpFormProps) {
   const { value, onChange, sections = 'both' } = props;
+  const activeSite = useActiveSiteId();
+  const siteId = useMemo(() => effectiveStudioSiteId(activeSite), [activeSite]);
+  const [customSecretKeyOptions, setCustomSecretKeyOptions] = useState<string[]>([]);
   const showBuiltIn = sections === 'builtIn' || sections === 'both';
   const showMcp = sections === 'mcp' || sections === 'both';
+
+  const loadCustomSecretKeys = useCallback(async () => {
+    if (!siteId) {
+      setCustomSecretKeyOptions([]);
+      return;
+    }
+    try {
+      const idx = await fetchAiAssistantSecretsIndex(siteId);
+      setCustomSecretKeyOptions(customSecretKeysFromSecretsIndex(idx.customSecrets));
+    } catch {
+      setCustomSecretKeyOptions([]);
+    }
+  }, [siteId]);
+
+  useEffect(() => {
+    if (!showMcp) return;
+    void loadCustomSecretKeys();
+  }, [showMcp, loadCustomSecretKeys]);
 
   const setMcpEnabled = (mcpEnabled: boolean) => {
     onChange({ ...value, mcpEnabled });
@@ -128,6 +158,34 @@ export default function AiAssistantToolsMcpForm(props: AiAssistantToolsMcpFormPr
                           onChange={(e) => updateServer(si, { ...row, url: e.target.value })}
                           placeholder="https://host/…/mcp"
                         />
+                        <FormControl fullWidth size="small" sx={{ mt: 1 }}>
+                          <InputLabel id={`cq-mcp-auth-secret-${si}`}>Auth secret (custom)</InputLabel>
+                          <Select
+                            labelId={`cq-mcp-auth-secret-${si}`}
+                            label="Auth secret (custom)"
+                            value={row.authSecretKey}
+                            onChange={(e) =>
+                              updateServer(si, { ...row, authSecretKey: String(e.target.value) })
+                            }
+                          >
+                            <MenuItem value="">
+                              <em>None</em>
+                            </MenuItem>
+                            {row.authSecretKey &&
+                            !customSecretKeyOptions.includes(row.authSecretKey) ? (
+                              <MenuItem value={row.authSecretKey}>{row.authSecretKey}</MenuItem>
+                            ) : null}
+                            {customSecretKeyOptions.map((key) => (
+                              <MenuItem key={key} value={key}>
+                                {key}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                        <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                          Sets <code>Authorization: Bearer {'${secret:…}'}</code> from a custom secret in Project
+                          Tools → Secrets. LLM provider keys are not listed here.
+                        </Typography>
                         <Stack spacing={0.5} sx={{ mt: 1 }}>
                           <Typography variant="caption" color="text.secondary">
                             Optional headers

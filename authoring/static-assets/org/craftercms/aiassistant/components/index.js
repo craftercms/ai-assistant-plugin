@@ -1,6 +1,6 @@
 const { Fragment, jsx: jsx$1, jsxs } = craftercms.libs?.reactJsxRuntime;
 const require$$2 = craftercms.libs?.reactJsxRuntime && Object.prototype.hasOwnProperty.call(craftercms.libs?.reactJsxRuntime, 'default') ? craftercms.libs?.reactJsxRuntime['default'] : craftercms.libs?.reactJsxRuntime;
-const { useTheme, Box, CircularProgress, Typography, TableContainer, Paper, Table: Table$1, TableHead, TableBody, TableRow, TableCell, Stack: Stack$1, Tooltip, IconButton, Tabs, Tab, Button, Divider, TextField, Chip, FormControlLabel, Switch, Popover, paperClasses, GlobalStyles, Menu, MenuItem, ListItemIcon, ListItemText, Dialog, DialogContent, Alert, FormControl, InputLabel, Select, List, ListItem, Checkbox, ListItemButton, Badge, DialogTitle, DialogActions, Avatar, useMediaQuery, Autocomplete, ListItemSecondaryAction, FormLabel, FormGroup, Snackbar, Link, RadioGroup, Radio } = craftercms.libs.MaterialUI;
+const { useTheme, Box, CircularProgress, Typography, TableContainer, Paper, Table: Table$1, TableHead, TableBody, TableRow, TableCell, Stack: Stack$1, Tooltip, IconButton, Tabs, Tab, Button, Divider, TextField, Chip, FormControlLabel, Switch, Popover, paperClasses, GlobalStyles, Menu, MenuItem, ListItemIcon, ListItemText, Dialog, DialogContent, Alert, FormControl, InputLabel, Select, List, ListItem, Checkbox, ListItemButton, Badge, DialogTitle, DialogActions, Avatar, useMediaQuery, Autocomplete, ListItemSecondaryAction, ListSubheader, FormLabel, FormGroup, Snackbar, Link, RadioGroup, Radio, InputAdornment } = craftercms.libs.MaterialUI;
 const React = craftercms.libs.React;
 const { useRef, useState, useEffect, useCallback, useMemo, useLayoutEffect, useSyncExternalStore, createElement, forwardRef, useImperativeHandle } = craftercms.libs.React;
 const React__default = craftercms.libs.React && Object.prototype.hasOwnProperty.call(craftercms.libs.React, 'default') ? craftercms.libs.React['default'] : craftercms.libs.React;
@@ -73,6 +73,8 @@ const AutoFixHighRounded = craftercms.utils.constants.components.get('@mui/icons
 const BuildRounded = craftercms.utils.constants.components.get('@mui/icons-material/BuildRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/BuildRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/BuildRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/BuildRounded');
 const ArrowForwardRounded = craftercms.utils.constants.components.get('@mui/icons-material/ArrowForwardRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/ArrowForwardRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/ArrowForwardRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/ArrowForwardRounded');
 const FormatListBulletedRounded = craftercms.utils.constants.components.get('@mui/icons-material/FormatListBulletedRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/FormatListBulletedRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/FormatListBulletedRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/FormatListBulletedRounded');
+const VisibilityOffRounded = craftercms.utils.constants.components.get('@mui/icons-material/VisibilityOffRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/VisibilityOffRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/VisibilityOffRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/VisibilityOffRounded');
+const VisibilityRounded = craftercms.utils.constants.components.get('@mui/icons-material/VisibilityRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/VisibilityRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/VisibilityRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/VisibilityRounded');
 const Autocomplete$1 = craftercms.libs.MaterialUI.Autocomplete && Object.prototype.hasOwnProperty.call(craftercms.libs.MaterialUI.Autocomplete, 'default') ? craftercms.libs.MaterialUI.Autocomplete['default'] : craftercms.libs.MaterialUI.Autocomplete;
 
 /*
@@ -28356,7 +28358,7 @@ const IMPORT_SCRIPT_PATH = '/studio/api/2/plugin/script/plugins/org/craftercms/a
  * Studio {@code PluginController.runScript} wraps the script return map under {@code result}
  * (see {@code ResultConstants.RESULT_KEY_RESULT}).
  */
-function unwrapPluginScriptBody$3(body) {
+function unwrapPluginScriptBody$4(body) {
     if (!body || typeof body !== 'object')
         return body;
     const o = body;
@@ -28400,7 +28402,7 @@ async function importRemoteImageToRepo(siteId, imageUrl, repoPath, signal) {
                 signal
             });
             const raw = (await res.json().catch(() => ({})));
-            const data = unwrapPluginScriptBody$3(raw);
+            const data = unwrapPluginScriptBody$4(raw);
             if (!res.ok || data.ok === false) {
                 throw new Error(data.message || `Import failed (${res.status})`);
             }
@@ -32895,6 +32897,9 @@ function entryToChatAgent(entry) {
     const enabledBuiltIn = normalizeEnabledBuiltInToolsRaw(entry.enabledBuiltInTools ?? entry.enabled_built_in_tools);
     if (enabledBuiltIn?.length)
         out.enabledBuiltInTools = enabledBuiltIn;
+    const llmSecretKey = String(entry.llmSecretKey ?? '').trim();
+    if (llmSecretKey)
+        out.llmSecretKey = llmSecretKey;
     return out;
 }
 function entryToAutonomousDefinition(entry) {
@@ -32941,6 +32946,9 @@ function entryToAutonomousDefinition(entry) {
     if (enabledBuiltIn?.length) {
         out.enabledBuiltInTools = enabledBuiltIn;
     }
+    const llmSecretKey = String(entry.llmSecretKey ?? '').trim();
+    if (llmSecretKey)
+        out.llmSecretKey = llmSecretKey;
     return out;
 }
 function catalogChatAgents(file) {
@@ -34046,12 +34054,12 @@ function mergeAutonomousWidgetProps(props) {
 }
 
 const BASE$2 = '/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/autonomous/assistants';
-function withSite$2(url, siteId) {
+function withSite$3(url, siteId) {
     const sep = url.includes('?') ? '&' : '?';
     return `${url}${sep}siteId=${encodeURIComponent(siteId)}`;
 }
 /** Studio plugin controller wraps the Groovy script return map under `result` (see `aiAssistantImportApi.ts`). */
-function unwrapPluginScriptBody$2(body) {
+function unwrapPluginScriptBody$3(body) {
     if (!body || typeof body !== 'object')
         return body;
     const o = body;
@@ -34061,7 +34069,7 @@ function unwrapPluginScriptBody$2(body) {
     return body;
 }
 async function syncAutonomousAssistants(siteId, agents) {
-    const res = await fetch(withSite$2(`${BASE$2}/sync`, siteId), {
+    const res = await fetch(withSite$3(`${BASE$2}/sync`, siteId), {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -34071,20 +34079,20 @@ async function syncAutonomousAssistants(siteId, agents) {
         body: JSON.stringify({ siteId, agents })
     });
     const raw = await res.json().catch(() => ({}));
-    const data = unwrapPluginScriptBody$2(raw);
+    const data = unwrapPluginScriptBody$3(raw);
     if (!res.ok) {
         return { ok: false, message: data.message ?? raw.message ?? res.statusText };
     }
     return data;
 }
 async function getAutonomousAssistantsStatus(siteId) {
-    const res = await fetch(withSite$2(`${BASE$2}/status`, siteId), {
+    const res = await fetch(withSite$3(`${BASE$2}/status`, siteId), {
         method: 'GET',
         credentials: 'include',
         headers: { ...buildStudioAuthHeaders() }
     });
     const raw = await res.json();
-    return unwrapPluginScriptBody$2(raw);
+    return unwrapPluginScriptBody$3(raw);
 }
 async function postAutonomousAssistantsControl(siteId, action, agentId, taskId, extras) {
     const payload = { siteId, action, agentId: agentId ?? '' };
@@ -34098,7 +34106,7 @@ async function postAutonomousAssistantsControl(siteId, action, agentId, taskId, 
             }
         }
     }
-    const res = await fetch(withSite$2(`${BASE$2}/control`, siteId), {
+    const res = await fetch(withSite$3(`${BASE$2}/control`, siteId), {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -34108,7 +34116,7 @@ async function postAutonomousAssistantsControl(siteId, action, agentId, taskId, 
         body: JSON.stringify(payload)
     });
     const raw = await res.json().catch(() => ({}));
-    const data = unwrapPluginScriptBody$2(raw);
+    const data = unwrapPluginScriptBody$3(raw);
     if (!res.ok) {
         return { ok: false, message: data.message ?? raw.message ?? res.statusText };
     }
@@ -35196,6 +35204,175 @@ function AiAssistantFormControl(props) {
 
 const fetchSiteUiConfig = /*#__PURE__*/ createAction('FETCH_SITE_UI_CONFIG');
 
+/** Studio module path for site secrets registry (under {@code config/studio/}). */
+const SECRETS_JSON_REL = 'scripts/aiassistant/config/secrets.json';
+/**
+ * Built-in LLM provider secret slots (mirrors {@code StudioAiAssistantSecretsCatalog} on the server).
+ * The UI always lists these so authors see every provider even before {@code secrets.json} exists.
+ */
+const AI_ASSISTANT_KNOWN_SECRET_SLOTS = [
+    { key: 'openai_api_key', label: 'OpenAI', llmProvider: 'openAI', defaultEnvVar: 'OPENAI_API_KEY' },
+    { key: 'anthropic_api_key', label: 'Claude (Anthropic)', llmProvider: 'claude', defaultEnvVar: 'ANTHROPIC_API_KEY' },
+    { key: 'xai_api_key', label: 'xAI', llmProvider: 'xAI', defaultEnvVar: 'XAI_API_KEY' },
+    { key: 'deepseek_api_key', label: 'DeepSeek', llmProvider: 'deepSeek', defaultEnvVar: 'DEEPSEEK_API_KEY' },
+    { key: 'llama_api_key', label: 'Llama (Ollama-compatible)', llmProvider: 'llama', defaultEnvVar: 'LLAMA_API_KEY' },
+    { key: 'gemini_api_key', label: 'Gemini (Google)', llmProvider: 'gemini', defaultEnvVar: 'GEMINI_API_KEY' }
+];
+function defaultKnownSecretAdminRows() {
+    return AI_ASSISTANT_KNOWN_SECRET_SLOTS.map((slot) => {
+        const expr = `\${env:${slot.defaultEnvVar}}`;
+        return {
+            key: slot.key,
+            label: slot.label,
+            configured: false,
+            valueKind: 'env',
+            llmProvider: slot.llmProvider,
+            optional: slot.optional,
+            defaultEnvVar: slot.defaultEnvVar,
+            suggestedExpression: expr,
+            valueExpression: expr,
+            envVar: slot.defaultEnvVar
+        };
+    });
+}
+/** Merge server admin rows over the built-in catalog (server wins per key). */
+/** Built-in {@code secrets.json} key for a Project Tools LLM vendor id (empty for script). */
+function secretKeyForLlmVendor(vendor) {
+    const v = (vendor ?? '').trim();
+    switch (v) {
+        case 'openAI':
+            return 'openai_api_key';
+        case 'claude':
+            return 'anthropic_api_key';
+        case 'xAI':
+            return 'xai_api_key';
+        case 'deepSeek':
+            return 'deepseek_api_key';
+        case 'llama':
+            return 'llama_api_key';
+        case 'gemini':
+            return 'gemini_api_key';
+        default:
+            return '';
+    }
+}
+const BUILTIN_PROVIDER_SECRET_KEY_SET = new Set(AI_ASSISTANT_KNOWN_SECRET_SLOTS.map((s) => s.key));
+/** True when {@code key} is a fixed LLM provider slot (not a project custom secret). */
+function isBuiltinProviderSecretKey(key) {
+    return BUILTIN_PROVIDER_SECRET_KEY_SET.has((key ?? '').trim());
+}
+/** Custom secret keys only (MCP auth and cross-provider overrides). */
+function customSecretKeysFromSecretsIndex(custom) {
+    const keys = new Set();
+    for (const r of custom ?? []) {
+        const k = r.key?.trim();
+        if (k)
+            keys.add(k);
+    }
+    return [...keys].sort();
+}
+function builtinSecretSlotLabel(key) {
+    return AI_ASSISTANT_KNOWN_SECRET_SLOTS.find((s) => s.key === key.trim())?.label;
+}
+/** Parse {@code Authorization} (or similar) header values that reference {@code secrets.json}. */
+function secretKeyFromSecretRefHeaderValue(value) {
+    const v = (value ?? '').trim();
+    const m = v.match(/^(?:Bearer\s+)?\$\{secret:([a-z][a-z0-9_]{0,63})\}$/i);
+    return m ? m[1] : '';
+}
+function mcpAuthorizationHeaderForSecretKey(secretKey) {
+    const k = secretKey.trim();
+    return k ? `Bearer \${secret:${k}}` : '';
+}
+function mergeKnownSecretsWithServer(serverKnown) {
+    const base = defaultKnownSecretAdminRows();
+    if (!serverKnown?.length) {
+        return base;
+    }
+    const byKey = new Map(serverKnown.map((r) => [r.key, r]));
+    return base.map((b) => {
+        const s = byKey.get(b.key);
+        return s ? { ...b, ...s, label: s.label || b.label } : b;
+    });
+}
+function defaultEnvVarForKey(key, row) {
+    const fromRow = row?.defaultEnvVar?.trim() || row?.envVar?.trim();
+    if (fromRow)
+        return fromRow;
+    const suggested = row?.suggestedExpression?.trim();
+    if (suggested?.startsWith('${env:') && suggested.endsWith('}')) {
+        return suggested.slice(6, -1);
+    }
+    return '';
+}
+function rowDraftFromAdmin(row, known) {
+    const kind = row.valueKind ?? 'empty';
+    const defaultEnv = defaultEnvVarForKey(row.key, row);
+    let editMode = 'env';
+    if (kind === 'enc' || kind === 'secret_ref') {
+        editMode = 'enc';
+    }
+    else if (kind === 'literal') {
+        editMode = 'plain';
+    }
+    else if (kind === 'env' || (known && defaultEnv)) {
+        editMode = 'env';
+    }
+    return {
+        key: row.key,
+        label: row.label || row.key,
+        known,
+        notPersisted: known && !row.configured,
+        llmProvider: row.llmProvider?.trim() || undefined,
+        optional: Boolean(row.optional),
+        editMode,
+        envVar: row.envVar?.trim() || defaultEnv,
+        expressionDraft: kind === 'enc' || kind === 'secret_ref' ? row.valueExpression?.trim() || '' : row.suggestedExpression?.trim() || '',
+        plainDraft: '',
+        hasStoredLiteral: Boolean(row.hasEncryptedLiteral),
+        remove: false
+    };
+}
+function buildSecretSaveEntries(drafts) {
+    const out = [];
+    for (const d of drafts) {
+        const key = d.key.trim();
+        if (!key || d.remove) {
+            if (key)
+                out.push({ key, remove: true });
+            continue;
+        }
+        if (d.editMode === 'env') {
+            const envVar = d.envVar.trim();
+            if (!envVar) {
+                out.push({ key, clear: true });
+            }
+            else {
+                out.push({ key, envVar });
+            }
+            continue;
+        }
+        if (d.editMode === 'enc') {
+            const expr = d.expressionDraft.trim();
+            if (!expr) {
+                out.push({ key, clear: true });
+            }
+            else if (expr.startsWith('${enc:')) {
+                out.push({ key, valueExpression: expr });
+            }
+            else {
+                out.push({ key, encCipher: expr });
+            }
+            continue;
+        }
+        const plain = d.plainDraft.trim();
+        if (plain) {
+            out.push({ key, plainValue: plain });
+        }
+    }
+    return out;
+}
+
 /** Built-in wire names for hide/whitelist pickers (excludes the agent-only `mcp:*` sentinel). */
 const BUILTIN_TOOL_NAME_OPTIONS = STUDIO_AI_BUILTIN_TOOL_IDS.filter((id) => id !== STUDIO_AI_MCP_ALL_TOKEN);
 const KNOWN_TOP_LEVEL_KEYS = new Set([
@@ -35327,16 +35504,33 @@ function headersObjectFromPairs(pairs) {
     }
     return Object.keys(o).length ? o : undefined;
 }
+function mcpServerHeadersToJson(headerPairs, authSecretKey) {
+    const o = { ...(headersObjectFromPairs(headerPairs) ?? {}) };
+    const authKey = authSecretKey.trim();
+    if (authKey) {
+        o.Authorization = mcpAuthorizationHeaderForSecretKey(authKey);
+    }
+    return Object.keys(o).length ? o : undefined;
+}
 function mcpServerRowFromUnknown(m) {
     if (!m || typeof m !== 'object' || Array.isArray(m)) {
-        return { id: '', url: '', readTimeoutMs: '', headerPairs: [{ key: '', value: '' }] };
+        return { id: '', url: '', readTimeoutMs: '', authSecretKey: '', headerPairs: [{ key: '', value: '' }] };
     }
     const rec = m;
     const headersRaw = rec.headers;
+    let authSecretKey = '';
     const headerPairs = [];
     if (headersRaw && typeof headersRaw === 'object' && !Array.isArray(headersRaw)) {
         for (const [k, v] of Object.entries(headersRaw)) {
-            headerPairs.push({ key: k, value: v != null ? String(v) : '' });
+            const val = v != null ? String(v) : '';
+            if (k.trim().toLowerCase() === 'authorization') {
+                const sk = secretKeyFromSecretRefHeaderValue(val);
+                if (sk) {
+                    authSecretKey = sk;
+                    continue;
+                }
+            }
+            headerPairs.push({ key: k, value: val });
         }
     }
     if (headerPairs.length === 0) {
@@ -35346,6 +35540,7 @@ function mcpServerRowFromUnknown(m) {
         id: rec.id != null ? String(rec.id) : '',
         url: rec.url != null ? String(rec.url) : '',
         readTimeoutMs: rec.readTimeoutMs != null ? String(rec.readTimeoutMs) : '',
+        authSecretKey,
         headerPairs
     };
 }
@@ -35413,8 +35608,8 @@ function validateToolsPolicy(state) {
         const t = raw.trim();
         if (!t)
             return { ok: true };
-        const n = Math.round(Number(t));
-        if (!Number.isFinite(n) || n < 1) {
+        const n = Number(t);
+        if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1) {
             return { ok: false, message: `${label} must be a positive integer when set.` };
         }
         return { ok: true };
@@ -35458,7 +35653,7 @@ function buildMcpToolsPreviewBody(state) {
             return null;
         }
         const rec = { id, url };
-        const headers = headersObjectFromPairs(r.headerPairs);
+        const headers = mcpServerHeadersToJson(r.headerPairs, r.authSecretKey);
         if (headers) {
             rec.headers = headers;
         }
@@ -35483,7 +35678,7 @@ function serializeToolsPolicyToJson(state) {
             return null;
         }
         const rec = { id, url };
-        const headers = headersObjectFromPairs(r.headerPairs);
+        const headers = mcpServerHeadersToJson(r.headerPairs, r.authSecretKey);
         if (headers) {
             rec.headers = headers;
         }
@@ -35529,11 +35724,11 @@ function AiAssistantSiteOrchestrationToolsForm(props) {
 }
 
 const BASE$1 = '/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/scripts';
-function withSite$1(url, siteId) {
+function withSite$2(url, siteId) {
     const sep = url.includes('?') ? '&' : '?';
     return `${url}${sep}siteId=${encodeURIComponent(siteId)}`;
 }
-function unwrapPluginScriptBody$1(body) {
+function unwrapPluginScriptBody$2(body) {
     if (!body || typeof body !== 'object')
         return body;
     const o = body;
@@ -35543,33 +35738,33 @@ function unwrapPluginScriptBody$1(body) {
     return body;
 }
 async function fetchAiAssistantPromptDetail(siteId, key) {
-    const res = await fetch(`${withSite$1(`${BASE$1}/prompt`, siteId)}&key=${encodeURIComponent(key)}`, {
+    const res = await fetch(`${withSite$2(`${BASE$1}/prompt`, siteId)}&key=${encodeURIComponent(key)}`, {
         method: 'GET',
         credentials: 'include',
         headers: { ...buildStudioAuthHeaders() }
     });
     const raw = await res.json().catch(() => ({}));
-    const data = unwrapPluginScriptBody$1(raw);
+    const data = unwrapPluginScriptBody$2(raw);
     if (!res.ok) {
         return { ok: false, message: data.message ?? raw.message ?? res.statusText };
     }
     return data;
 }
 async function fetchAiAssistantScriptsIndex(siteId) {
-    const res = await fetch(withSite$1(`${BASE$1}/index`, siteId), {
+    const res = await fetch(withSite$2(`${BASE$1}/index`, siteId), {
         method: 'GET',
         credentials: 'include',
         headers: { ...buildStudioAuthHeaders() }
     });
     const raw = await res.json().catch(() => ({}));
-    const data = unwrapPluginScriptBody$1(raw);
+    const data = unwrapPluginScriptBody$2(raw);
     if (!res.ok) {
         return { ok: false, message: data.message ?? raw.message ?? res.statusText };
     }
     return data;
 }
 async function postAiAssistantMcpToolsPreview(siteId, body) {
-    const res = await fetch(withSite$1(`${BASE$1}/mcp-tools-preview`, siteId), {
+    const res = await fetch(withSite$2(`${BASE$1}/mcp-tools-preview`, siteId), {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -35579,14 +35774,14 @@ async function postAiAssistantMcpToolsPreview(siteId, body) {
         body: JSON.stringify({ siteId, ...body })
     });
     const raw = await res.json().catch(() => ({}));
-    const data = unwrapPluginScriptBody$1(raw);
+    const data = unwrapPluginScriptBody$2(raw);
     if (!res.ok) {
         return { ok: false, message: data.message ?? raw.message ?? res.statusText };
     }
     return data;
 }
 async function postAiAssistantScriptsMutate(siteId, payload) {
-    const res = await fetch(withSite$1(`${BASE$1}/mutate`, siteId), {
+    const res = await fetch(withSite$2(`${BASE$1}/mutate`, siteId), {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -35596,7 +35791,7 @@ async function postAiAssistantScriptsMutate(siteId, payload) {
         body: JSON.stringify({ siteId, ...payload })
     });
     const raw = await res.json().catch(() => ({}));
-    const data = unwrapPluginScriptBody$1(raw);
+    const data = unwrapPluginScriptBody$2(raw);
     if (!res.ok) {
         return { ok: false, message: data.message ?? raw.message ?? res.statusText };
     }
@@ -35704,12 +35899,127 @@ async function tryFetchConfigurationXmlPlain(siteId, configPathRelative) {
     }
 }
 
+const SCRIPTS_BASE = '/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/scripts';
+const SECRETS_INDEX = '/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/secrets/index';
+function withSite$1(url, siteId) {
+    const sep = url.includes('?') ? '&' : '?';
+    return `${url}${sep}siteId=${encodeURIComponent(siteId)}`;
+}
+function unwrapPluginScriptBody$1(body) {
+    if (!body || typeof body !== 'object')
+        return body;
+    const o = body;
+    const inner = o.result;
+    if (inner && typeof inner === 'object' && !Array.isArray(inner))
+        return inner;
+    return body;
+}
+async function fetchDedicatedSecretsIndex(siteId) {
+    try {
+        const res = await fetch(withSite$1(SECRETS_INDEX, siteId), {
+            method: 'GET',
+            credentials: 'include',
+            headers: { ...buildStudioAuthHeaders() }
+        });
+        const raw = await res.json().catch(() => ({}));
+        const data = unwrapPluginScriptBody$1(raw);
+        if (!res.ok || data.ok === false) {
+            return null;
+        }
+        if ((data.knownSecrets ?? []).length > 0) {
+            return data;
+        }
+        return null;
+    }
+    catch {
+        return null;
+    }
+}
+/**
+ * Loads secrets admin rows. Built-in LLM provider rows always come from the client catalog;
+ * server data (when present) supplies configured state and custom secrets.
+ */
+async function fetchAiAssistantSecretsIndex(siteId) {
+    const idx = await fetchAiAssistantScriptsIndex(siteId);
+    if (idx.ok === false) {
+        return {
+            ok: true,
+            siteId,
+            knownSecrets: mergeKnownSecretsWithServer(),
+            customSecrets: [],
+            catalogWarning: idx.message ?? 'Could not load site scripts index; showing built-in provider keys only.'
+        };
+    }
+    let serverKnown = idx.knownSecrets;
+    let customSecrets = idx.customSecrets ?? [];
+    let studioPath = idx.secretsStudioPath;
+    const serverError = idx.secretsError?.trim();
+    if (!serverKnown?.length && !serverError) {
+        const dedicated = await fetchDedicatedSecretsIndex(siteId);
+        if (dedicated) {
+            serverKnown = dedicated.knownSecrets;
+            customSecrets = dedicated.customSecrets ?? customSecrets;
+            studioPath = dedicated.studioPath ?? studioPath;
+        }
+    }
+    const knownSecrets = mergeKnownSecretsWithServer(serverKnown);
+    const secretsSeeded = Boolean(idx.secretsSeeded);
+    let catalogWarning;
+    if (serverError) {
+        catalogWarning = `${serverError} Showing built-in provider keys; save may fail until the plugin is updated on Studio.`;
+    }
+    else if (!serverKnown?.length) {
+        catalogWarning =
+            'Server secrets catalog not available yet (update plugin and copy authoring/scripts/classes). Built-in provider keys are shown below — click Save secrets to write secrets.json.';
+    }
+    return {
+        ok: true,
+        siteId,
+        studioPath,
+        knownSecrets,
+        customSecrets,
+        catalogWarning,
+        secretsSeeded
+    };
+}
+async function saveAiAssistantSecretsEntries(siteId, entries) {
+    const res = await fetch(withSite$1(`${SCRIPTS_BASE}/mutate`, siteId), {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+            ...buildStudioAuthHeaders(),
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ siteId, action: 'saveSecrets', entries })
+    });
+    const raw = await res.json().catch(() => ({}));
+    const data = unwrapPluginScriptBody$1(raw);
+    if (!res.ok) {
+        return { ok: false, message: data.message ?? raw.message ?? res.statusText };
+    }
+    return data;
+}
+
 /** Select value when the agent uses a script LLM id not found under {@code scripts/aiassistant/llm/} (manual id). */
 const CQ_SCRIPT_LLM_SELECT_CUSTOM = '__cqScriptLlmCustom__';
 /** Select value when image {@code script:} id is not under {@code scripts/aiassistant/imagegen/}. */
 const CQ_SCRIPT_IMAGE_SELECT_CUSTOM = '__cqScriptImageCustom__';
 function cloneCatalog(f) {
     return { version: f.version ?? 1, agents: f.agents.map((a) => ({ ...a })) };
+}
+function applyLlmSecretKeyOnEntry(rec, llm) {
+    const sp = parseLlmVendorAndScript(llm);
+    if (sp.vendor === 'script') {
+        delete rec.llmSecretKey;
+        return;
+    }
+    const sk = String(rec.llmSecretKey ?? '').trim() || secretKeyForLlmVendor(sp.vendor);
+    if (sk) {
+        rec.llmSecretKey = sk;
+    }
+    else {
+        delete rec.llmSecretKey;
+    }
 }
 function parseLlmVendorAndScript(llm) {
     const s = String(llm ?? 'openAI').trim();
@@ -35819,7 +36129,7 @@ function AgentAdvancedAgentFields(props) {
                                             }, fullWidth: true, size: "small", placeholder: "https://example.com/docs/guide.md" }), jsx$1(TextField, { label: "When to use (optional)", value: row.description, onChange: (ev) => {
                                                 const v = ev.target.value;
                                                 setExpertSkillRows(expertSkillRows.map((r, i) => (i === idx ? { ...r, description: v } : r)));
-                                            }, fullWidth: true, size: "small", multiline: true, minRows: 2 })] })] }, idx))) }), jsx$1(Button, { sx: { mt: 1 }, size: "small", startIcon: jsx$1(AddRounded, {}), onClick: () => setExpertSkillRows([...expertSkillRows, { name: '', url: '', description: '' }]), children: "Add expert skill" })] }), jsx$1(TextField, { label: "Translate batch concurrency (1\u201364, optional)", value: translateBatchStr, onChange: (ev) => setTranslateBatchStr(ev.target.value), fullWidth: true, size: "small", placeholder: "25", helperText: "Default parallelism for TranslateContentBatch when the model omits maxConcurrency. Leave empty for server default (25)." }), jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", children: ["Provider API keys are not stored in ", jsx$1("strong", { children: "agents.json" }), ". Configure", ' ', jsx$1("strong", { children: "OPENAI_API_KEY" }), " / provider env vars on the Studio host, or pass a per-request key from the client when testing."] })] }));
+                                            }, fullWidth: true, size: "small", multiline: true, minRows: 2 })] })] }, idx))) }), jsx$1(Button, { sx: { mt: 1 }, size: "small", startIcon: jsx$1(AddRounded, {}), onClick: () => setExpertSkillRows([...expertSkillRows, { name: '', url: '', description: '' }]), children: "Add expert skill" })] }), jsx$1(TextField, { label: "Translate batch concurrency (1\u201364, optional)", value: translateBatchStr, onChange: (ev) => setTranslateBatchStr(ev.target.value), fullWidth: true, size: "small", placeholder: "25", helperText: "Default parallelism for TranslateContentBatch when the model omits maxConcurrency. Leave empty for server default (25)." }), jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", children: ["API keys are not stored in ", jsx$1("strong", { children: "agents.json" }), ". On the ", jsx$1("strong", { children: "General" }), " tab, each agent uses the built-in secret for its LLM provider or a custom secret from ", jsx$1("strong", { children: "Project Tools \u2192 Secrets" }), " (", jsx$1("code", { children: "secrets.json" }), ")."] })] }));
 }
 function CmsToolCheckboxes(props) {
     const { draft, onToggle } = props;
@@ -35857,6 +36167,7 @@ function normalizeCatalogForSave(f) {
                 delete outRec.enabledBuiltInTools;
                 delete outRec.enabled_built_in_tools;
             }
+            applyLlmSecretKeyOnEntry(outRec, out.llm);
             return out;
         }
         const label = String(e.label ?? e.name ?? '').trim() || 'Untitled assistant';
@@ -35897,6 +36208,7 @@ function normalizeCatalogForSave(f) {
             delete recChat.openAsPopup;
             delete recChat.open_as_popup;
         }
+        applyLlmSecretKeyOnEntry(recChat, outChat.llm);
         return outChat;
     });
     return { version: f.version ?? 1, agents };
@@ -35937,6 +36249,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
     const [siteOrchError, setSiteOrchError] = useState(null);
     const [savingSiteOrch, setSavingSiteOrch] = useState(false);
     const [scriptsIndexRows, setScriptsIndexRows] = useState({ llm: [], imageGen: [] });
+    const [customSecretKeyOptions, setCustomSecretKeyOptions] = useState([]);
     const scriptsRowsRef = React.useRef(scriptsIndexRows);
     scriptsRowsRef.current = scriptsIndexRows;
     const resetSiteOrchDraft = useCallback(() => {
@@ -36011,6 +36324,19 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
         }
         void loadSiteOrchPolicy();
     }, [draft, editIndex, agentDialogTab, siteOrchLoaded, siteOrchLoading, siteOrchDirty, loadSiteOrchPolicy]);
+    const loadSecretKeyOptions = useCallback(async () => {
+        if (!siteId) {
+            setCustomSecretKeyOptions([]);
+            return;
+        }
+        try {
+            const idx = await fetchAiAssistantSecretsIndex(siteId);
+            setCustomSecretKeyOptions(customSecretKeysFromSecretsIndex(idx.customSecrets));
+        }
+        catch {
+            setCustomSecretKeyOptions([]);
+        }
+    }, [siteId]);
     const loadScriptsSandboxIndex = useCallback(async () => {
         if (!siteId) {
             setScriptsIndexRows({ llm: [], imageGen: [] });
@@ -36053,7 +36379,8 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
             setLoaded(true);
         }
         void loadScriptsSandboxIndex();
-    }, [siteId, loadScriptsSandboxIndex]);
+        void loadSecretKeyOptions();
+    }, [siteId, loadScriptsSandboxIndex, loadSecretKeyOptions]);
     useEffect(() => {
         onDirtyChange?.(dirty);
     }, [dirty, onDirtyChange]);
@@ -36096,6 +36423,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
             label: 'New assistant',
             crafterQAgentId: '',
             llm: 'openAI',
+            llmSecretKey: 'openai_api_key',
             llmModel: 'gpt-4o-mini',
             imageModel: STUDIO_AI_DEFAULT_IMAGE_MODEL,
             enableTools: true,
@@ -36118,6 +36446,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
             prompt: '',
             scope: 'project',
             llm: 'openAI',
+            llmSecretKey: 'openai_api_key',
             llmModel: 'gpt-4o-mini',
             imageModel: STUDIO_AI_DEFAULT_IMAGE_MODEL,
             manageOtherAgentsHumanTasks: false
@@ -36279,18 +36608,49 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
                                                                 return d;
                                                             if (v === 'script') {
                                                                 const first = scriptsRowsRef.current.llm[0]?.id?.trim();
-                                                                return { ...d, llm: first ? `script:${first}` : 'script', llmModel: 'composer-2' };
+                                                                const next = {
+                                                                    ...d,
+                                                                    llm: first ? `script:${first}` : 'script',
+                                                                    llmModel: 'composer-2'
+                                                                };
+                                                                delete next.llmSecretKey;
+                                                                return next;
                                                             }
-                                                            return { ...d, llm: v, llmModel: d.llmModel?.trim() ? d.llmModel : 'gpt-4o-mini' };
+                                                            const sk = secretKeyForLlmVendor(v);
+                                                            const currentSk = String(d.llmSecretKey ?? '').trim();
+                                                            const nextSk = !currentSk || isBuiltinProviderSecretKey(currentSk) ? sk : currentSk;
+                                                            return {
+                                                                ...d,
+                                                                llm: v,
+                                                                llmModel: d.llmModel?.trim() ? d.llmModel : 'gpt-4o-mini',
+                                                                ...(nextSk ? { llmSecretKey: nextSk } : {})
+                                                            };
                                                         });
-                                                    }, children: STUDIO_AI_LLM_VENDOR_IDS.map((id) => (jsx$1(MenuItem, { value: id, children: id }, id))) })] }), sp.vendor === 'script' ? (jsxs(Fragment, { children: [jsxs(Stack$1, { direction: "row", spacing: 1, alignItems: "flex-start", children: [jsxs(FormControl, { fullWidth: true, size: "small", variant: "outlined", sx: { flex: 1 }, children: [jsx$1(InputLabel, { id: "cq-central-script-llm-pick", children: "Script LLM" }), jsxs(Select, { labelId: "cq-central-script-llm-pick", label: "Script LLM", value: llmScriptSelectVal, onChange: (ev) => {
+                                                    }, children: STUDIO_AI_LLM_VENDOR_IDS.map((id) => (jsx$1(MenuItem, { value: id, children: id }, id))) })] }), sp.vendor !== 'script'
+                                            ? (() => {
+                                                const builtinKey = secretKeyForLlmVendor(sp.vendor);
+                                                const llmSecretValue = String(draft.llmSecretKey ?? '').trim() || builtinKey || '';
+                                                const builtinLabel = builtinKey
+                                                    ? builtinSecretSlotLabel(builtinKey) ?? sp.vendor
+                                                    : '';
+                                                const orphanCustom = llmSecretValue &&
+                                                    llmSecretValue !== builtinKey &&
+                                                    !customSecretKeyOptions.includes(llmSecretValue);
+                                                return (jsxs(FormControl, { fullWidth: true, size: "small", variant: "outlined", children: [jsx$1(InputLabel, { id: "cq-central-llm-secret", children: "LLM secret" }), jsxs(Select, { labelId: "cq-central-llm-secret", label: "LLM secret", value: llmSecretValue, onChange: (ev) => {
+                                                                const v = String(ev.target.value);
+                                                                setDraft((d) => (d ? { ...d, llmSecretKey: v } : d));
+                                                            }, children: [builtinKey ? (jsxs(MenuItem, { value: builtinKey, children: ["Built-in (", builtinLabel, " \u2014 ", builtinKey, ")"] })) : null, customSecretKeyOptions.length ? (jsx$1(ListSubheader, { disableSticky: true, children: "Custom secrets" })) : null, customSecretKeyOptions.map((key) => (jsx$1(MenuItem, { value: key, children: key }, key))), orphanCustom ? (jsx$1(MenuItem, { value: llmSecretValue, children: llmSecretValue })) : null] })] }));
+                                            })()
+                                            : null, sp.vendor === 'script' ? (jsxs(Fragment, { children: [jsxs(Stack$1, { direction: "row", spacing: 1, alignItems: "flex-start", children: [jsxs(FormControl, { fullWidth: true, size: "small", variant: "outlined", sx: { flex: 1 }, children: [jsx$1(InputLabel, { id: "cq-central-script-llm-pick", children: "Script LLM" }), jsxs(Select, { labelId: "cq-central-script-llm-pick", label: "Script LLM", value: llmScriptSelectVal, onChange: (ev) => {
                                                                         const v = String(ev.target.value);
                                                                         setDraft((d) => {
                                                                             if (!d)
                                                                                 return d;
-                                                                            if (v === CQ_SCRIPT_LLM_SELECT_CUSTOM)
-                                                                                return { ...d, llm: 'script' };
-                                                                            return { ...d, llm: `script:${v}` };
+                                                                            const next = (v === CQ_SCRIPT_LLM_SELECT_CUSTOM
+                                                                                ? { ...d, llm: 'script' }
+                                                                                : { ...d, llm: `script:${v}` });
+                                                                            delete next.llmSecretKey;
+                                                                            return next;
                                                                         });
                                                                     }, children: [llmScriptRows.map((row) => (jsxs(MenuItem, { value: row.id, children: [row.id, !row.hasSource ? ' — add runtime.groovy' : ''] }, row.id))), jsx$1(MenuItem, { value: CQ_SCRIPT_LLM_SELECT_CUSTOM, children: "Custom id\u2026" })] })] }), jsx$1(Tooltip, { title: "Refresh list", children: jsx$1(IconButton, { size: "small", sx: { mt: 0.5 }, "aria-label": "Refresh script LLM list", onClick: () => void loadScriptsSandboxIndex(), children: jsx$1(RefreshRounded, { fontSize: "small" }) }) })] }), llmScriptSelectVal === CQ_SCRIPT_LLM_SELECT_CUSTOM ? (jsx$1(TextField, { label: "Custom script LLM id", value: sp.scriptId, onChange: (ev) => {
                                                         const id = ev.target.value.trim();
@@ -73119,12 +73479,33 @@ Non-empty markdown replaces the built-in prompt for this key. Leave the file bla
 }
 
 function emptyMcpServerRow() {
-    return { id: '', url: '', readTimeoutMs: '', headerPairs: [{ key: '', value: '' }] };
+    return { id: '', url: '', readTimeoutMs: '', authSecretKey: '', headerPairs: [{ key: '', value: '' }] };
 }
 function AiAssistantToolsMcpForm(props) {
     const { value, onChange, sections = 'both' } = props;
+    const activeSite = useActiveSiteId();
+    const siteId = useMemo(() => effectiveStudioSiteId(activeSite), [activeSite]);
+    const [customSecretKeyOptions, setCustomSecretKeyOptions] = useState([]);
     const showBuiltIn = sections === 'builtIn' || sections === 'both';
     const showMcp = sections === 'mcp' || sections === 'both';
+    const loadCustomSecretKeys = useCallback(async () => {
+        if (!siteId) {
+            setCustomSecretKeyOptions([]);
+            return;
+        }
+        try {
+            const idx = await fetchAiAssistantSecretsIndex(siteId);
+            setCustomSecretKeyOptions(customSecretKeysFromSecretsIndex(idx.customSecrets));
+        }
+        catch {
+            setCustomSecretKeyOptions([]);
+        }
+    }, [siteId]);
+    useEffect(() => {
+        if (!showMcp)
+            return;
+        void loadCustomSecretKeys();
+    }, [showMcp, loadCustomSecretKeys]);
     const setMcpEnabled = (mcpEnabled) => {
         onChange({ ...value, mcpEnabled });
     };
@@ -73138,7 +73519,8 @@ function AiAssistantToolsMcpForm(props) {
     const removeServer = (index) => {
         onChange({ ...value, mcpServers: value.mcpServers.filter((_, i) => i !== index) });
     };
-    return (jsxs(Stack$1, { spacing: 4, children: [showBuiltIn ? jsx$1(AiAssistantSiteOrchestrationToolsForm, { value: value, onChange: onChange }) : null, showMcp ? (jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "subtitle2", children: "MCP (Streamable HTTP):" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.mcpEnabled, onChange: (_, c) => setMcpEnabled(c), size: "small" }), label: "Enable MCP client" })] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "When enabled, each server below is contacted on chat requests to list and call remote tools. URLs must pass the same outbound rules as FetchHttpUrl." }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Example (streamable HTTP, optional headers, read-only URL patterns):", ' ', jsx$1(Link, { href: "https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md", target: "_blank", rel: "noopener noreferrer", children: "GitHub MCP Server \u2014 remote-server.md" }), "."] }), value.mcpEnabled ? (jsxs(Fragment, { children: [jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "body2", children: "MCP servers" }), jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: addServer, children: "Add server" })] }), value.mcpServers.length === 0 ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 1 }, children: "No servers yet. Use Add server to register a Streamable HTTP MCP endpoint." })) : (jsxs(Table$1, { size: "small", sx: { border: 1, borderColor: 'divider', borderRadius: 1, mb: 1 }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Server id" }), jsx$1(TableCell, { children: "MCP URL and optional headers" }), jsx$1(TableCell, { width: 120, children: "Timeout (ms)" }), jsx$1(TableCell, { align: "right", width: 88, children: ' ' })] }) }), jsx$1(TableBody, { children: value.mcpServers.map((row, si) => (jsxs(TableRow, { children: [jsx$1(TableCell, { sx: { verticalAlign: 'top' }, children: jsx$1(TextField, { size: "small", fullWidth: true, value: row.id, onChange: (e) => updateServer(si, { ...row, id: e.target.value }), placeholder: "e.g. docs" }) }), jsxs(TableCell, { sx: { verticalAlign: 'top' }, children: [jsx$1(TextField, { size: "small", fullWidth: true, value: row.url, onChange: (e) => updateServer(si, { ...row, url: e.target.value }), placeholder: "https://host/\u2026/mcp" }), jsxs(Stack$1, { spacing: 0.5, sx: { mt: 1 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Optional headers" }), row.headerPairs.map((hp, hi) => (jsxs(Stack$1, { direction: "row", spacing: 0.5, alignItems: "center", children: [jsx$1(TextField, { size: "small", label: "Name", value: hp.key, onChange: (e) => {
+    return (jsxs(Stack$1, { spacing: 4, children: [showBuiltIn ? jsx$1(AiAssistantSiteOrchestrationToolsForm, { value: value, onChange: onChange }) : null, showMcp ? (jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "subtitle2", children: "MCP (Streamable HTTP):" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.mcpEnabled, onChange: (_, c) => setMcpEnabled(c), size: "small" }), label: "Enable MCP client" })] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "When enabled, each server below is contacted on chat requests to list and call remote tools. URLs must pass the same outbound rules as FetchHttpUrl." }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Example (streamable HTTP, optional headers, read-only URL patterns):", ' ', jsx$1(Link, { href: "https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md", target: "_blank", rel: "noopener noreferrer", children: "GitHub MCP Server \u2014 remote-server.md" }), "."] }), value.mcpEnabled ? (jsxs(Fragment, { children: [jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "body2", children: "MCP servers" }), jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: addServer, children: "Add server" })] }), value.mcpServers.length === 0 ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 1 }, children: "No servers yet. Use Add server to register a Streamable HTTP MCP endpoint." })) : (jsxs(Table$1, { size: "small", sx: { border: 1, borderColor: 'divider', borderRadius: 1, mb: 1 }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Server id" }), jsx$1(TableCell, { children: "MCP URL and optional headers" }), jsx$1(TableCell, { width: 120, children: "Timeout (ms)" }), jsx$1(TableCell, { align: "right", width: 88, children: ' ' })] }) }), jsx$1(TableBody, { children: value.mcpServers.map((row, si) => (jsxs(TableRow, { children: [jsx$1(TableCell, { sx: { verticalAlign: 'top' }, children: jsx$1(TextField, { size: "small", fullWidth: true, value: row.id, onChange: (e) => updateServer(si, { ...row, id: e.target.value }), placeholder: "e.g. docs" }) }), jsxs(TableCell, { sx: { verticalAlign: 'top' }, children: [jsx$1(TextField, { size: "small", fullWidth: true, value: row.url, onChange: (e) => updateServer(si, { ...row, url: e.target.value }), placeholder: "https://host/\u2026/mcp" }), jsxs(FormControl, { fullWidth: true, size: "small", sx: { mt: 1 }, children: [jsx$1(InputLabel, { id: `cq-mcp-auth-secret-${si}`, children: "Auth secret (custom)" }), jsxs(Select, { labelId: `cq-mcp-auth-secret-${si}`, label: "Auth secret (custom)", value: row.authSecretKey, onChange: (e) => updateServer(si, { ...row, authSecretKey: String(e.target.value) }), children: [jsx$1(MenuItem, { value: "", children: jsx$1("em", { children: "None" }) }), row.authSecretKey &&
+                                                                            !customSecretKeyOptions.includes(row.authSecretKey) ? (jsx$1(MenuItem, { value: row.authSecretKey, children: row.authSecretKey })) : null, customSecretKeyOptions.map((key) => (jsx$1(MenuItem, { value: key, children: key }, key)))] })] }), jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mt: 0.5 }, children: ["Sets ", jsxs("code", { children: ["Authorization: Bearer ", '${secret:…}'] }), " from a custom secret in Project Tools \u2192 Secrets. LLM provider keys are not listed here."] }), jsxs(Stack$1, { spacing: 0.5, sx: { mt: 1 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Optional headers" }), row.headerPairs.map((hp, hi) => (jsxs(Stack$1, { direction: "row", spacing: 0.5, alignItems: "center", children: [jsx$1(TextField, { size: "small", label: "Name", value: hp.key, onChange: (e) => {
                                                                                 const headerPairs = row.headerPairs.map((p, j) => j === hi ? { ...p, key: e.target.value } : p);
                                                                                 updateServer(si, { ...row, headerPairs });
                                                                             }, sx: { flex: 1 } }), jsx$1(TextField, { size: "small", label: "Value", type: hp.key.trim().toLowerCase() === 'authorization' ? 'password' : 'text', autoComplete: "off", value: hp.value, onChange: (e) => {
@@ -74028,6 +74410,138 @@ function AiAssistantScriptsSandboxConfiguration(props) {
                                         })] })) : null }), jsx$1(DialogActions, { children: mcpToolsDialog?.purpose === 'listOnly' ? (jsx$1(Button, { onClick: () => setMcpToolsDialog(null), children: "Close" })) : (jsxs(Fragment, { children: [jsx$1(Button, { onClick: () => setMcpToolsDialog(null), disabled: savingToolsPolicy, children: "Cancel" }), jsx$1(Button, { variant: "contained", onClick: () => void confirmMcpToolsDialogSave(), disabled: savingToolsPolicy, children: "Save" })] })) })] })] }))] }));
 }
 
+function isValidCustomKey(key) {
+    return /^[a-z][a-z0-9_]{0,63}$/.test(key.trim());
+}
+function SecretValueField(props) {
+    const { draft, showPlain, onToggleShow, onEditMode, onEnvVar, onExpression, onPlain } = props;
+    return (jsxs(Stack$1, { spacing: 1.25, sx: { minWidth: 280 }, children: [jsx$1(FormControl, { size: "small", children: jsxs(RadioGroup, { row: true, value: draft.editMode, onChange: (_, v) => onEditMode(v), children: [jsx$1(FormControlLabel, { value: "env", control: jsx$1(Radio, { size: "small" }), label: "Environment" }), jsx$1(FormControlLabel, { value: "enc", control: jsx$1(Radio, { size: "small" }), label: "Encrypted" }), jsx$1(FormControlLabel, { value: "plain", control: jsx$1(Radio, { size: "small" }), label: "Plain (encrypt on save)" })] }) }), draft.editMode === 'env' ? (jsx$1(TextField, { size: "small", label: "Environment variable", placeholder: "OPENAI_API_KEY", value: draft.envVar, onChange: (e) => onEnvVar(e.target.value), fullWidth: true })) : null, draft.editMode === 'enc' ? (jsx$1(TextField, { size: "small", label: "Encrypted value", placeholder: "${enc:\u2026} from Studio Encrypt Marked", value: draft.expressionDraft, onChange: (e) => onExpression(e.target.value), helperText: "Paste ${enc:\u2026} from Crafter Studio configuration encryption, or ciphertext only.", fullWidth: true })) : null, draft.editMode === 'plain' ? (jsx$1(TextField, { size: "small", label: draft.hasStoredLiteral ? 'Replace secret value' : 'Secret value', placeholder: draft.hasStoredLiteral ? 'Leave blank to keep existing encrypted value' : '', type: showPlain ? 'text' : 'password', value: draft.plainDraft, onChange: (e) => onPlain(e.target.value), helperText: draft.hasStoredLiteral
+                    ? 'A value is already stored encrypted on the server. Enter text only to replace it.'
+                    : 'Saved with Crafter encryptionService as ${enc:…}; plaintext is never returned to the browser.', fullWidth: true, InputProps: {
+                    endAdornment: (jsx$1(InputAdornment, { position: "end", children: jsx$1(IconButton, { size: "small", "aria-label": showPlain ? 'Hide value' : 'Show value', onClick: onToggleShow, children: showPlain ? jsx$1(VisibilityOffRounded, { fontSize: "small" }) : jsx$1(VisibilityRounded, { fontSize: "small" }) }) }))
+                } })) : null] }));
+}
+function SecretsTable(props) {
+    const { rows, showPlainByKey, onToggleShow, onPatch, allowRemove } = props;
+    const visible = rows.filter((r) => !r.remove);
+    if (visible.length === 0) {
+        return (jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "None" }));
+    }
+    return (jsxs(Table$1, { size: "small", sx: { '& th': { fontWeight: 600 } }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { sx: { width: '24%' }, children: "Name" }), jsx$1(TableCell, { children: "Value" }), allowRemove ? jsx$1(TableCell, { sx: { width: 56 } }) : null] }) }), jsx$1(TableBody, { children: visible.map((row) => (jsxs(TableRow, { hover: true, children: [jsx$1(TableCell, { valign: "top", children: jsxs(Stack$1, { spacing: 0.5, children: [jsx$1(Typography, { variant: "body2", fontWeight: 600, children: row.label }), jsx$1(Typography, { variant: "caption", color: "text.secondary", component: "code", children: row.key })] }) }), jsx$1(TableCell, { valign: "top", children: jsx$1(SecretValueField, { draft: row, showPlain: Boolean(showPlainByKey[row.key]), onToggleShow: () => onToggleShow(row.key), onEditMode: (mode) => onPatch(row.key, { editMode: mode, plainDraft: '', expressionDraft: '' }), onEnvVar: (v) => onPatch(row.key, { envVar: v }), onExpression: (v) => onPatch(row.key, { expressionDraft: v }), onPlain: (v) => onPatch(row.key, { plainDraft: v }) }) }), allowRemove ? (jsx$1(TableCell, { valign: "top", children: jsx$1(Tooltip, { title: "Remove custom secret", children: jsx$1(IconButton, { size: "small", "aria-label": `Remove ${row.key}`, onClick: () => onPatch(row.key, { remove: true }), children: jsx$1(DeleteOutlineRounded, { fontSize: "small" }) }) }) })) : null] }, row.key))) })] }));
+}
+function AiAssistantSecretsConfiguration() {
+    const activeSite = useActiveSiteId();
+    const siteId = useMemo(() => effectiveStudioSiteId(activeSite), [activeSite]);
+    const [providerRows, setProviderRows] = useState([]);
+    const [customRows, setCustomRows] = useState([]);
+    const [loaded, setLoaded] = useState(false);
+    const [loadError, setLoadError] = useState(null);
+    const [catalogWarning, setCatalogWarning] = useState(null);
+    const [secretsSeededNotice, setSecretsSeededNotice] = useState(null);
+    const [dirty, setDirty] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [saveError, setSaveError] = useState(null);
+    const [showPlainByKey, setShowPlainByKey] = useState({});
+    const [newCustomKey, setNewCustomKey] = useState('');
+    const allRows = useMemo(() => [...providerRows, ...customRows], [providerRows, customRows]);
+    const reload = useCallback(async () => {
+        if (!siteId)
+            return;
+        setLoadError(null);
+        setCatalogWarning(null);
+        setSecretsSeededNotice(null);
+        setLoaded(false);
+        try {
+            const idx = await fetchAiAssistantSecretsIndex(siteId);
+            if (idx.ok === false) {
+                setLoadError(idx.message ?? 'Failed to load secrets');
+                setProviderRows([]);
+                setCustomRows([]);
+                setLoaded(true);
+                return;
+            }
+            setCatalogWarning(idx.catalogWarning?.trim() || null);
+            setSecretsSeededNotice(idx.secretsSeeded
+                ? `Created ${SECRETS_JSON_REL} with default \${env:…} entries for each built-in LLM provider. Set the matching variables on the Studio host or edit a row below.`
+                : null);
+            const providers = (idx.knownSecrets ?? []).map((row) => rowDraftFromAdmin(row, true));
+            setProviderRows(providers);
+            setCustomRows((idx.customSecrets ?? []).map((row) => rowDraftFromAdmin(row, false)));
+            setDirty(false);
+            setShowPlainByKey({});
+        }
+        catch (e) {
+            setLoadError(e instanceof Error ? e.message : 'Failed to load secrets');
+            setProviderRows([]);
+            setCustomRows([]);
+        }
+        finally {
+            setLoaded(true);
+        }
+    }, [siteId]);
+    useEffect(() => {
+        void reload();
+    }, [reload]);
+    const patchRow = useCallback((key, patch) => {
+        const apply = (list) => list.map((r) => (r.key === key ? { ...r, ...patch, notPersisted: false } : r));
+        setProviderRows((prev) => apply(prev));
+        setCustomRows((prev) => apply(prev));
+        setDirty(true);
+        setSaveError(null);
+    }, []);
+    const addCustom = useCallback(() => {
+        const key = newCustomKey.trim().toLowerCase();
+        if (!isValidCustomKey(key)) {
+            setSaveError('Custom key must start with a letter and use lowercase letters, digits, or underscores only.');
+            return;
+        }
+        if (allRows.some((r) => r.key === key)) {
+            setSaveError(`Secret key "${key}" already exists.`);
+            return;
+        }
+        setCustomRows((prev) => [
+            ...prev,
+            {
+                key,
+                label: key,
+                known: false,
+                notPersisted: true,
+                editMode: 'env',
+                envVar: '',
+                expressionDraft: '',
+                plainDraft: '',
+                hasStoredLiteral: false,
+                remove: false
+            }
+        ]);
+        setNewCustomKey('');
+        setDirty(true);
+        setSaveError(null);
+    }, [allRows, newCustomKey]);
+    const save = useCallback(async () => {
+        if (!siteId)
+            return;
+        setSaving(true);
+        setSaveError(null);
+        try {
+            const entries = buildSecretSaveEntries(allRows.filter((r) => !r.remove));
+            const res = await saveAiAssistantSecretsEntries(siteId, entries);
+            if (res.ok === false) {
+                setSaveError(res.message ?? 'Save failed');
+                return;
+            }
+            await reload();
+        }
+        catch (e) {
+            setSaveError(e instanceof Error ? e.message : 'Save failed');
+        }
+        finally {
+            setSaving(false);
+        }
+    }, [allRows, reload, siteId]);
+    return (jsx$1(Box, { sx: { p: 2, maxWidth: 1200 }, children: jsxs(Stack$1, { spacing: 2.5, children: [jsxs(Box, { children: [jsx$1(Typography, { variant: "h6", gutterBottom: true, children: "Secrets" }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Configure credentials the AI Assistant resolves on the Studio server for this site. Settings are stored in", ' ', jsx$1("code", { children: SECRETS_JSON_REL }), " separately from tool and MCP policy so secrets can be managed and audited on their own."] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 0 }, children: "After you save, resolved values are never sent back to the browser. To update an encrypted entry, enter a new value; previously saved plaintext is not shown again." })] }), jsxs(Alert, { severity: "info", sx: { '& .MuiAlert-message': { width: '100%' } }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Value formats" }), jsx$1(Typography, { variant: "body2", component: "div", sx: { '& ul': { m: 0, pl: 2.25 } }, children: jsxs("ul", { children: [jsxs("li", { children: [jsx$1("strong", { children: "Environment variable" }), " \u2014 ", jsx$1("code", { children: '${env:VAR_NAME}' }), ". Studio reads the variable from the JVM environment at runtime."] }), jsxs("li", { children: [jsx$1("strong", { children: "Encrypted (Crafter)" }), " \u2014 ", jsx$1("code", { children: '${enc:…}' }), " ciphertext from Studio", ' ', jsx$1("em", { children: "Encrypt Marked" }), ", or paste an existing ciphertext when editing."] }), jsxs("li", { children: [jsx$1("strong", { children: "Plain text (encrypt on save)" }), " \u2014 Values you enter are encrypted before storage and saved as ", jsx$1("code", { children: '${enc:…}' }), "."] }), jsxs("li", { children: [jsx$1("strong", { children: "Secret reference" }), " \u2014 ", jsx$1("code", { children: '${secret:key}' }), " in MCP headers or other config (for example ", jsx$1("code", { children: '${secret:openai_api_key}' }), ")."] })] }) })] }), loadError ? jsx$1(Alert, { severity: "error", children: loadError }) : null, secretsSeededNotice ? jsx$1(Alert, { severity: "success", children: secretsSeededNotice }) : null, catalogWarning ? jsx$1(Alert, { severity: "warning", children: catalogWarning }) : null, saveError ? jsx$1(Alert, { severity: "warning", children: saveError }) : null, dirty ? (jsxs(Alert, { severity: "warning", variant: "outlined", children: ["LLM provider rows below show recommended environment variables. Click ", jsx$1("strong", { children: "Save secrets" }), " to write them to ", jsx$1("code", { children: SECRETS_JSON_REL }), " for this site."] })) : null, !loaded ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "Loading secrets\u2026" })) : (jsxs(Fragment, { children: [jsxs(Box, { children: [jsx$1(Typography, { variant: "subtitle1", gutterBottom: true, children: "LLM provider credentials" }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Each supported provider has a fixed secret key and defaults to the environment variable shown. Set the variable on the Studio host, or switch the row to an encrypted value." }), jsx$1(SecretsTable, { rows: providerRows, showPlainByKey: showPlainByKey, onToggleShow: (key) => setShowPlainByKey((m) => ({ ...m, [key]: !m[key] })), onPatch: patchRow, allowRemove: false })] }), jsx$1(Divider, {}), jsxs(Box, { children: [jsx$1(Typography, { variant: "subtitle1", gutterBottom: true, children: "Custom secrets" }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Additional keys for MCP headers, webhooks, or other integrations. Reference them with", ' ', jsx$1("code", { children: '${secret:your_key}' }), "."] }), jsx$1(SecretsTable, { rows: customRows, showPlainByKey: showPlainByKey, onToggleShow: (key) => setShowPlainByKey((m) => ({ ...m, [key]: !m[key] })), onPatch: patchRow, allowRemove: true }), jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 1, alignItems: { sm: 'flex-end' }, sx: { mt: 2 }, children: [jsx$1(TextField, { size: "small", label: "Custom secret key", placeholder: "my_api_token", value: newCustomKey, onChange: (e) => setNewCustomKey(e.target.value), sx: { minWidth: 220 } }), jsx$1(Button, { variant: "outlined", startIcon: jsx$1(AddRounded, {}), onClick: addCustom, disabled: !newCustomKey.trim(), children: "Add secret" })] })] })] })), jsxs(Stack$1, { direction: "row", spacing: 1, children: [jsx$1(Button, { variant: "contained", startIcon: jsx$1(SaveRounded, {}), disabled: !dirty || saving, onClick: () => void save(), children: saving ? 'Saving…' : 'Save secrets' }), jsx$1(Button, { variant: "text", disabled: saving || !dirty, onClick: () => void reload(), children: "Reload" })] })] }) }));
+}
+
 const BASE = '/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/content-types/list';
 function withSite(url, siteId) {
     const sep = url.includes('?') ? '&' : '?';
@@ -74537,6 +75051,8 @@ function projectToolsTabLabel(t) {
             return 'Recipes';
         case 'integrations':
             return 'Integrations';
+        case 'secrets':
+            return 'Secrets';
         case 'prompts':
             return 'Prompts and Context';
         case 'llms':
@@ -74634,16 +75150,16 @@ function AiAssistantProjectToolsConfigurationPanel(props) {
             minHeight: 0,
             alignSelf: 'stretch',
             ...(toolFullscreen ? { bgcolor: 'background.default' } : {})
-        }, children: [jsxs(Stack$2, { direction: "row", alignItems: "stretch", sx: { flexShrink: 0, borderBottom: 1, borderColor: 'divider' }, children: [jsxs(Tabs$1, { value: tab, onChange: handleTabsChange, variant: "scrollable", scrollButtons: "auto", allowScrollButtonsMobile: true, sx: { flex: '1 1 auto', minWidth: 0 }, children: [jsx$1(Tab$1, { label: "UI", value: "ui" }), jsx$1(Tab$1, { label: "Agents", value: "agents" }), jsx$1(Tab$1, { label: "Recipes", value: "recipes" }), jsx$1(Tab$1, { label: "Integrations", value: "integrations" }), jsx$1(Tab$1, { label: "Prompts and Context", value: "prompts" })] }), jsx$1(Box$1, { sx: { display: 'flex', alignItems: 'center', flexShrink: 0, borderLeft: 1, borderColor: 'divider', px: 0.5 }, children: jsx$1(Tooltip$1, { title: toolFullscreen ? 'Exit fullscreen' : 'Fullscreen', children: jsx$1(IconButton$1, { size: "small", "aria-label": toolFullscreen ? 'Exit fullscreen' : 'Enter fullscreen', onClick: () => toggleToolFullscreen(), children: toolFullscreen ? jsx$1(FullscreenExitRounded, {}) : jsx$1(FullscreenRounded, {}) }) }) })] }), jsxs(Box$1, { sx: {
+        }, children: [jsxs(Stack$2, { direction: "row", alignItems: "stretch", sx: { flexShrink: 0, borderBottom: 1, borderColor: 'divider' }, children: [jsxs(Tabs$1, { value: tab, onChange: handleTabsChange, variant: "scrollable", scrollButtons: "auto", allowScrollButtonsMobile: true, sx: { flex: '1 1 auto', minWidth: 0 }, children: [jsx$1(Tab$1, { label: "UI", value: "ui" }), jsx$1(Tab$1, { label: "Agents", value: "agents" }), jsx$1(Tab$1, { label: "Recipes", value: "recipes" }), jsx$1(Tab$1, { label: "Integrations", value: "integrations" }), jsx$1(Tab$1, { label: "Secrets", value: "secrets" }), jsx$1(Tab$1, { label: "Prompts and Context", value: "prompts" })] }), jsx$1(Box$1, { sx: { display: 'flex', alignItems: 'center', flexShrink: 0, borderLeft: 1, borderColor: 'divider', px: 0.5 }, children: jsx$1(Tooltip$1, { title: toolFullscreen ? 'Exit fullscreen' : 'Fullscreen', children: jsx$1(IconButton$1, { size: "small", "aria-label": toolFullscreen ? 'Exit fullscreen' : 'Enter fullscreen', onClick: () => toggleToolFullscreen(), children: toolFullscreen ? jsx$1(FullscreenExitRounded, {}) : jsx$1(FullscreenRounded, {}) }) }) })] }), jsxs(Box$1, { sx: {
                     flex: '1 1 auto',
                     minHeight: 0,
                     overflow: 'auto',
                     ...aiAssistantProjectToolsPanelContentSx
-                }, children: [tab === 'ui' ? jsx$1(AiAssistantStudioUiSettings, {}) : null, tab === 'agents' ? (jsx$1(AiAssistantCentralAgentsConfiguration, { ref: agentsCatalogRef, onDirtyChange: setAgentsCatalogDirty })) : null, tab === 'recipes' ? (jsx$1(AiAssistantIntentRecipesConfiguration, { ref: recipesConfigRef, onDirtyChange: setRecipesDirty })) : null, tab === 'integrations' ? (jsxs(Box$1, { sx: { display: 'flex', flexDirection: 'column', minHeight: '100%' }, children: [jsxs(Tabs$1, { value: integrationsSub, onChange: handleIntegrationsSubChange, variant: "scrollable", scrollButtons: "auto", allowScrollButtonsMobile: true, sx: { flexShrink: 0, borderBottom: 1, borderColor: 'divider', px: 1 }, children: [jsx$1(Tab$1, { label: "LLMs", value: "llms" }), jsx$1(Tab$1, { label: "Image Generators", value: "imagegen" }), jsx$1(Tab$1, { label: "Tools", value: "tools" }), jsx$1(Tab$1, { label: "MCP", value: "mcp" })] }), jsx$1(Box$1, { sx: { flex: '1 1 auto', minHeight: 0 }, children: jsx$1(AiAssistantScriptsSandboxConfiguration, { panel: integrationsSandboxPanel(integrationsSub) }, integrationsSub === 'tools' || integrationsSub === 'mcp' ? 'tools-policy' : integrationsSub) })] })) : null, tab === 'prompts' ? jsx$1(AiAssistantScriptsSandboxConfiguration, { panel: "prompts" }) : null] }), jsxs(Dialog$1, { open: pendingTabSwitch != null, onClose: cancelPendingTabSwitch, maxWidth: "sm", fullWidth: true, children: [jsx$1(DialogTitle$1, { children: "Unsaved changes" }), jsx$1(DialogContent$1, { children: jsxs(Typography$1, { variant: "body2", paragraph: true, children: ["Save, discard, or stay on", ' ', jsx$1("strong", { children: pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.from) : '' }), " before opening", ' ', jsx$1("strong", { children: pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.to) : '' }), "."] }) }), jsxs(DialogActions$1, { children: [jsxs(Button$1, { onClick: cancelPendingTabSwitch, disabled: tabLeaveSaveBusy, children: ["Stay on ", pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.from) : 'this tab'] }), jsx$1(Button$1, { color: "warning", onClick: () => void discardPendingTabSwitch(), disabled: tabLeaveSaveBusy, children: "Discard changes" }), jsx$1(Button$1, { variant: "contained", onClick: () => void saveAndPendingTabSwitch(), disabled: tabLeaveSaveBusy, children: tabLeaveSaveBusy ? 'Saving…' : 'Save and continue' })] })] })] }));
+                }, children: [tab === 'ui' ? jsx$1(AiAssistantStudioUiSettings, {}) : null, tab === 'agents' ? (jsx$1(AiAssistantCentralAgentsConfiguration, { ref: agentsCatalogRef, onDirtyChange: setAgentsCatalogDirty })) : null, tab === 'recipes' ? (jsx$1(AiAssistantIntentRecipesConfiguration, { ref: recipesConfigRef, onDirtyChange: setRecipesDirty })) : null, tab === 'integrations' ? (jsxs(Box$1, { sx: { display: 'flex', flexDirection: 'column', minHeight: '100%' }, children: [jsxs(Tabs$1, { value: integrationsSub, onChange: handleIntegrationsSubChange, variant: "scrollable", scrollButtons: "auto", allowScrollButtonsMobile: true, sx: { flexShrink: 0, borderBottom: 1, borderColor: 'divider', px: 1 }, children: [jsx$1(Tab$1, { label: "LLMs", value: "llms" }), jsx$1(Tab$1, { label: "Image Generators", value: "imagegen" }), jsx$1(Tab$1, { label: "Tools", value: "tools" }), jsx$1(Tab$1, { label: "MCP", value: "mcp" })] }), jsx$1(Box$1, { sx: { flex: '1 1 auto', minHeight: 0 }, children: jsx$1(AiAssistantScriptsSandboxConfiguration, { panel: integrationsSandboxPanel(integrationsSub) }, integrationsSub === 'tools' || integrationsSub === 'mcp' ? 'tools-policy' : integrationsSub) })] })) : null, tab === 'secrets' ? jsx$1(AiAssistantSecretsConfiguration, {}) : null, tab === 'prompts' ? jsx$1(AiAssistantScriptsSandboxConfiguration, { panel: "prompts" }) : null] }), jsxs(Dialog$1, { open: pendingTabSwitch != null, onClose: cancelPendingTabSwitch, maxWidth: "sm", fullWidth: true, children: [jsx$1(DialogTitle$1, { children: "Unsaved changes" }), jsx$1(DialogContent$1, { children: jsxs(Typography$1, { variant: "body2", paragraph: true, children: ["Save, discard, or stay on", ' ', jsx$1("strong", { children: pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.from) : '' }), " before opening", ' ', jsx$1("strong", { children: pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.to) : '' }), "."] }) }), jsxs(DialogActions$1, { children: [jsxs(Button$1, { onClick: cancelPendingTabSwitch, disabled: tabLeaveSaveBusy, children: ["Stay on ", pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.from) : 'this tab'] }), jsx$1(Button$1, { color: "warning", onClick: () => void discardPendingTabSwitch(), disabled: tabLeaveSaveBusy, children: "Discard changes" }), jsx$1(Button$1, { variant: "contained", onClick: () => void saveAndPendingTabSwitch(), disabled: tabLeaveSaveBusy, children: tabLeaveSaveBusy ? 'Saving…' : 'Save and continue' })] })] })] }));
 }
 /**
  * Single Project Tools surface: **UI** (`studio-ui.json` + bulk), **Agents** (`agents.json`), **Recipes** (intent router + site overrides),
- * **Integrations** (sub-tabs: **LLMs**, **Image Generators**, **Tools**, **MCP**), **Prompts and Context** (tool markdown overrides).
+ * **Integrations** (sub-tabs: **LLMs**, **Image Generators**, **Tools**, **MCP**), **Secrets** (site API keys), **Prompts and Context** (tool markdown overrides).
  * Opens in a **large dialog** when the Project Tools entry mounts so authors stay focused and get more space than the default tool pane.
  * Primary widget id: {@link projectToolsAiAssistantConfigWidgetId}. Legacy ids still mount this component with a fixed default tab.
  */

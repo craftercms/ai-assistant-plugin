@@ -33,6 +33,7 @@ import {
   ListItem,
   ListItemSecondaryAction,
   ListItemText,
+  ListSubheader,
   MenuItem,
   Select,
   Stack,
@@ -60,6 +61,13 @@ import {
   TOOLS_JSON_SANDBOX_PATH,
   type AiAssistantScriptsIndexItem
 } from './aiAssistantScriptsApi';
+import { fetchAiAssistantSecretsIndex } from './aiAssistantSecretsApi';
+import {
+  builtinSecretSlotLabel,
+  customSecretKeysFromSecretsIndex,
+  isBuiltinProviderSecretKey,
+  secretKeyForLlmVendor
+} from './aiAssistantSecretsModel';
 import {
   STUDIO_AI_BUILTIN_TOOL_IDS,
   STUDIO_AI_CLAUDE_CHAT_MODELS,
@@ -90,6 +98,20 @@ const CQ_SCRIPT_IMAGE_SELECT_CUSTOM = '__cqScriptImageCustom__';
 
 function cloneCatalog(f: CentralAgentsFile): CentralAgentsFile {
   return { version: f.version ?? 1, agents: f.agents.map((a) => ({ ...a })) };
+}
+
+function applyLlmSecretKeyOnEntry(rec: Record<string, unknown>, llm: unknown): void {
+  const sp = parseLlmVendorAndScript(llm);
+  if (sp.vendor === 'script') {
+    delete rec.llmSecretKey;
+    return;
+  }
+  const sk = String(rec.llmSecretKey ?? '').trim() || secretKeyForLlmVendor(sp.vendor);
+  if (sk) {
+    rec.llmSecretKey = sk;
+  } else {
+    delete rec.llmSecretKey;
+  }
 }
 
 function parseLlmVendorAndScript(llm: unknown): { vendor: string; scriptId: string } {
@@ -281,9 +303,9 @@ function AgentAdvancedAgentFields(props: {
         helperText="Default parallelism for TranslateContentBatch when the model omits maxConcurrency. Leave empty for server default (25)."
       />
       <Typography variant="caption" color="text.secondary" display="block">
-        Provider API keys are not stored in <strong>agents.json</strong>. Configure{' '}
-        <strong>OPENAI_API_KEY</strong> / provider env vars on the Studio host, or pass a per-request key from the
-        client when testing.
+        API keys are not stored in <strong>agents.json</strong>. On the <strong>General</strong> tab, each agent uses the
+        built-in secret for its LLM provider or a custom secret from <strong>Project Tools → Secrets</strong> (
+        <code>secrets.json</code>).
       </Typography>
     </Stack>
   );
@@ -354,6 +376,7 @@ function normalizeCatalogForSave(f: CentralAgentsFile): CentralAgentsFile {
         delete outRec.enabledBuiltInTools;
         delete outRec.enabled_built_in_tools;
       }
+      applyLlmSecretKeyOnEntry(outRec, out.llm);
       return out;
     }
     const label = String(e.label ?? e.name ?? '').trim() || 'Untitled assistant';
@@ -392,6 +415,7 @@ function normalizeCatalogForSave(f: CentralAgentsFile): CentralAgentsFile {
       delete recChat.openAsPopup;
       delete recChat.open_as_popup;
     }
+    applyLlmSecretKeyOnEntry(recChat, outChat.llm);
     return outChat;
   });
   return { version: f.version ?? 1, agents };
@@ -452,6 +476,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
     llm: AiAssistantScriptsIndexItem[];
     imageGen: AiAssistantScriptsIndexItem[];
   }>({ llm: [], imageGen: [] });
+  const [customSecretKeyOptions, setCustomSecretKeyOptions] = useState<string[]>([]);
 
   const scriptsRowsRef = React.useRef(scriptsIndexRows);
   scriptsRowsRef.current = scriptsIndexRows;
@@ -528,6 +553,19 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
     void loadSiteOrchPolicy();
   }, [draft, editIndex, agentDialogTab, siteOrchLoaded, siteOrchLoading, siteOrchDirty, loadSiteOrchPolicy]);
 
+  const loadSecretKeyOptions = useCallback(async () => {
+    if (!siteId) {
+      setCustomSecretKeyOptions([]);
+      return;
+    }
+    try {
+      const idx = await fetchAiAssistantSecretsIndex(siteId);
+      setCustomSecretKeyOptions(customSecretKeysFromSecretsIndex(idx.customSecrets));
+    } catch {
+      setCustomSecretKeyOptions([]);
+    }
+  }, [siteId]);
+
   const loadScriptsSandboxIndex = useCallback(async () => {
     if (!siteId) {
       setScriptsIndexRows({ llm: [], imageGen: [] });
@@ -568,7 +606,8 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
       setLoaded(true);
     }
     void loadScriptsSandboxIndex();
-  }, [siteId, loadScriptsSandboxIndex]);
+    void loadSecretKeyOptions();
+  }, [siteId, loadScriptsSandboxIndex, loadSecretKeyOptions]);
 
   useEffect(() => {
     onDirtyChange?.(dirty);
@@ -614,6 +653,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
       label: 'New assistant',
       crafterQAgentId: '',
       llm: 'openAI',
+      llmSecretKey: 'openai_api_key',
       llmModel: 'gpt-4o-mini',
       imageModel: STUDIO_AI_DEFAULT_IMAGE_MODEL,
       enableTools: true,
@@ -637,6 +677,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
       prompt: '',
       scope: 'project',
       llm: 'openAI',
+      llmSecretKey: 'openai_api_key',
       llmModel: 'gpt-4o-mini',
       imageModel: STUDIO_AI_DEFAULT_IMAGE_MODEL,
       manageOtherAgentsHumanTasks: false
@@ -1090,9 +1131,24 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                           if (!d) return d;
                           if (v === 'script') {
                             const first = scriptsRowsRef.current.llm[0]?.id?.trim();
-                            return { ...d, llm: first ? `script:${first}` : 'script', llmModel: 'composer-2' };
+                            const next = {
+                              ...d,
+                              llm: first ? `script:${first}` : 'script',
+                              llmModel: 'composer-2'
+                            } as Record<string, unknown>;
+                            delete next.llmSecretKey;
+                            return next as CentralAgentFileEntry;
                           }
-                          return { ...d, llm: v, llmModel: d.llmModel?.trim() ? d.llmModel : 'gpt-4o-mini' };
+                          const sk = secretKeyForLlmVendor(v);
+                          const currentSk = String(d.llmSecretKey ?? '').trim();
+                          const nextSk =
+                            !currentSk || isBuiltinProviderSecretKey(currentSk) ? sk : currentSk;
+                          return {
+                            ...d,
+                            llm: v,
+                            llmModel: d.llmModel?.trim() ? d.llmModel : 'gpt-4o-mini',
+                            ...(nextSk ? { llmSecretKey: nextSk } : {})
+                          };
                         });
                       }}
                     >
@@ -1103,6 +1159,51 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                       ))}
                     </Select>
                   </FormControl>
+                  {sp.vendor !== 'script'
+                    ? (() => {
+                        const builtinKey = secretKeyForLlmVendor(sp.vendor);
+                        const llmSecretValue =
+                          String(draft.llmSecretKey ?? '').trim() || builtinKey || '';
+                        const builtinLabel = builtinKey
+                          ? builtinSecretSlotLabel(builtinKey) ?? sp.vendor
+                          : '';
+                        const orphanCustom =
+                          llmSecretValue &&
+                          llmSecretValue !== builtinKey &&
+                          !customSecretKeyOptions.includes(llmSecretValue);
+                        return (
+                          <FormControl fullWidth size="small" variant="outlined">
+                            <InputLabel id="cq-central-llm-secret">LLM secret</InputLabel>
+                            <Select
+                              labelId="cq-central-llm-secret"
+                              label="LLM secret"
+                              value={llmSecretValue}
+                              onChange={(ev) => {
+                                const v = String(ev.target.value);
+                                setDraft((d) => (d ? { ...d, llmSecretKey: v } : d));
+                              }}
+                            >
+                              {builtinKey ? (
+                                <MenuItem value={builtinKey}>
+                                  Built-in ({builtinLabel} — {builtinKey})
+                                </MenuItem>
+                              ) : null}
+                              {customSecretKeyOptions.length ? (
+                                <ListSubheader disableSticky>Custom secrets</ListSubheader>
+                              ) : null}
+                              {customSecretKeyOptions.map((key) => (
+                                <MenuItem key={key} value={key}>
+                                  {key}
+                                </MenuItem>
+                              ))}
+                              {orphanCustom ? (
+                                <MenuItem value={llmSecretValue}>{llmSecretValue}</MenuItem>
+                              ) : null}
+                            </Select>
+                          </FormControl>
+                        );
+                      })()
+                    : null}
                   {sp.vendor === 'script' ? (
                     <>
                       <Stack direction="row" spacing={1} alignItems="flex-start">
@@ -1116,8 +1217,13 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                               const v = String(ev.target.value);
                               setDraft((d) => {
                                 if (!d) return d;
-                                if (v === CQ_SCRIPT_LLM_SELECT_CUSTOM) return { ...d, llm: 'script' };
-                                return { ...d, llm: `script:${v}` };
+                                const next = (
+                                  v === CQ_SCRIPT_LLM_SELECT_CUSTOM
+                                    ? { ...d, llm: 'script' }
+                                    : { ...d, llm: `script:${v}` }
+                                ) as Record<string, unknown>;
+                                delete next.llmSecretKey;
+                                return next as CentralAgentFileEntry;
                               });
                             }}
                           >

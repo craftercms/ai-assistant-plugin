@@ -4,6 +4,7 @@ import { firstValueFrom, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 
 import { buildStudioAuthHeaders } from './aiAssistantApi';
+import type { AiAssistantSecretAdminRow } from './aiAssistantSecretsModel';
 
 const BASE = '/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/scripts';
 
@@ -69,6 +70,13 @@ export type AiAssistantScriptsIndexResponse = {
   imageGenerators?: AiAssistantScriptsIndexItem[];
   llmScripts?: AiAssistantScriptsIndexItem[];
   toolPromptOverrides?: AiAssistantScriptsToolPromptOverrideRow[];
+  /** Present when secrets service loaded; see {@link fetchAiAssistantSecretsIndex}. */
+  secretsStudioPath?: string;
+  knownSecrets?: AiAssistantSecretAdminRow[];
+  customSecrets?: AiAssistantSecretAdminRow[];
+  secretsError?: string;
+  /** True when the server just created default secrets.json for this site. */
+  secretsSeeded?: boolean;
 };
 
 export async function fetchAiAssistantPromptDetail(siteId: string, key: string): Promise<AiAssistantPromptDetailResponse> {

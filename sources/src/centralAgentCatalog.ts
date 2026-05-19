@@ -201,6 +201,8 @@ export function entryToChatAgent(entry: CentralAgentFileEntry): AgentConfig | nu
   }
   const enabledBuiltIn = normalizeEnabledBuiltInToolsRaw(entry.enabledBuiltInTools ?? entry.enabled_built_in_tools);
   if (enabledBuiltIn?.length) out.enabledBuiltInTools = enabledBuiltIn;
+  const llmSecretKey = String(entry.llmSecretKey ?? '').trim();
+  if (llmSecretKey) out.llmSecretKey = llmSecretKey;
   return out;
 }
 
@@ -251,6 +253,8 @@ export function entryToAutonomousDefinition(entry: CentralAgentFileEntry): Auton
   if (enabledBuiltIn?.length) {
     out.enabledBuiltInTools = enabledBuiltIn;
   }
+  const llmSecretKey = String(entry.llmSecretKey ?? '').trim();
+  if (llmSecretKey) out.llmSecretKey = llmSecretKey;
   return out;
 }
 

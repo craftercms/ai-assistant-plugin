@@ -38,7 +38,7 @@ class OpenAiSpringAiLlmRuntime implements StudioAiLlmRuntime {
   Map buildSessionBundle(StudioAiRuntimeBuildRequest req) {
     def orch = req.orchestration
     String llmNorm = (req.llmNormalized ?: StudioAiLlmKind.OPENAI_NATIVE).toString()
-    String apiKey = StudioAiProviderCredentials.resolveApiKey(llmNorm, req.llmApiKeyFromRequest)
+    String apiKey = StudioAiProviderCredentials.resolveApiKey(llmNorm, req.llmApiKeyFromRequest, req.llmSecretKeyFromAgent)
     if (!apiKey?.trim()) {
       throw new IllegalStateException(StudioAiProviderCredentials.missingApiKeyMessage(llmNorm))
     }
