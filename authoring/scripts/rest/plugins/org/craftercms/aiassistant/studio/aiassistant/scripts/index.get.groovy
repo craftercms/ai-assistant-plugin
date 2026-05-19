@@ -46,12 +46,15 @@ for (Map e : toolRows) {
     String scriptPath = "${StudioAiUserSiteTools.USER_TOOLS_DIR_PREFIX}${script}"
     String src = ops.readStudioConfigurationUtf8(siteId, scriptPath) ?: ''
     toolsOut.add([
-      id          : id,
-      script      : script,
-      description : desc,
-      studioPath  : scriptPath,
-      hasSource   : (src?.trim() ? true : false),
-      byteLength  : safeUtf8ByteLength(src.toString())
+      id            : id,
+      script        : script,
+      description   : desc,
+      matchHints    : e.matchHints instanceof List ? e.matchHints : [],
+      dontMatchHints: e.dontMatchHints instanceof List ? e.dontMatchHints : [],
+      priority      : e.priority instanceof Number ? ((Number) e.priority).intValue() : 0,
+      studioPath    : scriptPath,
+      hasSource     : (src?.trim() ? true : false),
+      byteLength    : safeUtf8ByteLength(src.toString())
     ] as Map)
   } catch (Throwable t) {
     idxLog.warn('scripts index: skip tool row siteId={} id={}: {}', siteId, e?.id, t.message)

@@ -291,7 +291,7 @@ See **[Routing at a glance](#routing-at-a-glance-default)** for the simplified d
    - **Enrich** when zero patterns matched (catalog table for context).
    - Retest `deterministicMatch` on clarified text → one hit → `deterministic_after_clarify`.
 
-3. **Defer to plan loop** (default) — Still **multiple** hits → `deferToPlanLoop`, `ambiguous_multi_defer_plan` (no JSON router). Still **zero** hits → `deferToPlanLoop`, `no_deterministic_defer_plan`. Prelude prepends a **## Plan** hint; when `deferToPlanLoop` is set, the tools loop may log **`Intent recipe routing: plan-step deterministic hints`** and attach **`planStepRecipeMatches`** from `AuthoringIntentRecipeCatalog.matchRecipesForPlanSteps`.
+3. **Defer to plan loop** (default) — Still **multiple** hits → `deferToPlanLoop`, `ambiguous_multi_defer_plan` (no JSON router). Still **zero** hits → `deferToPlanLoop`, `no_deterministic_defer_plan`. Prelude prepends **`GENERAL_LLM_AUTHORING_INTENT_ROUTING_DEFER_PLAN_HINT`** plus **`[Studio — plan defer: recipe + tool catalog]`** (`AuthoringIntentRecipeCatalog.formatPlanDeferOrchestrationContextBlock`: intent recipe catalog + wired CMS tools + site **`InvokeSiteUserTool`** registry). Policy: **prefer a matching recipe** for a step when it clearly fits; use individual wire tools when one call suffices or no recipe matches. After round 0 emits **## Plan**, the tools loop may log **`Intent recipe routing: plan-step deterministic hints`**, set **`planStepRecipeMatches`**, and prepend **`[Studio — plan-step recipe hints]`** to the user wire once (`matchRecipesForPlanSteps`).
 
 4. **Optional JSON whole-turn router** — Only when `wholeTurnJsonRouterEnabled: true` and zero hits after clarify: legacy catalog classifier + `minConfidence` + deterministic fallback.
 
@@ -311,7 +311,7 @@ Then: LLM **intent expansion** → `intentRecipeRematchRouterVisible` → **pass
 | `outcome` | Behavior |
 |-----------|----------|
 | `matched` | `intentRecipeRoutingAttachMatchedRecipe`: prefetch (`AuthoringIntentRecipeEngine.runPrefetchBlock`), hotpath directives, recipe prelude on `userTextForToolsLoop`; telemetry includes `recipeId`, `prefetchSteps`, `toolsLoopDisable`, `toolsLoopAllowlist`, `toolsLoopForceTool` |
-| `no_match` | Anchor-aware Studio hint prepended; full tools loop if tools still on |
+| `no_match` | Anchor-aware Studio hint prepended; on **`deferToPlanLoop`**, recipe + tool catalogs prepended; full tools loop if tools still on |
 | `clarification_only` | Tools off; clarification completion only (when `requestClarificationOnUnmatched` enabled) |
 | `skipped_disabled` | Routing off in `tools.json` |
 | `skipped_eligibility` | Eligibility gate only (`eligibilityGateEnabled: true`) |
@@ -341,6 +341,8 @@ Runs when `springAi.useTools` remains true after prelude.
 - **Recovery nudges:** model promised tools but did not call; `userNeedsCmsTools` when current turn suggests CMS (uses `authorCurrentRequestSuggestsCmsTooling`, not full-wire CMS scan).
 - **Truncation:** large tool JSON capped on wire; `GetContent` keeps path/metadata; `GenerateImage` uses inline ref pattern.
 
+**Prose-declared tools:** When the model omits API `tool_calls` but prints fenced JSON (e.g. `{"toolId":"…"}`) or names a wired tool in the block, `ProseDeclaredToolCalls` synthesizes invocations from the session `byName` catalog (built-in, `InvokeSiteUserTool`, `mcp_*` — same execution path).
+
 **Not** part of intent routing: model choosing wrong tools after `no_match`, malformed `WriteContent` XML, or optional `ResearchSiteContent` when tools are unrestricted — those are loop execution issues.
 
 ---
@@ -350,10 +352,12 @@ Runs when `springAi.useTools` remains true after prelude.
 | Area | Location |
 |------|----------|
 | Eligibility + current-turn signals | `AuthoringPreviewContext.groovy` |
-| Recipe catalog, deterministic + ambiguity competitors | `AuthoringIntentRecipeCatalog.groovy`, `AuthoringIntentRecipeWhen.groovy` |
+| Recipe catalog, deterministic + ambiguity competitors, plan-defer context | `AuthoringIntentRecipeCatalog.groovy`, `AuthoringIntentRecipeWhen.groovy` |
+| Plan-defer wired-tools catalog | `AiOrchestrationTools.groovy` (`wireNamesForPlanDeferCatalog` from registered callbacks, `formatPlanDeferToolsCatalogMarkdown`) |
 | Bundled recipes | `recipes/authoring-intent-recipes-default.json` |
 | Prelude + match pass + tools loop | `AiOrchestration.groovy` |
-| Prefetch / hotpath | `AuthoringIntentRecipeEngine.groovy` (and related) |
+| Tools-loop wire policy (progress, truncation, prose JSON) | `tools/loop/ToolsLoopWirePolicyRegistry.groovy`, `ProseDeclaredToolCalls.groovy` |
+| Intent prefetch (read-only context in prompt) | `AuthoringIntentRecipeEngine.groovy` |
 | Router system prompt | `ToolPrompts.groovy` (`getLlm_AUTHORING_INTENT_RECIPE_ROUTER_SYSTEM`) |
 | Feature flags | `StudioAiAssistantProjectConfig` (`intentRecipeRoutingEnabled`, `intentRecipeMinConfidence`, …) |
 
@@ -367,6 +371,7 @@ Runs when `springAi.useTools` remains true after prelude.
 - `eligibilitySkipReason` — when skipped at gate
 - `recipeId`, `confidence`, `matchPass` — `deterministic`, `deterministic_after_clarify`, `router`, `deterministic_after_router`, `ambiguous_multi_defer_plan`, `no_deterministic_defer_plan`, `no_match_defer_plan`
 - `planStepRecipeMatches` — when `deferToPlanLoop`, optional per **## Plan** step hints (`stepId:recipeId`, …)
+- **Plan defer catalog (planner wire)** — when `deferToPlanLoop`: `planDeferCatalogSent` (block with `[Studio — plan defer: recipe + tool catalog]` prepended to `userTextForToolsLoop`), `planDeferCatalogChars`, `planDeferWiredToolCount`, `planDeferWiredToolNames` (may be truncated in telemetry), `planDeferSiteUserToolCount`, `planDeferSiteUserToolIds`, `planDeferInvokeSiteUserToolWired`, `planDeferMcpClientEnabled`. Session debug log **TIMELINE** prints these on the `intent-recipe-routing` SSE row.
 - `intentExpansionRematch` — pass 2 ran
 - `prefetchSteps`, `prefetchRan`, `toolsLoopDisable`
 - `routerReason`, `recipeFoundInCatalog`

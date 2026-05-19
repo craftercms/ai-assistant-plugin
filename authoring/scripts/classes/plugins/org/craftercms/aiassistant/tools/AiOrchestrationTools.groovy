@@ -2223,5 +2223,172 @@ class AiOrchestrationTools {
       }
     }
   }
+
+  /**
+   * Wire names that would be registered for a tools-loop session on this site (for plan-defer planner context).
+   * Derived from {@link #build(StudioToolOperations)} with default session options — not a hardcoded supplemental list.
+   * Does not open MCP sessions (dynamic {@code mcp_*} tools are documented separately in the catalog markdown).
+   *
+   * @param ops Studio tool operations (site sandbox)
+   * @param projectCfg site {@code tools.json} policy map (loaded when null)
+   */
+  static List<String> wireNamesForPlanDeferCatalog(StudioToolOperations ops, Map projectCfg) {
+    Map cfg = projectCfg instanceof Map ? projectCfg : StudioAiAssistantProjectConfig.load(ops)
+    List tools = build(
+      { Object result, java.lang.reflect.Type rt -> result },
+      ops,
+      null,
+      null,
+      null,
+      false,
+      null,
+      [],
+      null,
+      null,
+      null,
+      null
+    )
+    LinkedHashSet<String> names = new LinkedHashSet<>()
+    if (tools) {
+      for (def t : tools) {
+        if (t instanceof FunctionToolCallback) {
+          String n = ((FunctionToolCallback) t).getToolDefinition()?.name()
+          if (n?.trim()) {
+            names.add(n.trim())
+          }
+        }
+      }
+    }
+    return filterPlanDeferWireNames(new ArrayList<>(names), cfg)
+  }
+
+  /** Applies site built-in whitelist / blacklist to the plan-defer wire name list. */
+  private static List<String> filterPlanDeferWireNames(List<String> names, Map projectCfg) {
+    if (names == null || names.isEmpty()) {
+      return names ?: []
+    }
+    if (!(projectCfg instanceof Map)) {
+      return names
+    }
+    Set<String> wl = StudioAiAssistantProjectConfig.enabledBuiltInWhitelist(projectCfg)
+    Set<String> bl = StudioAiAssistantProjectConfig.disabledBuiltInSet(projectCfg)
+    if (wl == null && (bl == null || bl.isEmpty())) {
+      return names
+    }
+    List<String> out = []
+    for (String n : names) {
+      if (!n?.trim()) {
+        continue
+      }
+      String wire = n.trim()
+      if (wl != null) {
+        if (isExtensionCatalogToolName(wire)) {
+          if (!StudioAiAssistantProjectConfig.isToolNameDisabled(wire, bl)) {
+            out.add(wire)
+          }
+          continue
+        }
+        if (builtInWhitelistAllows(wire, wl)) {
+          out.add(wire)
+        }
+      } else if (!StudioAiAssistantProjectConfig.isToolNameDisabled(wire, bl)) {
+        out.add(wire)
+      }
+    }
+    return out
+  }
+
+  /** Max wire names in {@link #planDeferCatalogTelemetry} (full list is still on the planner wire). */
+  private static final int PLAN_DEFER_TEL_MAX_WIRE_NAMES = 48
+
+  /** Max site user {@code toolId} values in {@link #planDeferCatalogTelemetry}. */
+  private static final int PLAN_DEFER_TEL_MAX_USER_TOOL_IDS = 32
+
+  /**
+   * Maintainer / session-debug summary: whether the plan-defer recipe + tools block was built and what it lists.
+   * Emitted on SSE {@code intentRecipeRouting} when {@code deferToPlanLoop} is true.
+   */
+  static Map planDeferCatalogTelemetry(StudioToolOperations ops, Map projectCfg, String catalogBlock) {
+    Map cfg = projectCfg instanceof Map ? projectCfg : StudioAiAssistantProjectConfig.load(ops)
+    String block = (catalogBlock ?: '').toString()
+    boolean hasMarker = block.contains('[Studio — plan defer: recipe + tool catalog]')
+    boolean sent = block.trim().length() > 0 && hasMarker
+
+    List<String> wireNames = wireNamesForPlanDeferCatalog(ops, cfg) ?: []
+    List<Map> userEntries = StudioAiUserSiteTools.loadRegistryEntries(ops) ?: []
+    List<String> userToolIds = []
+    for (Map e : userEntries) {
+      String id = e?.id?.toString()?.trim()
+      if (id) {
+        userToolIds.add(id)
+      }
+    }
+
+    int wireCap = Math.min(wireNames.size(), PLAN_DEFER_TEL_MAX_WIRE_NAMES)
+    List<String> wireTel = wireCap > 0 ? new ArrayList<>(wireNames.subList(0, wireCap)) : []
+    boolean wireTruncated = wireNames.size() > wireTel.size()
+
+    int idCap = Math.min(userToolIds.size(), PLAN_DEFER_TEL_MAX_USER_TOOL_IDS)
+    List<String> idsTel = idCap > 0 ? new ArrayList<>(userToolIds.subList(0, idCap)) : []
+    boolean userIdsTruncated = userToolIds.size() > idsTel.size()
+
+    return [
+      planDeferCatalogSent              : sent,
+      planDeferCatalogChars             : block.length(),
+      planDeferCatalogHasMarker         : hasMarker,
+      planDeferWiredToolCount           : wireNames.size(),
+      planDeferWiredToolNames           : wireTel,
+      planDeferWiredToolNamesTruncated  : wireTruncated,
+      planDeferSiteUserToolCount        : userToolIds.size(),
+      planDeferSiteUserToolIds          : idsTel,
+      planDeferSiteUserToolIdsTruncated : userIdsTruncated,
+      planDeferInvokeSiteUserToolWired  : wireNames.contains('InvokeSiteUserTool'),
+      planDeferMcpClientEnabled         : StudioAiAssistantProjectConfig.mcpClientEnabled(cfg)
+    ]
+  }
+
+  /**
+   * Markdown table of wired tools for plan-defer prompts (companion to intent recipe catalog).
+   */
+  static String formatPlanDeferToolsCatalogMarkdown(StudioToolOperations ops, Map projectCfg) {
+    Map cfg = projectCfg instanceof Map ? projectCfg : StudioAiAssistantProjectConfig.load(ops)
+    List<String> names = wireNamesForPlanDeferCatalog(ops, cfg)
+    StringBuilder sb = new StringBuilder()
+    sb.append('## Wired CMS tools (this session)\n\n')
+    sb.append(
+      'Use exact wire names in **`tool_calls`**. Prefer a **recipe** from the catalog above when it clearly fits the step; use a single tool when one call is enough or no recipe matches.\n\n'
+    )
+    if (names.isEmpty()) {
+      sb.append('(no built-in tools available after site policy)\n')
+    } else {
+      sb.append('| wire name | notes |\n')
+      sb.append('|-----------|-------|\n')
+      for (String wire : names) {
+        String notes = 'built-in CMS / general'
+        if ('InvokeSiteUserTool'.equals(wire)) {
+          notes = 'site Groovy tools — pass **toolId** from registry below'
+        }
+        sb.append('| `').append(wire).append('` | ').append(notes).append(" |\n")
+      }
+    }
+    List<Map> userEntries = StudioAiUserSiteTools.loadRegistryEntries(ops)
+    if (!userEntries.isEmpty()) {
+      sb.append('\n### Site user tools (`InvokeSiteUserTool`)\n\n')
+      sb.append('| toolId | description |\n')
+      sb.append('|--------|-------------|\n')
+      for (Map e : userEntries) {
+        String id = e.id?.toString()?.trim() ?: ''
+        String desc = (e.description ?: '').toString().trim()
+        if (desc.length() > 160) {
+          desc = desc.substring(0, 157) + '…'
+        }
+        sb.append('| `').append(id).append('` | ').append(desc ?: '—').append(" |\n")
+      }
+    }
+    if (StudioAiAssistantProjectConfig.mcpClientEnabled(cfg)) {
+      sb.append('\n**MCP:** enabled — additional dynamic `mcp_*` tools may appear on the wire (not listed here).\n')
+    }
+    sb.toString()
+  }
 }
 

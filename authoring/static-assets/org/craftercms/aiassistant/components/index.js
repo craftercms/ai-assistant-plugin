@@ -774,6 +774,30 @@ function buildParsedTimeline(lines) {
                     ? meta.intentRecipeRouting
                     : null;
                 bullets.push(`Intent recipe: outcome=${tel?.outcome ?? '—'} recipeId=${tel?.recipeId ?? '—'} title=${previewText(String(tel?.recipeTitle ?? ''), 80)}`);
+                if (tel?.matchPass != null && String(tel.matchPass).length) {
+                    bullets.push(`  matchPass=${String(tel.matchPass)}`);
+                }
+                if (tel?.siteToolRoutingEnabled === true || (typeof tel?.siteToolMatchCount === 'number' && tel.siteToolMatchCount > 0)) {
+                    const matchedIds = tel.matchedSiteToolIds;
+                    const idLine = Array.isArray(matchedIds) ? matchedIds.map((x) => String(x)).join(', ') : '';
+                    bullets.push(`  site tool hints: count=${String(tel.siteToolMatchCount ?? '—')}${idLine ? ` ids=${previewText(idLine, 200)}` : ''}`);
+                    if (tel?.competingRecipeId != null && String(tel.competingRecipeId).length) {
+                        bullets.push(`  competingRecipeId=${String(tel.competingRecipeId)}`);
+                    }
+                }
+                if (tel?.deferToPlanLoop === true) {
+                    bullets.push(`Plan defer: catalogSent=${String(tel.planDeferCatalogSent ?? '—')} chars=${tel.planDeferCatalogChars ?? '—'} wiredTools=${tel.planDeferWiredToolCount ?? '—'} siteUserTools=${tel.planDeferSiteUserToolCount ?? '—'} InvokeSiteUserTool=${String(tel.planDeferInvokeSiteUserToolWired ?? '—')} mcp=${String(tel.planDeferMcpClientEnabled ?? '—')}`);
+                    const userIds = tel.planDeferSiteUserToolIds;
+                    if (Array.isArray(userIds) && userIds.length) {
+                        const idLine = userIds.map((x) => String(x)).join(', ');
+                        bullets.push(`  site user toolIds${tel.planDeferSiteUserToolIdsTruncated === true ? ' (truncated)' : ''}: ${previewText(idLine, 240)}`);
+                    }
+                    const wireNames = tel.planDeferWiredToolNames;
+                    if (Array.isArray(wireNames) && wireNames.length) {
+                        const wireLine = wireNames.map((x) => String(x)).join(', ');
+                        bullets.push(`  wired tool names${tel.planDeferWiredToolNamesTruncated === true ? ' (truncated)' : ''}: ${previewText(wireLine, 280)}`);
+                    }
+                }
                 const oneLine = text.replace(/\s+/g, ' ').trim();
                 if (oneLine)
                     bullets.push(`  chat line: ${previewText(oneLine, 220)}`);
@@ -36394,6 +36418,38 @@ var chatDefaults = {
 	fallbackEmoji: "📋",
 	lineSuffix: "workflow"
 };
+var routingEngineSteps = [
+	{
+		routingPass: "initial",
+		when: "anchoredSiteXml",
+		as: "pageItem",
+		tool: "GetContent",
+		args: {
+			siteId: "$siteId",
+			path: "$contentPath"
+		}
+	},
+	{
+		routingPass: "initial",
+		when: "anchoredSiteXml",
+		as: "pageForm",
+		tool: "GetContentTypeFormDefinition",
+		args: {
+			siteId: "$siteId",
+			contentPath: "$contentPath"
+		}
+	},
+	{
+		routingPass: "after_refine",
+		when: "anchoredSiteXml",
+		as: "pageItem",
+		tool: "GetContent",
+		args: {
+			siteId: "$siteId",
+			path: "$contentPath"
+		}
+	}
+];
 var recipeOrder = [
 	"web_research",
 	"site_content_research",
@@ -36664,8 +36720,6 @@ var recipes = [
 		id: "modify_page_content",
 		title: "Modify page or component content",
 		chatEmoji: "✏️",
-		prefetchHotpathForceWrite: true,
-		serverHotpathExternalContent: true,
 		deterministicMatch: [
 			{
 				priority: 60,
@@ -36768,6 +36822,9 @@ var recipes = [
 		title: "Generate image (bitmap)",
 		chatEmoji: "🖼️",
 		toolsLoopForceTool: "GenerateImage",
+		toolsLoopExcludeTools: [
+			"GenerateTextNoTools"
+		],
 		deterministicMatch: {
 			priority: 100,
 			routerReason: "deterministic_image_only",
@@ -37046,6 +37103,7 @@ var recipes = [
 var bundledCatalog = {
 	version: version,
 	chatDefaults: chatDefaults,
+	routingEngineSteps: routingEngineSteps,
 	recipeOrder: recipeOrder,
 	recipes: recipes
 };
@@ -73063,7 +73121,9 @@ const AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB = `{
     {
       "id": "example_tool",
       "script": "ExampleTool.groovy",
-      "description": "Example InvokeSiteUserTool registration"
+      "description": "Example InvokeSiteUserTool registration",
+      "matchHints": [],
+      "dontMatchHints": []
     }
   ]
 }
@@ -73115,9 +73175,170 @@ function AiAssistantToolsMcpForm(props) {
                                                                     }), children: "Add header" })] })] }), jsx$1(TableCell, { sx: { verticalAlign: 'top' }, children: jsx$1(TextField, { size: "small", fullWidth: true, value: row.readTimeoutMs, onChange: (e) => updateServer(si, { ...row, readTimeoutMs: e.target.value }), placeholder: "120000" }) }), jsx$1(TableCell, { align: "right", sx: { verticalAlign: 'top' }, children: jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), onClick: () => removeServer(si), children: "Remove" }) })] }, si))) })] })), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: value.disabledMcpTools, onChange: (_, v) => onChange({ ...value, disabledMcpTools: v.map(String) }), renderTags: (tagValue, getTagProps) => tagValue.map((option, index) => (createElement(Chip, { variant: "outlined", label: option, size: "small", ...getTagProps({ index }), key: `${option}-${index}` }))), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Hide MCP wire tools", placeholder: "e.g. mcp_docs_search", size: "small" })) })] })) : null] })) : null] }));
 }
 
+/**
+ * Parse / serialize site {@code user-tools/registry.json} for Project Tools UI.
+ */
+/** One hint per line for registry editor text fields. */
+function hintsMultiline(hints) {
+    return (hints ?? []).map((h) => h.trim()).filter(Boolean).join('\n');
+}
+/** Parses newline-separated hints from the Project Tools registry editor. */
+function hintsFromMultiline(text) {
+    const out = [];
+    for (const line of (text ?? '').split(/\r?\n/)) {
+        const n = line.trim();
+        if (n) {
+            out.push(n);
+        }
+    }
+    return out;
+}
+function hintArray(raw) {
+    if (!Array.isArray(raw)) {
+        return [];
+    }
+    const out = [];
+    for (const o of raw) {
+        const n = String(o ?? '').trim();
+        if (n) {
+            out.push(n);
+        }
+    }
+    return out;
+}
+/** Normalizes one registry JSON object; returns null when id or script is missing. */
+function normalizeToolRow(o) {
+    if (!o || typeof o !== 'object') {
+        return null;
+    }
+    const m = o;
+    const id = String(m.id ?? '').trim();
+    let script = String(m.script ?? '').trim();
+    if (!script) {
+        script = String(m.file ?? '').trim();
+    }
+    if (!id || !script) {
+        return null;
+    }
+    let priority = 0;
+    const pr = m.priority;
+    if (typeof pr === 'number' && Number.isFinite(pr)) {
+        priority = Math.trunc(pr);
+    }
+    return {
+        id,
+        script,
+        description: String(m.description ?? m.desc ?? '').trim(),
+        matchHints: hintArray(m.matchHints),
+        dontMatchHints: hintArray(m.dontMatchHints),
+        priority
+    };
+}
+/** Parses {@code registry.json} text (array, {@code { tools }}, or empty). */
+function parseRegistryDocument(raw) {
+    const trimmed = (raw ?? '').trim();
+    if (!trimmed) {
+        return { wrapper: 'empty', tools: [] };
+    }
+    let parsed;
+    try {
+        parsed = JSON.parse(trimmed);
+    }
+    catch {
+        return { wrapper: 'empty', tools: [] };
+    }
+    if (Array.isArray(parsed)) {
+        const tools = [];
+        for (const o of parsed) {
+            const row = normalizeToolRow(o);
+            if (row) {
+                tools.push(row);
+            }
+        }
+        return { wrapper: 'array', tools };
+    }
+    if (parsed && typeof parsed === 'object') {
+        const o = parsed;
+        const toolsRaw = o.tools ?? o.entries;
+        const tools = [];
+        if (Array.isArray(toolsRaw)) {
+            for (const item of toolsRaw) {
+                const row = normalizeToolRow(item);
+                if (row) {
+                    tools.push(row);
+                }
+            }
+        }
+        const extraRoot = { ...o };
+        delete extraRoot.tools;
+        delete extraRoot.entries;
+        return { wrapper: 'tools', tools, extraRoot };
+    }
+    return { wrapper: 'empty', tools: [] };
+}
+function rowToJson(row) {
+    const out = {
+        id: row.id,
+        script: row.script,
+        description: row.description
+    };
+    if (row.matchHints.length) {
+        out.matchHints = row.matchHints;
+    }
+    if (row.dontMatchHints.length) {
+        out.dontMatchHints = row.dontMatchHints;
+    }
+    if (row.priority) {
+        out.priority = row.priority;
+    }
+    return out;
+}
+/** Writes registry JSON preserving the document wrapper shape ({@code tools} vs array). */
+function serializeRegistryDocument(doc) {
+    const rows = doc.tools.map(rowToJson);
+    if (doc.wrapper === 'array') {
+        return JSON.stringify(rows, null, 2);
+    }
+    if (doc.wrapper === 'tools') {
+        const root = { ...(doc.extraRoot ?? {}), tools: rows };
+        return JSON.stringify(root, null, 2);
+    }
+    return JSON.stringify({ tools: rows }, null, 2);
+}
+/** Patches description and routing hints for an existing tool id in registry JSON. */
+function updateRegistryTool(registryRaw, toolId, patch) {
+    const doc = parseRegistryDocument(registryRaw);
+    const idx = doc.tools.findIndex((t) => t.id === toolId);
+    if (idx < 0) {
+        throw new Error(`Tool "${toolId}" not found in registry.`);
+    }
+    const cur = doc.tools[idx];
+    doc.tools[idx] = {
+        ...cur,
+        description: patch.description !== undefined ? patch.description : cur.description,
+        matchHints: patch.matchHints !== undefined ? patch.matchHints : cur.matchHints,
+        dontMatchHints: patch.dontMatchHints !== undefined ? patch.dontMatchHints : cur.dontMatchHints,
+        priority: patch.priority !== undefined ? patch.priority : cur.priority
+    };
+    return serializeRegistryDocument(doc);
+}
+/** Appends a new tool row; promotes an empty document to {@code { tools: [...] }}. */
+function appendRegistryTool(registryRaw, row) {
+    const doc = parseRegistryDocument(registryRaw);
+    if (doc.tools.some((t) => t.id === row.id)) {
+        throw new Error(`Tool id "${row.id}" already exists in registry.`);
+    }
+    doc.tools.push(row);
+    if (doc.wrapper === 'empty') {
+        doc.wrapper = 'tools';
+    }
+    return serializeRegistryDocument(doc);
+}
+
 const REGISTRY_REL = 'scripts/aiassistant/user-tools/registry.json';
 /** Site policy + MCP: {@code StudioAiAssistantProjectConfig#TOOLS_JSON_PATH}. */
 const TOOLS_JSON_REL = 'scripts/aiassistant/config/tools.json';
+/** Best-effort JSON parse for MCP preview payloads; returns null on failure. */
 function safeJsonParse(text) {
     try {
         return JSON.parse(text);
@@ -73126,6 +73347,7 @@ function safeJsonParse(text) {
         return null;
     }
 }
+/** True when at least one MCP preview server returned a non-empty tool list. */
 function mcpPreviewHasPickableTools(servers) {
     return servers.some((s) => s.ok && s.tools.length > 0);
 }
@@ -73163,6 +73385,16 @@ function AiAssistantScriptsSandboxConfiguration(props) {
     const [addId, setAddId] = useState('');
     const [addScript, setAddScript] = useState('');
     const [addDesc, setAddDesc] = useState('');
+    const [addMatchHints, setAddMatchHints] = useState('');
+    const [addDontMatchHints, setAddDontMatchHints] = useState('');
+    const [addPriority, setAddPriority] = useState('');
+    const [toolMetaOpen, setToolMetaOpen] = useState(false);
+    const [toolMetaId, setToolMetaId] = useState('');
+    const [toolMetaDesc, setToolMetaDesc] = useState('');
+    const [toolMetaMatchHints, setToolMetaMatchHints] = useState('');
+    const [toolMetaDontMatchHints, setToolMetaDontMatchHints] = useState('');
+    const [toolMetaPriority, setToolMetaPriority] = useState('');
+    const [savingToolMeta, setSavingToolMeta] = useState(false);
     const [promptReadOpen, setPromptReadOpen] = useState(false);
     const [promptReadKey, setPromptReadKey] = useState(null);
     const [promptReadLoading, setPromptReadLoading] = useState(false);
@@ -73531,6 +73763,59 @@ function AiAssistantScriptsSandboxConfiguration(props) {
             setLoadError(e instanceof Error ? e.message : String(e));
         }
     };
+    /** Opens the registry metadata dialog for routing hints and description (not Groovy source). */
+    const openToolMetadataEditor = (t) => {
+        setToolMetaId(t.id);
+        setToolMetaDesc(t.description ?? '');
+        setToolMetaMatchHints(hintsMultiline(t.matchHints));
+        setToolMetaDontMatchHints(hintsMultiline(t.dontMatchHints));
+        setToolMetaPriority(t.priority != null && t.priority > 0 ? String(t.priority) : '');
+        setToolMetaOpen(true);
+    };
+    /** Closes the registry metadata dialog without persisting. */
+    const closeToolMetadataEditor = () => {
+        setToolMetaOpen(false);
+        setToolMetaId('');
+    };
+    /** Persists registry description, matchHints, dontMatchHints, and priority for the open tool id. */
+    const saveToolMetadata = async () => {
+        if (!siteId || !toolMetaId)
+            return;
+        setLoadError(null);
+        setSavingToolMeta(true);
+        try {
+            const raw = registryDraft.trim() || AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB;
+            let priority = 0;
+            const pr = toolMetaPriority.trim();
+            if (pr) {
+                const n = Number.parseInt(pr, 10);
+                if (!Number.isFinite(n)) {
+                    setLoadError('Priority must be a whole number (0 = default).');
+                    return;
+                }
+                priority = n;
+            }
+            const nextJson = updateRegistryTool(raw, toolMetaId, {
+                description: toolMetaDesc.trim(),
+                matchHints: hintsFromMultiline(toolMetaMatchHints),
+                dontMatchHints: hintsFromMultiline(toolMetaDontMatchHints),
+                priority
+            });
+            await firstValueFrom(writeConfiguration(siteId, REGISTRY_REL, 'studio', nextJson));
+            setRegistryDraft(nextJson);
+            setRegistryDirty(false);
+            await postAiAssistantScriptsMutate(siteId, { action: 'refreshSync' }).catch(() => { });
+            closeToolMetadataEditor();
+            await reload();
+        }
+        catch (e) {
+            setLoadError(e instanceof Error ? e.message : String(e));
+        }
+        finally {
+            setSavingToolMeta(false);
+        }
+    };
+    /** Creates a new user-tool registry row and stub Groovy script, then refreshes the tools index. */
     const submitAddTool = async () => {
         if (!siteId || addOpen !== 'tool')
             return;
@@ -73547,21 +73832,25 @@ function AiAssistantScriptsSandboxConfiguration(props) {
         setLoadError(null);
         try {
             const raw = registryDraft.trim() || AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB;
-            const parsed = safeJsonParse(raw);
-            let nextJson;
-            if (Array.isArray(parsed)) {
-                nextJson = JSON.stringify([...parsed, { id, script, description: addDesc.trim() }], null, 2);
+            let priority = 0;
+            const pr = addPriority.trim();
+            if (pr) {
+                const n = Number.parseInt(pr, 10);
+                if (!Number.isFinite(n)) {
+                    setLoadError('Priority must be a whole number (0 = default).');
+                    return;
+                }
+                priority = n;
             }
-            else if (parsed && typeof parsed === 'object') {
-                const o = { ...parsed };
-                const toolsArr = Array.isArray(o.tools) ? [...o.tools] : [];
-                toolsArr.push({ id, script, description: addDesc.trim() });
-                o.tools = toolsArr;
-                nextJson = JSON.stringify(o, null, 2);
-            }
-            else {
-                nextJson = JSON.stringify({ tools: [{ id, script, description: addDesc.trim() }] }, null, 2);
-            }
+            const row = {
+                id,
+                script,
+                description: addDesc.trim(),
+                matchHints: hintsFromMultiline(addMatchHints),
+                dontMatchHints: hintsFromMultiline(addDontMatchHints),
+                priority
+            };
+            const nextJson = appendRegistryTool(raw, row);
             await firstValueFrom(writeConfiguration(siteId, REGISTRY_REL, 'studio', nextJson));
             setRegistryDraft(nextJson);
             setRegistryDirty(false);
@@ -73573,6 +73862,9 @@ function AiAssistantScriptsSandboxConfiguration(props) {
             setAddId('');
             setAddScript('');
             setAddDesc('');
+            setAddMatchHints('');
+            setAddDontMatchHints('');
+            setAddPriority('');
             await reload();
         }
         catch (e) {
@@ -73609,10 +73901,10 @@ function AiAssistantScriptsSandboxConfiguration(props) {
                                 } }), showToolsUser ? null : (jsx$1(Stack$1, { direction: "row", spacing: 1, sx: { mt: 2 }, flexWrap: "wrap", alignItems: "center", children: jsx$1(Button, { size: "small", variant: "contained", startIcon: savingToolsPolicy ? jsx$1(CircularProgress, { size: 16, color: "inherit" }) : jsx$1(SaveRounded, {}), disabled: savingToolsPolicy || !toolsPolicyDirty, onClick: () => void saveToolsPolicy(), children: "Save tools policy" }) }))] })) : null, showMcp ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["MCP (", jsx$1("code", { children: TOOLS_JSON_REL }), "):"] }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Optional Streamable HTTP MCP servers. Wire names look like", ' ', jsx$1("code", { children: "mcp_<serverId>_<toolName>" }), ". Written to", ' ', jsx$1("code", { children: "scripts/aiassistant/config/tools.json" }), " on Save."] }), jsx$1(AiAssistantToolsMcpForm, { sections: "mcp", value: toolsPolicy, onChange: (next) => {
                                     setToolsPolicy(next);
                                     setToolsPolicyDirty(true);
-                                } }), jsxs(Stack$1, { direction: "row", spacing: 1, sx: { mt: 2 }, flexWrap: "wrap", alignItems: "center", children: [jsx$1(Button, { size: "small", variant: "contained", startIcon: savingToolsPolicy ? jsx$1(CircularProgress, { size: 16, color: "inherit" }) : jsx$1(SaveRounded, {}), disabled: savingToolsPolicy || !toolsPolicyDirty, onClick: () => void saveToolsPolicy(), children: "Save MCP settings" }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: listingMcpTools ? jsx$1(CircularProgress, { size: 16, color: "inherit" }) : jsx$1(FormatListBulletedRounded, {}), disabled: savingToolsPolicy || listingMcpTools || !mcpListPreviewAllowed, onClick: () => void openMcpToolsListOnly(), children: "List MCP tools" })] })] })) : null, showToolsBuiltIn && showMcp ? jsx$1(Divider, { sx: { my: 4 } }) : null, showToolsUser ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["Registry (", jsx$1("code", { children: REGISTRY_REL }), "):"] }), showRegistryJsonEditor ? null : (jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Use ", jsx$1("strong", { children: "Add tool" }), " and the table below to change the registry. For a raw JSON view or hand edits, use ", jsx$1("strong", { children: "Open in editor" }), "."] })), showRegistryJsonEditor ? (jsx$1(AiAssistantStudioCodeEditor, { language: "json", value: registryDraft, onChange: (v) => {
+                                } }), jsxs(Stack$1, { direction: "row", spacing: 1, sx: { mt: 2 }, flexWrap: "wrap", alignItems: "center", children: [jsx$1(Button, { size: "small", variant: "contained", startIcon: savingToolsPolicy ? jsx$1(CircularProgress, { size: 16, color: "inherit" }) : jsx$1(SaveRounded, {}), disabled: savingToolsPolicy || !toolsPolicyDirty, onClick: () => void saveToolsPolicy(), children: "Save MCP settings" }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: listingMcpTools ? jsx$1(CircularProgress, { size: 16, color: "inherit" }) : jsx$1(FormatListBulletedRounded, {}), disabled: savingToolsPolicy || listingMcpTools || !mcpListPreviewAllowed, onClick: () => void openMcpToolsListOnly(), children: "List MCP tools" })] })] })) : null, showToolsBuiltIn && showMcp ? jsx$1(Divider, { sx: { my: 4 } }) : null, showToolsUser ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["Registry (", jsx$1("code", { children: REGISTRY_REL }), "):"] }), showRegistryJsonEditor ? null : (jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Use ", jsx$1("strong", { children: "Add tool" }), " and ", jsx$1("strong", { children: "Registry" }), " on each row to edit description and intent-routing hints (", jsx$1("code", { children: "matchHints" }), " / ", jsx$1("code", { children: "dontMatchHints" }), ", same as recipes). ", jsx$1("strong", { children: "Script" }), " opens the Groovy file. For raw JSON, use ", jsx$1("strong", { children: "Open in editor" }), "."] })), showRegistryJsonEditor ? (jsx$1(AiAssistantStudioCodeEditor, { language: "json", value: registryDraft, onChange: (v) => {
                                     setRegistryDraft(v);
                                     setRegistryDirty(true);
-                                }, minHeightPx: 260 })) : null, showRegistryJsonEditor ? (jsx$1(Button, { sx: { mt: 1 }, size: "small", variant: "contained", startIcon: jsx$1(SaveRounded, {}), disabled: savingRegistry || !registryDirty, onClick: () => void saveRegistry(), children: "Save registry" })) : null, jsx$1(Button, { sx: { mt: 1, ...(showRegistryJsonEditor ? { ml: 1 } : {}) }, size: "small", onClick: () => loadFileForEditor('Registry', `/${REGISTRY_REL}`, AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB), children: "Open in editor" }), jsx$1(Divider, { sx: { my: 3 } }), jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "subtitle1", children: "User tools (Groovy):" }), jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: () => { setAddDialogFullscreen(false); setAddOpen('tool'); }, children: "Add tool" })] }), jsxs(Table$1, { size: "small", sx: { border: 1, borderColor: 'divider', borderRadius: 1 }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Id" }), jsx$1(TableCell, { children: "Script" }), jsx$1(TableCell, { children: "Description" }), jsx$1(TableCell, { align: "right", children: "Actions" })] }) }), jsx$1(TableBody, { children: tools.length === 0 ? (jsx$1(TableRow, { children: jsx$1(TableCell, { colSpan: 4, children: jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No tools in registry (or registry missing)." }) }) })) : (tools.map((t) => (jsxs(TableRow, { children: [jsx$1(TableCell, { children: t.id }), jsx$1(TableCell, { children: jsx$1("code", { children: t.script }) }), jsx$1(TableCell, { children: t.description }), jsxs(TableCell, { align: "right", children: [jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: () => void loadFileForEditor(`Tool ${t.id}`, t.studioPath, AI_ASSISTANT_USER_TOOL_GROOVY_STUB), children: "Edit" }), jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), onClick: () => void removeUserTool(t.id), children: "Remove" })] })] }, t.id)))) })] }), jsx$1(Stack$1, { direction: "row", spacing: 1, sx: { mt: 2 }, flexWrap: "wrap", alignItems: "center", children: jsx$1(Button, { size: "small", variant: "contained", startIcon: savingToolsPolicy ? jsx$1(CircularProgress, { size: 16, color: "inherit" }) : jsx$1(SaveRounded, {}), disabled: savingToolsPolicy || !toolsPolicyDirty, onClick: () => void saveToolsPolicy(), children: "Save tools policy" }) })] })) : null, (showToolsBuiltIn || showToolsUser) && showPrompts ? jsx$1(Divider, { sx: { my: 4 } }) : null, showPrompts ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["Tool Prompt Overrides (", jsx$1("code", { children: "scripts/aiassistant/prompts/" }), "):"] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Non-empty markdown for a key replaces the plugin default (see ToolPromptsLoader). Remove the file to use the built-in text again. Click a row to read the default and the site file side by side." }), jsx$1(TableContainer, { sx: { maxHeight: 420, border: 1, borderColor: 'divider', borderRadius: 1 }, children: jsxs(Table$1, { size: "small", stickyHeader: true, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Key" }), jsx$1(TableCell, { children: "Status" }), jsx$1(TableCell, { align: "right", children: "Actions" })] }) }), jsx$1(TableBody, { children: toolPromptOverrides.length === 0 ? (jsx$1(TableRow, { children: jsx$1(TableCell, { colSpan: 3, children: jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No prompt keys returned from the server." }) }) })) : (toolPromptOverrides.map((row) => (jsxs(TableRow, { hover: true, selected: promptReadOpen && promptReadKey === row.key, sx: { cursor: 'pointer' }, onClick: () => openPromptRead(row.key), children: [jsx$1(TableCell, { children: jsx$1("code", { children: row.key }) }), jsx$1(TableCell, { children: row.hasOverride ? `Site override (${row.byteLength} bytes)` : 'Built-in default' }), jsxs(TableCell, { align: "right", children: [jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: (ev) => {
+                                }, minHeightPx: 260 })) : null, showRegistryJsonEditor ? (jsx$1(Button, { sx: { mt: 1 }, size: "small", variant: "contained", startIcon: jsx$1(SaveRounded, {}), disabled: savingRegistry || !registryDirty, onClick: () => void saveRegistry(), children: "Save registry" })) : null, jsx$1(Button, { sx: { mt: 1, ...(showRegistryJsonEditor ? { ml: 1 } : {}) }, size: "small", onClick: () => loadFileForEditor('Registry', `/${REGISTRY_REL}`, AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB), children: "Open in editor" }), jsx$1(Divider, { sx: { my: 3 } }), jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "subtitle1", children: "User tools (Groovy):" }), jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: () => { setAddDialogFullscreen(false); setAddOpen('tool'); }, children: "Add tool" })] }), jsxs(Table$1, { size: "small", sx: { border: 1, borderColor: 'divider', borderRadius: 1 }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Id" }), jsx$1(TableCell, { children: "Script" }), jsx$1(TableCell, { children: "Description" }), jsx$1(TableCell, { children: "Routing hints" }), jsx$1(TableCell, { align: "right", children: "Actions" })] }) }), jsx$1(TableBody, { children: tools.length === 0 ? (jsx$1(TableRow, { children: jsx$1(TableCell, { colSpan: 5, children: jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No tools in registry (or registry missing)." }) }) })) : (tools.map((t) => (jsxs(TableRow, { children: [jsx$1(TableCell, { children: t.id }), jsx$1(TableCell, { children: jsx$1("code", { children: t.script }) }), jsx$1(TableCell, { sx: { maxWidth: 280 }, children: t.description || '—' }), jsx$1(TableCell, { children: (t.matchHints?.length ?? 0) > 0 || (t.dontMatchHints?.length ?? 0) > 0 ? (jsxs(Typography, { variant: "body2", component: "span", children: [t.matchHints?.length ?? 0, " match", (t.dontMatchHints?.length ?? 0) > 0 ? ` · ${t.dontMatchHints?.length} don’t` : ''] })) : (jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "\u2014" })) }), jsxs(TableCell, { align: "right", sx: { whiteSpace: 'nowrap' }, children: [jsx$1(Button, { size: "small", onClick: () => openToolMetadataEditor(t), children: "Registry" }), jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: () => void loadFileForEditor(`Tool ${t.id}`, t.studioPath, AI_ASSISTANT_USER_TOOL_GROOVY_STUB), children: "Script" }), jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), onClick: () => void removeUserTool(t.id), children: "Remove" })] })] }, t.id)))) })] }), jsx$1(Stack$1, { direction: "row", spacing: 1, sx: { mt: 2 }, flexWrap: "wrap", alignItems: "center", children: jsx$1(Button, { size: "small", variant: "contained", startIcon: savingToolsPolicy ? jsx$1(CircularProgress, { size: 16, color: "inherit" }) : jsx$1(SaveRounded, {}), disabled: savingToolsPolicy || !toolsPolicyDirty, onClick: () => void saveToolsPolicy(), children: "Save tools policy" }) })] })) : null, (showToolsBuiltIn || showToolsUser) && showPrompts ? jsx$1(Divider, { sx: { my: 4 } }) : null, showPrompts ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["Tool Prompt Overrides (", jsx$1("code", { children: "scripts/aiassistant/prompts/" }), "):"] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Non-empty markdown for a key replaces the plugin default (see ToolPromptsLoader). Remove the file to use the built-in text again. Click a row to read the default and the site file side by side." }), jsx$1(TableContainer, { sx: { maxHeight: 420, border: 1, borderColor: 'divider', borderRadius: 1 }, children: jsxs(Table$1, { size: "small", stickyHeader: true, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Key" }), jsx$1(TableCell, { children: "Status" }), jsx$1(TableCell, { align: "right", children: "Actions" })] }) }), jsx$1(TableBody, { children: toolPromptOverrides.length === 0 ? (jsx$1(TableRow, { children: jsx$1(TableCell, { colSpan: 3, children: jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No prompt keys returned from the server." }) }) })) : (toolPromptOverrides.map((row) => (jsxs(TableRow, { hover: true, selected: promptReadOpen && promptReadKey === row.key, sx: { cursor: 'pointer' }, onClick: () => openPromptRead(row.key), children: [jsx$1(TableCell, { children: jsx$1("code", { children: row.key }) }), jsx$1(TableCell, { children: row.hasOverride ? `Site override (${row.byteLength} bytes)` : 'Built-in default' }), jsxs(TableCell, { align: "right", children: [jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: (ev) => {
                                                                     ev.stopPropagation();
                                                                     void openToolPromptOverride(row.key);
                                                                 }, children: "Override" }), jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), disabled: !row.hasOverride, onClick: (ev) => {
@@ -73737,10 +74029,10 @@ function AiAssistantScriptsSandboxConfiguration(props) {
                                         minHeight: 0,
                                         overflow: 'auto'
                                     }
-                                    : undefined, children: [jsx$1(TextField, { label: "Id (lowercase, a-z 0-9 _ -)", value: addId, onChange: (ev) => setAddId(ev.target.value), fullWidth: true, size: "small", margin: "normal" }), addOpen === 'tool' ? (jsxs(Fragment, { children: [jsx$1(TextField, { label: "Script file (e.g. MyTool.groovy)", value: addScript, onChange: (ev) => setAddScript(ev.target.value), fullWidth: true, size: "small", margin: "normal" }), jsx$1(TextField, { label: "Description", value: addDesc, onChange: (ev) => setAddDesc(ev.target.value), fullWidth: true, size: "small", margin: "normal" })] })) : null] }), jsxs(DialogActions, { sx: { flexShrink: 0 }, children: [jsx$1(Button, { onClick: () => {
+                                    : undefined, children: [jsx$1(TextField, { label: "Id (lowercase, a-z 0-9 _ -)", value: addId, onChange: (ev) => setAddId(ev.target.value), fullWidth: true, size: "small", margin: "normal" }), addOpen === 'tool' ? (jsxs(Fragment, { children: [jsx$1(TextField, { label: "Script file (e.g. MyTool.groovy)", value: addScript, onChange: (ev) => setAddScript(ev.target.value), fullWidth: true, size: "small", margin: "normal" }), jsx$1(TextField, { label: "Description", value: addDesc, onChange: (ev) => setAddDesc(ev.target.value), fullWidth: true, size: "small", margin: "normal", helperText: "Shown to the model when choosing InvokeSiteUserTool." }), jsx$1(TextField, { label: "Match hints", value: addMatchHints, onChange: (ev) => setAddMatchHints(ev.target.value), fullWidth: true, size: "small", margin: "normal", multiline: true, minRows: 3, helperText: "One phrase per line. Author-visible text containing any phrase can match this tool in intent routing." }), jsx$1(TextField, { label: "Don\u2019t match hints", value: addDontMatchHints, onChange: (ev) => setAddDontMatchHints(ev.target.value), fullWidth: true, size: "small", margin: "normal", multiline: true, minRows: 2, helperText: "One phrase per line. Excludes this tool when any phrase appears in the author message." }), jsx$1(TextField, { label: "Priority (optional)", value: addPriority, onChange: (ev) => setAddPriority(ev.target.value), fullWidth: true, size: "small", margin: "normal", helperText: "Higher wins when several tools match (0 = default)." })] })) : null] }), jsxs(DialogActions, { sx: { flexShrink: 0 }, children: [jsx$1(Button, { onClick: () => {
                                             setAddDialogFullscreen(false);
                                             setAddOpen(null);
-                                        }, children: "Cancel" }), jsx$1(Button, { variant: "contained", onClick: () => void runAddSubmit(), children: "Create" })] })] }), jsxs(Dialog, { open: mcpToolsDialog != null, onClose: () => !savingToolsPolicy && !listingMcpTools && setMcpToolsDialog(null), maxWidth: "md", fullWidth: true, children: [jsx$1(DialogTitle, { children: mcpToolsDialog?.purpose === 'listOnly' ? 'MCP tools from servers' : 'MCP tools to register' }), jsx$1(DialogContent, { dividers: true, children: mcpToolsDialog ? (jsxs(Stack$1, { spacing: 3, children: [mcpToolsDialog.purpose === 'listOnly' ? (jsxs(Typography, { variant: "body2", color: "text.secondary", component: "div", children: ["Read-only preview from each server's ", jsx$1("code", { children: "tools/list" }), ' (same wire names Studio uses in chat).'] })) : mcpPreviewHasPickableTools(mcpToolsDialog.servers) ? (jsxs(Typography, { variant: "body2", color: "text.secondary", children: ["Unchecked tools are saved to ", jsx$1("code", { children: "disabledMcpTools" }), " in ", jsx$1("code", { children: TOOLS_JSON_REL }), ". Hide-list entries that were not discovered in this run are kept."] })) : (jsxs(Typography, { variant: "body2", color: "text.secondary", component: "div", children: ["No tools were returned from any server, so per-tool enable/disable is not available. The table below shows each server's status. ", "You can still ", jsx$1("strong", { children: "Save" }), " to write the rest of this form unchanged, or ", jsx$1("strong", { children: "Cancel" }), "."] })), mcpToolsDialog.servers.map((sv, svi) => {
+                                        }, children: "Cancel" }), jsx$1(Button, { variant: "contained", onClick: () => void runAddSubmit(), children: "Create" })] })] }), jsxs(Dialog, { open: toolMetaOpen, onClose: () => !savingToolMeta && closeToolMetadataEditor(), maxWidth: "sm", fullWidth: true, children: [jsxs(DialogTitle, { children: ["User tool registry \u2014 ", toolMetaId] }), jsxs(DialogContent, { dividers: true, children: [jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Updates ", jsx$1("code", { children: "registry.json" }), " only (not the Groovy script). Hint matching uses the same rules as intent recipe ", jsx$1("code", { children: "matchHints" }), " / ", jsx$1("code", { children: "dontMatchHints" }), "."] }), jsx$1(TextField, { label: "Description", value: toolMetaDesc, onChange: (ev) => setToolMetaDesc(ev.target.value), fullWidth: true, size: "small", margin: "normal" }), jsx$1(TextField, { label: "Match hints", value: toolMetaMatchHints, onChange: (ev) => setToolMetaMatchHints(ev.target.value), fullWidth: true, size: "small", margin: "normal", multiline: true, minRows: 4, helperText: "One phrase per line." }), jsx$1(TextField, { label: "Don\u2019t match hints", value: toolMetaDontMatchHints, onChange: (ev) => setToolMetaDontMatchHints(ev.target.value), fullWidth: true, size: "small", margin: "normal", multiline: true, minRows: 3, helperText: "One phrase per line." }), jsx$1(TextField, { label: "Priority (optional)", value: toolMetaPriority, onChange: (ev) => setToolMetaPriority(ev.target.value), fullWidth: true, size: "small", margin: "normal", helperText: "Higher wins when several tools match (0 = default)." })] }), jsxs(DialogActions, { children: [jsx$1(Button, { onClick: closeToolMetadataEditor, disabled: savingToolMeta, children: "Cancel" }), jsx$1(Button, { variant: "contained", startIcon: savingToolMeta ? jsx$1(CircularProgress, { size: 16, color: "inherit" }) : jsx$1(SaveRounded, {}), disabled: savingToolMeta, onClick: () => void saveToolMetadata(), children: "Save registry" })] })] }), jsxs(Dialog, { open: mcpToolsDialog != null, onClose: () => !savingToolsPolicy && !listingMcpTools && setMcpToolsDialog(null), maxWidth: "md", fullWidth: true, children: [jsx$1(DialogTitle, { children: mcpToolsDialog?.purpose === 'listOnly' ? 'MCP tools from servers' : 'MCP tools to register' }), jsx$1(DialogContent, { dividers: true, children: mcpToolsDialog ? (jsxs(Stack$1, { spacing: 3, children: [mcpToolsDialog.purpose === 'listOnly' ? (jsxs(Typography, { variant: "body2", color: "text.secondary", component: "div", children: ["Read-only preview from each server's ", jsx$1("code", { children: "tools/list" }), ' (same wire names Studio uses in chat).'] })) : mcpPreviewHasPickableTools(mcpToolsDialog.servers) ? (jsxs(Typography, { variant: "body2", color: "text.secondary", children: ["Unchecked tools are saved to ", jsx$1("code", { children: "disabledMcpTools" }), " in ", jsx$1("code", { children: TOOLS_JSON_REL }), ". Hide-list entries that were not discovered in this run are kept."] })) : (jsxs(Typography, { variant: "body2", color: "text.secondary", component: "div", children: ["No tools were returned from any server, so per-tool enable/disable is not available. The table below shows each server's status. ", "You can still ", jsx$1("strong", { children: "Save" }), " to write the rest of this form unchanged, or ", jsx$1("strong", { children: "Cancel" }), "."] })), mcpToolsDialog.servers.map((sv, svi) => {
                                             const showPickUI = mcpToolsDialog.purpose === 'pickForSave' && mcpPreviewHasPickableTools(mcpToolsDialog.servers);
                                             return (jsxs(Box, { children: [jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, flexWrap: "wrap", gap: 1, children: [jsxs(Typography, { variant: "subtitle2", children: ["Server: ", sv.serverId] }), showPickUI && sv.ok ? (jsxs(Stack$1, { direction: "row", spacing: 1, children: [jsx$1(Button, { size: "small", onClick: () => setMcpServerToolsEnabled(sv.serverId, true), children: "Enable all" }), jsx$1(Button, { size: "small", onClick: () => setMcpServerToolsEnabled(sv.serverId, false), children: "Disable all" })] })) : null] }), sv.ok ? (sv.tools.length === 0 ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No tools returned by tools/list." })) : (jsx$1(TableContainer, { sx: { border: 1, borderColor: 'divider', borderRadius: 1 }, children: jsxs(Table$1, { size: "small", children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [showPickUI ? jsx$1(TableCell, { padding: "checkbox" }) : null, jsx$1(TableCell, { children: "Wire name" }), jsx$1(TableCell, { children: "MCP tool" }), jsx$1(TableCell, { children: "Description" })] }) }), jsx$1(TableBody, { children: sv.tools.map((t) => (jsxs(TableRow, { children: [showPickUI && mcpToolsDialog.purpose === 'pickForSave' ? (jsx$1(TableCell, { padding: "checkbox", children: jsx$1(Checkbox, { checked: Boolean(mcpToolsDialog.selection[t.wireName]), onChange: () => setMcpToolsDialog((d) => {
                                                                                         if (!d || d.purpose !== 'pickForSave')

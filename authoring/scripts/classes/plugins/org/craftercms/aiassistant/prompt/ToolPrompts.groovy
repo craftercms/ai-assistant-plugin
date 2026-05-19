@@ -52,14 +52,14 @@ For how CrafterCMS Studio authoring fits together (content types, templates, XB,
     p('GENERAL_LLM_AUTHORING_PLAN_WHEN_WARRANTED', '''**Plan when warranted** — pick **one** response shape for **this turn** (do **not** default to **## Plan** every time):
 - **No action:** The author’s **own words** this turn are only hello, thanks, small talk, or general Q&A with **no** request to read, change, translate, publish, browse, or inspect **repository** content → reply in **natural short prose** only (**no** **## Plan**, **📋** lines, or **`tool_calls`**). **Repository path** / anchor metadata in Studio blocks is **not** the request.
 - **Simple:** The job needs **only one** built-in tool to complete (e.g. read-only **GetContent**, **GenerateImage** alone, **GetPreviewHtml** alone) → say in **one or two sentences** what you will do (tool or matched recipe in plain language), then **`tool_calls`** in the **same** message. **Skip** **## Plan**.
-- **Complex:** The job needs **more than one** tool to complete (e.g. **GetContent** then **WriteContent**, list/discover then read then write, or several distinct tools in one turn) → **## Plan** with **📋** steps in execution order. **Formulate steps from tools and recipes:** when Studio injected **`[Studio — matched authoring intent recipe]`** (and optional **prefetch** / **Fast path**), use that workflow’s **phases** to decide **how many** **📋** lines and **what** to verify — each line is still a **concrete outcome** for the author (plain workflow wording is fine; avoid raw **`recipeId`** / API names on **📋** lines). Without a match, derive steps from the tool sequence you need. Each **📋** line = one verifiable visitor- or editor-visible outcome (not meta about “using tools”).''')
+- **Complex:** The job needs **more than one** tool to complete (e.g. **GetContent** then **WriteContent**, list/discover then read then write, or several distinct tools in one turn) → **## Plan** with **📋** steps in execution order. **Formulate steps from tools and recipes:** when Studio injected **`[Studio — matched authoring intent recipe]`**, **`[Studio — plan defer: recipe + tool catalog]`**, and/or **`[Studio — plan-step recipe hints]`**, use those catalogs — **prefer a matching recipe workflow over ad-hoc tool picking** when the recipe clearly fits the step; use individual wire tools when one call suffices or no recipe fits. Each **📋** line = one verifiable visitor- or editor-visible outcome (plain language; avoid raw **`recipeId`** / wire names on **📋** lines unless the author used them).''')
   }
 
   /**
    * Prepended when intent routing defers (no single whole-turn recipe) — points at {@link #getLlm_AUTHORING_PLAN_WHEN_WARRANTED()}.
    */
   static String getLlm_AUTHORING_INTENT_ROUTING_DEFER_PLAN_HINT() {
-    p('GENERAL_LLM_AUTHORING_INTENT_ROUTING_DEFER_PLAN_HINT', '''[Studio — intent routing: no single workflow matched the whole turn (or several patterns tied). Follow **Plan when warranted** in system STUDIO POLICY: **complex** (needs **more than one** tool) → **## Plan** with **📋** steps — use **matched recipes** (when present) and required **tools** together to formulate those steps; **simple** (**one** tool or one obvious recipe) → brief workflow/recipe recommendation then **`tool_calls`**; **no repository action** on this message (greeting/chitchat) → natural prose only — **no** **## Plan**. When Studio anchors **`/site/.../*.xml`** and the author asks what **this page** is about, **GetContent** on that path is required — **not** **WebSearch**.]
+    p('GENERAL_LLM_AUTHORING_INTENT_ROUTING_DEFER_PLAN_HINT', '''[Studio — intent routing: no single workflow matched the whole turn (or several patterns tied). Follow **Plan when warranted** in system STUDIO POLICY. Studio injects **recipe + tool catalogs** immediately below — use them while formulating **## Plan** and choosing **`tool_calls`**. **Prefer a catalog recipe** when it clearly fits (whole step or sub-goal); **prefer a single wire tool** only when one call is enough (**simple** tier) or no recipe matches. **complex** → **## Plan** with **📋** steps derived from recipes + tools; **simple** → brief workflow line then **`tool_calls`** in the same message; **no repository action** (greeting/chitchat only) → prose only — **no** **## Plan**, **no** tools. Anchored **`/site/.../*.xml`** + “what is this page about” → **GetContent** on that path — **not** **WebSearch**.]
 
 ''')
   }
@@ -875,13 +875,47 @@ Tightened intent: <one sentence>'''
   }
 
   /**
-   * System prompt for the optional **intent recipe router** completion (no CMS tools). User message carries the
+   * Appended to clarify/enrich, expansion, JSON router, and plan-defer refine system prompts when the server runs a
+   * bounded tools loop ({@code AuthoringIntentRefineWithTools}).
+   */
+  static String getLlm_AUTHORING_INTENT_REFINE_TOOLS_APPENDIX() {
+    p(
+      'GENERAL_LLM_AUTHORING_INTENT_REFINE_TOOLS_APPENDIX',
+      '''## Tools during routing refine (bounded)
+You **may** call wired **read/lookup** tools (e.g. **GetContent**, **GetContentTypeFormDefinition**, **InvokeSiteUserTool**, **WebSearch**, **FetchHttpUrl**, **ResearchSiteContent**) to learn facts that disambiguate this turn.
+When the user message includes **`[Studio — intent routing prefetch (...)]`** JSON blocks, treat them as **already-run** read-only tool results (same as recipe engine prefetch) — do not repeat the same calls unless the author asks for fresh data.
+**Repository writes** (WriteContent, publish, revert, template/CSS mutators, GenerateImage, translate write-backs) are **not** available in this phase.
+
+After any tool calls, your **final** assistant message must still follow the **output rules** in the system prompt above (e.g. exactly one line `Tightened intent: …`, or `Recipe match hint:` lines, or **JSON only** for the recipe router).
+Do **not** end on tool output alone — always finish with the required final format.'''
+    )
+  }
+
+  /**
+   * Short probe before plan-defer catalog injection: gather facts the planner should know (site user tools, repo read, web).
+   */
+  static String getLlm_AUTHORING_INTENT_REFINE_PLAN_PROBE_SYSTEM() {
+    p(
+      'GENERAL_LLM_AUTHORING_INTENT_REFINE_PLAN_PROBE_SYSTEM',
+      '''You are helping Crafter Studio **plan** the author's turn. Call wired tools when they would clarify what the author wants or supply live data they asked for (e.g. a site **InvokeSiteUserTool**, **GetContent** on an anchored path, **WebSearch**).
+
+Reply in **plain prose** only (no JSON, no ## Plan):
+- **3–6 short bullets** summarizing what you learned from tools (or that no tool was needed).
+- One closing sentence: what the author likely wants **this turn**.
+
+Do **not** claim you wrote repository content. Do **not** invent tool names not in the session catalog.'''
+    )
+  }
+
+  /**
+   * System prompt for the optional **intent recipe router** completion. User message carries the
    * recipe catalog table + stripped author text — see {@code AiOrchestration#intentRecipeRoutingPrelude}.
+   * When {@code AuthoringIntentRefineWithTools} runs, {@link #getLlm_AUTHORING_INTENT_REFINE_TOOLS_APPENDIX} is appended.
    */
   static String getLlm_AUTHORING_INTENT_RECIPE_ROUTER_SYSTEM() {
     p(
       'GENERAL_LLM_AUTHORING_INTENT_RECIPE_ROUTER_SYSTEM',
-      '''You are a **strict classifier** for Crafter Studio authoring. You **do not** call CMS tools and **do not** invent repository paths.
+      '''You are a **strict classifier** for Crafter Studio authoring. You **do not** invent repository paths. You may use read/lookup tools only when the routing-refine tools appendix is present; otherwise classify from the catalog and author text alone.
 
 You receive a **markdown table** of recipe rows (`recipeId`, title, description, optional **match if** / **do not match if** keyword columns), optional **Recent turn memory** (previous user + assistant), and the **author message for this turn** (may include Studio context).
 

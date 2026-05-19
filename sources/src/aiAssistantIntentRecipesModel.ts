@@ -93,9 +93,9 @@ export type IntentRecipe = {
   toolsLoopDisable?: boolean;
   toolsLoopAllowlist?: string[];
   toolsLoopAllowlistBypassIfAuthorMentions?: string[];
+  /** Wire names removed from the session tool list when this recipe matches (e.g. image turns exclude GenerateTextNoTools). */
+  toolsLoopExcludeTools?: string[];
   matchedUserPrelude?: string;
-  prefetchHotpathForceWrite?: boolean;
-  serverHotpathExternalContent?: boolean;
 };
 
 export type IntentRecipesFile = {

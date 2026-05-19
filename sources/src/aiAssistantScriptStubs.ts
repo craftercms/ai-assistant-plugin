@@ -55,7 +55,9 @@ export const AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB = `{
     {
       "id": "example_tool",
       "script": "ExampleTool.groovy",
-      "description": "Example InvokeSiteUserTool registration"
+      "description": "Example InvokeSiteUserTool registration",
+      "matchHints": [],
+      "dontMatchHints": []
     }
   ]
 }

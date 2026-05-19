@@ -39,6 +39,16 @@ final class AuthoringIntentRecipeEngine {
    * @return map keys: {@code markdown}, {@code prefetchSteps}, {@code prefetchEnvelopeTruncated}, {@code initialBindings}
    */
   static Map runPrefetchBlock(StudioToolOperations ops, Map recipe, Map projectCfg) {
+    return runPrefetchBlock(ops, recipe, projectCfg, null)
+  }
+
+  /**
+   * Same as {@link #runPrefetchBlock(StudioToolOperations, Map, Map)} with a custom markdown header label
+   * (e.g. {@code intent routing prefetch (initial)} for {@link AuthoringIntentRoutingEngine}).
+   *
+   * @param blockLabel when set, replaces the default {@code recipe engine prefetch} marker in the markdown header
+   */
+  static Map runPrefetchBlock(StudioToolOperations ops, Map recipe, Map projectCfg, String blockLabel) {
     Map empty = [
       markdown                   : '',
       prefetchSteps                : [],
@@ -156,7 +166,8 @@ final class AuthoringIntentRecipeEngine {
       truncated = true
     }
 
-    String markdown = '[Studio — recipe engine prefetch]\n\n```json\n' + json + '\n```\n\n'
+    String label = (blockLabel ?: 'recipe engine prefetch').toString().trim()
+    String markdown = '[Studio — ' + label + ']\n\n```json\n' + json + '\n```\n\n'
 
     return [
       markdown                : markdown,

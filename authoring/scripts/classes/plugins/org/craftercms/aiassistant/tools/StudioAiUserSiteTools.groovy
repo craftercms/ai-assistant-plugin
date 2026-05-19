@@ -25,10 +25,12 @@ final class StudioAiUserSiteTools {
 
   private static final Pattern SAFE_SCRIPT_NAME = Pattern.compile('^[A-Za-z0-9][A-Za-z0-9_.-]*\\.groovy$')
 
+  /** Utility class; no instances. */
   private StudioAiUserSiteTools() {}
 
   /**
-   * Normalized registry rows: {@code id}, {@code script}, {@code description} (may be empty).
+   * Normalized registry rows: {@code id}, {@code script}, {@code description}, optional intent-routing
+   * {@code matchHints}, {@code dontMatchHints}, and {@code priority} (same semantics as intent recipes).
    */
   static List<Map> loadRegistryEntries(StudioToolOperations ops) {
     List<Map> out = []
@@ -83,11 +85,34 @@ final class StudioAiUserSiteTools {
         LOG.warn('StudioAiUserSiteTools: skipping tool {} — invalid script name: {}', id, script)
         continue
       }
+      int priority = 0
+      Object pr = m.get('priority')
+      if (pr instanceof Number) {
+        priority = ((Number) pr).intValue()
+      }
       out.add([
-        id         : id,
-        script     : script,
-        description: (m.description ?: m.desc ?: '')?.toString()?.trim() ?: ''
+        id            : id,
+        script        : script,
+        description   : (m.description ?: m.desc ?: '')?.toString()?.trim() ?: '',
+        matchHints    : hintStrings(m.get('matchHints')),
+        dontMatchHints: hintStrings(m.get('dontMatchHints')),
+        priority      : priority
       ] as Map)
+    }
+    out
+  }
+
+  /** Normalizes a JSON array of hint strings from registry rows (trimmed, non-empty only). */
+  private static List<String> hintStrings(Object raw) {
+    if (!(raw instanceof List)) {
+      return []
+    }
+    List<String> out = []
+    for (Object o : (List) raw) {
+      String n = o?.toString()?.trim()
+      if (n) {
+        out.add(n)
+      }
     }
     out
   }

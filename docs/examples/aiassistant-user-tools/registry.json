@@ -8,7 +8,22 @@
     {
       "id": "gold_price",
       "script": "gold-price.groovy",
-      "description": "Returns current LBMA gold spot price (USD per troy oz) from Minted Metal public JSON API; optional args.metal (gold only)."
+      "description": "Returns current LBMA gold spot price (USD per troy oz) from Minted Metal public JSON API; optional args.metal (gold only).",
+      "matchHints": [
+        "gold price",
+        "price of gold",
+        "spot price of gold",
+        "what is the price of gold",
+        "lookup gold",
+        "lookup the price of gold"
+      ],
+      "dontMatchHints": [
+        "search the web",
+        "latest news",
+        "WriteContent",
+        "this page",
+        "summarize this page"
+      ]
     }
   ]
 }

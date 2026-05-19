@@ -5,6 +5,29 @@
     "fallbackEmoji": "📋",
     "lineSuffix": "workflow"
   },
+  "routingEngineSteps": [
+    {
+      "routingPass": "initial",
+      "when": "anchoredSiteXml",
+      "as": "pageItem",
+      "tool": "GetContent",
+      "args": { "siteId": "$siteId", "path": "$contentPath" }
+    },
+    {
+      "routingPass": "initial",
+      "when": "anchoredSiteXml",
+      "as": "pageForm",
+      "tool": "GetContentTypeFormDefinition",
+      "args": { "siteId": "$siteId", "contentPath": "$contentPath" }
+    },
+    {
+      "routingPass": "after_refine",
+      "when": "anchoredSiteXml",
+      "as": "pageItem",
+      "tool": "GetContent",
+      "args": { "siteId": "$siteId", "path": "$contentPath" }
+    }
+  ],
   "recipeOrder": [
     "web_research",
     "site_content_research",
@@ -261,8 +284,6 @@
       "id": "modify_page_content",
       "title": "Modify page or component content",
       "chatEmoji": "✏️",
-      "prefetchHotpathForceWrite": true,
-      "serverHotpathExternalContent": true,
       "deterministicMatch": [
         {
           "priority": 60,
@@ -347,6 +368,7 @@
       "title": "Generate image (bitmap)",
       "chatEmoji": "🖼️",
       "toolsLoopForceTool": "GenerateImage",
+      "toolsLoopExcludeTools": ["GenerateTextNoTools"],
       "deterministicMatch": {
         "priority": 100,
         "routerReason": "deterministic_image_only",

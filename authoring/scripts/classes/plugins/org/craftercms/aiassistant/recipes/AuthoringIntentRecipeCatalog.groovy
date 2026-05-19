@@ -5,6 +5,7 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext
 import plugins.org.craftercms.aiassistant.config.StudioAiAssistantProjectConfig
+import plugins.org.craftercms.aiassistant.tools.AiOrchestrationTools
 import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
 
 import java.net.URL
@@ -155,6 +156,56 @@ final class AuthoringIntentRecipeCatalog {
 
     List<String> effectiveOrder = siteOrder.isEmpty() ? catalogOrder : siteOrder
     Collections.unmodifiableList(applyRecipeOrder(merged, effectiveOrder))
+  }
+
+  /**
+   * Declarative read-only tool steps for intent-routing passes (bundled catalog + site recipe JSON + tools.json).
+   * Same execution path as recipe {@code engineSteps} via {@link AuthoringIntentRoutingEngine}.
+   */
+  static List<Map> loadRoutingEngineSteps(StudioToolOperations ops, Map projectCfg) {
+    List<Map> merged = new ArrayList<>()
+    Map bundledDoc = parseCatalogDocument(loadBundledRecipesJsonText(ops))
+    appendRoutingEngineStepsFromDoc(merged, bundledDoc)
+
+    String sitePath = StudioAiAssistantProjectConfig.intentRecipeCustomRecipesPath(projectCfg)
+    if (ops != null && sitePath?.trim()) {
+      try {
+        String siteId = ops.resolveEffectiveSiteId('')
+        String raw = ops.readStudioConfigurationUtf8(siteId, sitePath.trim())
+        if (raw?.trim()) {
+          appendRoutingEngineStepsFromDoc(merged, parseCatalogDocument(raw))
+        }
+      } catch (Throwable t) {
+        log.warn('AuthoringIntentRecipeCatalog: site routingEngineSteps read failed: {}', t.message)
+      }
+    }
+
+    Map routingSec = StudioAiAssistantProjectConfig.intentRecipeRoutingSection(projectCfg)
+    Object siteToolsSteps = routingSec.get('routingEngineSteps')
+    if (siteToolsSteps instanceof List) {
+      for (Object o : (List) siteToolsSteps) {
+        if (o instanceof Map) {
+          merged.add(new LinkedHashMap<>((Map) o))
+        }
+      }
+    }
+    return Collections.unmodifiableList(merged)
+  }
+
+  /** Appends {@code routingEngineSteps} from a parsed catalog document into {@code merged}. */
+  private static void appendRoutingEngineStepsFromDoc(List<Map> merged, Map doc) {
+    if (!(merged instanceof List) || !(doc instanceof Map)) {
+      return
+    }
+    Object steps = doc.get('routingEngineSteps')
+    if (!(steps instanceof List)) {
+      return
+    }
+    for (Object o : (List) steps) {
+      if (o instanceof Map) {
+        merged.add(new LinkedHashMap<>((Map) o))
+      }
+    }
   }
 
   /**
@@ -1136,16 +1187,17 @@ final class AuthoringIntentRecipeCatalog {
   }
 
   /**
-   * Collects per-recipe tools-loop overrides ({@code allowlist}, bypass keywords, disable, force tool, hotpath flags)
+   * Collects per-recipe tools-loop overrides ({@code allowlist}, bypass keywords, disable, force tool, excludes)
    * for orchestration telemetry and runtime enforcement.
    */
   static Map orchestrationTelemetryExtras(Map recipe) {
     List<String> allow = toolsLoopAllowlistNames(recipe)
     List<String> bypass = toolsLoopAllowlistBypassKeywords(recipe)
+    List<String> exclude = toolsLoopExcludeToolNames(recipe)
     boolean toolsOff = Boolean.TRUE.equals(recipe?.get('toolsLoopDisable'))
     String forceTool = recipe?.toolsLoopForceTool?.toString()?.trim() ?: ''
 
-    if (allow.isEmpty() && bypass.isEmpty() && !toolsOff && !forceTool) {
+    if (allow.isEmpty() && bypass.isEmpty() && exclude.isEmpty() && !toolsOff && !forceTool) {
       return Collections.emptyMap()
     }
 
@@ -1159,6 +1211,10 @@ final class AuthoringIntentRecipeCatalog {
       extra.put('toolsLoopAllowlistBypassIfAuthorMentions', bypass)
     }
 
+    if (!exclude.isEmpty()) {
+      extra.put('toolsLoopExcludeTools', exclude)
+    }
+
     if (toolsOff) {
       extra.put('toolsLoopDisable', Boolean.TRUE)
     }
@@ -1167,15 +1223,28 @@ final class AuthoringIntentRecipeCatalog {
       extra.put('toolsLoopForceTool', forceTool)
     }
 
-    if (Boolean.TRUE.equals(recipe?.get('prefetchHotpathForceWrite'))) {
-      extra.put('prefetchHotpathForceWrite', Boolean.TRUE)
-    }
-
-    if (Boolean.TRUE.equals(recipe?.get('serverHotpathExternalContent'))) {
-      extra.put('serverHotpathExternalContent', Boolean.TRUE)
-    }
-
     Collections.unmodifiableMap(extra)
+  }
+
+  /** Parses {@code toolsLoopExcludeTools} wire names from a recipe map. */
+  private static List<String> toolsLoopExcludeToolNames(Map recipe) {
+    Object raw = recipe?.get('toolsLoopExcludeTools')
+
+    if (!(raw instanceof List)) {
+      return Collections.emptyList()
+    }
+
+    List<String> out = []
+
+    for (Object o : (List) raw) {
+      String n = o?.toString()?.trim()
+
+      if (n) {
+        out.add(n)
+      }
+    }
+
+    return Collections.unmodifiableList(out)
   }
 
   /** Parses {@code toolsLoopAllowlist} wire names from a recipe map. */
@@ -1287,5 +1356,73 @@ final class AuthoringIntentRecipeCatalog {
       }
     }
     sb.append('\n')
+  }
+
+  /**
+   * Prepended on plan-defer turns so the model sees recipes and wired tools while formulating **## Plan**.
+   * @param recipeCatalogMd optional pre-built markdown (e.g. from routing pass); rebuilt when blank
+   */
+  static String formatPlanDeferOrchestrationContextBlock(
+    List<Map> recipes,
+    String routerVisible,
+    StudioToolOperations ops,
+    Map cfg,
+    String recipeCatalogMd = null
+  ) {
+    StringBuilder sb = new StringBuilder()
+    sb.append('[Studio — plan defer: recipe + tool catalog]\n\n')
+    sb.append(
+      'No single whole-turn recipe matched. When you formulate **## Plan** and **`tool_calls`**, use **both** catalogs below.\n'
+    )
+    sb.append(
+      '- **Prefer a recipe** when a catalog row clearly fits a step (recipe **phases** encode tool policy and order). Name the workflow in plain language on **📋** lines; execute with the tools that recipe implies.\n'
+    )
+    sb.append(
+      '- **Prefer an individual wire tool** only when one call is enough (**simple** tier) or **no recipe** fits that step.\n'
+    )
+    sb.append(
+      '- **Site user tools:** call **`InvokeSiteUserTool`** with **`toolId`** exactly as registered (e.g. author says “Gold Tool” → match registry **toolId**, not the display title alone).\n'
+    )
+    sb.append(
+      '- **Live / external data** (prices, news, APIs): do **not** answer from memory when a recipe (**web_research**) or **`InvokeSiteUserTool`** / **FetchHttpUrl** fits — use **`tool_calls`**.\n\n'
+    )
+    String recipeMd = (recipeCatalogMd ?: '').trim()
+    if (!recipeMd) {
+      List<Map> eligible = filterRecipesEligibleForRouter(recipes, routerVisible)
+      recipeMd = toRouterCatalogMarkdown(eligible)
+    }
+    sb.append('## Intent recipe catalog\n\n').append(recipeMd).append('\n\n')
+    sb.append(AiOrchestrationTools.formatPlanDeferToolsCatalogMarkdown(ops, cfg))
+    sb.append('\n---\n\n')
+    sb.toString()
+  }
+
+  /** Per-**## Plan** step recipe hints after deterministic re-match (defer-to-plan execution). */
+  static String formatPlanStepRecipeHintsWire(List<Map> planStepHits) {
+    if (planStepHits == null || planStepHits.isEmpty()) {
+      return ''
+    }
+    StringBuilder sb = new StringBuilder()
+    sb.append('[Studio — plan-step recipe hints]\n')
+    sb.append(
+      'Deterministic recipe matches for **## Plan** steps. When a step lists a **recipeId**, prefer that recipe’s workflow over ad-hoc tool picking for that step.\n\n'
+    )
+    for (Map hit : planStepHits) {
+      String stepId = hit.stepId?.toString()?.trim() ?: '?'
+      String summary = hit.summary?.toString()?.trim() ?: ''
+      String rid = hit.recipeId?.toString()?.trim() ?: ''
+      String reason = hit.routerReason?.toString()?.trim() ?: ''
+      sb.append('- Step ').append(stepId)
+      if (summary) {
+        sb.append(' (“').append(summary.replace('\n', ' ')).append('”)')
+      }
+      sb.append(': **').append(rid).append('**')
+      if (reason) {
+        sb.append(' (').append(reason).append(')')
+      }
+      sb.append('\n')
+    }
+    sb.append('\n---\n\n')
+    sb.toString()
   }
 }

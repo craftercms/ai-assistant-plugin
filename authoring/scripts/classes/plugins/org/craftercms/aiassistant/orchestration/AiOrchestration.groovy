@@ -14,6 +14,8 @@ import plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeBindings
 import plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeCatalog
 import plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeEngine
 import plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeRouter
+import plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRoutingEngine
+import plugins.org.craftercms.aiassistant.recipes.AuthoringIntentSiteToolCatalog
 import plugins.org.craftercms.aiassistant.orchestration.chatcompletions.ChatCompletionsToolWire
 import plugins.org.craftercms.aiassistant.tools.AiOrchestrationTools
 import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
@@ -1639,73 +1641,6 @@ For **content XML** (pages/components): do not invent a new element tree — pre
   }
 
   /**
-   * True when assistant {@code content} reads like an execution plan (## Plan / ## Revised Plan / …) plus concrete
-   * next steps, but the API message had no {@code tool_calls} — used to inject a one-shot recovery user nudge.
-   * Models often use {@code ## Revised Plan} or bullet lists about CSS/FTL without echoing wire tool names.
-   */
-  private static boolean assistantProsePromisedToolsButOmittedCalls(String assistFlat) {
-    if (!assistFlat?.trim()) {
-      return false
-    }
-    def a = assistFlat
-    // ## Plan Execution wrap-up after tools ran is not a stalled ## Plan missing tool_calls.
-    if (a.contains('## Plan Execution') &&
-      assistantProseClaimsTurnCompleteDespitePlanBullets(a) &&
-      !Pattern.compile('(?im)^##\\s+Plan\\s*$').matcher(a).find() &&
-      !a.contains('## Revised Plan')) {
-      return false
-    }
-    boolean hasPlanHeading =
-      a.contains('## Plan') ||
-        a.contains('## Revised Plan') ||
-        a.contains('## Next Steps') ||
-        (Pattern.compile('(?is)##\\s+(plan|revised\\s+plan|next\\s+steps)\\b').matcher(a).find())
-    if (!hasPlanHeading) {
-      return false
-    }
-    boolean namedWireTool =
-      a.contains('GetContent') ||
-        a.contains('FetchHttpUrl') ||
-        a.contains('WriteContent') ||
-        a.contains('update_template') ||
-        a.contains('update_content') ||
-        a.contains('ListStudioContentTypes') ||
-        a.contains('ListContentDependencyScope') ||
-        a.contains('ListContentTranslationScope') ||
-        a.contains('GetPreviewHtml') ||
-        a.contains("Let's proceed") ||
-        a.contains("Let's start") ||
-        a.contains('🛠️') ||
-        a.contains('`tool_calls`')
-    boolean planBulletsWithTemplateOrCss =
-      a.contains('📋') &&
-        (
-          a.contains('.css') ||
-            a.contains('CSS') ||
-            a.contains('.ftl') ||
-            a.contains('FreeMarker') ||
-            a.toLowerCase(Locale.ROOT).contains('stylesheet') ||
-            a.toLowerCase(Locale.ROOT).contains('template')
-        )
-    return namedWireTool || planBulletsWithTemplateOrCss
-  }
-
-  /** Model printed a fake {@code GenerateImage} JSON/code block without {@code tool_calls}. */
-  private static boolean assistantProseFakedGenerateImageWithoutCalls(String assistFlat) {
-    if (!assistFlat?.trim()) {
-      return false
-    }
-    boolean mentionsTool =
-      assistFlat.contains('GenerateImage') ||
-        (assistFlat.contains('generate') && assistFlat.toLowerCase(Locale.ROOT).contains('image'))
-  boolean fencedPayload =
-      assistFlat.contains('```json') ||
-        assistFlat.contains('```\n{') ||
-        assistFlat.contains('```\n{"prompt"')
-    return mentionsTool && fencedPayload
-  }
-
-  /**
    * Assistant claimed wrap-up (### Execution / ✅ / successfully updated) without ❌ — used to avoid a
    * tools-required nudge when repository work already ran but 📋 lines still mention optional FTL/CSS.
    */
@@ -1823,27 +1758,31 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     out
   }
 
-  /** Image bitmap turn — never offer {@code GenerateTextNoTools} as a substitute for {@code GenerateImage}. */
-  private static List applyGenerateImageTurnToolPolicy(List tools, Map intentTel, String fullWireUserPrompt, String agentId) {
-    String rid = (intentTel instanceof Map) ? intentTel.get('recipeId')?.toString()?.trim() : ''
-    boolean imageTurn =
-      'generate_image'.equals(rid) ||
-      AuthoringPreviewContext.authorCurrentRequestLooksLikeImageOnlyGenerate(fullWireUserPrompt ?: '')
-    if (!imageTurn) {
+  /**
+   * Drops wire tools listed on the matched recipe ({@code toolsLoopExcludeTools} in intent recipe JSON).
+   * @param tools Spring {@code FunctionToolCallback} list for the session
+   * @param intentTel {@code intentRecipeRoutingTelemetry} map from routing
+   * @return filtered tool list (unchanged when no excludes)
+   */
+  private static List applyRecipeToolsLoopExcludes(List tools, Map intentTel) {
+    if (!(intentTel instanceof Map)) {
       return tools
     }
-    List out = filterToolCallbacksExcludeNames(tools, ['GenerateTextNoTools'] as Set)
-    if (!wireToolsIncludeNamedTool(buildWireToolsFromCallbacks(out), 'GenerateImage')) {
-      if (intentTel instanceof Map) {
-        intentTel.put('generateImageToolUnavailable', Boolean.TRUE)
-      }
-      log.warn(
-        'Tools-loop: image-only turn but GenerateImage tool missing (imageModel / imageGenerator not configured) agentId={} recipeId={}',
-        agentId,
-        rid ?: '(signal)'
-      )
+    Object ex = intentTel.get('toolsLoopExcludeTools')
+    if (!(ex instanceof List) || ((List) ex).isEmpty()) {
+      return tools
     }
-    return out
+    Set<String> excludeNames = new LinkedHashSet<>()
+    for (Object o : (List) ex) {
+      String n = o?.toString()?.trim()
+      if (n) {
+        excludeNames.add(n)
+      }
+    }
+    if (excludeNames.isEmpty()) {
+      return tools
+    }
+    return filterToolCallbacksExcludeNames(tools, excludeNames)
   }
 
   private static String synthesizeGenerateImageUnavailableMarkdown() {
@@ -2165,7 +2104,7 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     if (!probe) {
       return false
     }
-    if (plainTextLooksLikeImageOnlyGenerateRequest((visible ?: '').trim() ?: probe)) {
+    if (AuthoringPreviewContext.authorCurrentRequestLooksLikeImageOnlyGenerate((visible ?: '').trim() ?: probe)) {
       return false
     }
     String low = probe.toLowerCase(Locale.ROOT)
@@ -2950,17 +2889,9 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     return out
   }
 
-  private static final Set<String> PIPELINE_VERIFICATION_TOOL_NAMES = Collections.unmodifiableSet(
-    new LinkedHashSet<>(['GetPreviewHtml', 'analyze_template'])
-  )
-
   /** {@code main} | {@code verification} | {@code summary} — echoed on tool-progress SSE for UI grouping. */
   private static String pipelineStageForRepoTool(String toolName) {
-    String n = (toolName ?: '').trim()
-    if (PIPELINE_VERIFICATION_TOOL_NAMES.contains(n)) {
-      return 'verification'
-    }
-    return 'main'
+    return plugins.org.craftercms.aiassistant.tools.loop.ToolsLoopWirePolicyRegistry.pipelineStageForWire(toolName)
   }
 
   private static String pipelineStageForToolsLoopChatLine(
@@ -3453,6 +3384,266 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     }
   }
 
+  /**
+   * Bounded native-tool loop for intent-routing refine steps (see {@link AuthoringIntentRefineWithTools}).
+   * Separate from JVM {@link AuthoringIntentRoutingEngine} prefetch — LLM chooses tools from the refine allowlist.
+   *
+   * @param maxToolRounds cap on tool rounds (from {@link StudioAiAssistantProjectConfig#intentRecipeRefineMaxToolRounds})
+   * @param workerPhasePrefix log label for this refine phase
+   * @return map with {@code text} (assistant string), {@code refineToolsRan}, and {@code maxToolRounds}
+   */
+  static Map runAuthoringIntentRefineNativeToolLoop(
+    String apiKey,
+    String model,
+    String systemText,
+    String userText,
+    List toolCallbacks,
+    String agentId,
+    int maxToolRounds,
+    String wireBaseUrl,
+    Map toolsLoopSessionBundle,
+    String workerPhasePrefix
+  ) {
+    if (aiAssistantPipelineCancelEffective()) {
+      throw new InterruptedException(AIASSISTANT_PIPELINE_CANCELLED)
+    }
+    List<Map> wireMessages = [
+      [role: 'system', content: (systemText ?: '').toString()],
+      [role: 'user', content: (userText ?: '').toString()]
+    ]
+    List wireTools = buildWireToolsFromCallbacks(toolCallbacks)
+    if (!wireTools) {
+      return [text: '', refineToolsRan: false]
+    }
+    Map<String, FunctionToolCallback> byName = toolCallbacksByName(toolCallbacks)
+    int rounds = Math.max(0, maxToolRounds)
+    if (rounds <= 0) {
+      return [text: '', refineToolsRan: false]
+    }
+    log.info(
+      'AuthoringIntentRefineWithTools: starting native tool loop phase={} agentId={} model={} tools={} maxRounds={}',
+      workerPhasePrefix,
+      agentId,
+      model,
+      wireTools.size(),
+      rounds
+    )
+    Map loopOut = runNativeToolLoopToAssistantText(
+      apiKey,
+      model,
+      wireMessages,
+      wireTools,
+      byName,
+      agentId,
+      rounds,
+      false,
+      null,
+      null,
+      wireBaseUrl,
+      toolsLoopSessionBundle,
+      null,
+      null
+    )
+    return [
+      text           : (loopOut?.text ?: '').toString(),
+      refineToolsRan : true,
+      maxToolRounds  : rounds
+    ]
+  }
+
+  /**
+   * Runs {@link AuthoringIntentRoutingEngine#runPass} and merges results onto the tools-loop session bundle.
+   * Called at {@code initial}, {@code after_refine}, and {@code before_router} inside
+   * {@link #intentRecipeRoutingMatchPass}.
+   */
+  private static void runIntentRoutingEnginePass(
+    StudioToolOperations ops,
+    Map cfg,
+    Map detCtx,
+    Map toolsLoopSessionBundle,
+    String passId
+  ) {
+    if (ops == null || !(cfg instanceof Map) || !(detCtx instanceof Map)) {
+      return
+    }
+    Map pfb = AuthoringIntentRoutingEngine.runPass(ops, cfg, detCtx, passId)
+    AuthoringIntentRoutingEngine.mergePassIntoSessionBundle(toolsLoopSessionBundle, pfb, passId)
+  }
+
+  /**
+   * Copies {@code routingEngineTelemetry} from the session bundle into intent-recipe SSE telemetry when present.
+   */
+  private static void putRoutingEngineTelemetryIfPresent(Map tel, Map toolsLoopSessionBundle) {
+    if (!(tel instanceof Map) || !(toolsLoopSessionBundle instanceof Map)) {
+      return
+    }
+    Object rt = toolsLoopSessionBundle.routingEngineTelemetry
+    if (rt instanceof Map && !((Map) rt).isEmpty()) {
+      tel.put('routingEngineTelemetry', rt)
+      tel.put('routingEngineRan', Boolean.TRUE)
+    }
+  }
+
+  /** Site {@code registry.json} hint matches for the current author-visible turn text. */
+  private static List intentRoutingSiteToolMatches(StudioToolOperations ops, Map cfg, String authorVisible) {
+    if (ops == null || !(cfg instanceof Map)) {
+      return []
+    }
+    if (!StudioAiAssistantProjectConfig.intentRecipeSiteToolRoutingEnabled(cfg)) {
+      return []
+    }
+    return AuthoringIntentSiteToolCatalog.findDeterministicSiteToolMatches(
+      AuthoringIntentSiteToolCatalog.loadSiteTools(ops),
+      authorVisible
+    )
+  }
+
+  /** Rebuilds minimal site-tool match maps from {@code matchedSiteToolIds} on a routing pass result. */
+  private static List siteToolMatchesFromPassFields(Map pass) {
+    if (!(pass instanceof Map)) {
+      return []
+    }
+    Object ids = pass.matchedSiteToolIds
+    if (!(ids instanceof List) || ((List) ids).isEmpty()) {
+      return []
+    }
+    List out = []
+    for (Object o : (List) ids) {
+      String id = o?.toString()?.trim()
+      if (id) {
+        out.add([toolId: id] as Map)
+      }
+    }
+    out
+  }
+
+  /** Adds site-tool routing flags and matched ids to intent-recipe SSE / session-debug telemetry. */
+  private static void putSiteToolRoutingTelemetry(Map tel, List toolMatches, Map cfg) {
+    if (!(tel instanceof Map)) {
+      return
+    }
+    boolean enabled = cfg instanceof Map &&
+      StudioAiAssistantProjectConfig.intentRecipeSiteToolRoutingEnabled((Map) cfg)
+    tel.put('siteToolRoutingEnabled', enabled)
+    List matches = toolMatches instanceof List ? toolMatches : []
+    tel.put('siteToolMatchCount', matches.size())
+    tel.put('matchedSiteToolIds', AuthoringIntentSiteToolCatalog.siteToolMatchIds(matches))
+    tel.put('siteToolRoutingRan', enabled && !matches.isEmpty())
+  }
+
+  /**
+   * Defers whole-turn recipe bind when site tool {@code matchHints} compete with recipe matches (no JVM tool runs).
+   *
+   * @return completed {@code out} for {@link #intentRecipeRoutingMatchPass}, or {@code null} to continue recipe routing
+   */
+  private static Map intentRoutingDeferOutcomeForSiteTools(
+    Map out,
+    List detMatches,
+    List toolMatches,
+    String catalogMd,
+    Map toolsLoopSessionBundle
+  ) {
+    if (!(toolMatches instanceof List) || toolMatches.isEmpty()) {
+      return null
+    }
+    List<String> toolIds = AuthoringIntentSiteToolCatalog.siteToolMatchIds(toolMatches)
+    if (detMatches.size() == 1) {
+      log.info(
+        'Intent recipe routing: recipe {} competes with {} site tool hint match(es) — defer to plan loop',
+        detMatches[0].recipeId,
+        toolMatches.size()
+      )
+      out.deferToPlanLoop = true
+      out.matchPass = 'recipe_site_tool_competition_defer_plan'
+      out.competingRecipeId = detMatches[0].recipeId?.toString()
+      out.deterministicMatchCount = detMatches.size()
+      out.siteToolMatchCount = toolMatches.size()
+      out.matchedSiteToolIds = toolIds
+      out.catalogMd = catalogMd
+      out.routingEngineWirePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
+      return out
+    }
+    if (detMatches.isEmpty()) {
+      String pass = toolMatches.size() > 1 ? 'ambiguous_site_tools_defer_plan' : 'site_tool_defer_plan'
+      log.info(
+        'Intent recipe routing: {} site tool hint match(es), no recipe — defer to plan loop (matchPass={})',
+        toolMatches.size(),
+        pass
+      )
+      out.deferToPlanLoop = true
+      out.matchPass = pass
+      out.siteToolMatchCount = toolMatches.size()
+      out.matchedSiteToolIds = toolIds
+      out.deterministicMatchCount = 0
+      out.catalogMd = catalogMd
+      out.routingEngineWirePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
+      return out
+    }
+    return null
+  }
+
+  /** Copies {@code refineToolsTelemetry} from the session bundle into intent-recipe SSE telemetry when present. */
+  private static void putRefineToolsTelemetryIfPresent(Map tel, Map toolsLoopSessionBundle) {
+    if (!(tel instanceof Map) || !(toolsLoopSessionBundle instanceof Map)) {
+      return
+    }
+    Object rt = toolsLoopSessionBundle.refineToolsTelemetry
+    if (rt instanceof Map && !((Map) rt).isEmpty()) {
+      tel.put('refineToolsTelemetry', rt)
+      tel.put('refineToolsRan', Boolean.TRUE)
+    }
+  }
+
+  /**
+   * Intent-routing refine completion: bounded native-tool loop via {@link AuthoringIntentRefineWithTools} when
+   * enabled, else {@link #toolsLoopSimpleCompletionAssistantText}. Used for clarify/enrich, expansion, JSON router,
+   * and plan-defer probe — not for JVM {@code routingEngineSteps} (see {@link #runIntentRoutingEnginePass}).
+   *
+   * @param workerPhasePrefix log/SSE phase label (e.g. {@code AuthoringIntentClarifyEnrich})
+   * @param toolsLoopSessionBundle session bundle (tools list, telemetry, routing wire prefix)
+   * @param cfg merged project config from the bundle
+   * @return assistant text (may be empty on failure)
+   */
+  private static String authoringIntentRefineCompletionOrSimple(
+    String apiKey,
+    String model,
+    String systemText,
+    String userText,
+    int maxOutTokens,
+    int readTimeoutMs,
+    String workerPhasePrefix,
+    String wireBaseUrl,
+    Map toolsLoopSessionBundle,
+    Map cfg
+  ) {
+    String refined = AuthoringIntentRefineWithTools.completion(
+      apiKey,
+      model,
+      systemText,
+      userText,
+      maxOutTokens,
+      readTimeoutMs,
+      workerPhasePrefix,
+      wireBaseUrl,
+      toolsLoopSessionBundle,
+      cfg
+    )
+    if (refined) {
+      return refined
+    }
+    return toolsLoopSimpleCompletionAssistantText(
+      apiKey,
+      model,
+      systemText,
+      userText,
+      maxOutTokens,
+      readTimeoutMs,
+      workerPhasePrefix,
+      wireBaseUrl,
+      toolsLoopSessionBundle
+    )
+  }
+
   private static final String AUTHORING_INTENT_EXPANSION_BLOCK_HEADER =
     '[Studio — expanded authoring intent (model-generated for this turn; execute with tools)]'
 
@@ -3501,7 +3692,8 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
         '## Author message (this turn)\n\n' + authoringIntentRefineCurrentTurnVisible(cand),
         cand
       )
-      String expanded = toolsLoopSimpleCompletionAssistantText(
+      Map cfg = intentRecipeProjectConfigFromToolsLoopBundle(toolsLoopSessionBundle)
+      String expanded = authoringIntentRefineCompletionOrSimple(
         key,
         mdl,
         ToolPrompts.getLlm_AUTHORING_INTENT_EXPANSION_SYSTEM(),
@@ -3510,7 +3702,8 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
         120_000,
         'AuthoringIntentExpansion',
         wireBaseUrl,
-        toolsLoopSessionBundle
+        toolsLoopSessionBundle,
+        cfg
       )
       expanded = (expanded ?: '').toString().trim()
       if (!expanded || expanded.length() > 6_000) {
@@ -3572,6 +3765,10 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
 
   /**
    * LLM restates the author's current-turn goal for a second deterministic match pass (disambiguate or enrich).
+   * May call read/lookup tools via {@link AuthoringIntentRefineWithTools} when refine tools are enabled.
+   *
+   * @param routingEngineWirePrefix prefetch markdown from prior {@link AuthoringIntentRoutingEngine} passes (may be empty)
+   * @return tightened one-line intent, or empty when skipped/failed
    */
   static String generateAuthoringIntentRoutingClarifyText(
     List<Map> candidateRows,
@@ -3582,7 +3779,8 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     String apiKey,
     String model,
     String wireBaseUrl,
-    Map toolsLoopSessionBundle
+    Map toolsLoopSessionBundle,
+    String routingEngineWirePrefix = ''
   ) {
     String visible = (routerVisible ?: '').toString().trim()
     if (!visible) {
@@ -3611,16 +3809,19 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       String tableMd = AuthoringIntentRecipeCatalog.formatAmbiguousDeterministicMatchesMarkdown(candidateRows ?: [])
       tableSection = '## Pattern-matched workflows (ambiguous — more than one)\n\n' + tableMd
     }
-    String userMsg = authoringIntentRefineUserMessage(
-      tableSection + '\n\n## Author message (this turn only)\n\n' + visible,
-      wirePrompt
-    )
+    String routingPrefix = (routingEngineWirePrefix ?: '').toString()
+    String userMsg = routingPrefix +
+      authoringIntentRefineUserMessage(
+        tableSection + '\n\n## Author message (this turn only)\n\n' + visible,
+        wirePrompt
+      )
     String system = enrichMode ?
       ToolPrompts.getLlm_AUTHORING_INTENT_CLARIFY_ENRICH_SYSTEM() :
       ToolPrompts.getLlm_AUTHORING_INTENT_TIGHTEN_DISAMBIGUATION_SYSTEM()
     String phase = enrichMode ? 'AuthoringIntentClarifyEnrich' : 'AuthoringIntentTighten'
+    Map cfg = intentRecipeProjectConfigFromToolsLoopBundle(toolsLoopSessionBundle)
     try {
-      String raw = toolsLoopSimpleCompletionAssistantText(
+      String raw = authoringIntentRefineCompletionOrSimple(
         key,
         mdl,
         system,
@@ -3629,7 +3830,8 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
         120_000,
         phase,
         wireBaseUrl,
-        toolsLoopSessionBundle
+        toolsLoopSessionBundle,
+        cfg
       )
       String tightened = parseAuthoringIntentTightenedLine(raw)
       if (!tightened || tightened.length() > 2_000) {
@@ -3713,8 +3915,9 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
         authoringIntentRefineCurrentTurnVisible(cand),
       cand
     )
+    Map cfg = intentRecipeProjectConfigFromToolsLoopBundle(toolsLoopSessionBundle)
     try {
-      String expanded = toolsLoopSimpleCompletionAssistantText(
+      String expanded = authoringIntentRefineCompletionOrSimple(
         key,
         mdl,
         ToolPrompts.getLlm_AUTHORING_INTENT_EXPANSION_RECIPE_REMATCH_SYSTEM(),
@@ -3723,7 +3926,8 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
         120_000,
         'AuthoringIntentExpansionRecipeRematch',
         wireBaseUrl,
-        toolsLoopSessionBundle
+        toolsLoopSessionBundle,
+        cfg
       )
       expanded = (expanded ?: '').toString().trim()
       if (!expanded || expanded.length() > 6_000) {
@@ -3812,6 +4016,10 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       hits.collect { "${it.stepId ?: '?'}:${it.recipeId}" }.join(', ')
     )
     toolsLoopSessionBundle.planStepRecipeMatches = hits
+    String stepHints = AuthoringIntentRecipeCatalog.formatPlanStepRecipeHintsWire(hits)
+    if (stepHints?.trim()) {
+      toolsLoopSessionBundle.planStepRecipeHintsWire = stepHints
+    }
   }
 
   private static String intentRecipeRematchRouterVisible(String expansionText, String originalRouterVisible) {
@@ -3827,9 +4035,14 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
   }
 
   /**
-   * One routing pass: deterministic signals → clarify/enrich LLM → retest; single hit binds whole turn.
-   * Multiple hits or zero hits (by default) defer to the tools-loop **## Plan** instead of forcing one JSON-router recipe.
-   * @return map with {@code matched} (boolean) and match fields when true
+   * One routing pass: JVM {@code routingEngineSteps} ({@code initial}) → recipe + site-tool hint matches → clarify/enrich
+   * LLM refine tools → JVM {@code after_refine} + retest → optional JSON router after {@code before_router}.
+   * A single recipe binds only when no competing site-tool {@code matchHints} hit; recipe + tool competition defers to plan.
+   *
+   * @param detCtx routing context built in {@link #intentRecipeRoutingPrelude}
+   * @param routerVisible author-visible text for matchers and refine steps
+   * @param toolsLoopSessionBundle mutable bundle for routing/refine telemetry and wire prefixes
+   * @return map with {@code matched} (boolean), match fields when true, or {@code deferToPlanLoop} / router fields
    */
   private static Map intentRecipeRoutingMatchPass(
     List recipes,
@@ -3847,7 +4060,24 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     Map routeCtx = detCtx instanceof Map ? new LinkedHashMap(detCtx) : [:]
     routeCtx.routerVisible = visible
     String wireForMemory = (routeCtx.cand ?: '').toString()
+    StudioToolOperations routeOps = routeCtx.ops instanceof StudioToolOperations ?
+      (StudioToolOperations) routeCtx.ops :
+      null
+    runIntentRoutingEnginePass(
+      routeOps,
+      cfg,
+      routeCtx,
+      toolsLoopSessionBundle,
+      AuthoringIntentRoutingEngine.PASS_INITIAL
+    )
     List detMatches = AuthoringIntentRecipeCatalog.findDeterministicRecipeMatches(recipes, routeCtx)
+    List toolMatches = intentRoutingSiteToolMatches(routeOps, cfg, visible)
+    List routerRecipes = AuthoringIntentRecipeCatalog.filterRecipesEligibleForRouter(recipes, visible)
+    String catalogMd = AuthoringIntentRecipeCatalog.toRouterCatalogMarkdown(routerRecipes)
+    Map siteToolDefer = intentRoutingDeferOutcomeForSiteTools(out, detMatches, toolMatches, catalogMd, toolsLoopSessionBundle)
+    if (siteToolDefer != null) {
+      return siteToolDefer
+    }
     if (detMatches.size() == 1) {
       Map detMatch = detMatches[0]
       out.matched = true
@@ -3858,10 +4088,9 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       out.skipRecipePrefetch = Boolean.TRUE.equals(detMatch.skipPrefetch)
       out.matchPass = 'deterministic'
       out.deterministicMatchCount = 1
+      out.siteToolMatchCount = 0
       return out
     }
-    List routerRecipes = AuthoringIntentRecipeCatalog.filterRecipesEligibleForRouter(recipes, visible)
-    String catalogMd = AuthoringIntentRecipeCatalog.toRouterCatalogMarkdown(routerRecipes)
     boolean intentClarified = false
     if (detMatches.size() != 1) {
       List ambiguousCandidates =
@@ -3876,6 +4105,7 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
           detMatches.size(),
           enrichMode
         )
+        String routingPrefixForRefine = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
         String clarified = generateAuthoringIntentRoutingClarifyText(
           clarifyRows,
           catalogMd,
@@ -3885,7 +4115,8 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
           apiKey,
           model,
           wireBaseUrl,
-          toolsLoopSessionBundle
+          toolsLoopSessionBundle,
+          routingPrefixForRefine
         )
         if (clarified?.trim()) {
           intentClarified = true
@@ -3893,10 +4124,19 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
           routeCtx.routerVisible = visible
           routerRecipes = AuthoringIntentRecipeCatalog.filterRecipesEligibleForRouter(recipes, visible)
           catalogMd = AuthoringIntentRecipeCatalog.toRouterCatalogMarkdown(routerRecipes)
+          runIntentRoutingEnginePass(
+            routeOps,
+            cfg,
+            routeCtx,
+            toolsLoopSessionBundle,
+            AuthoringIntentRoutingEngine.PASS_AFTER_REFINE
+          )
           detMatches = AuthoringIntentRecipeCatalog.findDeterministicRecipeMatches(recipes, routeCtx)
+          toolMatches = intentRoutingSiteToolMatches(routeOps, cfg, visible)
           log.info(
-            'Intent recipe routing: retest after clarify/enrich (detMatches={}, clarifiedChars={})',
+            'Intent recipe routing: retest after clarify/enrich (detMatches={}, siteTools={}, clarifiedChars={})',
             detMatches.size(),
+            toolMatches.size(),
             visible.length()
           )
         }
@@ -3905,6 +4145,10 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     out.intentClarified = intentClarified
     out.intentTightened = intentClarified
     out.deterministicMatchCount = detMatches.size()
+    siteToolDefer = intentRoutingDeferOutcomeForSiteTools(out, detMatches, toolMatches, catalogMd, toolsLoopSessionBundle)
+    if (siteToolDefer != null) {
+      return siteToolDefer
+    }
     if (detMatches.size() == 1) {
       Map detMatch = detMatches[0]
       out.matched = true
@@ -3925,6 +4169,9 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       out.ambiguousMultiRecipe = true
       out.matchPass = 'ambiguous_multi_defer_plan'
       out.catalogMd = catalogMd
+      out.siteToolMatchCount = toolMatches.size()
+      out.matchedSiteToolIds = AuthoringIntentSiteToolCatalog.siteToolMatchIds(toolMatches)
+      out.routingEngineWirePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
       return out
     }
     if (!StudioAiAssistantProjectConfig.intentRecipeWholeTurnJsonRouterEnabled(cfg)) {
@@ -3932,13 +4179,23 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       out.deferToPlanLoop = true
       out.matchPass = 'no_deterministic_defer_plan'
       out.catalogMd = catalogMd
+      out.routingEngineWirePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
       return out
     }
-    String userRouter = authoringIntentRefineUserMessage(
-      '## Recipe catalog\n\n' + catalogMd + '\n\n## Author message (this turn)\n\n' + visible,
-      wireForMemory
+    runIntentRoutingEnginePass(
+      routeOps,
+      cfg,
+      routeCtx,
+      toolsLoopSessionBundle,
+      AuthoringIntentRoutingEngine.PASS_BEFORE_ROUTER
     )
-    String rawJson = toolsLoopSimpleCompletionAssistantText(
+    String routingPrefixForRouter = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
+    String userRouter = routingPrefixForRouter +
+      authoringIntentRefineUserMessage(
+        '## Recipe catalog\n\n' + catalogMd + '\n\n## Author message (this turn)\n\n' + visible,
+        wireForMemory
+      )
+    String rawJson = authoringIntentRefineCompletionOrSimple(
       apiKey,
       model,
       ToolPrompts.getLlm_AUTHORING_INTENT_RECIPE_ROUTER_SYSTEM(),
@@ -3947,7 +4204,8 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       120_000,
       'IntentRecipeRouter',
       wireBaseUrl,
-      toolsLoopSessionBundle
+      toolsLoopSessionBundle,
+      cfg
     )
     Map decision = AuthoringIntentRecipeRouter.parseRouterJson(rawJson)
     double minC = StudioAiAssistantProjectConfig.intentRecipeMinConfidence(cfg)
@@ -3967,6 +4225,24 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       rid = null
     }
     if (recipe != null && conf >= minC) {
+      toolMatches = intentRoutingSiteToolMatches(routeOps, cfg, visible)
+      if (!toolMatches.isEmpty()) {
+        log.info(
+          'Intent recipe routing: JSON router chose {} but {} site tool hint match(es) — defer to plan loop',
+          rid,
+          toolMatches.size()
+        )
+        out.deferToPlanLoop = true
+        out.matchPass = 'router_recipe_site_tool_competition_defer_plan'
+        out.routerRecipeId = rid
+        out.routerConfidence = conf
+        out.siteToolMatchCount = toolMatches.size()
+        out.matchedSiteToolIds = AuthoringIntentSiteToolCatalog.siteToolMatchIds(toolMatches)
+        out.catalogMd = catalogMd
+        out.routingEngineWirePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
+        out.routerDecision = decision
+        return out
+      }
       out.matched = true
       out.recipe = recipe
       out.recipeId = rid
@@ -3980,6 +4256,23 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     }
     Map fbDet = AuthoringIntentRecipeCatalog.findDeterministicRecipeMatch(recipes, routeCtx)
     if (fbDet != null) {
+      toolMatches = intentRoutingSiteToolMatches(routeOps, cfg, visible)
+      if (!toolMatches.isEmpty()) {
+        log.info(
+          'Intent recipe routing: deterministic fallback {} competes with site tools — defer to plan loop',
+          fbDet.recipeId
+        )
+        out.deferToPlanLoop = true
+        out.matchPass = 'recipe_site_tool_competition_defer_plan'
+        out.competingRecipeId = fbDet.recipeId?.toString()
+        out.siteToolMatchCount = toolMatches.size()
+        out.matchedSiteToolIds = AuthoringIntentSiteToolCatalog.siteToolMatchIds(toolMatches)
+        out.catalogMd = catalogMd
+        out.routingEngineWirePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
+        out.routerDecision = decision
+        out.routerConfidence = conf
+        return out
+      }
       out.matched = true
       out.recipe = fbDet.recipe
       out.recipeId = fbDet.recipeId?.toString()?.trim()
@@ -4163,6 +4456,15 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     return intentRecipeAttachTelemetry(ops, cfg, result, 'matched', matchedTelExtra)
   }
 
+  /**
+   * Pre-tools intent recipe routing: one or two {@link #intentRecipeRoutingMatchPass} calls (optional expansion rematch),
+   * JVM {@link AuthoringIntentRoutingEngine} prefetch, LLM refine tools, then matched-recipe attach or plan-defer wiring.
+   *
+   * @param bodyPrompt full wire prompt (cand) for context extraction
+   * @param userTextAfterGuard author-visible user text after policy guards (may be rewritten on match / no-match)
+   * @param allowExpansionRematch when true, pass-2 expansion runs if pass-1 defers without ambiguous multi-match
+   * @return {@code userTextForToolsLoop}, optional {@code clarificationOnly}, and {@code intentRecipeRoutingTelemetry}
+   */
   static Map intentRecipeRoutingPrelude(
     String bodyPrompt,
     String userTextAfterGuard,
@@ -4396,7 +4698,10 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
           expansionWirePrefix
         )
         if (matchedRoute.intentRecipeRoutingTelemetry instanceof Map) {
-          ((Map) matchedRoute.intentRecipeRoutingTelemetry).putAll(catalogTel)
+          Map matchedTel = (Map) matchedRoute.intentRecipeRoutingTelemetry
+          matchedTel.putAll(catalogTel)
+          putRefineToolsTelemetryIfPresent(matchedTel, toolsLoopSessionBundle)
+          putRoutingEngineTelemetryIfPresent(matchedTel, toolsLoopSessionBundle)
         }
         return matchedRoute
       }
@@ -4445,8 +4750,55 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       String noMatchHint
       boolean deferPlan =
         Boolean.TRUE.equals(activePass.deferToPlanLoop) || Boolean.TRUE.equals(activePass.ambiguousMultiRecipe)
+      Map planDeferCatalogTel = [:]
       if (deferPlan) {
         noMatchHint = ToolPrompts.getLlm_AUTHORING_INTENT_ROUTING_DEFER_PLAN_HINT()
+        String catalogForProbe = activePass.catalogMd?.toString()?.trim()
+        if (!catalogForProbe) {
+          List routerRecipesProbe =
+            AuthoringIntentRecipeCatalog.filterRecipesEligibleForRouter(recipes, routerVisible)
+          catalogForProbe = AuthoringIntentRecipeCatalog.toRouterCatalogMarkdown(routerRecipesProbe)
+        }
+        String probeBlock = AuthoringIntentRefineWithTools.formatPlanDeferProbeBlock(
+          routerVisible,
+          catalogForProbe,
+          key,
+          mdl,
+          wireBaseUrl,
+          toolsLoopSessionBundle,
+          cfg
+        )
+        String deferCatalogBlock =
+          AuthoringIntentRecipeCatalog.formatPlanDeferOrchestrationContextBlock(
+            recipes,
+            routerVisible,
+            ops,
+            cfg,
+            activePass.catalogMd?.toString()
+          )
+        if (probeBlock?.trim()) {
+          deferCatalogBlock = probeBlock + (deferCatalogBlock ?: '')
+        }
+        planDeferCatalogTel = AiOrchestrationTools.planDeferCatalogTelemetry(ops, cfg, deferCatalogBlock ?: '')
+        if (deferCatalogBlock?.trim()) {
+          noMatchHint += '\n\n' + deferCatalogBlock
+        }
+        if (Boolean.TRUE.equals(planDeferCatalogTel.planDeferCatalogSent)) {
+          log.info(
+            'Intent recipe routing: plan-defer catalog injected for planner (chars={}, wiredTools={}, siteUserTools={}, InvokeSiteUserTool={}, siteUserToolIds={})',
+            planDeferCatalogTel.planDeferCatalogChars,
+            planDeferCatalogTel.planDeferWiredToolCount,
+            planDeferCatalogTel.planDeferSiteUserToolCount,
+            planDeferCatalogTel.planDeferInvokeSiteUserToolWired,
+            planDeferCatalogTel.planDeferSiteUserToolIds
+          )
+        } else {
+          log.warn(
+            'Intent recipe routing: deferToPlanLoop but plan-defer catalog not injected (blockChars={}, hasMarker={})',
+            planDeferCatalogTel.planDeferCatalogChars,
+            planDeferCatalogTel.planDeferCatalogHasMarker
+          )
+        }
         if (AuthoringPreviewContext.authorVisibleSuggestsOpenPageInquiryForAuthorText(
           cand,
           currentAuthorVisible ?: ''
@@ -4469,7 +4821,8 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
         noMatchHint =
           '[Studio — recipe intent router: no confident recipe match; proceed with normal judgement and only use CMS tools when **this turn** clearly requires repository work.]\n\n'
       }
-      result.userTextForToolsLoop = expansionWirePrefix + noMatchHint + (userTextAfterGuard ?: '')
+      String routingEnginePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
+      result.userTextForToolsLoop = expansionWirePrefix + routingEnginePrefix + noMatchHint + (userTextAfterGuard ?: '')
       result.intentRecipeRoutingWireCand = cand
       Map noMatchTel = [
         recipeId               : rid,
@@ -4482,6 +4835,21 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
         matchPass              : activePass.matchPass?.toString()
       ]
       noMatchTel.putAll(catalogTel)
+      if (!planDeferCatalogTel.isEmpty()) {
+        noMatchTel.putAll(planDeferCatalogTel)
+      }
+      if (activePass.siteToolMatchCount != null) {
+        noMatchTel.put('siteToolMatchCount', activePass.siteToolMatchCount)
+      }
+      if (activePass.matchedSiteToolIds != null) {
+        noMatchTel.put('matchedSiteToolIds', activePass.matchedSiteToolIds)
+      }
+      if (activePass.competingRecipeId != null) {
+        noMatchTel.put('competingRecipeId', activePass.competingRecipeId?.toString())
+      }
+      putSiteToolRoutingTelemetry(noMatchTel, siteToolMatchesFromPassFields(activePass), cfg)
+      putRefineToolsTelemetryIfPresent(noMatchTel, toolsLoopSessionBundle)
+      putRoutingEngineTelemetryIfPresent(noMatchTel, toolsLoopSessionBundle)
       return intentRecipeAttachTelemetry(ops, cfg, result, 'no_match', noMatchTel)
     } catch (InterruptedException ie) {
       Thread.currentThread().interrupt()
@@ -4560,6 +4928,30 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     last
   }
 
+  /** One-shot prepend of per-step recipe hints after **## Plan** is parsed on defer-to-plan turns. */
+  private static void prependPlanStepRecipeHintsToWireMessages(List<Map> wire, Map toolsLoopSessionBundle) {
+    if (!(wire instanceof List) || !(toolsLoopSessionBundle instanceof Map)) {
+      return
+    }
+    String hints = toolsLoopSessionBundle.planStepRecipeHintsWire?.toString()?.trim()
+    if (!hints) {
+      return
+    }
+    Map u = lastUserWireMessage(wire)
+    if (!(u instanceof Map)) {
+      return
+    }
+    Object content = u.get('content')
+    if (content instanceof CharSequence) {
+      u.put('content', hints + content.toString())
+    } else if (content instanceof List) {
+      List parts = new ArrayList((List) content)
+      parts.add(0, [type: 'text', text: hints])
+      u.put('content', parts)
+    }
+    toolsLoopSessionBundle.remove('planStepRecipeHintsWire')
+  }
+
   /** Flatten Chat Completions–style {@code user} {@code content} (string or content-parts list) for orchestration helpers. */
   private static String flattenWireUserContent(Object content) {
     if (content instanceof CharSequence) {
@@ -4604,747 +4996,6 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     return false
   }
 
-  private static boolean wireToolsIncludeGenerateImage(List wireTools) {
-    return wireToolsIncludeNamedTool(wireTools, 'GenerateImage')
-  }
-
-  /** Read-only anchored page summary — must never take the modify-page write hotpath. */
-  private static boolean intentRecipeIsOpenPageInquiry(Map intentTel) {
-    if (!(intentTel instanceof Map)) {
-      return false
-    }
-    String rid = intentTel.recipeId?.toString()?.trim() ?: ''
-    if ('open_page_inquiry'.equals(rid)) {
-      return true
-    }
-    return (intentTel.routerReason?.toString() ?: '').contains('open_page_inquiry')
-  }
-
-  /**
-   * When intent routing matched {@code modify_page_content} and prefetch already embedded full GetContent for the
-   * anchor path, round 0 can call {@code WriteContent} directly. Concrete field edits require a resolved
-   * {@code prefetchResolvedFieldId} (author label matched to form-definition {@code <title>}).
-   */
-  private static boolean prefetchHotpathAllowsForcedWriteContent(
-    Map intentTel,
-    String outcomePhrase,
-    String authorVisible = null
-  ) {
-    if (!(intentTel instanceof Map)) {
-      return false
-    }
-    if (!'matched'.equalsIgnoreCase(intentTel.outcome?.toString())) {
-      return false
-    }
-    if (!Boolean.TRUE.equals(intentTel.prefetchHotpathForceWrite)) {
-      return false
-    }
-    if (!Boolean.TRUE.equals(intentTel.prefetchSkipRedundantGetContentForListedPath)) {
-      return false
-    }
-    if (Boolean.TRUE.equals(intentTel.prefetchEnvelopeTruncated)) {
-      return false
-    }
-    if (authorRequestIsConcreteFieldEdit(authorVisible ?: '')) {
-      return (intentTel.prefetchResolvedFieldId?.toString()?.trim() ?: '').length() > 0 &&
-        isUsableHotpathOutcomePhrase(outcomePhrase, authorVisible)
-    }
-    return isUsableHotpathOutcomePhrase(outcomePhrase, authorVisible)
-  }
-
-  /** Server write hotpath when prefetch (or bootstrap) resolved field id + full contentXml for anchor path. */
-  private static boolean serverConcreteFieldEditHotpathEligible(
-    String authorVisible,
-    String outcomePhrase,
-    String resolvedFieldId,
-    String contentXml,
-    String contentPath
-  ) {
-    boolean fieldScoped =
-      authorRequestIsConcreteFieldEdit(authorVisible ?: '') ||
-        AuthoringPreviewContext.isShortAffirmationContinuingPriorCmsWork(authorVisible ?: '')
-    if (!fieldScoped) {
-      return false
-    }
-    if (!(outcomePhrase ?: '').trim()) {
-      return false
-    }
-    if (!isUsableHotpathOutcomePhrase(outcomePhrase, authorVisible)) {
-      return false
-    }
-    if (!(resolvedFieldId ?: '').trim() || !(contentXml ?: '').trim()) {
-      return false
-    }
-    String p = (contentPath ?: '').trim()
-    return p && p.toLowerCase(Locale.ROOT).startsWith('/site/') && p.toLowerCase(Locale.ROOT).endsWith('.xml')
-  }
-
-  /** {@link FunctionToolCallback#call} may return a {@link Map} or JSON text; hotpath must accept both. */
-  private static Map coerceFunctionToolCallbackResultMap(Object raw) {
-    if (raw instanceof Map) {
-      return (Map) raw
-    }
-    String s = raw?.toString()?.trim()
-    if (!s) {
-      return [:]
-    }
-    try {
-      Object parsed = new JsonSlurper().parseText(s)
-      return parsed instanceof Map ? (Map) parsed : [:]
-    } catch (Throwable ignored) {
-      return [:]
-    }
-  }
-
-  /** Aligns with tools-loop WriteContent success tracking ({@code ok} or {@code result=written}). */
-  private static boolean writeContentToolResultSucceeded(Map writeRes) {
-    if (!(writeRes instanceof Map) || writeRes.isEmpty()) {
-      return false
-    }
-    if (Boolean.TRUE.equals(writeRes.ok)) {
-      return true
-    }
-    return 'written'.equalsIgnoreCase((writeRes.result ?: '').toString().trim())
-  }
-
-  /** User prompt for a single inner completion that materializes lyrics / external copy for a CMS field write. */
-  private static String buildExternalContentLookupUserPrompt(String authorVisible, String fieldLabel) {
-    String tail = authorVisibleTailForOutcomePhrase(authorVisible)
-    String label = (fieldLabel ?: '').trim()
-    StringBuilder sb = new StringBuilder()
-    sb.append('The author is editing a Crafter CMS content field')
-    if (label) {
-      sb.append(' ("').append(label).append('")')
-    }
-    sb.append('.\n\nAuthor request:\n').append(tail ?: authorVisible ?: '').append(
-      '\n\nOutput ONLY the final text to store in the field (plain text). ' +
-        'For song lyrics, include the complete standard lyrics with stanza breaks (blank lines between verses). ' +
-        'No JSON, markdown fences, explanations, or instructions.'
-    )
-    return sb.toString()
-  }
-
-  private static boolean serverExternalContentFieldEditHotpathEligible(
-    Map intentTel,
-    String authorVisible,
-    String fieldId,
-    String contentXml,
-    String contentPath
-  ) {
-    if (!authorRequestNeedsExternalContentResolution(authorVisible ?: '')) {
-      return false
-    }
-    if (!(intentTel instanceof Map)) {
-      return false
-    }
-    if (!'matched'.equalsIgnoreCase(intentTel.outcome?.toString())) {
-      return false
-    }
-    if (!Boolean.TRUE.equals(intentTel.serverHotpathExternalContent)) {
-      return false
-    }
-    if (!Boolean.TRUE.equals(intentTel.prefetchSkipRedundantGetContentForListedPath)) {
-      return false
-    }
-    if (Boolean.TRUE.equals(intentTel.prefetchEnvelopeTruncated)) {
-      return false
-    }
-    if (!(fieldId ?: '').trim() || !(contentXml ?: '').trim()) {
-      return false
-    }
-    String p = (contentPath ?: '').trim()
-    return p && p.toLowerCase(Locale.ROOT).startsWith('/site/') && p.toLowerCase(Locale.ROOT).endsWith('.xml')
-  }
-
-  /**
-   * Shared write + preview verification after {@link AuthoringIntentRecipeEngine#patchContentXmlFieldValue}.
-   *
-   * @return assistant markdown, or {@code null} on failure
-   */
-  private static String completeServerPrefetchFieldWriteFromPatchedXml(
-    StudioToolOperations ops,
-    String siteId,
-    String normPath,
-    String patched,
-    String fieldId,
-    String outcomePhraseForPreview,
-    Map toolsLoopSessionBundle,
-    Map<String, FunctionToolCallback> byName,
-    String origUser,
-    String agentId,
-    OutputStream sseOut,
-    Map toolTimingCtx = null
-  ) {
-    Map writeRes
-    long writeStartMs = System.currentTimeMillis()
-    try {
-      writeRes = ops.writeContent(siteId, normPath, patched, 'true')
-    } catch (Throwable wex) {
-      log.warn(
-        'Tools-loop: server prefetch field hotpath writeContent threw path={} agentId={} reason={}',
-        normPath,
-        agentId,
-        wex.message ?: wex.toString()
-      )
-      markPrefetchHotpathAborted(toolsLoopSessionBundle, wex.message?.toString() ?: 'write_failed', false)
-      return null
-    }
-    if (Boolean.TRUE.equals(writeRes.blockedForFormClientApply)) {
-      log.info(
-        'Tools-loop: server prefetch field hotpath skipped — WriteContent blocked for form client-apply path={} agentId={}',
-        normPath,
-        agentId
-      )
-      return null
-    }
-    if (!writeContentToolResultSucceeded(writeRes)) {
-      log.warn(
-        'Tools-loop: server prefetch field hotpath writeContent did not succeed path={} agentId={} message={}',
-        normPath,
-        agentId,
-        (writeRes?.message ?: writeRes?.error ?: 'WriteContent failed')?.toString()
-      )
-      markPrefetchHotpathAborted(toolsLoopSessionBundle, (writeRes?.message ?: writeRes?.error)?.toString(), false)
-      return null
-    }
-    try {
-      AuthoringIntentRecipeBindings.updateCurrentFromWrite(
-        ops,
-        normPath,
-        [content: patched, contentXml: patched, path: normPath, contentPath: normPath]
-      )
-    } catch (Throwable ignoredHotpathBinding) {
-    }
-    markTaskCompletionWallMsIfUnset(toolTimingCtx)
-    if (sseOut != null) {
-      long writeDurMs = Math.max(0L, System.currentTimeMillis() - writeStartMs)
-      writeToolProgressSse(
-        sseOut,
-        'WriteContent',
-        'done',
-        [path: normPath],
-        null,
-        writeRes,
-        writeDurMs
-      )
-    }
-    Boolean previewFound = null
-    String previewUrl = ''
-    List<Map> wireForPreview = [[role: 'user', content: origUser ?: '']]
-    previewUrl = enginePreviewUrlFromWire(wireForPreview, toolsLoopSessionBundle)
-    FunctionToolCallback previewCb = byName?.get('GetPreviewHtml')
-    if (previewCb != null && previewUrl?.trim()) {
-      try {
-        Map prevIn = [url: previewUrl.trim()]
-        if (siteId) {
-          prevIn.siteId = siteId
-        }
-        Object prevRaw = previewCb.call(JsonOutput.toJson(prevIn))
-        String prevJson = (prevRaw instanceof Map) ?
-          JsonOutput.toJson((Map) prevRaw) :
-          (prevRaw?.toString() ?: '')
-        Map enriched = enrichGetPreviewHtmlToolResult(prevJson, outcomePhraseForPreview, new JsonSlurper())
-        previewFound = enriched.previewGoalFound instanceof Boolean ? (Boolean) enriched.previewGoalFound : null
-      } catch (Throwable pex) {
-        log.warn(
-          'Tools-loop: server prefetch field hotpath GetPreviewHtml failed url={} agentId={} reason={}',
-          previewUrl,
-          agentId,
-          pex.message ?: pex.toString()
-        )
-      }
-    }
-    if (previewFound == Boolean.TRUE) {
-      return synthesizePlanExecutionAfterVerifiedWrite(outcomePhraseForPreview, previewUrl)
-    }
-    String base = synthesizePlanExecutionAfterVerifiedWrite(outcomePhraseForPreview, previewUrl)
-    if (previewFound == Boolean.FALSE) {
-      return appendPreviewVerificationWarningIfNeeded(base, previewFound, outcomePhraseForPreview)
-    }
-    return base
-  }
-
-  /**
-   * Look up lyrics / external copy with one inner completion, then write + preview — skips the tools-loop LLM rounds.
-   */
-  private static String tryServerPrefetchExternalContentFieldEditHotpath(
-    String origUser,
-    String authorVisible,
-    Map intentTel,
-    Map toolsLoopSessionBundle,
-    Map<String, FunctionToolCallback> byName,
-    String agentId,
-    OutputStream sseOut,
-    AtomicBoolean cancelRequested,
-    Map toolTimingCtx = null
-  ) {
-    if (cancelRequested != null && cancelRequested.get()) {
-      return null
-    }
-    String fieldId = (intentTel?.prefetchResolvedFieldId ?: '').toString().trim()
-    Map gc = AuthoringIntentRecipeEngine.extractPrefetchSuccessfulGetContent(origUser ?: '')
-    String path = (gc?.path ?: '').toString().trim()
-    String contentXml = (gc?.contentXml ?: '').toString()
-    StudioToolOperations ops = (toolsLoopSessionBundle?.studioOps instanceof StudioToolOperations) ?
-      (StudioToolOperations) toolsLoopSessionBundle.studioOps :
-      null
-    if (ops == null) {
-      return null
-    }
-    if (!fieldId || !contentXml?.trim()) {
-      String label = extractAuthorFieldLabelPhrase(origUser ?: authorVisible)
-      if (!label) {
-        label = extractAuthorFieldLabelPhrase(authorVisible)
-      }
-      Map cfgBoot = null
-      try {
-        cfgBoot = StudioAiAssistantProjectConfig.load(ops)
-      } catch (Throwable ignoredCfg) {
-      }
-      if (cfgBoot != null && label) {
-        Map boot = AuthoringIntentRecipeEngine.bootstrapConcreteFieldEditPrefetch(ops, cfgBoot, label)
-        if (Boolean.TRUE.equals(boot?.applied)) {
-          fieldId = (boot.resolvedFieldId ?: fieldId).toString().trim()
-          contentXml = (boot.contentXml ?: contentXml).toString()
-          path = (boot.contentPath ?: path).toString().trim()
-        }
-      }
-    }
-    String promptForIntent = (origUser ?: authorVisible)
-    if (!serverExternalContentFieldEditHotpathEligible(intentTel, promptForIntent, fieldId, contentXml, path)) {
-      return null
-    }
-    String apiKey = StudioAiLlmKind.toolsLoopChatApiKeyFromBundle(toolsLoopSessionBundle)
-    String model = (toolsLoopSessionBundle?.resolvedChatModel ?: '').toString().trim()
-    String wireBaseUrl = StudioAiLlmKind.toolsLoopChatBaseUrlFromBundle(toolsLoopSessionBundle)
-    if (!apiKey || !model) {
-      log.info('Tools-loop: external content hotpath skipped — missing apiKey or model on session bundle')
-      return null
-    }
-    String fieldLabel = (intentTel?.prefetchResolvedFieldLabel ?: extractAuthorFieldLabelPhrase(authorVisible) ?: '').toString().trim()
-    String genPrompt = buildExternalContentLookupUserPrompt(authorVisible, fieldLabel)
-    if (sseOut != null) {
-      writeToolProgressSse(sseOut, 'GenerateTextNoTools', 'start', [:], null, null, null)
-    }
-    long genStartMs = System.currentTimeMillis()
-    String generatedText = ''
-    try {
-      generatedText = toolsLoopSimpleCompletionAssistantText(
-        apiKey,
-        model,
-        'You are a writing assistant invoked as a tool inside Crafter Studio. Follow the user text exactly. Output only what was asked.',
-        genPrompt,
-        2048,
-        120_000,
-        'GenerateTextNoTools',
-        wireBaseUrl,
-        toolsLoopSessionBundle
-      )
-    } catch (Throwable gex) {
-      log.warn(
-        'Tools-loop: external content hotpath GenerateTextNoTools failed agentId={} reason={}',
-        agentId,
-        gex.message ?: gex.toString()
-      )
-      return null
-    }
-    generatedText = (generatedText ?: '').toString().trim()
-    if (sseOut != null) {
-      long genDurMs = Math.max(0L, System.currentTimeMillis() - genStartMs)
-      writeToolProgressSse(sseOut, 'GenerateTextNoTools', 'done', [:], null, null, genDurMs)
-    }
-    if (!generatedText || generatedText.length() < 8) {
-      log.info('Tools-loop: external content hotpath skipped — inner completion returned empty or too short')
-      return null
-    }
-    if (outcomePhraseLooksLikeInstructionNotContent(generatedText)) {
-      log.info('Tools-loop: external content hotpath skipped — inner completion looks like instructions not copy')
-      return null
-    }
-    String normPath = AuthoringPreviewContext.normalizeRepoPath(path)
-    if (!normPath) {
-      return null
-    }
-    String siteId = ''
-    try {
-      siteId = ops.resolveEffectiveSiteId('')
-    } catch (Throwable ignoredSite) {
-    }
-    try {
-      Map freshItem = ops.getContent(siteId, normPath) as Map
-      String freshXml = (freshItem?.contentXml ?: '').toString()
-      if (freshXml?.trim()) {
-        contentXml = freshXml
-      }
-    } catch (Throwable gex) {
-      log.warn(
-        'Tools-loop: external content hotpath GetContent failed path={} agentId={} reason={}',
-        normPath,
-        agentId,
-        gex.message ?: gex.toString()
-      )
-    }
-    if (!contentXml?.trim() || !StudioToolOperations.looksLikeFullCrafterSiteContentItemDocument(normPath, contentXml)) {
-      markPrefetchHotpathAborted(toolsLoopSessionBundle, 'no_content_xml', false)
-      return null
-    }
-    String patched = AuthoringIntentRecipeEngine.patchContentXmlFieldValue(contentXml, fieldId, generatedText)
-    if (!patched?.trim() || !StudioToolOperations.looksLikeFullCrafterSiteContentItemDocument(normPath, patched)) {
-      markPrefetchHotpathAborted(toolsLoopSessionBundle, 'patch_produced_invalid_document', true)
-      return null
-    }
-    String previewSnippet = generatedText.length() > 200 ? generatedText.substring(0, 197) + '…' : generatedText
-    String result = completeServerPrefetchFieldWriteFromPatchedXml(
-      ops,
-      siteId,
-      normPath,
-      patched,
-      fieldId,
-      previewSnippet,
-      toolsLoopSessionBundle,
-      byName,
-      origUser,
-      agentId,
-      sseOut,
-      toolTimingCtx
-    )
-    if (result != null) {
-      log.info(
-        'Tools-loop: external content prefetch hotpath completed agentId={} fieldId={}',
-        agentId,
-        fieldId
-      )
-    }
-    return result
-  }
-
-  /**
-   * Revert anchored {@code /site/...} item via {@code revert_change} (initial/oldest or one step back only).
-   * Content-aware version pick uses tool args from the model after {@code GetContentVersionHistory}, not site-specific snippets here.
-   */
-  private static String tryServerPrefetchContentAwareRevertHotpath(
-    String origUser,
-    String authorVisible,
-    Map intentTel,
-    Map toolsLoopSessionBundle,
-    Map<String, FunctionToolCallback> byName,
-    String agentId,
-    OutputStream sseOut,
-    AtomicBoolean cancelRequested,
-    Map toolTimingCtx = null
-  ) {
-    if (cancelRequested != null && cancelRequested.get()) {
-      return null
-    }
-    String visible = (authorVisible ?: '').trim()
-    if (!AuthoringPreviewContext.authorVisibleSuggestsRevertIntent(visible)) {
-      return null
-    }
-    String anchor = AuthoringPreviewContext.extractAnchoredRepositoryPath(origUser ?: authorVisible)
-    if (!anchor?.trim()) {
-      anchor = AuthoringPreviewContext.extractAnchoredRepositoryPath(authorVisible)
-    }
-    if (!anchor || !anchor.toLowerCase(Locale.ROOT).startsWith('/site/') ||
-      !anchor.toLowerCase(Locale.ROOT).endsWith('.xml')) {
-      return null
-    }
-    StudioToolOperations ops = (toolsLoopSessionBundle?.studioOps instanceof StudioToolOperations) ?
-      (StudioToolOperations) toolsLoopSessionBundle.studioOps :
-      null
-    if (ops == null) {
-      return null
-    }
-    boolean revertToInitial = AuthoringPreviewContext.authorVisibleSuggestsRevertToInitialVersion(visible)
-    String siteId = ''
-    try {
-      siteId = ops.resolveEffectiveSiteId('')
-    } catch (Throwable ignoredSite) {
-    }
-    FunctionToolCallback revertCb = byName?.get('revert_change')
-    if (revertCb == null) {
-      return null
-    }
-    Map revertArgs = [
-      siteId           : siteId,
-      path             : anchor,
-      revertToInitial  : revertToInitial,
-      revertToPrevious : !revertToInitial
-    ]
-    Map revertRes = coerceFunctionToolCallbackResultMap(revertCb.call(JsonOutput.toJson(revertArgs)))
-    if (!Boolean.TRUE.equals(revertRes?.ok)) {
-      return null
-    }
-    String selection = (revertRes?.versionSelection ?: '').toString().trim()
-    String phrase = 'the selected Studio version'
-    if ('initial'.equals(selection)) {
-      phrase = 'the oldest revertible version in history (initial / first-created state)'
-    } else if ('content_match'.equals(selection)) {
-      phrase = 'the newest history version matching the content you described'
-    } else if ('previous'.equals(selection)) {
-      phrase = 'the immediate prior revertible version'
-    }
-    String checkedLine = 'initial'.equals(selection) ?
-      '- Oldest revertible version resolved from GetContentVersionHistory' :
-      ('content_match'.equals(selection) ?
-        '- Version history scanned for matching field copy' :
-        '- Immediate prior revertible version resolved from history')
-    return """## Done
-
-Reverted **${anchor}** to ${phrase}.
-
-### What we checked
-${checkedLine}
-- Repository revert completed
-
-[View preview](http://localhost:8080/?crafterSite=${siteId})"""
-  }
-
-  /**
-   * Image-only author request: call {@code GenerateImage} on the server before the tools-loop LLM
-   * so the turn cannot complete with prose-only fake tool JSON.
-   */
-  private static String tryServerPrefetchGenerateImageHotpath(
-    String origUser,
-    String authorVisible,
-    Map toolsLoopSessionBundle,
-    Map<String, FunctionToolCallback> byName,
-    String agentId,
-    OutputStream sseOut,
-    AtomicBoolean cancelRequested,
-    Map toolTimingCtx = null,
-    Map<String, String> generateImageBacklogByToolCallId = null
-  ) {
-    if (cancelRequested != null && cancelRequested.get()) {
-      return null
-    }
-    if (!AuthoringPreviewContext.authorCurrentRequestLooksLikeImageOnlyGenerate(origUser ?: authorVisible)) {
-      return null
-    }
-    FunctionToolCallback genCb = byName?.get('GenerateImage')
-    if (genCb == null) {
-      return null
-    }
-    String prompt = AuthoringPreviewContext.extractAuthorCurrentRequestVisible(origUser ?: authorVisible)
-    if (!prompt?.trim()) {
-      prompt = (authorVisible ?: '').trim()
-    }
-    String imagePrompt = (prompt ?: '').replaceFirst(
-      /(?is)^\s*(?:please\s+)?(?:generate|create|draw|make|render|illustrate)\s+(?:an?\s+)?(?:image|picture|illustration|art|photo)\s+(?:of\s+)?/,
-      ''
-    ).trim()
-    if (!imagePrompt) {
-      imagePrompt = prompt
-    }
-    Map args = [prompt: imagePrompt]
-    String tcId = 'hotpath_gen_' + Long.toHexString(System.nanoTime())
-    Map res
-    try {
-      res = ChatCompletionsToolWire.runWithNativeToolCallId(tcId) {
-        coerceFunctionToolCallbackResultMap(genCb.call(JsonOutput.toJson(args)))
-      }
-    } catch (Throwable genEx) {
-      log.warn('Tools-loop: GenerateImage hotpath failed agentId={}', agentId, genEx)
-      return null
-    }
-    if (!Boolean.TRUE.equals(res?.ok)) {
-      return null
-    }
-    String url = ChatCompletionsToolWire.generateImageResultUrlString(res)
-    if (!url?.trim()) {
-      return null
-    }
-    markTaskCompletionWallMsIfUnset(toolTimingCtx)
-    if (generateImageBacklogByToolCallId != null) {
-      generateImageBacklogByToolCallId.put(tcId, url)
-    }
-    String ref = ChatCompletionsToolWire.STUDIO_AI_INLINE_IMAGE_REF_PREFIX + tcId
-    String prose = """## Plan Execution
-- Generated image from your prompt
-- Preview appears in the chat image strip below
-
-![Generated illustration](${ref})"""
-    log.info('Tools-loop: GenerateImage hotpath completed agentId={} toolCallId={}', agentId, tcId)
-    return prose
-  }
-
-  /**
-   * Deterministic single-field edit when intent prefetch already loaded content + resolved field id.
-   * Skips the first tools-loop {@code /v1/chat/completions} call (large prompt + tool schemas).
-   *
-   * @return assistant markdown, or {@code null} when the hotpath does not apply or fails
-   */
-  private static String tryServerPrefetchSimpleFieldEditHotpath(
-    String origUser,
-    String authorVisible,
-    Map intentTel,
-    Map toolsLoopSessionBundle,
-    Map<String, FunctionToolCallback> byName,
-    String agentId,
-    OutputStream sseOut,
-    AtomicBoolean cancelRequested,
-    Map toolTimingCtx = null
-  ) {
-    if (cancelRequested != null && cancelRequested.get()) {
-      return null
-    }
-    String promptForOutcome = (origUser ?: authorVisible)
-    String visibleForOutcome = authorVisibleFromPromptText(promptForOutcome) ?: (authorVisible ?: '').trim()
-    String outcomePhrase = ''
-    if (authorRequestNeedsPriorTurnContentResolution(visibleForOutcome)) {
-      outcomePhrase = extractPriorTurnAssistantContentForOutcome(promptForOutcome)?.trim()
-    }
-    if (!outcomePhrase) {
-      outcomePhrase = extractAuthoringOutcomePhrase(visibleForOutcome)?.trim()
-    }
-    if (!outcomePhrase) {
-      outcomePhrase = extractAuthoringOutcomePhrase(authorVisible)?.trim()
-    }
-    String fieldId = (intentTel?.prefetchResolvedFieldId ?: '').toString().trim()
-    Map gc = AuthoringIntentRecipeEngine.extractPrefetchSuccessfulGetContent(origUser ?: '')
-    String path = (gc?.path ?: '').toString().trim()
-    String contentXml = (gc?.contentXml ?: '').toString()
-    StudioToolOperations ops = (toolsLoopSessionBundle?.studioOps instanceof StudioToolOperations) ?
-      (StudioToolOperations) toolsLoopSessionBundle.studioOps :
-      null
-    if (ops == null) {
-      return null
-    }
-    if (!fieldId || !contentXml?.trim()) {
-      String label = extractAuthorFieldLabelPhrase(origUser ?: authorVisible)
-      if (!label) {
-        label = extractAuthorFieldLabelPhrase(authorVisible)
-      }
-      Map cfgBoot = null
-      try {
-        cfgBoot = StudioAiAssistantProjectConfig.load(ops)
-      } catch (Throwable ignoredCfg) {
-      }
-      if (cfgBoot != null && label) {
-        Map boot = AuthoringIntentRecipeEngine.bootstrapConcreteFieldEditPrefetch(ops, cfgBoot, label)
-        if (Boolean.TRUE.equals(boot?.applied)) {
-          if (!fieldId) {
-            fieldId = (boot.resolvedFieldId ?: '').toString().trim()
-          }
-          if (!contentXml?.trim()) {
-            contentXml = (boot.contentXml ?: '').toString()
-            path = (boot.contentPath ?: path).toString().trim()
-          }
-          if (!(intentTel instanceof Map)) {
-            intentTel = new LinkedHashMap<>()
-          }
-          if (!intentTel.prefetchResolvedFieldId) {
-            intentTel.put('prefetchResolvedFieldId', fieldId)
-          }
-          if (!intentTel.prefetchSkipRedundantGetContentForListedPath) {
-            intentTel.put('prefetchSkipRedundantGetContentForListedPath', Boolean.TRUE.equals(boot.duplicateGetContentBanned))
-          }
-          String bootLabel = (boot.resolvedFieldLabel ?: label).toString().trim()
-          boolean canMarkMatched = isUsableHotpathOutcomePhrase(outcomePhrase, promptForOutcome) &&
-            !outcomePhraseEqualsResolvedFieldLabel(outcomePhrase, bootLabel)
-          if (!intentTel.recipeId && canMarkMatched) {
-            intentTel.put('recipeId', 'modify_page_content')
-            intentTel.put('outcome', 'matched')
-          }
-        }
-      }
-    }
-    String fieldLabelForGuard = extractAuthorFieldLabelPhrase(origUser ?: authorVisible)
-    if (!fieldLabelForGuard) {
-      fieldLabelForGuard = extractAuthorFieldLabelPhrase(authorVisible)
-    }
-    if (outcomePhraseEqualsResolvedFieldLabel(outcomePhrase, fieldLabelForGuard)) {
-      log.info(
-        'Tools-loop: server prefetch field hotpath skipped — outcome phrase equals field label (placement request, not literal copy)'
-      )
-      return null
-    }
-    String promptForIntent = promptForOutcome
-    boolean eligible =
-      prefetchHotpathAllowsForcedWriteContent(intentTel, outcomePhrase, promptForIntent) ||
-        serverConcreteFieldEditHotpathEligible(promptForIntent, outcomePhrase, fieldId, contentXml, path)
-    if (!eligible) {
-      return null
-    }
-    if (!isUsableHotpathOutcomePhrase(outcomePhrase, promptForIntent)) {
-      log.info(
-        'Tools-loop: server prefetch field hotpath skipped — outcome not literal publishable copy (needs expansion or tools lookup)'
-      )
-      return null
-    }
-    if (!fieldId || !outcomePhrase || !path) {
-      return null
-    }
-    String normPath = AuthoringPreviewContext.normalizeRepoPath(path)
-    if (!normPath) {
-      return null
-    }
-    String siteId = ''
-    try {
-      siteId = ops.resolveEffectiveSiteId('')
-    } catch (Throwable ignoredSite) {
-    }
-    try {
-      Map freshItem = ops.getContent(siteId, normPath) as Map
-      String freshXml = (freshItem?.contentXml ?: '').toString()
-      if (freshXml?.trim()) {
-        contentXml = freshXml
-      }
-    } catch (Throwable gex) {
-      log.warn(
-        'Tools-loop: server prefetch field hotpath GetContent failed path={} agentId={} reason={}',
-        normPath,
-        agentId,
-        gex.message ?: gex.toString()
-      )
-    }
-    if (!contentXml?.trim()) {
-      markPrefetchHotpathAborted(toolsLoopSessionBundle, 'no_content_xml', false)
-      return null
-    }
-    if (!StudioToolOperations.looksLikeFullCrafterSiteContentItemDocument(normPath, contentXml)) {
-      log.warn(
-        'Tools-loop: server prefetch field hotpath aborted — on-disk item is not a full <page>/<component> document path={} agentId={}',
-        normPath,
-        agentId
-      )
-      markPrefetchHotpathAborted(toolsLoopSessionBundle, 'corrupt_or_partial_item_xml_on_disk', true)
-      return null
-    }
-    String patched = AuthoringIntentRecipeEngine.patchContentXmlFieldValue(contentXml, fieldId, outcomePhrase)
-    if (!patched?.trim()) {
-      log.info(
-        'Tools-loop: server prefetch field hotpath skipped — could not patch field {} in contentXml (field may live in a nested component) agentId={}',
-        fieldId,
-        agentId
-      )
-      markPrefetchHotpathAborted(toolsLoopSessionBundle, 'field_not_in_page_xml', false)
-      return null
-    }
-    if (!StudioToolOperations.looksLikeFullCrafterSiteContentItemDocument(normPath, patched)) {
-      log.warn(
-        'Tools-loop: server prefetch field hotpath aborted — patched body is not a full item document path={} agentId={}',
-        normPath,
-        agentId
-      )
-      markPrefetchHotpathAborted(toolsLoopSessionBundle, 'patch_produced_invalid_document', true)
-      return null
-    }
-    return completeServerPrefetchFieldWriteFromPatchedXml(
-      ops,
-      siteId,
-      normPath,
-      patched,
-      fieldId,
-      outcomePhrase,
-      toolsLoopSessionBundle,
-      byName,
-      origUser,
-      agentId,
-      sseOut,
-      toolTimingCtx
-    )
-  }
-
   /** Server wrap-up when write + preview phrase verification succeeded — avoids an extra tools-loop LLM round. */
   private static String synthesizePlanExecutionAfterVerifiedWrite(String phrase, String previewUrl) {
     String p = (phrase ?: '').trim()
@@ -5363,14 +5014,6 @@ ${checkedLine}
       sb.append('\n[View preview](').append(previewUrl.trim()).append(')\n')
     }
     return sb.toString()
-  }
-
-  /**
-   * Short author prompts that ask only for a new bitmap (no CMS write) — used to set {@code tool_choice} to
-   * {@code GenerateImage} on tools-loop round 0 so hosts cannot return prose-only “here is the image” hallucinations.
-   */
-  private static boolean plainTextLooksLikeImageOnlyGenerateRequest(String visibleUserText) {
-    return AuthoringPreviewContext.authorCurrentRequestLooksLikeImageOnlyGenerate(visibleUserText ?: '')
   }
 
   /**
@@ -5789,19 +5432,6 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
     }
   }
 
-  private static void markPrefetchHotpathAborted(Map toolsLoopSessionBundle, String reason, boolean corruptOnDisk = false) {
-    if (!(toolsLoopSessionBundle instanceof Map)) {
-      return
-    }
-    toolsLoopSessionBundle.put('prefetchHotpathWriteAborted', Boolean.TRUE)
-    if (reason?.trim()) {
-      toolsLoopSessionBundle.put('prefetchHotpathAbortReason', reason.trim())
-    }
-    if (corruptOnDisk) {
-      toolsLoopSessionBundle.put('prefetchHotpathCorruptItemXml', Boolean.TRUE)
-    }
-  }
-
   private static String synthesizeCorruptSiteItemXmlMessage(String repoPath) {
     String p = (repoPath ?: '').trim() ?: '(unknown path)'
     return '## Cannot edit this content item\n\n' +
@@ -5856,6 +5486,13 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
     }
   }
 
+  /**
+   * Caps tool result JSON on the chat wire using {@link plugins.org.craftercms.aiassistant.tools.loop.ToolsLoopWirePolicyRegistry}.
+   * @param fnName wire tool name
+   * @param toolOutRaw tool callback return value (string or map already serialized)
+   * @param toolCallId native tool_call id (for GenerateImage inline refs)
+   * @param generateImageDataUrlByToolCallId backlog map for image ref compaction
+   */
   private static String truncateNativeToolWireContent(
     String fnName,
     Object toolOutRaw,
@@ -5863,10 +5500,11 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
     Map<String, String> generateImageDataUrlByToolCallId = null
   ) {
     String s = toolOutRaw != null ? toolOutRaw.toString() : ''
-    if ('update_content'.equals((fnName ?: '').toString().trim())) {
+    def pol = plugins.org.craftercms.aiassistant.tools.loop.ToolsLoopWirePolicyRegistry.policyFor(fnName)
+    if (pol.wireOutputMode == plugins.org.craftercms.aiassistant.tools.loop.ToolsLoopWirePolicy.WIRE_COMPACT_UPDATE_CONTENT) {
       return compactUpdateContentToolWire(s, NATIVE_TOOLS_WIRE_JSON_MAX_CHARS)
     }
-    if ('GenerateImage'.equals((fnName ?: '').toString().trim())) {
+    if (pol.wireOutputMode == plugins.org.craftercms.aiassistant.tools.loop.ToolsLoopWirePolicy.WIRE_COMPACT_GENERATE_IMAGE) {
       if (generateImageDataUrlByToolCallId != null && toolCallId?.toString()?.trim()) {
         String compact = ChatCompletionsToolWire.compactGenerateImageToolWire(s, toolCallId.trim(), generateImageDataUrlByToolCallId)
         if (compact != null) {
@@ -5879,7 +5517,7 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
       int cap = NATIVE_TOOLS_WIRE_JSON_MAX_CHARS
       String head = s.substring(0, cap)
       return head +
-        '\n\n[aiassistant: output truncated for chat context limit; tool=GenerateImage originalChars=' + s.length() + ']' +
+        '\n\n[aiassistant: output truncated for chat context limit; tool=' + fnName + ' originalChars=' + s.length() + ']' +
         '\nHint: payload too large for wire; use a smaller image or save to /static-assets/.]'
     }
     if (s.length() <= NATIVE_TOOLS_WIRE_JSON_MAX_CHARS) {
@@ -5917,8 +5555,6 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
     String assistantAccum = ''
     boolean finished = false
     boolean previousRoundHadRepoMutation = false
-    int prosePlanMissingToolNudges = 0
-    int previewVerificationFailedNudges = 0
     Set<String> writeContentPathsThisTurn = new LinkedHashSet<>()
     Boolean lastPreviewContentGoalFound = null
     String authorVisibleForToolsLoop = authorVisibleRequestFromWire(wireMessages) ?: ''
@@ -5950,135 +5586,6 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
             agentId,
             intentTelForce?.get('recipeId') ?: ''
           )
-        }
-        if (toolChoice == 'auto' && wireToolsIncludeGenerateImage(wireTools)) {
-          Map lastUserRound0 = lastUserWireMessage(wireMessages)
-          String lastPlain = lastUserRound0 ? ((flattenWireUserContent(lastUserRound0.get('content')) ?: '').trim()) : ''
-          String visible = AuthoringPreviewContext.extractAuthorCurrentRequestVisible(lastPlain)
-          if (!visible?.trim()) {
-            visible = lastPlain
-            try {
-              visible = (AuthoringPreviewContext.stripStudioInjectedPromptBlocks(lastPlain) ?: '').trim() ?: lastPlain
-            } catch (Throwable ignoredStrip) {
-            }
-          }
-          boolean researchTurn =
-            AuthoringPreviewContext.authorVisibleSuggestsWebResearch(visible) ||
-            AuthoringPreviewContext.authorVisibleSuggestsSiteContentResearch(visible) ||
-            AuthoringPreviewContext.authorVisibleSuggestsLlmResearch(visible)
-          boolean revertTurn =
-            !researchTurn && AuthoringPreviewContext.authorVisibleSuggestsRevertIntent(visible)
-          if (researchTurn && wireToolsIncludeNamedTool(wireTools, 'WebSearch')) {
-            toolChoice = [type: 'function', function: [name: 'WebSearch']]
-            log.info(
-              'Tools-loop tools-on: tool_choice forced to WebSearch (web research intent, round 0) agentId={}',
-              agentId
-            )
-          } else if (revertTurn && wireToolsIncludeNamedTool(wireTools, 'revert_change')) {
-            toolChoice = [type: 'function', function: [name: 'revert_change']]
-            log.info(
-              'Tools-loop tools-on: tool_choice forced to revert_change (revert intent, round 0) agentId={}',
-              agentId
-            )
-          } else if (!researchTurn && plainTextLooksLikeImageOnlyGenerateRequest(visible)) {
-            toolChoice = [type: 'function', function: [name: 'GenerateImage']]
-            log.info(
-              'Tools-loop tools-on: tool_choice forced to GenerateImage (image-only author request, round 0) agentId={}',
-              agentId
-            )
-          }
-        }
-        if (toolChoice == 'auto' && wireToolsIncludeNamedTool(wireTools, 'WebSearch')) {
-          Map intentTelWeb =
-            (toolsLoopSessionBundle instanceof Map) ?
-              (Map) toolsLoopSessionBundle.get('intentRecipeRoutingTelemetry') :
-              null
-          String ridWeb = intentTelWeb?.get('recipeId')?.toString()?.trim() ?: ''
-          Map lastUserWeb = lastUserWireMessage(wireMessages)
-          String lastPlainWeb = lastUserWeb ? ((flattenWireUserContent(lastUserWeb.get('content')) ?: '').trim()) : ''
-          String visibleWeb = lastPlainWeb
-          try {
-            visibleWeb = (AuthoringPreviewContext.stripStudioInjectedPromptBlocks(lastPlainWeb) ?: '').trim() ?: lastPlainWeb
-          } catch (Throwable ignoredStripWeb) {
-          }
-          if ('web_research'.equals(ridWeb) || AuthoringPreviewContext.authorVisibleSuggestsWebResearch(visibleWeb)) {
-            toolChoice = [type: 'function', function: [name: 'WebSearch']]
-            log.info(
-              'Tools-loop tools-on: tool_choice forced to WebSearch (web research, round 0) agentId={} recipeId={}',
-              agentId,
-              ridWeb ?: '(signal)'
-            )
-          }
-        }
-        if (toolChoice == 'auto' && wireToolsIncludeNamedTool(wireTools, 'ResearchSiteContent')) {
-          Map intentTelSite =
-            (toolsLoopSessionBundle instanceof Map) ?
-              (Map) toolsLoopSessionBundle.get('intentRecipeRoutingTelemetry') :
-              null
-          String ridSite = intentTelSite?.get('recipeId')?.toString()?.trim() ?: ''
-          Map lastUserSite = lastUserWireMessage(wireMessages)
-          String lastPlainSite = lastUserSite ? ((flattenWireUserContent(lastUserSite.get('content')) ?: '').trim()) : ''
-          String visibleSite = lastPlainSite
-          try {
-            visibleSite = (AuthoringPreviewContext.stripStudioInjectedPromptBlocks(lastPlainSite) ?: '').trim() ?: lastPlainSite
-          } catch (Throwable ignoredStripSite) {
-          }
-          if ('site_content_research'.equals(ridSite) ||
-            AuthoringPreviewContext.authorVisibleSuggestsSiteContentResearch(visibleSite)) {
-            toolChoice = [type: 'function', function: [name: 'ResearchSiteContent']]
-            log.info(
-              'Tools-loop tools-on: tool_choice forced to ResearchSiteContent (site content research, round 0) agentId={} recipeId={}',
-              agentId,
-              ridSite ?: '(signal)'
-            )
-          }
-        }
-        if (toolChoice == 'auto' && wireToolsIncludeNamedTool(wireTools, 'GetContent')) {
-          Map intentTelInq =
-            (toolsLoopSessionBundle instanceof Map) ?
-              (Map) toolsLoopSessionBundle.get('intentRecipeRoutingTelemetry') :
-              null
-          String ridInq = intentTelInq?.get('recipeId')?.toString()?.trim() ?: ''
-          String rrInq = intentTelInq?.get('routerReason')?.toString()?.trim() ?: ''
-          boolean openPageInquiry =
-            'open_page_inquiry'.equals(ridInq) ||
-            rrInq.contains('open_page_inquiry') ||
-            AuthoringPreviewContext.authorVisibleSuggestsOpenPageInquiry(authorVisibleForToolsLoop)
-          boolean prefetchHasAnchorContent =
-            Boolean.TRUE.equals(intentTelInq?.prefetchSkipRedundantGetContentForListedPath) &&
-            !Boolean.TRUE.equals(intentTelInq?.prefetchEnvelopeTruncated)
-          if (openPageInquiry && !prefetchHasAnchorContent) {
-            toolChoice = [type: 'function', function: [name: 'GetContent']]
-            log.info(
-              'Tools-loop tools-on: tool_choice forced to GetContent (open page inquiry, round 0) agentId={} recipeId={}',
-              agentId,
-              ridInq ?: '(signal)'
-            )
-          }
-        }
-        if (toolChoice == 'auto' && wireToolsIncludeNamedTool(wireTools, 'WriteContent')) {
-          Map intentTel =
-            (toolsLoopSessionBundle instanceof Map) ?
-              (Map) toolsLoopSessionBundle.get('intentRecipeRoutingTelemetry') :
-              null
-          boolean hotpathAborted = Boolean.TRUE.equals(toolsLoopSessionBundle?.prefetchHotpathWriteAborted)
-          if (!hotpathAborted &&
-            !intentRecipeIsOpenPageInquiry(intentTel) &&
-            prefetchHotpathAllowsForcedWriteContent(intentTel, frozenAuthorOutcomePhrase, authorVisibleForToolsLoop)) {
-            toolChoice = [type: 'function', function: [name: 'WriteContent']]
-            log.info(
-              'Tools-loop tools-on: tool_choice forced to WriteContent (prefetch hotpath modify_page_content, round 0) agentId={} resolvedFieldId={}',
-              agentId,
-              intentTel?.prefetchResolvedFieldId ?: ''
-            )
-          } else if (hotpathAborted && wireToolsIncludeNamedTool(wireTools, 'GetContent')) {
-            toolChoice = [type: 'function', function: [name: 'GetContent']]
-            log.info(
-              'Tools-loop tools-on: tool_choice forced to GetContent (prefetch hotpath write aborted, round 0) agentId={} reason={}',
-              agentId,
-              toolsLoopSessionBundle?.prefetchHotpathAbortReason ?: ''
-            )
-          }
         }
       }
       def reqMap = [
@@ -6165,9 +5672,10 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
       Map msgCopy = new LinkedHashMap((Map) message)
       String assistantApiFlatForDebug = assistantTextFromChoiceMessageMap(msgCopy)
       String assistantPreTool = assistantApiFlatForDebug
-      boolean hasTc = choiceMessageHasToolCalls(msgCopy)
+      boolean hasApiToolCalls = choiceMessageHasToolCalls(msgCopy)
       String assistantRawForOrchestration = assistantApiFlatForDebug
-      if (hasTc) {
+      List runList = null
+      if (hasApiToolCalls) {
         def tcl0 = msgCopy.get('tool_calls')
         if (tcl0 instanceof List) {
           List tcl = (List) tcl0
@@ -6175,6 +5683,7 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
           List runListPrep = ordered != null ? ordered : new ArrayList(tcl)
           List depOrdered = PlanOrchestration.reorderToolCallsReadBeforeWritePreview(runListPrep)
           msgCopy.put('tool_calls', depOrdered)
+          runList = depOrdered
           if (ordered != null) {
             log.info(
               'Tools-loop tools-on: plan orchestrator reordered {} tool_calls to match plan orchestration block agentId={}',
@@ -6190,14 +5699,33 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
               (Map) toolsLoopSessionBundle,
               assistantRawForOrchestration
             )
+            prependPlanStepRecipeHintsToWireMessages(wireMessages, (Map) toolsLoopSessionBundle)
           }
         }
       }
       mutateAssistantContentStripOrchestratorBlock(msgCopy)
       assistantPreTool = assistantTextFromChoiceMessageMap(msgCopy)
+      if (!runList) {
+        List proseCalls =
+          ProseDeclaredToolCalls.synthesizeFromAssistantProse(assistantPreTool ?: '', byName)
+        if (proseCalls && !proseCalls.isEmpty()) {
+          runList = proseCalls
+          msgCopy.put('tool_calls', new ArrayList(proseCalls))
+          log.info(
+            'Tools-loop: executing {} prose-declared tool(s) (no API tool_calls) agentId={} tools={}',
+            proseCalls.size(),
+            agentId,
+            proseCalls.collect { tc ->
+              def fn = ((Map) tc)?.get('function')
+              fn instanceof Map ? fn.get('name')?.toString() : null
+            }.findAll { it?.trim() }.join(', ')
+          )
+        }
+      }
+      boolean willRunTools = runList instanceof List && !runList.isEmpty()
       if (ssePreToolAssistantText != null) {
         try {
-          if (hasTc) {
+          if (willRunTools) {
             String cleanedPreTool = assistantPreTool?.trim() ? stripForbiddenMetaPlanFromAssistantText(assistantPreTool.trim()) : ''
             String trimmedPlan = (cleanedPreTool ?: '').trim()
             if (trimmedPlan) {
@@ -6239,13 +5767,11 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
             log.warn('Tools-loop tools-on: failed to stream assistant text before tool calls: {}', te.message)
           }
         }
-        emitSseAssistantTurnDebugPreview(ssePreToolAssistantText, assistantApiFlatForDebug, msgCopy, hasTc, round, agentId)
+        emitSseAssistantTurnDebugPreview(ssePreToolAssistantText, assistantApiFlatForDebug, msgCopy, willRunTools, round, agentId)
       }
       mutateAssistantWireContentElideKnownGenerateImageDataUrls(msgCopy, generateImageDataUrlByToolCallId)
-      String userWireSnapshotForRecovery = firstAuthorVisibleUserFromWire(wireMessages) ?: ''
       wireMessages << msgCopy
-      if (hasTc) {
-        def runList = msgCopy.get('tool_calls') as List
+      if (willRunTools) {
         boolean repoMutationThisRound = false
         boolean anySuccessfulFetchHttpUrl = false
         boolean roundHadWriteAttempt = false
@@ -6269,11 +5795,15 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
           def fn = tc.get('function') as Map
           String fnName = fn instanceof Map ? (fn.get('name')?.toString() ?: '') : ''
           String argsStr = fn instanceof Map ? (fn.get('arguments')?.toString() ?: '{}') : '{}'
-          if ('WriteContent'.equals(fnName)) {
+          def toolPol =
+            plugins.org.craftercms.aiassistant.tools.loop.ToolsLoopWirePolicyRegistry.policyFor(fnName)
+          if ('write_content'.equals(toolPol.normalizeArgsId)) {
             argsStr = plugins.org.craftercms.aiassistant.tools.AiOrchestrationTools.normalizeWriteContentToolArgsJson(argsStr)
             if (fn instanceof Map) {
               fn.put('arguments', argsStr)
             }
+          }
+          if (toolPol.duplicateWritePathGuard) {
             try {
               Object argsParsed = slurper.parseText(argsStr ?: '{}')
               if (argsParsed instanceof Map) {
@@ -6298,14 +5828,10 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
             } catch (Throwable ignoredDup) {
             }
           }
-          if (fnName == 'WriteContent' ||
-            fnName == 'publish_content' ||
-            fnName == 'TranslateContentItem' ||
-            fnName == 'TranslateContentBatch' ||
-            fnName == 'revert_change') {
+          if (toolPol.repositoryMutation) {
             repoMutationThisRound = true
           }
-          if ('GetPreviewHtml'.equals(fnName)) {
+          if (toolPol.skipWhenPriorWriteFailedInRound) {
             roundRanGetPreviewHtml = true
             if (roundHadWriteAttempt && !roundHadWriteSuccess) {
               String skipOut = JsonOutput.toJson([
@@ -6359,7 +5885,7 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
             } catch (Throwable ignoredFetchOk) {
             }
           }
-          if ('WriteContent'.equals(fnName)) {
+          if (toolPol.duplicateWritePathGuard) {
             roundHadWriteAttempt = true
             try {
               def parsedW = slurper.parseText(toolOut.toString())
@@ -6403,7 +5929,7 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
             } catch (Throwable ignoredWtrack) {
             }
           }
-          if ('GetPreviewHtml'.equals(fnName)) {
+          if (toolPol.enrichPreviewHtmlResult) {
             Map enriched = enrichGetPreviewHtmlToolResult(toolOut.toString(), frozenAuthorOutcomePhrase, slurper)
             toolOut = enriched.toolOut?.toString() ?: toolOut
             if (enriched.previewGoalFound instanceof Boolean) {
@@ -6424,7 +5950,8 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
             }
           }
           String toolWire = truncateNativeToolWireContent(fnName, toolOut, id, generateImageDataUrlByToolCallId)
-          if (toolWire.length() < toolOut.length() && !'GenerateImage'.equals(fnName)) {
+          if (toolWire.length() < toolOut.length() &&
+            toolPol.wireOutputMode != plugins.org.craftercms.aiassistant.tools.loop.ToolsLoopWirePolicy.WIRE_COMPACT_GENERATE_IMAGE) {
             log.warn(
               'Tools-loop native tools: truncated tool wire output tool={} agentId={} beforeChars={} afterChars={}',
               fnName,
@@ -6514,20 +6041,8 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
         previousRoundHadRepoMutation = repoMutationThisRound
         continue
       }
-      String assistNoToolCalls = assistantTextFromChoiceMessageMap(msgCopy) ?: ''
-      boolean assistLooksLikePlanWithoutTools = assistantProsePromisedToolsButOmittedCalls(assistNoToolCalls)
-      boolean userNeedsCmsTools = false
-      boolean userNeedsImageGenerate = false
-      try {
-        userNeedsCmsTools =
-          AuthoringPreviewContext.authorCurrentRequestSuggestsCmsTooling(userWireSnapshotForRecovery) ||
-            AuthoringPreviewContext.isShortAffirmationContinuingPriorCmsWork(userWireSnapshotForRecovery)
-        userNeedsImageGenerate =
-          AuthoringPreviewContext.authorCurrentRequestLooksLikeImageOnlyGenerate(userWireSnapshotForRecovery)
-      } catch (Throwable ignoredRec) {
-      }
-      boolean assistFakedImageTool = assistantProseFakedGenerateImageWithoutCalls(assistNoToolCalls)
-      boolean assistClaimsTurnComplete = assistantProseClaimsTurnCompleteDespitePlanBullets(assistNoToolCalls)
+      boolean assistClaimsTurnComplete =
+        assistantProseClaimsTurnCompleteDespitePlanBullets(assistantTextFromChoiceMessageMap(msgCopy) ?: '')
       if (previousRoundHadRepoMutation &&
         assistClaimsTurnComplete &&
         lastPreviewContentGoalFound == Boolean.TRUE) {
@@ -6540,76 +6055,6 @@ Use CMS tools if repository work is still missing. **Do not** stream a new **## 
         assistantAccum = assistantTextFromChoiceMessageMap(msgCopy)
         finished = true
         break
-      }
-      boolean openPageInquiryNoTools =
-        AuthoringPreviewContext.authorVisibleSuggestsOpenPageInquiry(userWireSnapshotForRecovery) &&
-          assistNoToolCalls?.trim()
-      if (prosePlanMissingToolNudges < 2 &&
-        round < maxRounds - 1 &&
-        ((userNeedsCmsTools && assistLooksLikePlanWithoutTools) ||
-          openPageInquiryNoTools ||
-          (userNeedsImageGenerate && (assistLooksLikePlanWithoutTools || assistFakedImageTool)))) {
-        if (previousRoundHadRepoMutation && assistClaimsTurnComplete) {
-          if (lastPreviewContentGoalFound == Boolean.FALSE && lastPreviewContentGoalPhrase?.trim()) {
-            if (previewVerificationFailedNudges >= 1) {
-              log.info(
-                'Tools-loop: preview still missing phrase "{}" after correction nudge — accepting assistant wrap-up round={} agentId={}',
-                lastPreviewContentGoalPhrase,
-                round,
-                agentId
-              )
-              assistantAccum = assistantTextFromChoiceMessageMap(msgCopy)
-              finished = true
-              break
-            }
-            previewVerificationFailedNudges++
-            prosePlanMissingToolNudges++
-            log.info(
-              'Tools-loop: assistant claimed success but preview missing phrase "{}" — injecting verification correction ({}/{}) round={} agentId={}',
-              lastPreviewContentGoalPhrase,
-              previewVerificationFailedNudges,
-              1,
-              round,
-              agentId
-            )
-            aiAssistantToolWorkerDiagPhase("native_tool_loop_round_${round}_preview_verification_failed_nudge")
-            wireMessages << [
-              role   : 'user',
-              content:
-                '[aiassistant: preview verification failed — internal]\n' +
-                  '**GetPreviewHtml** did not show the expected copy **"' + lastPreviewContentGoalPhrase.trim() + '"** in rendered HTML. ' +
-                  '**Do not** claim success. Fix the correct content field (from **GetContentTypeFormDefinition** / formDefinitionXml) on the anchored **`/site/.../*.xml`** path with **WriteContent**, then **GetPreviewHtml** again. ' +
-                  'If XML is correct but preview is still wrong, call **analyze_template** read-only on the **display-template** `.ftl` to check for hardcoded copy — **do not** patch FTL for a content-only field edit unless the author explicitly asked for template changes. ' +
-                  'When done, one final message starting with **## Plan Execution** (not **## Plan** again) with honest **✅ / ⚠️** markers.\n'
-            ]
-            continue
-          }
-          log.info(
-            'Tools-loop: skip tools-required nudge — repository already mutated and assistant claims completion round={} agentId={}',
-            round,
-            agentId
-          )
-        } else {
-          prosePlanMissingToolNudges++
-          log.info(
-            'Tools-loop tools-on: assistant plan-style reply without tool_calls — injecting recovery user nudge ({}/{}) round={} agentId={}',
-            prosePlanMissingToolNudges,
-            2,
-            round,
-            agentId
-          )
-          aiAssistantToolWorkerDiagPhase("native_tool_loop_round_${round}_missing_tool_calls_nudge")
-          String recoveryBody = userNeedsImageGenerate ?
-            '''[aiassistant: tools-required recovery — internal]
-Your last assistant message described **GenerateImage** (plan and/or fenced JSON) but the chat completion had **no `tool_calls`**, so **no image was generated**. **Reply again** for the same author request: emit a **non-empty `tool_calls`** array with **GenerateImage** as the first tool (concrete **prompt** from the author's words). **Do not** print fake `🛠️ GenerateImage` lines or ```json tool payloads in prose — only real **tool_calls**. After the tool returns, a short **## Plan Execution** wrap-up is enough; the bitmap appears in the Studio chat image strip.''' :
-            openPageInquiryNoTools ?
-            '''[aiassistant: tools-required recovery — internal]
-The author asked what **this page** is about; Studio already anchored **contentPath** in the user message. Your last completion had **no `tool_calls`**, so you did not read repository XML. **Reply again**: emit **GetContent** on the anchored **`/site/.../*.xml`** path as the **first** tool (optional **GetPreviewHtml**), then answer from that XML — **do not** claim you lack access to the page.''' :
-            '''[aiassistant: tools-required recovery — internal]
-Your last assistant message had a **plan-style heading** (## Plan, ## Revised Plan, ## Next Steps, …) and described concrete CMS work, but the chat completion had **no `tool_calls`**, so the server ran **no** tools on that turn. **Reply again** for the same author request: keep or tighten the plan, then emit a **non-empty `tool_calls`** array and execute the next real step. **Match tools to the ask:** for **content** on **`/site/.../*.xml`** (field values, copy, tone) use **GetContent** + **WriteContent** (or **update_content** + **WriteContent**) on **those XML paths** — **not** **update_template** or **WriteContent** on **`.ftl`** unless the author explicitly asked for **template/FreeMarker** changes. **Template/CSS/schema** work: discover paths from **GetContent** on the page/component XML (**display-template**, linked assets) or prior tool results — **never** guess **`/static-assets/styles.css`**. **FetchHttpUrl** only for **http(s)** references the author gave. **Do not** end with prose-only, rhetorical questions, or “would you like a draft” while repository work remains; either call tools or state a **single** blocking error (e.g. missing path) with the exact tool result you saw.'''
-          wireMessages << [role: 'user', content: recoveryBody]
-          continue
-        }
       }
       aiAssistantToolWorkerDiagPhase("native_tool_loop_round_${round}_final_assistant_message_no_more_tools")
       assistantAccum = assistantTextFromChoiceMessageMap(msgCopy)
@@ -6676,7 +6121,12 @@ Your last assistant message had a **plan-style heading** (## Plan, ## Revised Pl
     String authorVisible = authorVisibleFromPromptText(origUser)
     List effectiveTools = tools
     effectiveTools = effectiveToolsForIntentRecipe(tools, intentTel, authorVisible, agentId)
-    effectiveTools = applyGenerateImageTurnToolPolicy(effectiveTools, intentTel, origUser, agentId)
+    effectiveTools = applyRecipeToolsLoopExcludes(effectiveTools, intentTel)
+    if (intentTel instanceof Map && 'generate_image'.equals(intentTel.get('recipeId')?.toString()?.trim())) {
+      if (!wireToolsIncludeNamedTool(buildWireToolsFromCallbacks(effectiveTools), 'GenerateImage')) {
+        intentTel.put('generateImageToolUnavailable', Boolean.TRUE)
+      }
+    }
     if (intentTel instanceof Map && Boolean.TRUE.equals(intentTel.get('generateImageToolUnavailable'))) {
       log.info('Tools-loop: returning imageModel configuration message (GenerateImage not registered) agentId={}', agentId)
       return synthesizeGenerateImageUnavailableMarkdown()
@@ -6689,80 +6139,6 @@ Your last assistant message had a **plan-style heading** (## Plan, ## Revised Pl
       throw new IllegalStateException('CMS tools: empty tool list')
     }
     Map<String, FunctionToolCallback> byName = toolCallbacksByName(effectiveTools)
-    String serverHotpathText = tryServerPrefetchGenerateImageHotpath(
-      origUser,
-      authorVisible,
-      toolsLoopSessionBundle,
-      byName,
-      agentId,
-      sseOut,
-      cancelRequested,
-      toolTimingCtx,
-      generateImageBacklogByToolCallId
-    )
-    if (serverHotpathText == null) {
-      serverHotpathText = tryServerPrefetchContentAwareRevertHotpath(
-        origUser,
-        authorVisible,
-        intentTel,
-        toolsLoopSessionBundle,
-        byName,
-        agentId,
-        sseOut,
-        cancelRequested,
-        toolTimingCtx
-      )
-    }
-    if (serverHotpathText == null) {
-      serverHotpathText = tryServerPrefetchSimpleFieldEditHotpath(
-        origUser,
-        authorVisible,
-        intentTel,
-        toolsLoopSessionBundle,
-        byName,
-        agentId,
-        sseOut,
-        cancelRequested,
-        toolTimingCtx
-      )
-    }
-    if (serverHotpathText == null) {
-      serverHotpathText = tryServerPrefetchExternalContentFieldEditHotpath(
-        origUser,
-        authorVisible,
-        intentTel,
-        toolsLoopSessionBundle,
-        byName,
-        agentId,
-        sseOut,
-        cancelRequested,
-        toolTimingCtx
-      )
-    }
-    if (serverHotpathText != null) {
-      log.info(
-        'Tools-loop: server prefetch field edit hotpath completed (skipped native tool-loop LLM) agentId={} fieldId={}',
-        agentId,
-        intentTel?.prefetchResolvedFieldId ?: ''
-      )
-      return serverHotpathText
-    }
-    if (Boolean.TRUE.equals(toolsLoopSessionBundle?.prefetchHotpathCorruptItemXml)) {
-      String corruptPath = ''
-      try {
-        StudioToolOperations opsEarly = (toolsLoopSessionBundle?.studioOps instanceof StudioToolOperations) ?
-          (StudioToolOperations) toolsLoopSessionBundle.studioOps :
-          null
-        corruptPath = opsEarly?.recipeEngineAuthoringBindings()?.contentPath ?: ''
-      } catch (Throwable ignoredCp) {
-      }
-      log.warn(
-        'Tools-loop: aborting tools loop — repository item XML is corrupt or partial path={} agentId={}',
-        corruptPath,
-        agentId
-      )
-      return synthesizeCorruptSiteItemXmlMessage(corruptPath)
-    }
     List<Map> wireMessages = deepCloneWireMessages(baseWire)
     Map wmUser = lastUserWireMessage(wireMessages)
     Map<String, String> cqGenerateImageDataUrlByToolCallId = new LinkedHashMap<>()
@@ -7326,49 +6702,17 @@ Your last assistant message had a **plan-style heading** (## Plan, ## Revised Pl
 
   /** Expert guidance / SME tools — server progress lines use {@code 🛠️🤓} before the category emoji. */
   private static boolean isExpertGuidanceToolName(String toolName) {
-    def n = (toolName ?: '').toString().trim()
-    return n == 'QueryExpertGuidance' || n == 'GetCrafterizingPlaybook'
+    return plugins.org.craftercms.aiassistant.tools.loop.ToolsLoopWirePolicyRegistry.isExpertGuidanceWire(toolName)
   }
 
   /**
-   * Second emoji after 🛠️ on server tool-progress lines: read 🔍, write/revert/publish/edit ✏️, analysis 📈, other 🔄.
+   * Second emoji after 🛠️ on server tool-progress lines — from {@link plugins.org.craftercms.aiassistant.tools.loop.ToolsLoopWirePolicyRegistry}.
    */
   private static String toolProgressCategoryEmoji(String toolName) {
-    def n = (toolName ?: '').toString().trim()
-    switch (n) {
-      case 'GetContent':
-      case 'ListContentDependencyScope':
-      case 'ListContentTranslationScope':
-      case 'GetContentTypeFormDefinition':
-      case 'ListStudioContentTypes':
-      case 'GetContentVersionHistory':
-      case 'GetPreviewHtml':
-      case 'FetchHttpUrl':
-      case 'QueryExpertGuidance':
-      case 'ListPagesAndComponents':
-      case 'ResearchSiteContent':
-      case 'WebSearch':
-      case 'GetCrafterizingPlaybook':
-        return '🔍'
-      case 'Tools-loop chat':
-        // Waiting on chat.completions between tool rounds — not a repo read; distinct from 🔍 tools.
-        return '🔄'
-      case 'WriteContent':
-      case 'revert_change':
-      case 'publish_content':
-      case 'GenerateImage':
-      case 'update_template':
-      case 'update_content':
-      case 'update_content_type':
-      case 'TranslateContentItem':
-      case 'TranslateContentBatch':
-      case 'TransformContentSubgraph':
-        return '✏️'
-      case 'analyze_template':
-        return '📈'
-      default:
-        return '🔄'
+    if ('Tools-loop chat'.equals((toolName ?: '').toString().trim())) {
+      return '🔄'
     }
+    return plugins.org.craftercms.aiassistant.tools.loop.ToolsLoopWirePolicyRegistry.progressCategoryEmoji(toolName)
   }
 
   /** Product prefix for injected tool lines: {@code 🛠️} + category (never ⏳). Expert tools add {@code 🤓} after {@code 🛠️}. */

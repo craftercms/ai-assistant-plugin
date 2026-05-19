@@ -317,6 +317,38 @@ function buildParsedTimeline(lines: string[]): string {
         bullets.push(
           `Intent recipe: outcome=${tel?.outcome ?? '—'} recipeId=${tel?.recipeId ?? '—'} title=${previewText(String(tel?.recipeTitle ?? ''), 80)}`
         );
+        if (tel?.matchPass != null && String(tel.matchPass).length) {
+          bullets.push(`  matchPass=${String(tel.matchPass)}`);
+        }
+        if (tel?.siteToolRoutingEnabled === true || (typeof tel?.siteToolMatchCount === 'number' && tel.siteToolMatchCount > 0)) {
+          const matchedIds = tel.matchedSiteToolIds;
+          const idLine = Array.isArray(matchedIds) ? matchedIds.map((x) => String(x)).join(', ') : '';
+          bullets.push(
+            `  site tool hints: count=${String(tel.siteToolMatchCount ?? '—')}${idLine ? ` ids=${previewText(idLine, 200)}` : ''}`
+          );
+          if (tel?.competingRecipeId != null && String(tel.competingRecipeId).length) {
+            bullets.push(`  competingRecipeId=${String(tel.competingRecipeId)}`);
+          }
+        }
+        if (tel?.deferToPlanLoop === true) {
+          bullets.push(
+            `Plan defer: catalogSent=${String(tel.planDeferCatalogSent ?? '—')} chars=${tel.planDeferCatalogChars ?? '—'} wiredTools=${tel.planDeferWiredToolCount ?? '—'} siteUserTools=${tel.planDeferSiteUserToolCount ?? '—'} InvokeSiteUserTool=${String(tel.planDeferInvokeSiteUserToolWired ?? '—')} mcp=${String(tel.planDeferMcpClientEnabled ?? '—')}`
+          );
+          const userIds = tel.planDeferSiteUserToolIds;
+          if (Array.isArray(userIds) && userIds.length) {
+            const idLine = userIds.map((x) => String(x)).join(', ');
+            bullets.push(
+              `  site user toolIds${tel.planDeferSiteUserToolIdsTruncated === true ? ' (truncated)' : ''}: ${previewText(idLine, 240)}`
+            );
+          }
+          const wireNames = tel.planDeferWiredToolNames;
+          if (Array.isArray(wireNames) && wireNames.length) {
+            const wireLine = wireNames.map((x) => String(x)).join(', ');
+            bullets.push(
+              `  wired tool names${tel.planDeferWiredToolNamesTruncated === true ? ' (truncated)' : ''}: ${previewText(wireLine, 280)}`
+            );
+          }
+        }
         const oneLine = text.replace(/\s+/g, ' ').trim();
         if (oneLine) bullets.push(`  chat line: ${previewText(oneLine, 220)}`);
       }

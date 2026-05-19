@@ -228,6 +228,23 @@ final class StudioAiAssistantProjectConfig {
     Boolean.TRUE.equals(m.get('wholeTurnJsonRouterEnabled'))
   }
 
+  /**
+   * When {@code true} (default when omitted): clarify/enrich, expansion rematch, JSON router, and plan-defer probe may
+   * run a bounded native-tool loop before their final formatted answer.
+   */
+  static boolean intentRecipeRefineToolsEnabled(Map cfg) {
+    Map m = intentRecipeRoutingSection(cfg)
+    if (!m.containsKey('refineToolsEnabled')) {
+      return true
+    }
+    Boolean.TRUE.equals(m.get('refineToolsEnabled'))
+  }
+
+  /** Max tool rounds per routing refine step (clamped {@code 0–4}, default {@code 2}; {@code 0} = prose-only). */
+  static int intentRecipeRefineMaxToolRounds(Map cfg) {
+    return intentRecipeRoutingInt(cfg, 'refineMaxToolRounds', 2, 0, 4)
+  }
+
   static double intentRecipeMinConfidence(Map cfg) {
     Map m = intentRecipeRoutingSection(cfg)
     Object v = m.get('minConfidence')
@@ -258,6 +275,30 @@ final class StudioAiAssistantProjectConfig {
     Map m = intentRecipeRoutingSection(cfg)
     String p = m.get('customRecipesPath')?.toString()?.trim()
     return p ?: ''
+  }
+
+  /**
+   * When {@code true} (default when omitted): evaluate site {@code registry.json} tool {@code matchHints} in the same
+   * intent-routing passes as recipe hints (competition → defer to plan; no JVM tool execution).
+   */
+  static boolean intentRecipeSiteToolRoutingEnabled(Map cfg) {
+    Map m = intentRecipeRoutingSection(cfg)
+    if (!m.containsKey('siteToolRoutingEnabled')) {
+      return intentRecipeRoutingEnabled(cfg)
+    }
+    Boolean.TRUE.equals(m.get('siteToolRoutingEnabled'))
+  }
+
+  /**
+   * When {@code true} (default when omitted): run catalog {@code routingEngineSteps} at routing passes (initial,
+   * after refine, before router) using the same JVM tool model as recipe {@code engineSteps}.
+   */
+  static boolean intentRecipeRoutingEngineEnabled(Map cfg) {
+    Map m = intentRecipeRoutingSection(cfg)
+    if (!m.containsKey('routingEngineEnabled')) {
+      return intentRecipeEngineEnabled(cfg)
+    }
+    Boolean.TRUE.equals(m.get('routingEngineEnabled'))
   }
 
   /**

@@ -24,6 +24,10 @@ export type AiAssistantScriptsIndexTool = {
   id: string;
   script: string;
   description: string;
+  /** Intent-routing phrases (same semantics as intent recipe {@code matchHints}). */
+  matchHints?: string[];
+  dontMatchHints?: string[];
+  priority?: number;
   studioPath: string;
   hasSource: boolean;
   byteLength: number;

@@ -51,6 +51,13 @@ import {
 } from './aiAssistantToolsMcpUiModel';
 import AiAssistantStudioCodeEditor, { inferStudioSandboxEditorLanguage } from './AiAssistantStudioCodeEditor';
 import {
+  appendRegistryTool,
+  hintsFromMultiline,
+  hintsMultiline,
+  updateRegistryTool,
+  type UserToolRegistryRow
+} from './aiAssistantUserToolsRegistry';
+import {
   fetchAiAssistantPromptDetail,
   fetchAiAssistantScriptsIndex,
   fetchOptionalStudioSandboxUtf8,
@@ -81,6 +88,7 @@ export type AiAssistantScriptsSandboxPanel =
   /** @deprecated Prefer {@link llms} and {@link imagegen} tabs. */
   | 'scripts';
 
+/** Best-effort JSON parse for MCP preview payloads; returns null on failure. */
 function safeJsonParse(text: string): unknown | null {
   try {
     return JSON.parse(text);
@@ -94,6 +102,7 @@ export interface AiAssistantScriptsSandboxConfigurationProps {
   panel?: AiAssistantScriptsSandboxPanel;
 }
 
+/** True when at least one MCP preview server returned a non-empty tool list. */
 function mcpPreviewHasPickableTools(servers: AiAssistantMcpPreviewServer[]): boolean {
   return servers.some((s) => s.ok && s.tools.length > 0);
 }
@@ -146,6 +155,17 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
   const [addId, setAddId] = useState('');
   const [addScript, setAddScript] = useState('');
   const [addDesc, setAddDesc] = useState('');
+  const [addMatchHints, setAddMatchHints] = useState('');
+  const [addDontMatchHints, setAddDontMatchHints] = useState('');
+  const [addPriority, setAddPriority] = useState('');
+
+  const [toolMetaOpen, setToolMetaOpen] = useState(false);
+  const [toolMetaId, setToolMetaId] = useState('');
+  const [toolMetaDesc, setToolMetaDesc] = useState('');
+  const [toolMetaMatchHints, setToolMetaMatchHints] = useState('');
+  const [toolMetaDontMatchHints, setToolMetaDontMatchHints] = useState('');
+  const [toolMetaPriority, setToolMetaPriority] = useState('');
+  const [savingToolMeta, setSavingToolMeta] = useState(false);
 
   const [promptReadOpen, setPromptReadOpen] = useState(false);
   const [promptReadKey, setPromptReadKey] = useState<string | null>(null);
@@ -508,6 +528,59 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
     }
   };
 
+  /** Opens the registry metadata dialog for routing hints and description (not Groovy source). */
+  const openToolMetadataEditor = (t: AiAssistantScriptsIndexTool) => {
+    setToolMetaId(t.id);
+    setToolMetaDesc(t.description ?? '');
+    setToolMetaMatchHints(hintsMultiline(t.matchHints));
+    setToolMetaDontMatchHints(hintsMultiline(t.dontMatchHints));
+    setToolMetaPriority(t.priority != null && t.priority > 0 ? String(t.priority) : '');
+    setToolMetaOpen(true);
+  };
+
+  /** Closes the registry metadata dialog without persisting. */
+  const closeToolMetadataEditor = () => {
+    setToolMetaOpen(false);
+    setToolMetaId('');
+  };
+
+  /** Persists registry description, matchHints, dontMatchHints, and priority for the open tool id. */
+  const saveToolMetadata = async () => {
+    if (!siteId || !toolMetaId) return;
+    setLoadError(null);
+    setSavingToolMeta(true);
+    try {
+      const raw = registryDraft.trim() || AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB;
+      let priority = 0;
+      const pr = toolMetaPriority.trim();
+      if (pr) {
+        const n = Number.parseInt(pr, 10);
+        if (!Number.isFinite(n)) {
+          setLoadError('Priority must be a whole number (0 = default).');
+          return;
+        }
+        priority = n;
+      }
+      const nextJson = updateRegistryTool(raw, toolMetaId, {
+        description: toolMetaDesc.trim(),
+        matchHints: hintsFromMultiline(toolMetaMatchHints),
+        dontMatchHints: hintsFromMultiline(toolMetaDontMatchHints),
+        priority
+      });
+      await firstValueFrom(writeConfiguration(siteId, REGISTRY_REL, 'studio', nextJson));
+      setRegistryDraft(nextJson);
+      setRegistryDirty(false);
+      await postAiAssistantScriptsMutate(siteId, { action: 'refreshSync' }).catch(() => {});
+      closeToolMetadataEditor();
+      await reload();
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingToolMeta(false);
+    }
+  };
+
+  /** Creates a new user-tool registry row and stub Groovy script, then refreshes the tools index. */
   const submitAddTool = async () => {
     if (!siteId || addOpen !== 'tool') return;
     const id = addId.trim();
@@ -523,19 +596,25 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
     setLoadError(null);
     try {
       const raw = registryDraft.trim() || AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB;
-      const parsed = safeJsonParse(raw);
-      let nextJson: string;
-      if (Array.isArray(parsed)) {
-        nextJson = JSON.stringify([...parsed, { id, script, description: addDesc.trim() }], null, 2);
-      } else if (parsed && typeof parsed === 'object') {
-        const o = { ...(parsed as Record<string, unknown>) };
-        const toolsArr = Array.isArray(o.tools) ? [...(o.tools as unknown[])] : [];
-        toolsArr.push({ id, script, description: addDesc.trim() });
-        o.tools = toolsArr;
-        nextJson = JSON.stringify(o, null, 2);
-      } else {
-        nextJson = JSON.stringify({ tools: [{ id, script, description: addDesc.trim() }] }, null, 2);
+      let priority = 0;
+      const pr = addPriority.trim();
+      if (pr) {
+        const n = Number.parseInt(pr, 10);
+        if (!Number.isFinite(n)) {
+          setLoadError('Priority must be a whole number (0 = default).');
+          return;
+        }
+        priority = n;
       }
+      const row: UserToolRegistryRow = {
+        id,
+        script,
+        description: addDesc.trim(),
+        matchHints: hintsFromMultiline(addMatchHints),
+        dontMatchHints: hintsFromMultiline(addDontMatchHints),
+        priority
+      };
+      const nextJson = appendRegistryTool(raw, row);
       await firstValueFrom(writeConfiguration(siteId, REGISTRY_REL, 'studio', nextJson));
       setRegistryDraft(nextJson);
       setRegistryDirty(false);
@@ -547,6 +626,9 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
       setAddId('');
       setAddScript('');
       setAddDesc('');
+      setAddMatchHints('');
+      setAddDontMatchHints('');
+      setAddPriority('');
       await reload();
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e));
@@ -696,8 +778,9 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
           </Typography>
           {showRegistryJsonEditor ? null : (
             <Typography variant="body2" color="text.secondary" paragraph>
-              Use <strong>Add tool</strong> and the table below to change the registry. For a raw JSON view or hand edits,
-              use <strong>Open in editor</strong>.
+              Use <strong>Add tool</strong> and <strong>Registry</strong> on each row to edit description and intent-routing
+              hints (<code>matchHints</code> / <code>dontMatchHints</code>, same as recipes). <strong>Script</strong> opens the
+              Groovy file. For raw JSON, use <strong>Open in editor</strong>.
             </Typography>
           )}
           {showRegistryJsonEditor ? (
@@ -745,13 +828,14 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
                 <TableCell>Id</TableCell>
                 <TableCell>Script</TableCell>
                 <TableCell>Description</TableCell>
+                <TableCell>Routing hints</TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {tools.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4}>
+                  <TableCell colSpan={5}>
                     <Typography variant="body2" color="text.secondary">
                       No tools in registry (or registry missing).
                     </Typography>
@@ -764,10 +848,29 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
                     <TableCell>
                       <code>{t.script}</code>
                     </TableCell>
-                    <TableCell>{t.description}</TableCell>
-                    <TableCell align="right">
-                      <Button size="small" startIcon={<EditRounded />} onClick={() => void loadFileForEditor(`Tool ${t.id}`, t.studioPath, AI_ASSISTANT_USER_TOOL_GROOVY_STUB)}>
-                        Edit
+                    <TableCell sx={{ maxWidth: 280 }}>{t.description || '—'}</TableCell>
+                    <TableCell>
+                      {(t.matchHints?.length ?? 0) > 0 || (t.dontMatchHints?.length ?? 0) > 0 ? (
+                        <Typography variant="body2" component="span">
+                          {t.matchHints?.length ?? 0} match
+                          {(t.dontMatchHints?.length ?? 0) > 0 ? ` · ${t.dontMatchHints?.length} don’t` : ''}
+                        </Typography>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">
+                          —
+                        </Typography>
+                      )}
+                    </TableCell>
+                    <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                      <Button size="small" onClick={() => openToolMetadataEditor(t)}>
+                        Registry
+                      </Button>
+                      <Button
+                        size="small"
+                        startIcon={<EditRounded />}
+                        onClick={() => void loadFileForEditor(`Tool ${t.id}`, t.studioPath, AI_ASSISTANT_USER_TOOL_GROOVY_STUB)}
+                      >
+                        Script
                       </Button>
                       <Button size="small" color="error" startIcon={<DeleteOutlineRounded />} onClick={() => void removeUserTool(t.id)}>
                         Remove
@@ -1320,6 +1423,38 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
                     fullWidth
                     size="small"
                     margin="normal"
+                    helperText="Shown to the model when choosing InvokeSiteUserTool."
+                  />
+                  <TextField
+                    label="Match hints"
+                    value={addMatchHints}
+                    onChange={(ev) => setAddMatchHints(ev.target.value)}
+                    fullWidth
+                    size="small"
+                    margin="normal"
+                    multiline
+                    minRows={3}
+                    helperText="One phrase per line. Author-visible text containing any phrase can match this tool in intent routing."
+                  />
+                  <TextField
+                    label="Don’t match hints"
+                    value={addDontMatchHints}
+                    onChange={(ev) => setAddDontMatchHints(ev.target.value)}
+                    fullWidth
+                    size="small"
+                    margin="normal"
+                    multiline
+                    minRows={2}
+                    helperText="One phrase per line. Excludes this tool when any phrase appears in the author message."
+                  />
+                  <TextField
+                    label="Priority (optional)"
+                    value={addPriority}
+                    onChange={(ev) => setAddPriority(ev.target.value)}
+                    fullWidth
+                    size="small"
+                    margin="normal"
+                    helperText="Higher wins when several tools match (0 = default)."
                   />
                 </>
               ) : null}
@@ -1335,6 +1470,68 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
               </Button>
               <Button variant="contained" onClick={() => void runAddSubmit()}>
                 Create
+              </Button>
+            </DialogActions>
+          </Dialog>
+
+          <Dialog open={toolMetaOpen} onClose={() => !savingToolMeta && closeToolMetadataEditor()} maxWidth="sm" fullWidth>
+            <DialogTitle>User tool registry — {toolMetaId}</DialogTitle>
+            <DialogContent dividers>
+              <Typography variant="body2" color="text.secondary" paragraph>
+                Updates <code>registry.json</code> only (not the Groovy script). Hint matching uses the same rules as intent
+                recipe <code>matchHints</code> / <code>dontMatchHints</code>.
+              </Typography>
+              <TextField
+                label="Description"
+                value={toolMetaDesc}
+                onChange={(ev) => setToolMetaDesc(ev.target.value)}
+                fullWidth
+                size="small"
+                margin="normal"
+              />
+              <TextField
+                label="Match hints"
+                value={toolMetaMatchHints}
+                onChange={(ev) => setToolMetaMatchHints(ev.target.value)}
+                fullWidth
+                size="small"
+                margin="normal"
+                multiline
+                minRows={4}
+                helperText="One phrase per line."
+              />
+              <TextField
+                label="Don’t match hints"
+                value={toolMetaDontMatchHints}
+                onChange={(ev) => setToolMetaDontMatchHints(ev.target.value)}
+                fullWidth
+                size="small"
+                margin="normal"
+                multiline
+                minRows={3}
+                helperText="One phrase per line."
+              />
+              <TextField
+                label="Priority (optional)"
+                value={toolMetaPriority}
+                onChange={(ev) => setToolMetaPriority(ev.target.value)}
+                fullWidth
+                size="small"
+                margin="normal"
+                helperText="Higher wins when several tools match (0 = default)."
+              />
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={closeToolMetadataEditor} disabled={savingToolMeta}>
+                Cancel
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={savingToolMeta ? <CircularProgress size={16} color="inherit" /> : <SaveRounded />}
+                disabled={savingToolMeta}
+                onClick={() => void saveToolMetadata()}
+              >
+                Save registry
               </Button>
             </DialogActions>
           </Dialog>
