@@ -28,6 +28,31 @@
       "args": { "siteId": "$siteId", "path": "$contentPath" }
     }
   ],
+  "routingRecipeFamilies": {
+    "researchWeb": ["web_research"],
+    "researchSite": ["site_content_research"],
+    "researchLlm": ["llm_research"],
+    "researchAny": ["web_research", "site_content_research", "llm_research"]
+  },
+  "multiGoalDefer": {
+    "minDistinctGroups": 2,
+    "groups": {
+      "generalKnowledge": ["llm_research"],
+      "webResearch": ["web_research"],
+      "siteContentResearch": ["site_content_research"],
+      "cmsAuthoring": [
+        "new_content_item",
+        "modify_page_content",
+        "translate_content_item",
+        "revert_content_version",
+        "generate_image",
+        "template_display_change",
+        "publish_site",
+        "publish_item",
+        "open_page_inquiry"
+      ]
+    }
+  },
   "recipeOrder": [
     "web_research",
     "site_content_research",
@@ -182,13 +207,16 @@
           }
         }
       ],
-      "description": "Author wants explanation, comparison, or background from model knowledge — not live web headlines and not editing the repository.",
+      "description": "Author wants explanation, comparison, research, or background from model knowledge — not live web headlines and not editing the repository.",
       "matchHints": [
         "explain",
         "what is",
         "what are",
         "tell me about",
+        "research",
         "compare",
+        "versus",
+        " vs ",
         "difference between",
         "pros and cons",
         "how does",
@@ -200,11 +228,16 @@
         "breaking",
         "search the web",
         "search the site",
+        "research the site",
+        "research our site",
         "find pages",
         "look up the latest",
         "generate image",
         "WriteContent",
         "update",
+        "new page",
+        "new article",
+        "create a new",
         "translate",
         "publish",
         "summarize this page",
@@ -214,6 +247,7 @@
       "phases": {
         "action": [
           "Answer from general knowledge in clear prose (bullets ok). Do not call CMS repository tools on this turn.",
+          "When they ask to **draft** or **write** a post/article **in chat** (no create/new page/new item in the repo), compose that draft as markdown prose in the same reply after any research or comparison — **not** ListStudioContentTypes / WriteContent.",
           "If the question needs live/current data, say so and suggest the author ask for a web search instead."
         ],
         "confirmation": [
@@ -501,6 +535,7 @@
       "deterministicMatch": {
         "priority": 45,
         "routerReason": "deterministic_new_content_item",
+        "respectDontMatchHints": true,
         "when": {
           "allOf": [
             "currentTurnCmsTooling",
@@ -508,21 +543,33 @@
             {
               "anyOf": [
                 {
-                  "authorMatchesRegex": "(?i)\\b(new\\s+page|new\\s+article|add\\s+a\\s+page)\\b"
+                  "authorMatchesRegex": "(?i)\\b(new\\s+page|new\\s+article|new\\s+post|add\\s+a\\s+(?:new\\s+)?page)\\b"
                 },
                 {
                   "allOf": [
-                    { "authorMatchesRegex": "(?i)\\b(create|draft)\\b" },
-                    { "authorMatchesRegex": "(?i)\\b(page|article|component|item)\\b" }
+                    { "authorMatchesRegex": "(?i)\\b(create|add)\\b" },
+                    { "authorMatchesRegex": "(?i)\\b(new\\s+)?(page|article|component|item)s?\\b" }
                   ]
+                },
+                {
+                  "authorMatchesRegex": "(?i)\\bwrite\\s+(?:a\\s+)?new\\s+(page|post|article|component|item)\\b"
                 }
               ]
             }
           ]
         }
       },
-      "description": "Author asks to create, draft, or write a new item (new URL or new component), not only edit the open file.",
-      "matchHints": ["create", "new page", "new article", "draft", "write a", "add a page"],
+      "description": "Author asks to **create** a new repository item (new URL or new component in Studio). **Not** chat-only “draft a post” prose after research — that is **llm_research** (tools off).",
+      "dontMatchHints": [
+        "research",
+        "versus",
+        " vs ",
+        "compare",
+        "comparison",
+        "difference between",
+        "pros and cons"
+      ],
+      "matchHints": ["create", "new page", "new article", "new post", "add a page", "write a new"],
       "phases": {
         "context": {
           "hints": [

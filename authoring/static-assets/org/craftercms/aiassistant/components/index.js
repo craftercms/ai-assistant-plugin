@@ -29495,7 +29495,7 @@ const cqGenerateImageAuraShift = keyframes({
 /**
  * Blurred shifting gradient stand-in for the incoming chat image; similar footprint to the draggable chat image card.
  */
-function GenerateImageBlurredPlaceholder() {
+function GenerateImageBlurredPlaceholder({ prompt }) {
     const theme = useTheme();
     const dark = theme.palette.mode === 'dark';
     const a = dark ? '#5e35b1' : '#e1bee7';
@@ -29538,7 +29538,14 @@ function GenerateImageBlurredPlaceholder() {
                     py: 2,
                     background: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.28)',
                     backdropFilter: 'blur(2px)'
-                }, children: jsx$1(Typography, { variant: "caption", color: "text.secondary", sx: { textAlign: 'center', lineHeight: 1.45, opacity: 0.9 }, children: "Generating image\u2026" }) })] }));
+                }, children: jsxs(Box, { sx: { textAlign: 'center', maxWidth: '100%' }, children: [jsx$1(Typography, { component: "p", variant: "body2", color: "text.primary", sx: { fontWeight: 700, lineHeight: 1.4, mb: prompt?.trim() ? 0.75 : 0 }, children: "Generating Image" }), prompt?.trim() ? (jsx$1(Typography, { component: "p", variant: "caption", color: "text.secondary", sx: {
+                                lineHeight: 1.45,
+                                opacity: 0.92,
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-word',
+                                maxHeight: 120,
+                                overflow: 'auto'
+                            }, children: prompt.trim() })) : null] }) })] }));
 }
 
 /**
@@ -30719,12 +30726,7 @@ function shouldShowGenerateImagePlaceholder(toolProgressText, tailMarkdown, stud
         return false;
     if (!toolProgressText?.includes('GenerateImage'))
         return false;
-    if (isGenerateImageRunRowActive(toolProgressText))
-        return true;
-    if (generateImageToolSettledInToolProgress(toolProgressText) && /studio-ai-inline-image:\/\//i.test(tailMarkdown)) {
-        return true;
-    }
-    return false;
+    return isGenerateImageRunRowActive(toolProgressText);
 }
 /** Drop consecutive duplicate 🛠️ lines (hotpath + tool listener used to emit the same row twice). */
 function appendToolProgressText(prior, chunk) {
@@ -30825,6 +30827,12 @@ function AssistantReasoningLive(props) {
                     letterSpacing: '0.05em',
                     opacity: 0.9
                 }, children: "Live model output" }), jsx$1(MarkdownMessage, { text: t })] }));
+}
+function pickGenerateImagePromptPatch(toolName, toolPhase, metaPrompt) {
+    if (toolName !== 'GenerateImage' || toolPhase !== 'start')
+        return {};
+    const p = typeof metaPrompt === 'string' ? metaPrompt.trim() : '';
+    return p ? { generateImagePrompt: p } : {};
 }
 function combinedAssistantMarkdownForVerification(m) {
     const tail = dedupeAssistantPostToolsMarkdown(m.assistantPreToolsText, m.text);
@@ -31184,6 +31192,12 @@ function AiAssistantChat(props) {
         }
         setVoiceListening(false);
     }, []);
+    /** Clears the prompt field and voice scratch buffers (avoids late recognition events repopulating after send/stop). */
+    const clearChatPromptInput = useCallback(() => {
+        setDraft('');
+        draftAtVoiceStartRef.current = '';
+        voiceFinalsRef.current = '';
+    }, []);
     const startVoiceInput = useCallback(() => {
         const Ctor = speechCtor;
         if (!Ctor || sending)
@@ -31198,6 +31212,9 @@ function AiAssistantChat(props) {
         rec.continuous = true;
         rec.interimResults = true;
         rec.onresult = (event) => {
+            if (!voiceActiveRef.current) {
+                return;
+            }
             let interim = '';
             for (let i = event.resultIndex; i < event.results.length; i++) {
                 const result = event.results[i];
@@ -31262,6 +31279,8 @@ function AiAssistantChat(props) {
     }, []);
     const stopStreaming = useCallback(() => {
         userStopRequestedRef.current = true;
+        stopVoiceInput();
+        clearChatPromptInput();
         setSending(false);
         setMessages((prev) => prev.map((m) => m.isStreaming
             ? {
@@ -31273,7 +31292,7 @@ function AiAssistantChat(props) {
             : m));
         abortRef.current?.abort();
         abortRef.current = null;
-    }, []);
+    }, [clearChatPromptInput, stopVoiceInput]);
     /** Remove one bubble from history (demos / retakes). Aborts stream if removing the in-flight assistant or its paired user message. */
     const removeBubble = useCallback((id) => {
         const prev = messagesRef.current;
@@ -31298,7 +31317,7 @@ function AiAssistantChat(props) {
         lastSpokenAssistantIdRef.current = null;
         abortRef.current?.abort();
         setSending(false);
-        setDraft('');
+        clearChatPromptInput();
         setChatId(undefined);
         setMessages([]);
         sessionStreamLogRef.current = [];
@@ -31422,7 +31441,7 @@ function AiAssistantChat(props) {
         catch {
             /* ignore log serialization errors */
         }
-        setDraft('');
+        clearChatPromptInput();
         setSending(true);
         let streamingMessageId;
         let assistantTextAccum = '';
@@ -31495,6 +31514,7 @@ function AiAssistantChat(props) {
                     const textChunk = isToolProgressChunk ? rawTextChunk : stripForbiddenLazyPlanLines(rawTextChunk);
                     const summarizingResultsHint = md?.status === 'aiassistant-chat-phase' && String(md?.phase || '') === 'summarizing-results';
                     const incomingStudioAiInlineImgUrls = md?.studioAiInlineImageUrls;
+                    const genImgPromptPatch = pickGenerateImagePromptPatch(toolName, toolPhase, md?.generateImagePrompt);
                     const mdStatus = md && md.status != null ? String(md.status).trim() : '';
                     if (mdStatus === 'pipeline-heartbeat') {
                         const rawEl = md.elapsedSec;
@@ -31575,13 +31595,15 @@ function AiAssistantChat(props) {
                                         reasoningStreamText: '',
                                         text: '',
                                         toolProgressText: textChunk,
-                                        ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls)
+                                        ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls),
+                                        ...genImgPromptPatch
                                     };
                                 }
                                 return {
                                     ...m,
                                     toolProgressText: appendToolProgressText(m.toolProgressText || '', textChunk),
-                                    ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls)
+                                    ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls),
+                                    ...genImgPromptPatch
                                 };
                             }));
                         }
@@ -31639,6 +31661,7 @@ function AiAssistantChat(props) {
                         }));
                     }
                     if (isTerminal) {
+                        clearChatPromptInput();
                         setMessages((prev) => prev.map((m) => {
                             if (m.id !== assistantId)
                                 return m;
@@ -31652,6 +31675,7 @@ function AiAssistantChat(props) {
                                 summarizingResults: false,
                                 pipelineHeartbeat: undefined,
                                 ...(foldReasoning ? { text: reasoningRest, reasoningStreamText: '' } : {}),
+                                ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls),
                                 ...mergePipelineTimingFields(m, extractTerminalPipelineTiming(md))
                             };
                         }));
@@ -31881,7 +31905,7 @@ function AiAssistantChat(props) {
                                         const tailDisplay = stripDisplayedGeneratedImages(stripStudioAiInlineImageMarkdownFromText(tailRaw, m.studioAiInlineImageUrls), imageStripSources);
                                         const mdUrls = imageStripSources.length ? undefined : m.studioAiInlineImageUrls;
                                         const showGenImgPlaceholder = shouldShowGenerateImagePlaceholder(m.toolProgressText, tailRaw, m.studioAiInlineImageUrls);
-                                        return (jsxs(Fragment, { children: [imageStripSources.length ? jsx$1(AssistantChatGeneratedImages, { sources: imageStripSources }) : null, !imageStripSources.length && showGenImgPlaceholder ? (jsx$1(GenerateImageBlurredPlaceholder, {})) : null, jsx$1(MarkdownMessage, { text: tailDisplay, studioAiInlineImageUrls: mdUrls })] }));
+                                        return (jsxs(Fragment, { children: [imageStripSources.length ? jsx$1(AssistantChatGeneratedImages, { sources: imageStripSources }) : null, !imageStripSources.length && showGenImgPlaceholder ? (jsx$1(GenerateImageBlurredPlaceholder, { prompt: m.generateImagePrompt })) : null, jsx$1(MarkdownMessage, { text: tailDisplay, studioAiInlineImageUrls: mdUrls })] }));
                                     })(), jsx$1(AssistantPipelineTimingLine, { wallMs: m.toolPipelineWallMs, totalSec: m.toolPipelineTotalSec, taskSec: m.toolPipelineTaskCompletionSec })] })) : (jsxs(Fragment, { children: [m.toolProgressText?.trim() ? (jsx$1(ToolProgressScrollArea, { text: m.toolProgressText })) : null, m.summarizingResults ? (jsx$1(Typography, { variant: "caption", component: "p", sx: {
                                             mt: 0.75,
                                             mb: 0,
@@ -31894,7 +31918,7 @@ function AiAssistantChat(props) {
                                         const tailDisplay = stripDisplayedGeneratedImages(stripStudioAiInlineImageMarkdownFromText(tailRaw, m.studioAiInlineImageUrls), imageStripSources);
                                         const mdUrls = imageStripSources.length ? undefined : m.studioAiInlineImageUrls;
                                         const showGenImgPlaceholder = shouldShowGenerateImagePlaceholder(m.toolProgressText, tailRaw, m.studioAiInlineImageUrls);
-                                        return (jsxs(Fragment, { children: [imageStripSources.length ? jsx$1(AssistantChatGeneratedImages, { sources: imageStripSources }) : null, !imageStripSources.length && showGenImgPlaceholder ? (jsx$1(GenerateImageBlurredPlaceholder, {})) : null, jsx$1(MarkdownMessage, { text: tailDisplay, studioAiInlineImageUrls: mdUrls })] }));
+                                        return (jsxs(Fragment, { children: [imageStripSources.length ? jsx$1(AssistantChatGeneratedImages, { sources: imageStripSources }) : null, !imageStripSources.length && showGenImgPlaceholder ? (jsx$1(GenerateImageBlurredPlaceholder, { prompt: m.generateImagePrompt })) : null, jsx$1(MarkdownMessage, { text: tailDisplay, studioAiInlineImageUrls: mdUrls })] }));
                                     })(), jsx$1(AssistantPipelineTimingLine, { wallMs: m.toolPipelineWallMs, totalSec: m.toolPipelineTotalSec, taskSec: m.toolPipelineTaskCompletionSec })] }))] })) : (jsxs(Fragment, { children: [jsx$1(Typography, { variant: "body2", sx: { whiteSpace: 'pre-wrap' }, children: m.text }), jsxs(Box, { sx: {
                                     display: 'flex',
                                     justifyContent: 'flex-end',
@@ -36839,6 +36863,47 @@ var routingEngineSteps = [
 		}
 	}
 ];
+var routingRecipeFamilies = {
+	researchWeb: [
+		"web_research"
+	],
+	researchSite: [
+		"site_content_research"
+	],
+	researchLlm: [
+		"llm_research"
+	],
+	researchAny: [
+		"web_research",
+		"site_content_research",
+		"llm_research"
+	]
+};
+var multiGoalDefer = {
+	minDistinctGroups: 2,
+	groups: {
+		generalKnowledge: [
+			"llm_research"
+		],
+		webResearch: [
+			"web_research"
+		],
+		siteContentResearch: [
+			"site_content_research"
+		],
+		cmsAuthoring: [
+			"new_content_item",
+			"modify_page_content",
+			"translate_content_item",
+			"revert_content_version",
+			"generate_image",
+			"template_display_change",
+			"publish_site",
+			"publish_item",
+			"open_page_inquiry"
+		]
+	}
+};
 var recipeOrder = [
 	"web_research",
 	"site_content_research",
@@ -37001,13 +37066,16 @@ var recipes = [
 				}
 			}
 		],
-		description: "Author wants explanation, comparison, or background from model knowledge — not live web headlines and not editing the repository.",
+		description: "Author wants explanation, comparison, research, or background from model knowledge — not live web headlines and not editing the repository.",
 		matchHints: [
 			"explain",
 			"what is",
 			"what are",
 			"tell me about",
+			"research",
 			"compare",
+			"versus",
+			" vs ",
 			"difference between",
 			"pros and cons",
 			"how does",
@@ -37019,11 +37087,16 @@ var recipes = [
 			"breaking",
 			"search the web",
 			"search the site",
+			"research the site",
+			"research our site",
 			"find pages",
 			"look up the latest",
 			"generate image",
 			"WriteContent",
 			"update",
+			"new page",
+			"new article",
+			"create a new",
 			"translate",
 			"publish",
 			"summarize this page",
@@ -37033,6 +37106,7 @@ var recipes = [
 		phases: {
 			action: [
 				"Answer from general knowledge in clear prose (bullets ok). Do not call CMS repository tools on this turn.",
+				"When they ask to **draft** or **write** a post/article **in chat** (no create/new page/new item in the repo), compose that draft as markdown prose in the same reply after any research or comparison — **not** ListStudioContentTypes / WriteContent.",
 				"If the question needs live/current data, say so and suggest the author ask for a web search instead."
 			],
 			confirmation: [
@@ -37369,6 +37443,7 @@ var recipes = [
 		deterministicMatch: {
 			priority: 45,
 			routerReason: "deterministic_new_content_item",
+			respectDontMatchHints: true,
 			when: {
 				allOf: [
 					"currentTurnCmsTooling",
@@ -37376,31 +37451,43 @@ var recipes = [
 					{
 						anyOf: [
 							{
-								authorMatchesRegex: "(?i)\\b(new\\s+page|new\\s+article|add\\s+a\\s+page)\\b"
+								authorMatchesRegex: "(?i)\\b(new\\s+page|new\\s+article|new\\s+post|add\\s+a\\s+(?:new\\s+)?page)\\b"
 							},
 							{
 								allOf: [
 									{
-										authorMatchesRegex: "(?i)\\b(create|draft)\\b"
+										authorMatchesRegex: "(?i)\\b(create|add)\\b"
 									},
 									{
-										authorMatchesRegex: "(?i)\\b(page|article|component|item)\\b"
+										authorMatchesRegex: "(?i)\\b(new\\s+)?(page|article|component|item)s?\\b"
 									}
 								]
+							},
+							{
+								authorMatchesRegex: "(?i)\\bwrite\\s+(?:a\\s+)?new\\s+(page|post|article|component|item)\\b"
 							}
 						]
 					}
 				]
 			}
 		},
-		description: "Author asks to create, draft, or write a new item (new URL or new component), not only edit the open file.",
+		description: "Author asks to **create** a new repository item (new URL or new component in Studio). **Not** chat-only “draft a post” prose after research — that is **llm_research** (tools off).",
+		dontMatchHints: [
+			"research",
+			"versus",
+			" vs ",
+			"compare",
+			"comparison",
+			"difference between",
+			"pros and cons"
+		],
 		matchHints: [
 			"create",
 			"new page",
 			"new article",
-			"draft",
-			"write a",
-			"add a page"
+			"new post",
+			"add a page",
+			"write a new"
 		],
 		phases: {
 			context: {
@@ -37493,6 +37580,8 @@ var bundledCatalog = {
 	version: version,
 	chatDefaults: chatDefaults,
 	routingEngineSteps: routingEngineSteps,
+	routingRecipeFamilies: routingRecipeFamilies,
+	multiGoalDefer: multiGoalDefer,
 	recipeOrder: recipeOrder,
 	recipes: recipes
 };

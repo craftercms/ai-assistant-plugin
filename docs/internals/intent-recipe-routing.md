@@ -137,8 +137,10 @@ This is what runs **out of the box** when intent recipe routing is on and the ag
 |-----------------|------------------------|
 | What is this page about? | B → C1 `open_page_inquiry` → D prefetch → **no E** (tools off) |
 | Write a short story about … | B → C1 `creative_llm_only` / `llm_research` → D tools off → **no E** |
+| Research X vs Y and draft a post (prose) | B → **`llm_research` only** (`research` / `versus` match; **`new_content_item` blocked** — “draft a post” here means chat prose, not WriteContent) → D tools off |
 | Update the hero text to … | B → C1/C2 `modify_page_content` → D prefetch → **E** WriteContent |
 | Multi-intent / odd wording | B → C2 clarify → C3 `deferToPlanLoop` → D plan hint → **E** (## Plan + tools per step) |
+| Research/compare **and** create/draft/write (same turn) | B → `multi_goal_defer_plan` (single recipe suppressed) → D **Complex** hint + catalog → **E** |
 | Look up … on the web (single goal) | B → C1 `web_research` → D prefetch → **E** WebSearch |
 | Long paste, no URL | B → C (no eligibility gate) → often `no_match` → **E** |
 
@@ -232,7 +234,8 @@ When skip reason is **non-null**, prelude returns `outcome: skipped_eligibility`
 |--------|------|
 | `authorCurrentRequestSuggestsCmsTooling` | CMS verbs / field / repo language on **`Current request:`** only |
 | `anchoredSiteXmlFieldPlacementIntentForAuthorText` | e.g. “put X in hero text” on anchored item |
-| `authorVisibleSuggestsIntentRecipeResearch` | web / site / llm research on current or full visible slice |
+| `AuthoringIntentRecipeCatalog.authorVisibleSuggestsConfiguredResearch` | Uses catalog **`routingRecipeFamilies`** + recipe **`matchHints`** / **`deterministicMatch`** (not hardcoded regex) |
+| `AuthoringIntentRecipeCatalog.authorSuggestsMultiGoalDefer` | Catalog **`multiGoalDefer.groups`**: ≥2 groups signal → **Complex** plan defer (suppresses a lone deterministic recipe) |
 | `authorCurrentRequestLooksLikeCreativeLlmOnly` | generate/write story, etc. |
 | `authorCurrentRequestEditsPriorChatArtifact` | “this story”, “two paragraphs”, revise prior assistant reply |
 | `authorConversationPivotedToChatOnlyArtifact` | prior turn was creative; current turn edits chat artifact |
@@ -286,6 +289,13 @@ See **[Routing at a glance](#routing-at-a-glance-default)** for the simplified d
 
    **`ambiguityMatch`** uses the same schema for structural competitors during clarify (optional per recipe). There is **no** legacy `signal` key — site `intent-recipes.json` overrides must use this schema.
 
+   **Catalog routing config (not Java regex):**
+
+   | Top-level key | Role |
+   |---------------|------|
+   | `routingRecipeFamilies` | Maps family name → recipe id list (e.g. `researchLlm` → `llm_research`). Used for eligibility and research detection via **`matchHints`** + **`deterministicMatch`**. |
+   | `multiGoalDefer` | `groups` (name → recipe ids) + `minDistinctGroups` (default 2). When that many groups signal on one turn, routing defers with **`multi_goal_defer_plan`** and injects the mandatory **Complex** Studio hint — even if only one recipe would otherwise match deterministically. |
+
 2. **Clarify / enrich** — When hits ≠ 1: LLM restates current-turn intent (`generateAuthoringIntentRoutingClarifyText`):
    - **Disambiguate** when multiple pattern or structural competitors match.
    - **Enrich** when zero patterns matched (catalog table for context).
@@ -338,7 +348,7 @@ Runs when `springAi.useTools` remains true after prelude.
 - Builds wire: system + user (`userTextForToolsLoop` includes recipe prelude, expansion prefix, no-match hints).
 - **Round 0 `tool_choice` biases:** recipe `toolsLoopForceTool`; else web research → `WebSearch`; revert → `revert_change`; image-only → `GenerateImage`; recipes with `toolsLoopForceTool` in bundled JSON (e.g. `web_research`, `site_content_research`).
 - **Loop:** completion with `tools[]` → execute tool calls → append `role:tool` results → repeat until text-only finish or max rounds.
-- **Recovery nudges:** model promised tools but did not call; `userNeedsCmsTools` when current turn suggests CMS (uses `authorCurrentRequestSuggestsCmsTooling`, not full-wire CMS scan).
+- **Tier selection:** when the client sends **`Current request:`**, trivial-turn detection and model policy treat **only** that section as the author’s words this turn (`AuthoringPreviewContext.isTrivialNonAuthoringTurn`, `ToolPrompts` plan tiers) — not prior chat or Studio metadata alone.
 - **Truncation:** large tool JSON capped on wire; `GetContent` keeps path/metadata; `GenerateImage` uses inline ref pattern.
 
 **Prose-declared tools:** When the model omits API `tool_calls` but prints fenced JSON (e.g. `{"toolId":"…"}`) or names a wired tool in the block, `ProseDeclaredToolCalls` synthesizes invocations from the session `byName` catalog (built-in, `InvokeSiteUserTool`, `mcp_*` — same execution path).
@@ -354,7 +364,7 @@ Runs when `springAi.useTools` remains true after prelude.
 | Eligibility + current-turn signals | `AuthoringPreviewContext.groovy` |
 | Recipe catalog, deterministic + ambiguity competitors, plan-defer context | `AuthoringIntentRecipeCatalog.groovy`, `AuthoringIntentRecipeWhen.groovy` |
 | Plan-defer wired-tools catalog | `AiOrchestrationTools.groovy` (`wireNamesForPlanDeferCatalog` from registered callbacks, `formatPlanDeferToolsCatalogMarkdown`) |
-| Bundled recipes | `recipes/authoring-intent-recipes-default.json` |
+| Bundled recipes + routing config | `recipes/authoring-intent-recipes-default.json` (`routingRecipeFamilies`, `multiGoalDefer`) |
 | Prelude + match pass + tools loop | `AiOrchestration.groovy` |
 | Tools-loop wire policy (progress, truncation, prose JSON) | `tools/loop/ToolsLoopWirePolicyRegistry.groovy`, `ProseDeclaredToolCalls.groovy` |
 | Intent prefetch (read-only context in prompt) | `AuthoringIntentRecipeEngine.groovy` |
@@ -369,7 +379,7 @@ Runs when `springAi.useTools` remains true after prelude.
 
 - `outcome` — `matched`, `no_match`, `skipped_eligibility`, …
 - `eligibilitySkipReason` — when skipped at gate
-- `recipeId`, `confidence`, `matchPass` — `deterministic`, `deterministic_after_clarify`, `router`, `deterministic_after_router`, `ambiguous_multi_defer_plan`, `no_deterministic_defer_plan`, `no_match_defer_plan`
+- `recipeId`, `confidence`, `matchPass` — `deterministic`, `deterministic_after_clarify`, `router`, `deterministic_after_router`, `ambiguous_multi_defer_plan`, `multi_goal_defer_plan`, `no_deterministic_defer_plan`, `no_match_defer_plan`
 - `planStepRecipeMatches` — when `deferToPlanLoop`, optional per **## Plan** step hints (`stepId:recipeId`, …)
 - **Plan defer catalog (planner wire)** — when `deferToPlanLoop`: `planDeferCatalogSent` (block with `[Studio — plan defer: recipe + tool catalog]` prepended to `userTextForToolsLoop`), `planDeferCatalogChars`, `planDeferWiredToolCount`, `planDeferWiredToolNames` (may be truncated in telemetry), `planDeferSiteUserToolCount`, `planDeferSiteUserToolIds`, `planDeferInvokeSiteUserToolWired`, `planDeferMcpClientEnabled`. Session debug log **TIMELINE** prints these on the `intent-recipe-routing` SSE row.
 - `intentExpansionRematch` — pass 2 ran

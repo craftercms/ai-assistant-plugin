@@ -692,6 +692,208 @@ final class AuthoringIntentRecipeCatalog {
   }
 
   /**
+   * Merged {@code routingRecipeFamilies} + {@code multiGoalDefer} from bundled catalog and optional site override.
+   * Routing keys are merged from the **canonical** plugin JSON (classpath / code-source) first so a stale site-sandbox
+   * copy of {@link #BUNDLED_RELATIVE} cannot drop {@code multiGoalDefer}.
+   */
+  static Map loadMergedCatalogRoutingConfig(StudioToolOperations ops, Map projectCfg) {
+    Map merged = new LinkedHashMap()
+    mergeCatalogRoutingSections(merged, parseCatalogDocument(loadBundledCatalogRoutingJsonCanonical()))
+    mergeCatalogRoutingSections(merged, parseCatalogDocument(loadBundledRecipesJsonText(ops)))
+    String sitePath = StudioAiAssistantProjectConfig.intentRecipeCustomRecipesPath(projectCfg)
+    if (ops != null && sitePath?.trim()) {
+      try {
+        String raw = ops.readStudioConfigurationUtf8(ops.resolveEffectiveSiteId(''), sitePath.trim())
+        if (raw?.trim()) {
+          mergeCatalogRoutingSections(merged, parseCatalogDocument(raw))
+        }
+      } catch (Throwable t) {
+        log.warn('AuthoringIntentRecipeCatalog: site routing config read failed: {}', t.message)
+      }
+    }
+    if (!(merged.multiGoalDefer instanceof Map) || !(((Map) merged.multiGoalDefer).groups instanceof Map)) {
+      log.warn(
+        'AuthoringIntentRecipeCatalog: multiGoalDefer missing after merge — multi-goal plan defer disabled until catalog JSON is updated'
+      )
+    }
+    return Collections.unmodifiableMap(merged)
+  }
+
+  /**
+   * Bundled catalog JSON for routing keys only — classpath / code-source, **not** the site sandbox copy
+   * ({@link #loadBundledRecipesJsonFromSiteSandbox}), which is often stale after plugin upgrades.
+   */
+  private static String loadBundledCatalogRoutingJsonCanonical() {
+    String override = System.getProperty(SYSPROP_BUNDLED_PATH)?.toString()?.trim()
+    if (override) {
+      try {
+        File f = new File(override)
+        if (f.isFile()) {
+          return f.getText('UTF-8')
+        }
+      } catch (Throwable ignored) {
+        // fall through
+      }
+    }
+    String pkgPath = "${PACKAGE_RESOURCE_PREFIX}${BUNDLED_RELATIVE}"
+    for (String raw : [
+      readUtf8FromResourceUrl(AuthoringIntentRecipeCatalog.class.getResource(BUNDLED_RELATIVE)),
+      readUtf8FromResourceUrl(AuthoringIntentRecipeCatalog.class.getResource("/${pkgPath}")),
+      readUtf8FromResourceStream(AuthoringIntentRecipeCatalog.class.getResourceAsStream(BUNDLED_RELATIVE)),
+      readUtf8FromResourceStream(AuthoringIntentRecipeCatalog.class.classLoader?.getResourceAsStream(pkgPath))
+    ]) {
+      if (raw?.trim()) {
+        return raw
+      }
+    }
+    try {
+      def loc = AuthoringIntentRecipeCatalog.class.protectionDomain?.codeSource?.location
+      if (loc != null) {
+        String fromCodeSource = readBundledJsonBesideCodeSource(loc)
+        if (fromCodeSource?.trim()) {
+          return fromCodeSource
+        }
+      }
+    } catch (Throwable ignored) {
+      // fall through
+    }
+    return ''
+  }
+
+  /** Deep-merges {@code routingRecipeFamilies} and replaces {@code multiGoalDefer} when present on {@code doc}. */
+  private static void mergeCatalogRoutingSections(Map into, Map doc) {
+    if (!(into instanceof Map) || !(doc instanceof Map)) {
+      return
+    }
+    Object fam = doc.get('routingRecipeFamilies')
+    if (fam instanceof Map) {
+      Map target = into.routingRecipeFamilies instanceof Map ?
+        new LinkedHashMap<>((Map) into.routingRecipeFamilies) :
+        new LinkedHashMap<>()
+      for (Map.Entry e : ((Map) fam).entrySet()) {
+        target.put(e.key?.toString(), hintStringList(e.value))
+      }
+      into.routingRecipeFamilies = target
+    }
+    if (doc.multiGoalDefer instanceof Map) {
+      into.multiGoalDefer = new LinkedHashMap<>((Map) doc.multiGoalDefer)
+    }
+  }
+
+  /** Recipe ids listed under a {@code routingRecipeFamilies} key in catalog routing config. */
+  static List<String> routingFamilyRecipeIds(Map routingCfg, String familyKey) {
+    if (!(routingCfg instanceof Map) || !familyKey?.trim()) {
+      return Collections.emptyList()
+    }
+    Object fam = routingCfg.routingRecipeFamilies
+    if (!(fam instanceof Map)) {
+      return Collections.emptyList()
+    }
+    return hintStringList(((Map) fam).get(familyKey.trim()))
+  }
+
+  /**
+   * True when {@code recipeId} is in {@link #findDeterministicRecipeMatches} for {@code ctx}, or
+   * {@code matchHints} hit the routing prompt (even when {@code dontMatchHints} block a whole-turn match).
+   */
+  static boolean recipeAuthoringSignalsHit(String recipeId, List<Map> recipes, Map ctx) {
+    String rid = (recipeId ?: '').toString().trim()
+    if (!rid || !recipes) {
+      return false
+    }
+    Map recipe = findRecipeById(recipes, rid)
+    if (!recipe) {
+      return false
+    }
+    if (findDeterministicRecipeMatches(recipes, ctx).any { it.recipeId?.toString() == rid }) {
+      return true
+    }
+    List<String> hints = matchHintsList(recipe)
+    if (hints.isEmpty()) {
+      return false
+    }
+    String author = deterministicRoutingPrompt(ctx)
+    return authorVisibleMatchesKeywordList(author, hints)
+  }
+
+  /** True when any recipe id in a configured routing family signals on {@code ctx}. */
+  static boolean authorMatchesRoutingFamily(String familyKey, List<Map> recipes, Map ctx, Map routingCfg) {
+    List<String> ids = routingFamilyRecipeIds(routingCfg, familyKey)
+    return ids.any { String rid -> recipeAuthoringSignalsHit(rid, recipes, ctx) }
+  }
+
+  /** Any configured research family ({@code researchAny}, or web + site + llm lists). */
+  static boolean authorVisibleSuggestsConfiguredResearch(List<Map> recipes, Map ctx, Map routingCfg) {
+    if (authorMatchesRoutingFamily('researchAny', recipes, ctx, routingCfg)) {
+      return true
+    }
+    return authorMatchesRoutingFamily('researchWeb', recipes, ctx, routingCfg) ||
+      authorMatchesRoutingFamily('researchSite', recipes, ctx, routingCfg) ||
+      authorMatchesRoutingFamily('researchLlm', recipes, ctx, routingCfg)
+  }
+
+  /**
+   * General-knowledge family only ({@code researchLlm}), excluding web/site research families when they also match.
+   */
+  static boolean authorCurrentRequestSuggestsGeneralKnowledgeResearch(
+    List<Map> recipes,
+    Map ctx,
+    Map routingCfg
+  ) {
+    if (authorMatchesRoutingFamily('researchWeb', recipes, ctx, routingCfg) ||
+      authorMatchesRoutingFamily('researchSite', recipes, ctx, routingCfg)) {
+      return false
+    }
+    return authorMatchesRoutingFamily('researchLlm', recipes, ctx, routingCfg)
+  }
+
+  /**
+   * {@code multiGoalDefer} in catalog JSON: at least {@code minDistinctGroups} groups have a signaling recipe.
+   */
+  static boolean authorSuggestsMultiGoalDefer(List<Map> recipes, Map ctx, Map routingCfg) {
+    Object mg = routingCfg?.multiGoalDefer
+    if (!(mg instanceof Map)) {
+      return false
+    }
+    Object groups = mg.groups
+    if (!(groups instanceof Map) || ((Map) groups).isEmpty()) {
+      return false
+    }
+    int minGroups = mg.minDistinctGroups instanceof Number ?
+      ((Number) mg.minDistinctGroups).intValue() :
+      2
+    if (minGroups < 2) {
+      minGroups = 2
+    }
+    int hit = 0
+    for (Object groupIds : ((Map) groups).values()) {
+      List<String> ids = hintStringList(groupIds)
+      boolean groupHit = ids.any { String rid -> recipeAuthoringSignalsHit(rid, recipes, ctx) }
+      if (groupHit) {
+        hit++
+      }
+    }
+    return hit >= minGroups
+  }
+
+  /** Distinct {@code multiGoalDefer.groups} keys that have at least one signaling recipe (for telemetry). */
+  static List<String> multiGoalDeferGroupsHit(List<Map> recipes, Map ctx, Map routingCfg) {
+    Object mg = routingCfg?.multiGoalDefer
+    if (!(mg instanceof Map) || !(((Map) mg).groups instanceof Map)) {
+      return Collections.emptyList()
+    }
+    List<String> hit = new ArrayList<>()
+    for (Map.Entry e : ((Map) ((Map) mg).groups).entrySet()) {
+      List<String> ids = hintStringList(e.value)
+      boolean groupHit = ids.any { String rid -> recipeAuthoringSignalsHit(rid, recipes, ctx) }
+      if (groupHit) {
+        hit.add(e.key?.toString() ?: '')
+      }
+    }
+    return hit
+  }
+
+  /**
    * Per-step deterministic recipe hits for plan orchestration (step {@code summary} as {@code routerVisible}).
    * @return list of maps with {@code stepId}, {@code summary}, {@code recipeId}, {@code routerReason}
    */

@@ -549,8 +549,10 @@ class AiOrchestration {
       /.*\bchange\b.*/,
       /.*\bedit\b.*/,
       /.*\bcreate\b.*/,
+      /.*\bdraft\b.*/,
       /.*\bwrite\b.*/,
       /.*\brewrite\b.*/,
+      /.*\bresearch\b.*/,
       /.*\btranslate\b.*/,
       /.*\btranslation\b.*/,
       /.*\blocalize\b.*/,
@@ -4044,6 +4046,54 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     return exp + '\n\n' + orig
   }
 
+  /** Catalog {@code routingRecipeFamilies} / {@code multiGoalDefer} stashed on the tools-loop session bundle. */
+  private static Map routingCfgFromBundle(Map toolsLoopSessionBundle) {
+    if (!(toolsLoopSessionBundle instanceof Map)) {
+      return [:]
+    }
+    Object rc = toolsLoopSessionBundle.get('intentCatalogRoutingCfg')
+    return rc instanceof Map ? (Map) rc : [:]
+  }
+
+  /**
+   * When a single recipe matched but catalog {@code multiGoalDefer} sees multiple goal groups, prefer plan defer
+   * over whole-turn {@code matched} (safety net if match pass or stale sandbox JSON missed defer).
+   */
+  private static Map intentRecipeRoutingApplyMultiGoalDeferIfNeeded(
+    Map pass,
+    List recipes,
+    Map detCtx,
+    Map routingCfg,
+    String routerVisible,
+    Map toolsLoopSessionBundle
+  ) {
+    if (!(pass instanceof Map) || !Boolean.TRUE.equals(pass.matched)) {
+      return pass
+    }
+    if (!AuthoringIntentRecipeCatalog.authorSuggestsMultiGoalDefer(recipes, detCtx, routingCfg)) {
+      return pass
+    }
+    List<String> groupsHit = AuthoringIntentRecipeCatalog.multiGoalDeferGroupsHit(recipes, detCtx, routingCfg)
+    log.info(
+      'Intent recipe routing: multi-goal override — defer to plan loop instead of matched recipeId={} (groupsHit={})',
+      pass.recipeId,
+      groupsHit
+    )
+    Map out = new LinkedHashMap(pass)
+    out.matched = false
+    out.deferToPlanLoop = true
+    out.ambiguousMultiRecipe = true
+    out.matchPass = 'multi_goal_defer_plan'
+    out.suppressedDeterministicRecipeId = pass.recipeId?.toString()?.trim()
+    out.multiGoalDeferGroupsHit = groupsHit
+    if (!out.catalogMd?.toString()?.trim()) {
+      List routerRecipes = AuthoringIntentRecipeCatalog.filterRecipesEligibleForRouter(recipes, routerVisible)
+      out.catalogMd = AuthoringIntentRecipeCatalog.toRouterCatalogMarkdown(routerRecipes)
+    }
+    out.routingEngineWirePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
+    return out
+  }
+
   /**
    * One routing pass: JVM {@code routingEngineSteps} ({@code initial}) → recipe + site-tool hint matches → clarify/enrich
    * LLM refine tools → JVM {@code after_refine} + retest → optional JSON router after {@code before_router}.
@@ -4063,7 +4113,8 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     String model,
     String wireBaseUrl,
     Map toolsLoopSessionBundle,
-    String authorFieldLabelEarly
+    String authorFieldLabelEarly,
+    Map routingCfg
   ) {
     Map out = [matched: false]
     String visible = (routerVisible ?: '').toString().trim()
@@ -4088,7 +4139,26 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
     if (siteToolDefer != null) {
       return siteToolDefer
     }
+    Map routeRoutingCfg = routingCfg instanceof Map ? routingCfg : routingCfgFromBundle(toolsLoopSessionBundle)
     if (detMatches.size() == 1) {
+      if (AuthoringIntentRecipeCatalog.authorSuggestsMultiGoalDefer(recipes, routeCtx, routeRoutingCfg)) {
+        log.info(
+          'Intent recipe routing: multi-goal turn — defer to plan loop (suppressed single match recipeId={})',
+          detMatches[0].recipeId
+        )
+        out.deferToPlanLoop = true
+        out.ambiguousMultiRecipe = true
+        out.matchPass = 'multi_goal_defer_plan'
+        out.suppressedDeterministicRecipeId = detMatches[0].recipeId?.toString()?.trim()
+        out.multiGoalDeferGroupsHit =
+          AuthoringIntentRecipeCatalog.multiGoalDeferGroupsHit(recipes, routeCtx, routeRoutingCfg)
+        out.catalogMd = catalogMd
+        out.deterministicMatchCount = 1
+        out.siteToolMatchCount = toolMatches.size()
+        out.matchedSiteToolIds = AuthoringIntentSiteToolCatalog.siteToolMatchIds(toolMatches)
+        out.routingEngineWirePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
+        return out
+      }
       Map detMatch = detMatches[0]
       out.matched = true
       out.recipe = detMatch.recipe
@@ -4160,6 +4230,21 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       return siteToolDefer
     }
     if (detMatches.size() == 1) {
+      if (AuthoringIntentRecipeCatalog.authorSuggestsMultiGoalDefer(recipes, routeCtx, routeRoutingCfg)) {
+        log.info(
+          'Intent recipe routing: multi-goal turn after clarify — defer to plan loop (suppressed recipeId={})',
+          detMatches[0].recipeId
+        )
+        out.deferToPlanLoop = true
+        out.ambiguousMultiRecipe = true
+        out.matchPass = 'multi_goal_defer_plan'
+        out.suppressedDeterministicRecipeId = detMatches[0].recipeId?.toString()?.trim()
+        out.catalogMd = catalogMd
+        out.siteToolMatchCount = toolMatches.size()
+        out.matchedSiteToolIds = AuthoringIntentSiteToolCatalog.siteToolMatchIds(toolMatches)
+        out.routingEngineWirePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
+        return out
+      }
       Map detMatch = detMatches[0]
       out.matched = true
       out.recipe = detMatch.recipe
@@ -4522,6 +4607,10 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
         return intentRecipeAttachTelemetry(ops, cfg, result, 'skipped_no_model')
       }
       List recipes = AuthoringIntentRecipeCatalog.loadRecipes(ops, cfg)
+      Map routingCfg = AuthoringIntentRecipeCatalog.loadMergedCatalogRoutingConfig(ops, cfg)
+      if (toolsLoopSessionBundle instanceof Map) {
+        toolsLoopSessionBundle.intentCatalogRoutingCfg = routingCfg
+      }
       int recipeCatalogSize = recipes != null ? recipes.size() : 0
       boolean catalogHasOpenPageInquiry =
         AuthoringIntentRecipeCatalog.findRecipeById(recipes, 'open_page_inquiry') != null
@@ -4548,7 +4637,8 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
         )
       }
       if (eligibilityGate) {
-        String eligibilitySkip = AuthoringPreviewContext.intentRecipeRouterEligibilitySkipReason(cand)
+        String eligibilitySkip =
+          AuthoringPreviewContext.intentRecipeRouterEligibilitySkipReason(cand, recipes, routingCfg)
         if (eligibilitySkip != null) {
           log.info(
             'Intent recipe routing skipped: eligibility gate (reason={}) — routing and prefetch do not run. Disable with intentRecipeRouting.eligibilityGateEnabled false in tools.json.',
@@ -4626,7 +4716,8 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
         mdl,
         wireBaseUrl,
         toolsLoopSessionBundle,
-        authorFieldLabelEarly
+        authorFieldLabelEarly,
+        routingCfg
       )
       String expansionWirePrefix = ''
       Map activePass = pass1
@@ -4670,7 +4761,8 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
             mdl,
             wireBaseUrl,
             toolsLoopSessionBundle,
-            authorFieldLabelEarly
+            authorFieldLabelEarly,
+            routingCfg
           )
           if (Boolean.TRUE.equals(pass2.matched)) {
             log.info('Intent recipe routing: pass-2 matched after expansion (matchPass={})', pass2.matchPass)
@@ -4681,6 +4773,14 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
           }
         }
       }
+      activePass = intentRecipeRoutingApplyMultiGoalDeferIfNeeded(
+        activePass,
+        recipes,
+        detCtx,
+        routingCfg,
+        routerVisible,
+        toolsLoopSessionBundle
+      )
       if (Boolean.TRUE.equals(activePass.matched)) {
         double minC = activePass.minConfidence instanceof Number ?
           ((Number) activePass.minConfidence).doubleValue() :
@@ -4763,6 +4863,13 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       Map planDeferCatalogTel = [:]
       if (deferPlan) {
         noMatchHint = ToolPrompts.getLlm_AUTHORING_INTENT_ROUTING_DEFER_PLAN_HINT()
+        if (AuthoringIntentRecipeCatalog.authorSuggestsMultiGoalDefer(
+          recipes,
+          AuthoringPreviewContext.intentRecipeRoutingContext(cand),
+          routingCfg
+        )) {
+          noMatchHint = ToolPrompts.getLlm_AUTHORING_MULTI_GOAL_COMPLEX_HINT() + noMatchHint
+        }
         String catalogForProbe = activePass.catalogMd?.toString()?.trim()
         if (!catalogForProbe) {
           List routerRecipesProbe =
@@ -4849,6 +4956,9 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
       noMatchTel.putAll(catalogTel)
       if (!planDeferCatalogTel.isEmpty()) {
         noMatchTel.putAll(planDeferCatalogTel)
+      }
+      if (activePass.multiGoalDeferGroupsHit instanceof List) {
+        noMatchTel.multiGoalDeferGroupsHit = activePass.multiGoalDeferGroupsHit
       }
       if (activePass.siteToolMatchCount != null) {
         noMatchTel.put('siteToolMatchCount', activePass.siteToolMatchCount)
@@ -6391,13 +6501,17 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
               (StudioToolOperations) toolsLoopSessionBundle.studioOps :
               null
           Map<String, String> metaUrls = compactGenerateImageUrlsForAuthoringChat(mergedImg, opsForImg)
+          String authorMarkdown
           if (!metaUrls.isEmpty()) {
             writeSseStudioAiInlineImageUrlsMetadata(out, metaUrls)
+            authorMarkdown =
+              sanitizeAssistantMarkdownReplaceGenerateImageDataUrlsWithRefs(finalChunk, mergedImg)
+            authorMarkdown =
+              ChatCompletionsToolWire.appendMissingInlineImageRefs(authorMarkdown, mergedImg, null)
+          } else {
+            // Import/metadata unavailable: keep execute path expanded data: URLs for the client image strip.
+            authorMarkdown = finalChunk
           }
-          String authorMarkdown =
-            sanitizeAssistantMarkdownReplaceGenerateImageDataUrlsWithRefs(finalChunk, mergedImg)
-          authorMarkdown =
-            ChatCompletionsToolWire.appendMissingInlineImageRefs(authorMarkdown, mergedImg, null)
           writeSseFinalAssistantTextChunks(out, authorMarkdown)
         }
         if (tryClaimToolsTerminalEmit(terminalEmitted)) {
@@ -7070,6 +7184,15 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           pipelineStage : pipelineStageForRepoTool(toolName)
         ]
       ]
+      if ('GenerateImage'.equalsIgnoreCase(toolName ?: '') && 'start'.equals(phase)) {
+        String imgPrompt = (input?.prompt ?: input?.imagePrompt ?: '')?.toString()?.trim() ?: ''
+        if (imgPrompt.length() > 600) {
+          imgPrompt = imgPrompt.substring(0, 597) + '…'
+        }
+        if (imgPrompt) {
+          event.metadata.generateImagePrompt = imgPrompt
+        }
+      }
       if (
         'GenerateImage'.equalsIgnoreCase(toolName ?: '') &&
         ('done'.equals(phase) || 'warn'.equals(phase)) &&

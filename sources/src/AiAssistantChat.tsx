@@ -1021,11 +1021,7 @@ function shouldShowGenerateImagePlaceholder(
   if (hasCompleteMarkdownInlineImage(tailMarkdown)) return false;
   if (studioAiInlineImageRefsResolvedInMap(tailMarkdown, studioAiInlineImageUrls)) return false;
   if (!toolProgressText?.includes('GenerateImage')) return false;
-  if (isGenerateImageRunRowActive(toolProgressText)) return true;
-  if (generateImageToolSettledInToolProgress(toolProgressText) && /studio-ai-inline-image:\/\//i.test(tailMarkdown)) {
-    return true;
-  }
-  return false;
+  return isGenerateImageRunRowActive(toolProgressText);
 }
 
 /** Drop consecutive duplicate 🛠️ lines (hotpath + tool listener used to emit the same row twice). */
@@ -1202,8 +1198,20 @@ type UiMessage = {
   pipelineHeartbeat?: { elapsedSec: number; nextInSec: number; hint: string };
   /** URLs for {@code studio-ai-inline-image://toolCallId} from server SSE (see {@code writeToolProgressSse} GenerateImage rows). */
   studioAiInlineImageUrls?: Record<string, string>;
+  /** {@code GenerateImage} tool input prompt while the blurred placeholder is shown (SSE {@code generateImagePrompt} on tool start). */
+  generateImagePrompt?: string;
   isStreaming?: boolean;
 };
+
+function pickGenerateImagePromptPatch(
+  toolName: string,
+  toolPhase: string,
+  metaPrompt: unknown
+): Pick<UiMessage, 'generateImagePrompt'> | Record<string, never> {
+  if (toolName !== 'GenerateImage' || toolPhase !== 'start') return {};
+  const p = typeof metaPrompt === 'string' ? metaPrompt.trim() : '';
+  return p ? { generateImagePrompt: p } : {};
+}
 
 function combinedAssistantMarkdownForVerification(m: UiMessage): string {
   const tail = dedupeAssistantPostToolsMarkdown(m.assistantPreToolsText, m.text);
@@ -1663,6 +1671,13 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     setVoiceListening(false);
   }, []);
 
+  /** Clears the prompt field and voice scratch buffers (avoids late recognition events repopulating after send/stop). */
+  const clearChatPromptInput = useCallback(() => {
+    setDraft('');
+    draftAtVoiceStartRef.current = '';
+    voiceFinalsRef.current = '';
+  }, []);
+
   const startVoiceInput = useCallback(() => {
     const Ctor = speechCtor;
     if (!Ctor || sending) return;
@@ -1676,6 +1691,9 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     rec.continuous = true;
     rec.interimResults = true;
     rec.onresult = (event: SpeechRecognitionEvent) => {
+      if (!voiceActiveRef.current) {
+        return;
+      }
       let interim = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
@@ -1737,6 +1755,8 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
 
   const stopStreaming = useCallback(() => {
     userStopRequestedRef.current = true;
+    stopVoiceInput();
+    clearChatPromptInput();
     setSending(false);
     setMessages((prev) =>
       prev.map((m) =>
@@ -1752,7 +1772,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     );
     abortRef.current?.abort();
     abortRef.current = null;
-  }, []);
+  }, [clearChatPromptInput, stopVoiceInput]);
 
   /** Remove one bubble from history (demos / retakes). Aborts stream if removing the in-flight assistant or its paired user message. */
   const removeBubble = useCallback(
@@ -1781,7 +1801,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     lastSpokenAssistantIdRef.current = null;
     abortRef.current?.abort();
     setSending(false);
-    setDraft('');
+    clearChatPromptInput();
     setChatId(undefined);
     setMessages([]);
     sessionStreamLogRef.current = [];
@@ -1934,7 +1954,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     } catch {
       /* ignore log serialization errors */
     }
-    setDraft('');
+    clearChatPromptInput();
     setSending(true);
 
     let streamingMessageId: string | undefined;
@@ -2013,6 +2033,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
           const summarizingResultsHint =
             md?.status === 'aiassistant-chat-phase' && String(md?.phase || '') === 'summarizing-results';
           const incomingStudioAiInlineImgUrls = md?.studioAiInlineImageUrls;
+          const genImgPromptPatch = pickGenerateImagePromptPatch(toolName, toolPhase, md?.generateImagePrompt);
           const mdStatus = md && md.status != null ? String(md.status).trim() : '';
           if (mdStatus === 'pipeline-heartbeat') {
             const rawEl = md.elapsedSec;
@@ -2123,13 +2144,15 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                       reasoningStreamText: '',
                       text: '',
                       toolProgressText: textChunk,
-                      ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls)
+                      ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls),
+                      ...genImgPromptPatch
                     };
                   }
                   return {
                     ...m,
                     toolProgressText: appendToolProgressText(m.toolProgressText || '', textChunk),
-                    ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls)
+                    ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls),
+                    ...genImgPromptPatch
                   };
                 })
               );
@@ -2193,6 +2216,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
           }
 
           if (isTerminal) {
+            clearChatPromptInput();
             setMessages((prev) =>
               prev.map((m) => {
                 if (m.id !== assistantId) return m;
@@ -2206,6 +2230,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                   summarizingResults: false,
                   pipelineHeartbeat: undefined,
                   ...(foldReasoning ? { text: reasoningRest, reasoningStreamText: '' } : {}),
+                  ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls),
                   ...mergePipelineTimingFields(m, extractTerminalPipelineTiming(md))
                 };
               })
@@ -2492,10 +2517,10 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                       <MarkdownMessage
                         text={stripDisplayedGeneratedImages(
                           stripStudioAiInlineImageMarkdownFromText(m.assistantPreToolsText, m.studioAiInlineImageUrls),
-                          combineGeneratedImageSources(m.studioAiInlineImageUrls, m.assistantPreToolsText)
+                          combineGeneratedImageSources(m.studioAiInlineImageUrls, m.assistantPreToolsText, siteId)
                         )}
                         studioAiInlineImageUrls={
-                          combineGeneratedImageSources(m.studioAiInlineImageUrls, m.assistantPreToolsText).length
+                          combineGeneratedImageSources(m.studioAiInlineImageUrls, m.assistantPreToolsText, siteId).length
                             ? undefined
                             : m.studioAiInlineImageUrls
                         }
@@ -2535,7 +2560,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                       <>
                         {imageStripSources.length ? <AssistantChatGeneratedImages sources={imageStripSources} /> : null}
                         {!imageStripSources.length && showGenImgPlaceholder ? (
-                          <GenerateImageBlurredPlaceholder />
+                          <GenerateImageBlurredPlaceholder prompt={m.generateImagePrompt} />
                         ) : null}
                         <MarkdownMessage text={tailDisplay} studioAiInlineImageUrls={mdUrls} />
                       </>
@@ -2584,7 +2609,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                       <>
                         {imageStripSources.length ? <AssistantChatGeneratedImages sources={imageStripSources} /> : null}
                         {!imageStripSources.length && showGenImgPlaceholder ? (
-                          <GenerateImageBlurredPlaceholder />
+                          <GenerateImageBlurredPlaceholder prompt={m.generateImagePrompt} />
                         ) : null}
                         <MarkdownMessage text={tailDisplay} studioAiInlineImageUrls={mdUrls} />
                       </>

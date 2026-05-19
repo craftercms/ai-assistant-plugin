@@ -8,10 +8,15 @@ const cqGenerateImageAuraShift = keyframes({
   '100%': { backgroundPosition: '100% 60%' }
 });
 
+export type GenerateImageBlurredPlaceholderProps = {
+  /** Image model prompt from {@code GenerateImage} tool input (SSE metadata on tool start). */
+  prompt?: string;
+};
+
 /**
  * Blurred shifting gradient stand-in for the incoming chat image; similar footprint to the draggable chat image card.
  */
-export default function GenerateImageBlurredPlaceholder() {
+export default function GenerateImageBlurredPlaceholder({ prompt }: GenerateImageBlurredPlaceholderProps) {
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
   const a = dark ? '#5e35b1' : '#e1bee7';
@@ -68,9 +73,33 @@ export default function GenerateImageBlurredPlaceholder() {
           backdropFilter: 'blur(2px)'
         }}
       >
-        <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'center', lineHeight: 1.45, opacity: 0.9 }}>
-          Generating image…
-        </Typography>
+        <Box sx={{ textAlign: 'center', maxWidth: '100%' }}>
+          <Typography
+            component="p"
+            variant="body2"
+            color="text.primary"
+            sx={{ fontWeight: 700, lineHeight: 1.4, mb: prompt?.trim() ? 0.75 : 0 }}
+          >
+            Generating Image
+          </Typography>
+          {prompt?.trim() ? (
+            <Typography
+              component="p"
+              variant="caption"
+              color="text.secondary"
+              sx={{
+                lineHeight: 1.45,
+                opacity: 0.92,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                maxHeight: 120,
+                overflow: 'auto'
+              }}
+            >
+              {prompt.trim()}
+            </Typography>
+          ) : null}
+        </Box>
       </Box>
     </Box>
   );

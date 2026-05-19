@@ -184,7 +184,7 @@ Use these when the author asks about "today", "now", freshness, or dated content
   }
 
   private static final Pattern CMS_TASK_SIGNAL = Pattern.compile(
-    '(?i)(\\b(translat|localiz|publish|deploy|go\\s+live|revert|update|edit|change|rewrite|rephrase|delete|create|write|draft|put|add|place|insert|set|generate\\s+image|generate\\s+an?\\s+image|draw|fix|content|templates?|template|css|scss|less|stylesheet|styling|branding|mockup|theme|layout|ftl|freemarker|component|sections?_o|writecontent|listpages|getcontent|static-assets|update_template|analyze_template|headline|subtitle|lyrics?|summarize|summary)\\b|https?://|\\blook\\s+like\\b|\\bsimilar\\s+to\\b|\\bmatch(es)?\\b|\\bsite\\b|\\bwebsite\\b)'
+    '(?i)(\\b(translat|localiz|publish|deploy|go\\s+live|revert|update|edit|change|rewrite|rephrase|delete|create|write|draft|research|compare|versus|post\\b|article|blog|put|add|place|insert|set|generate\\s+image|generate\\s+an?\\s+image|draw|fix|content|templates?|template|css|scss|less|stylesheet|styling|branding|mockup|theme|layout|ftl|freemarker|component|sections?_o|writecontent|listpages|getcontent|static-assets|update_template|analyze_template|headline|subtitle|lyrics?|summarize|summary)\\b|https?://|\\blook\\s+like\\b|\\bsimilar\\s+to\\b|\\bmatch(es)?\\b|\\bvs\\.?\\b|\\bsite\\b|\\bwebsite\\b)'
   )
 
   /** Preview/form anchor + author names a repository field target (e.g. “add tips to my hero text”). */
@@ -589,29 +589,6 @@ ${asstLine}"""
   /** Author-visible text (after stripping Studio blocks) this long or shorter is treated as likely underspecified. */
   private static final int AUTHORING_INTENT_EXPANSION_SHORT_VISIBLE_MAX_CHARS = 320
 
-  /** Live / current-events lookup — route to {@code web_research} + {@code WebSearch}, not tools. */
-  private static final Pattern WEB_RESEARCH_SIGNAL = Pattern.compile(
-    '(?i)(\\b(latest|recent|current|today\'?s|breaking)\\s+news\\b|\\bnews\\s+(on|about|for)\\b|\\bheadlines?\\b|' +
-      '\\bcurrent\\s+events?\\b|\\bsearch\\s+the\\s+web\\b|\\bweb\\s+search\\b|\\bon\\s+the\\s+web\\b|' +
-      '\\blook\\s+up\\s+(?:the\\s+)?latest\\b|\\blook\\s+up\\b.{0,96}\\b(?:on\\s+the\\s+web|online)\\b|' +
-      '\\bwhat\\s+happened\\s+(today|this\\s+week)\\b|\\bwhat\'?s\\s+new\\s+with\\b|' +
-      '\\bresearch\\b(?:\\s+\\d+)?\\s+(?:tips?|ideas|guides?|steps?|best\\s+practices|facts?)\\b|' +
-      '\\bresearch\\s+\\d+\\s+\\w+)'
-  )
-
-  /** General knowledge / explanation — route to {@code llm_research} with tools off. */
-  private static final Pattern LLM_RESEARCH_SIGNAL = Pattern.compile(
-    '(?i)(\\bexplain\\s+(?:what|how|why)|\\bwhat\\s+is\\b|\\bwhat\\s+are\\b|\\btell\\s+me\\s+about\\b|' +
-      '\\bcompare\\s+|\\bdifference\\s+between\\b|\\bpros\\s+and\\s+cons\\b|\\bhow\\s+does\\s+.+\\s+work\\b)'
-  )
-
-  /** Find / summarize existing repository content — route to {@code site_content_research} + {@code ResearchSiteContent}. */
-  private static final Pattern SITE_CONTENT_RESEARCH_SIGNAL = Pattern.compile(
-    '(?i)(\\bsearch\\s+(?:the\\s+|our\\s+|this\\s+)?site\\b|\\bsite\\s+search\\b|\\bfind\\s+(?:pages?|content|items?)\\s+(?:about|on|for|in)\\b|' +
-      '\\bwhat\\s+(?:pages?|content)\\s+(?:do\\s+we\\s+have|exists?)\\s+(?:about|on|for)\\b|\\bwhere\\s+(?:in\\s+the\\s+site|on\\s+the\\s+site)\\b|' +
-      '\\bpages?\\s+(?:about|mentioning|on)\\b|\\bcontent\\s+about\\b|\\bin\\s+(?:our|the)\\s+(?:site|cms|repository)\\b)'
-  )
-
   private static final Pattern PAGE_SUMMARIZE_SIGNAL = Pattern.compile(
     '(?i)\\b(summarize|summary|sum\\s+up)\\b'
   )
@@ -746,34 +723,13 @@ ${asstLine}"""
       (FULL_PAGE_OR_SITE_COPY_INTENT.matcher(v).find() || v.matches('(?is).*(this|the)\\s+page.*'))
   }
 
-  /** Freshness / headlines — use {@code WebSearch}, not {@code GenerateImage} or repo writes. */
-  static boolean authorVisibleSuggestsWebResearch(String fullOrUserPrompt) {
-    def v = stripStudioInjectedPromptBlocks((fullOrUserPrompt ?: '').toString())?.trim()
-    if (!v) {
-      return false
-    }
-    if (authorVisibleSuggestsPageSummarize(fullOrUserPrompt)) {
-      return false
-    }
-    return WEB_RESEARCH_SIGNAL.matcher(v).find()
-  }
-
-  /** Timeless Q&A — answer from model knowledge with tools disabled for the turn. */
-  static boolean authorVisibleSuggestsLlmResearch(String fullOrUserPrompt) {
-    def v = stripStudioInjectedPromptBlocks((fullOrUserPrompt ?: '').toString())?.trim()
-    if (!v) {
-      return false
-    }
-    if (authorVisibleSuggestsWebResearch(fullOrUserPrompt) ||
-      authorVisibleSuggestsPageSummarize(fullOrUserPrompt)) {
-      return false
-    }
-    String authorSlice = extractAuthorCurrentRequestVisible(fullOrUserPrompt)?.trim() ?: v
-    if (authorVisibleSuggestsOpenPageInquiryForAuthorText(fullOrUserPrompt, authorSlice) ||
-      authorVisibleSuggestsOpenPageInquiry(fullOrUserPrompt)) {
-      return false
-    }
-    return LLM_RESEARCH_SIGNAL.matcher(v).find()
+  /**
+   * Routing context for {@link plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeCatalog} matchers.
+   */
+  static Map intentRecipeRoutingContext(String cand) {
+    String wire = (cand ?: '').toString()
+    String visible = stripStudioInjectedPromptBlocks(wire)?.trim() ?: wire.trim()
+    return [cand: wire, routerVisible: visible ?: wire] as Map
   }
 
   /** Entire site / publish everything / first go-live — use {@code publish_content} with {@code publishScope=all} or {@code bulk}. */
@@ -808,31 +764,24 @@ This site has **never** been published to the delivery tier. For first go-live o
 ---"""
   }
 
-  /** Search indexed site copy (OpenSearch) — {@code ResearchSiteContent}, not open web or generic LLM-only. */
-  static boolean authorVisibleSuggestsSiteContentResearch(String fullOrUserPrompt) {
-    def v = stripStudioInjectedPromptBlocks((fullOrUserPrompt ?: '').toString())?.trim()
-    if (!v) {
+  /**
+   * Non-CMS research prompts still run intent recipe routing — uses catalog {@code routingRecipeFamilies}
+   * and recipe {@code matchHints} / {@code deterministicMatch}, not hardcoded regex.
+   */
+  static boolean authorVisibleSuggestsIntentRecipeResearch(
+    String fullOrUserPrompt,
+    List<Map> recipes,
+    Map routingCfg
+  ) {
+    if (!(recipes instanceof List) || recipes.isEmpty() || !(routingCfg instanceof Map)) {
       return false
     }
-    if (authorVisibleSuggestsWebResearch(fullOrUserPrompt) ||
-      authorVisibleSuggestsPageSummarize(fullOrUserPrompt) ||
-      authorVisibleSuggestsOpenPageInquiry(fullOrUserPrompt)) {
-      return false
-    }
-    if (SITE_CONTENT_RESEARCH_SIGNAL.matcher(v).find()) {
+    Map ctx = intentRecipeRoutingContext(fullOrUserPrompt)
+    if (plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeCatalog
+      .authorVisibleSuggestsConfiguredResearch(recipes, ctx, routingCfg)) {
       return true
     }
-    return (v =~ /(?i)\bsearch\b/).find() &&
-      (v =~ /(?i)\b(site|cms|repository|pages?|content)\b/).find() &&
-      !(v =~ /(?i)\b(web|internet|google|news|headlines)\b/).find()
-  }
-
-  /** Non-CMS research prompts still run intent recipe routing (web / site / llm recipes). */
-  static boolean authorVisibleSuggestsIntentRecipeResearch(String fullOrUserPrompt) {
-    return authorVisibleSuggestsWebResearch(fullOrUserPrompt) ||
-      authorVisibleSuggestsSiteContentResearch(fullOrUserPrompt) ||
-      authorVisibleSuggestsLlmResearch(fullOrUserPrompt) ||
-      authorCurrentRequestLooksLikeCreativeLlmOnly(fullOrUserPrompt) ||
+    return authorCurrentRequestLooksLikeCreativeLlmOnly(fullOrUserPrompt) ||
       authorConversationPivotedToChatOnlyArtifact(fullOrUserPrompt)
   }
 
@@ -947,6 +896,14 @@ This site has **never** been published to the delivery tier. For first go-live o
    * See {@link #isAuthoringIntentExpansionCandidate}.
    */
   static String intentRecipeRouterEligibilitySkipReason(String fullPrompt) {
+    return intentRecipeRouterEligibilitySkipReason(fullPrompt, null, null)
+  }
+
+  /**
+   * @param recipes merged intent recipe catalog (required for research-family checks)
+   * @param routingCfg {@link plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeCatalog#loadMergedCatalogRoutingConfig}
+   */
+  static String intentRecipeRouterEligibilitySkipReason(String fullPrompt, List<Map> recipes, Map routingCfg) {
     String currentReq = extractAuthorCurrentRequestVisible(fullPrompt)
     if (currentReq && authorVisibleSuggestsPageSummarize(currentReq)) {
       return 'author_summarize_no_intent_recipe'
@@ -987,13 +944,13 @@ This site has **never** been published to the delivery tier. For first go-live o
           return null
         }
       }
-      if (authorVisibleSuggestsIntentRecipeResearch(fullPrompt)) {
+      if (authorVisibleSuggestsIntentRecipeResearch(fullPrompt, recipes, routingCfg)) {
         return null
       }
       if (authorCurrentRequestLooksLikeImageOnlyGenerate(fullPrompt)) {
         return null
       }
-      if (currentOnly && authorVisibleSuggestsIntentRecipeResearch(currentOnly)) {
+      if (currentOnly && authorVisibleSuggestsIntentRecipeResearch(currentOnly, recipes, routingCfg)) {
         return null
       }
       if (authorVisibleSuggestsRevertIntent(v) &&
@@ -1028,7 +985,7 @@ This site has **never** been published to the delivery tier. For first go-live o
       return null
     }
     String currentOnlyForGate = extractAuthorCurrentRequestVisible(fullPrompt)?.trim()
-    if (currentOnlyForGate && authorVisibleSuggestsIntentRecipeResearch(currentOnlyForGate)) {
+    if (currentOnlyForGate && authorVisibleSuggestsIntentRecipeResearch(currentOnlyForGate, recipes, routingCfg)) {
       return null
     }
     if (!authorVisibleContainsHttpOrLikelyExternalHost(expansionVisible)) {
@@ -1064,24 +1021,27 @@ This site has **never** been published to the delivery tier. For first go-live o
    * True when the author-visible part of the prompt is a short greeting / chit-chat with
    * no CMS authoring signal — used to force tools off for preview chat (avoids destructive
    * tool runs when only Studio metadata was appended).
+   * <p>Uses {@link #extractAuthorCurrentRequestVisible} when the wire includes {@code Current request:}
+   * so prior turns and Studio blocks do not masquerade as this turn’s greeting.</p>
    */
   static boolean isTrivialNonAuthoringTurn(String fullPrompt) {
-    def visible = stripStudioInjectedPromptBlocks(fullPrompt)
-    if (!visible) {
+    String current = extractAuthorCurrentRequestVisible(fullPrompt)?.trim()
+    if (!current) {
       return true
     }
-    // Any CMS / site / template signal — never force tools off (check before length heuristics).
-    if (authorVisibleSuggestsCmsTooling(fullPrompt) ||
-      anchoredSiteXmlFieldPlacementIntent(fullPrompt)) {
+    if (authorCurrentRequestSuggestsCmsTooling(fullPrompt)) {
+      return false
+    }
+    if (anchoredSiteXmlFieldPlacementIntentForAuthorText(fullPrompt, current)) {
       return false
     }
     if (isShortAffirmationContinuingPriorCmsWork(fullPrompt)) {
       return false
     }
-    if (visible.length() > 160) {
+    if (current.length() > 160) {
       return false
     }
-    def t = visible.trim().toLowerCase(Locale.ROOT)
+    def t = current.toLowerCase(Locale.ROOT)
     if (t.matches('(?is)^(hello|hi|hey(\\s+there)?|good\\s+(morning|afternoon|evening)|thanks?|thank\\s+you|thx|ok(ay)?|yes|no|howdy|sup|yo|\\?)+[\\s!.?]*$')) {
       return true
     }
