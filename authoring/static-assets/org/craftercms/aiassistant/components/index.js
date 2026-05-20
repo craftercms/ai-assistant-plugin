@@ -1,6 +1,6 @@
 const { Fragment, jsx: jsx$1, jsxs } = craftercms.libs?.reactJsxRuntime;
 const require$$2 = craftercms.libs?.reactJsxRuntime && Object.prototype.hasOwnProperty.call(craftercms.libs?.reactJsxRuntime, 'default') ? craftercms.libs?.reactJsxRuntime['default'] : craftercms.libs?.reactJsxRuntime;
-const { useTheme, Box, CircularProgress, Typography, TableContainer, Paper, Table: Table$1, TableHead, TableBody, TableRow, TableCell, Stack: Stack$1, Tooltip, IconButton, Tabs, Tab, Button, Divider, TextField, Chip, FormControlLabel, Switch, Popover, paperClasses, GlobalStyles, Menu, MenuItem, ListItemIcon, ListItemText, Dialog, DialogContent, Alert, FormControl, InputLabel, Select, List, ListItem, Checkbox, ListItemButton, Badge, DialogTitle, DialogActions, Avatar, useMediaQuery, ListItemSecondaryAction, ListSubheader, FormLabel, FormGroup, Autocomplete, Snackbar, Link: Link$1, RadioGroup, Radio, InputAdornment } = craftercms.libs.MaterialUI;
+const { useTheme, Box, CircularProgress, Typography, TableContainer, Paper, Table: Table$1, TableHead, TableBody, TableRow, TableCell, Stack: Stack$1, Tooltip, IconButton, Tabs, Tab, Button, Divider, TextField, Chip, FormControlLabel, Switch, Popover, paperClasses, GlobalStyles, Menu, MenuItem, ListItemIcon, ListItemText, Dialog, DialogContent, Alert, FormControl, InputLabel, Select, List, ListItem, Checkbox, ListItemButton, Badge, DialogTitle, DialogActions, Avatar, useMediaQuery, Slider, ListItemSecondaryAction, ListSubheader, FormLabel, FormGroup, Autocomplete, Snackbar, Link: Link$1, RadioGroup, Radio, InputAdornment } = craftercms.libs.MaterialUI;
 const React = craftercms.libs.React;
 const { useRef, useState, useEffect, useCallback, useMemo, useLayoutEffect, useSyncExternalStore, forwardRef, useImperativeHandle, createElement } = craftercms.libs.React;
 const React__default = craftercms.libs.React && Object.prototype.hasOwnProperty.call(craftercms.libs.React, 'default') ? craftercms.libs.React['default'] : craftercms.libs.React;
@@ -363,7 +363,7 @@ function buildStudioAuthHeaders() {
     return out;
 }
 async function streamChat(args) {
-    const { agentId, prompt, chatId, contentPath, contentTypeId, contentTypeLabel, studioPreviewPageUrl, authoringSurface, formEngineClientJsonApply, formEngineItemPath, llm, llmModel, imageModel, imageGenerator, llmApiKey, siteId, previewToken, enableTools, omitTools, enabledBuiltInTools, expertSkills, translateBatchConcurrency, signal, onMessage, onRawSseDataLine } = args;
+    const { agentId, prompt, chatId, contentPath, contentTypeId, contentTypeLabel, studioPreviewPageUrl, authoringSurface, formEngineClientJsonApply, formEngineItemPath, llm, llmModel, imageModel, imageGenerator, llmApiKey, siteId, previewToken, enableTools, omitTools, enabledBuiltInTools, skills, translateBatchConcurrency, signal, onMessage, onRawSseDataLine } = args;
     const headers = {
         'Content-Type': 'application/json',
         Accept: 'text/event-stream',
@@ -414,12 +414,18 @@ async function streamChat(args) {
     if (previewToken != null && String(previewToken).trim() !== '') {
         requestBody.previewToken = String(previewToken).trim();
     }
-    if (Array.isArray(expertSkills) && expertSkills.length > 0) {
-        requestBody.expertSkills = expertSkills.map((s) => ({
+    if (Array.isArray(skills) && skills.length > 0) {
+        const enabled = skills
+            .filter((s) => s.enabled === true && (s.url || '').trim())
+            .map((s) => ({
             name: s.name,
             url: s.url,
-            description: s.description
+            description: s.description,
+            enabled: true
         }));
+        if (enabled.length) {
+            requestBody.skills = enabled;
+        }
     }
     if (translateBatchConcurrency != null &&
         Number.isFinite(translateBatchConcurrency) &&
@@ -28783,7 +28789,7 @@ function StudioDraggableImage(props) {
 }
 
 /**
- * OpenAI / streaming payloads sometimes leave escape sequences as the two-character
+ * LLM streaming payloads sometimes leave escape sequences as the two-character
  * sequences backslash+n or backslash+t instead of real newlines/tabs. Markdown then
  * shows one long line. Convert those literals to actual whitespace for display.
  */
@@ -29784,7 +29790,28 @@ const STUDIO_AI_LLM_VENDOR_IDS = [
     'claude',
     'script'
 ];
-/** Default chat models for **tools-loop** vendors (UI hints; includes common OpenAI **vendor** defaults; server may accept others). */
+/** User-facing label for Project Tools LLM provider ids (wire id stays {@link STUDIO_AI_LLM_VENDOR_IDS}). */
+function llmVendorDisplayLabel(vendorId) {
+    switch ((vendorId ?? '').trim()) {
+        case 'openAI':
+            return 'Compatible chat API';
+        case 'claude':
+            return 'Anthropic Claude';
+        case 'xAI':
+            return 'xAI';
+        case 'deepSeek':
+            return 'DeepSeek';
+        case 'llama':
+            return 'Ollama / local';
+        case 'gemini':
+            return 'Google Gemini';
+        case 'script':
+            return 'Custom script';
+        default:
+            return vendorId?.trim() || 'Compatible chat API';
+    }
+}
+/** Default chat models for tools-loop providers (UI presets; server may accept other ids). */
 const STUDIO_AI_TOOLS_LOOP_CHAT_MODELS = [
     'gpt-4o-mini',
     'gpt-4o',
@@ -29801,7 +29828,7 @@ const STUDIO_AI_CLAUDE_CHAT_MODELS = [
 ];
 const STUDIO_AI_DEFAULT_IMAGE_MODEL = 'gpt-image-1';
 
-/** OpenAI transport: send default image model when agent/panel snapshot omitted it (server applies the same default). */
+/** When llm is openAI: send default image model when agent/panel snapshot omitted it (server applies the same default). */
 function resolveWireImageModel(llm, imageModel) {
     const trimmed = imageModel?.trim();
     if (trimmed)
@@ -30939,7 +30966,7 @@ function abbreviateAssistantTurnForPriorContext(body) {
     return t;
 }
 /**
- * Abbreviated prior user/assistant turns so OpenAI single-turn requests retain conversational continuity
+ * Abbreviated prior user/assistant turns so LLM single-turn requests retain conversational continuity
  * without multi-message API history. Used for **every** AI panel embed (XB/ICE preview sidebar, floating dialog,
  * content-type form assistant) — not form-engine-specific.
  */
@@ -30977,7 +31004,7 @@ function buildPriorTurnsContextBlock(prior) {
 }
 function AiAssistantChat(props) {
     const theme = useTheme();
-    const { agentId: agentIdProp, llm, llmModel, imageModel, imageGenerator, llmApiKey, initialMessages, configPrompts, embedTarget = 'default', getAuthoringFormContext, formEngineClientJsonApply, enableTools, enabledBuiltInTools, expertSkills, translateBatchConcurrency } = props;
+    const { agentId: agentIdProp, llm, llmModel, imageModel, imageGenerator, llmApiKey, initialMessages, configPrompts, embedTarget = 'default', getAuthoringFormContext, formEngineClientJsonApply, enableTools, enabledBuiltInTools, skills, translateBatchConcurrency } = props;
     /** Widget **`agentId`** from agent configuration (UUID when applicable). */
     const agentId = agentIdProp?.trim() ?? '';
     const wireImageModel = resolveWireImageModel(llm, imageModel);
@@ -31479,7 +31506,7 @@ function AiAssistantChat(props) {
                 ...(omitToolsThisSend ? { omitTools: true } : {}),
                 ...(enableTools === false ? { enableTools: false } : {}),
                 ...(Array.isArray(enabledBuiltInTools) && enabledBuiltInTools.length > 0 ? { enabledBuiltInTools } : {}),
-                ...(Array.isArray(expertSkills) && expertSkills.length > 0 ? { expertSkills } : {}),
+                ...(Array.isArray(skills) && skills.length > 0 ? { skills } : {}),
                 ...(translateBatchConcurrency != null &&
                     Number.isFinite(translateBatchConcurrency) &&
                     translateBatchConcurrency >= 1 &&
@@ -31722,7 +31749,7 @@ function AiAssistantChat(props) {
                     }
                 }
             });
-            // OpenAI + multi-step tools can exceed several minutes; cap aligns with the plugin orchestration stream await default.
+            // LLM tools-loop + multi-step tools can exceed several minutes; cap aligns with the plugin orchestration stream await default.
             const CHAT_STREAM_TIMEOUT_MS = 600000;
             let streamTimeoutId;
             const timeoutPromise = new Promise((_, reject) => {
@@ -32153,6 +32180,14 @@ const DEFAULT_AGENT = {
 };
 /** Fallback list so Helper click / agent menus always have at least one entry while the catalog loads. */
 const DEFAULT_AGENTS = [DEFAULT_AGENT];
+/** Skills that should be sent on stream/chat (`enabled` and non-empty URL). */
+function agentSkillsForRequest(agent) {
+    const raw = agent?.skills;
+    if (!raw?.length)
+        return undefined;
+    const on = raw.filter((s) => s.enabled === true && (s.url || '').trim());
+    return on.length ? on : undefined;
+}
 function normalizeEnabledBuiltInToolsRaw(raw) {
     if (!Array.isArray(raw) || raw.length === 0)
         return undefined;
@@ -32254,7 +32289,7 @@ function extractString(v) {
 
 function AiAssistantPopover(props) {
     const theme = useTheme();
-    const { open, onClose, isMinimized = false, onMinimize, onMaximize, appBarTitle, agentLabel, width = 492, height = 595, hideBackdrop, enableCustomModel = true, agentId = AI_ASSISTANT_DEFAULT_AGENT_ID, llm, llmModel, imageModel, imageGenerator, llmApiKey, prompts, enableTools, enabledBuiltInTools, expertSkills, translateBatchConcurrency, anchorPosition: anchorPositionProp, ...popoverProps } = props;
+    const { open, onClose, isMinimized = false, onMinimize, onMaximize, appBarTitle, agentLabel, width = 492, height = 595, hideBackdrop, enableCustomModel = true, agentId = AI_ASSISTANT_DEFAULT_AGENT_ID, llm, llmModel, imageModel, imageGenerator, llmApiKey, prompts, enableTools, enabledBuiltInTools, skills, translateBatchConcurrency, anchorPosition: anchorPositionProp, ...popoverProps } = props;
     const title = agentLabel ?? appBarTitle ?? 'Studio AI Assistant';
     const anchorPosition = anchorPositionProp ?? { top: 100, left: 100 };
     const [openAlertDialog, setOpenAlertDialog] = useState(false);
@@ -32276,7 +32311,7 @@ function AiAssistantPopover(props) {
                             subtitleWrapper: {
                                 width: '100%'
                             }
-                        }, onMinimizeButtonClick: () => onMinimize?.(), onCloseButtonClick: (e) => onClose(e, null) }), jsx$1(AiAssistantChat, { agentId: agentId, llm: llm, llmModel: llmModel, imageModel: imageModel, imageGenerator: imageGenerator, llmApiKey: llmApiKey, enableTools: enableTools, enabledBuiltInTools: enabledBuiltInTools, expertSkills: expertSkills, configPrompts: prompts, ...(translateBatchConcurrency != null ? { translateBatchConcurrency } : {}) })] }), jsx$1(MinimizedBar, { open: isMinimized, onMaximize: onMaximize, title: title }), jsx$1(AlertDialog, { disableBackdropClick: true, disableEscapeKeyDown: true, open: openAlertDialog, title: "Close this chat?", body: "The current conversation will be lost.", buttons: jsxs(Fragment, { children: [jsx$1(PrimaryButton, { onClick: (e) => {
+                        }, onMinimizeButtonClick: () => onMinimize?.(), onCloseButtonClick: (e) => onClose(e, null) }), jsx$1(AiAssistantChat, { agentId: agentId, llm: llm, llmModel: llmModel, imageModel: imageModel, imageGenerator: imageGenerator, llmApiKey: llmApiKey, enableTools: enableTools, enabledBuiltInTools: enabledBuiltInTools, skills: skills, configPrompts: prompts, ...(translateBatchConcurrency != null ? { translateBatchConcurrency } : {}) })] }), jsx$1(MinimizedBar, { open: isMinimized, onMaximize: onMaximize, title: title }), jsx$1(AlertDialog, { disableBackdropClick: true, disableEscapeKeyDown: true, open: openAlertDialog, title: "Close this chat?", body: "The current conversation will be lost.", buttons: jsxs(Fragment, { children: [jsx$1(PrimaryButton, { onClick: (e) => {
                                 setOpenAlertDialog(false);
                                 onClose(e, null);
                             }, autoFocus: true, fullWidth: true, size: "large", children: "Close" }), jsx$1(SecondaryButton, { onClick: () => {
@@ -32347,15 +32382,15 @@ function AiAssistantIceChatShell(props) {
  * Used when opening the AI Assistant via dispatch(showWidgetDialog(...)).
  */
 function AiAssistantDialogContent(props) {
-    const { agentId = AI_ASSISTANT_DEFAULT_AGENT_ID, llm, llmModel, imageModel, imageGenerator, llmApiKey, prompts, enableTools, enabledBuiltInTools, expertSkills, translateBatchConcurrency } = props;
-    return (jsx$1(AiAssistantChat, { agentId: agentId, llm: llm, llmModel: llmModel, imageModel: imageModel, imageGenerator: imageGenerator, llmApiKey: llmApiKey, enableTools: enableTools, enabledBuiltInTools: enabledBuiltInTools, expertSkills: expertSkills, configPrompts: prompts, ...(translateBatchConcurrency != null ? { translateBatchConcurrency } : {}) }));
+    const { agentId = AI_ASSISTANT_DEFAULT_AGENT_ID, llm, llmModel, imageModel, imageGenerator, llmApiKey, prompts, enableTools, enabledBuiltInTools, skills, translateBatchConcurrency } = props;
+    return (jsx$1(AiAssistantChat, { agentId: agentId, llm: llm, llmModel: llmModel, imageModel: imageModel, imageGenerator: imageGenerator, llmApiKey: llmApiKey, enableTools: enableTools, enabledBuiltInTools: enabledBuiltInTools, skills: skills, configPrompts: prompts, ...(translateBatchConcurrency != null ? { translateBatchConcurrency } : {}) }));
 }
 
 const logoWidgetId = 'craftercms.components.aiassistant.AssistantLogo';
 const popoverWidgetId = 'craftercms.components.aiassistant.ChatPopover';
 const dialogContentWidgetId = 'craftercms.components.aiassistant.DialogContent';
 const helperWidgetId = 'craftercms.components.aiassistant.Helper';
-/** Tools panel widget: scheduled autonomous OpenAI assistants (prototype). */
+/** Tools panel widget: scheduled autonomous assistants on the tools-loop LLM path (prototype). */
 const autonomousAssistantsWidgetId = 'craftercms.components.aiassistant.AutonomousAssistants';
 /** Registered for `ToolsPanelListItemButton` / `SystemIcon` — same mark as `autonomousAgentsMarkIcon.tsx`. */
 const autonomousAgentsMarkWidgetId = 'craftercms.components.aiassistant.AutonomousAgentsMark';
@@ -32446,7 +32481,7 @@ export const copiedCodeSvg = `
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="icon-sm"><path fill-rule="evenodd" clip-rule="evenodd" d="M18.0633 5.67387C18.5196 5.98499 18.6374 6.60712 18.3262 7.06343L10.8262 18.0634C10.6585 18.3095 10.3898 18.4679 10.0934 18.4957C9.79688 18.5235 9.50345 18.4178 9.29289 18.2072L4.79289 13.7072C4.40237 13.3167 4.40237 12.6835 4.79289 12.293C5.18342 11.9025 5.81658 11.9025 6.20711 12.293L9.85368 15.9396L16.6738 5.93676C16.9849 5.48045 17.607 5.36275 18.0633 5.67387Z" fill="currentColor"></path></svg>
 `;
 
-// Function call definitions for AI Assistant (legacy OpenAI tools sketch; kept commented).
+// Function call definitions for AI Assistant (legacy LLM tools-format sketch; kept commented).
 export const functionTools = [
   // {
   //   type: 'function',
@@ -32829,29 +32864,39 @@ function rawPromptsToEditorRows(raw) {
         return row;
     });
 }
+function parseSkillEnabledFromRecord(o) {
+    const v = o.enabled;
+    if (v === true)
+        return true;
+    if (v === false)
+        return false;
+    const s = String(v ?? '').trim().toLowerCase();
+    return s === 'true' || s === '1' || s === 'yes';
+}
 /** One row per array element for the Studio catalog editor. */
-function rawExpertSkillsToEditorRows(raw) {
+function rawAgentSkillsToEditorRows(raw) {
     if (!Array.isArray(raw))
         return [];
     return raw.map((item) => {
         const o = asRecord(item);
         if (!o)
-            return { name: '', url: '', description: '' };
+            return { name: '', url: '', description: '', enabled: false };
         return {
             name: String(o.name ?? '').trim(),
             url: String(o.url ?? o.href ?? '').trim(),
-            description: String(o.description ?? '').trim()
+            description: String(o.description ?? '').trim(),
+            enabled: parseSkillEnabledFromRecord(o)
         };
     });
 }
-/** Persistable `expertSkills` array for agents.json (requires URL). */
-function serializeCentralCatalogExpertSkills(rows) {
+/** Persistable `skills` array for agents.json (requires URL). */
+function serializeCentralCatalogSkills(rows) {
     const out = [];
     for (const row of rows) {
         const url = row.url.trim();
         if (!url)
             continue;
-        const o = { url };
+        const o = { url, enabled: row.enabled === true };
         const name = row.name.trim();
         if (name)
             o.name = name;
@@ -32879,7 +32924,7 @@ function serializeCentralCatalogPrompts(rows) {
     }
     return out.length ? out : undefined;
 }
-function parseExpertSkills(raw) {
+function parseAgentSkills(raw) {
     if (!Array.isArray(raw) || !raw.length)
         return undefined;
     const skills = [];
@@ -32893,10 +32938,15 @@ function parseExpertSkills(raw) {
         skills.push({
             name: typeof o.name === 'string' ? o.name.trim() : undefined,
             url,
-            description: typeof o.description === 'string' ? o.description.trim() : undefined
+            description: typeof o.description === 'string' ? o.description.trim() : undefined,
+            enabled: parseSkillEnabledFromRecord(o)
         });
     }
     return skills.length ? skills : undefined;
+}
+function readEntrySkills(entry) {
+    const rec = entry;
+    return parseAgentSkills(rec.skills);
 }
 /** True when the site file is present, parses, and declares an `agents` array (even empty). */
 function isCentralAgentsFileShape(v) {
@@ -32933,7 +32983,7 @@ function entryToChatAgent(entry) {
     }
     const icon = typeof entry.icon === 'string' ? entry.icon.trim() : undefined;
     const prompts = parsePrompts(entry.prompts);
-    const expertSkills = parseExpertSkills(entry.expertSkills ?? entry.expertSkill);
+    const skills = readEntrySkills(entry);
     const out = { id, label, ...(icon ? { icon } : {}), ...(prompts ? { prompts } : {}) };
     if (llm)
         out.llm = llm;
@@ -32951,8 +33001,8 @@ function entryToChatAgent(entry) {
         out.openAsPopup = true;
     else if (popRaw === false || String(popRaw ?? '').trim().toLowerCase() === 'false')
         out.openAsPopup = false;
-    if (expertSkills)
-        out.expertSkills = expertSkills;
+    if (skills)
+        out.skills = skills;
     const tbc = entry.translateBatchConcurrency ?? entry.translate_batch_concurrency;
     if (tbc != null) {
         const n = parseInt(String(tbc).trim(), 10);
@@ -32990,7 +33040,7 @@ function entryToAutonomousDefinition(entry) {
         ? false
         : undefined;
     const stopOnFailure = entry.stopOnFailure === false || String(entry.stopOnFailure ?? '').toLowerCase() === 'false' ? false : undefined;
-    const expertSkills = parseExpertSkills(entry.expertSkills ?? entry.expertSkill);
+    const skills = readEntrySkills(entry);
     const enabledBuiltIn = normalizeEnabledBuiltInToolsRaw(entry.enabledBuiltInTools ?? entry.enabled_built_in_tools);
     const out = {
         name,
@@ -33005,8 +33055,8 @@ function entryToAutonomousDefinition(entry) {
         ...(startAutomatically === false ? { startAutomatically: false } : {}),
         ...(stopOnFailure === false ? { stopOnFailure: false } : {})
     };
-    if (expertSkills) {
-        out.expertSkills = expertSkills;
+    if (skills) {
+        out.skills = skills;
     }
     if (enabledBuiltIn?.length) {
         out.enabledBuiltInTools = enabledBuiltIn;
@@ -33839,11 +33889,11 @@ function AiAssistantHelper(props) {
             : undefined;
         const iceEnableTools = readOptionalBooleanFromConfiguration(iceChatCfg, 'enableTools', 'enable_tools');
         const iceEnabledBuiltIn = normalizeEnabledBuiltInToolsRaw(iceRaw.enabledBuiltInTools);
-        const iceExpertSkills = Array.isArray(iceChatCfg.expertSkills)
-            ? iceChatCfg.expertSkills
-            : undefined;
+        const iceSkills = agentSkillsForRequest({
+            skills: Array.isArray(iceChatCfg.skills) ? iceChatCfg.skills : undefined
+        });
         const iceTranslateBatch = extractPositiveInt(iceRaw, 1, 64, 'translateBatchConcurrency', 'translate_batch_concurrency');
-        return (jsx$1(AiAssistantIceChatShell, { children: jsx$1(AiAssistantChat, { agentId: agentId, llm: llm, llmModel: llmModel || undefined, imageModel: imageModel, imageGenerator: imageGenerator || undefined, llmApiKey: llmApiKey, enableTools: iceEnableTools, enabledBuiltInTools: iceEnabledBuiltIn, expertSkills: iceExpertSkills, configPrompts: configPrompts, embedTarget: "icePanel", ...(iceTranslateBatch != null ? { translateBatchConcurrency: iceTranslateBatch } : {}) }) }));
+        return (jsx$1(AiAssistantIceChatShell, { children: jsx$1(AiAssistantChat, { agentId: agentId, llm: llm, llmModel: llmModel || undefined, imageModel: imageModel, imageGenerator: imageGenerator || undefined, llmApiKey: llmApiKey, enableTools: iceEnableTools, enabledBuiltInTools: iceEnabledBuiltIn, skills: iceSkills, configPrompts: configPrompts, embedTarget: "icePanel", ...(iceTranslateBatch != null ? { translateBatchConcurrency: iceTranslateBatch } : {}) }) }));
     }
     return (jsxs(Fragment, { children: [ui === 'IconButton' ? (showAiInTopNav ? (jsx$1(Tooltip, { title: primaryAgent?.label ?? 'Studio AI Assistant', children: jsx$1(IconButton, { onClick: handleToolbarClick, "aria-haspopup": toolbarList.length > 1 ? 'menu' : undefined, "aria-expanded": toolbarList.length > 1 ? menuOpen : undefined, children: getAgentIcon(primaryAgent?.icon) }) })) : null) : (jsx$1(ToolsPanelListItemButton, { icon: { id: logoWidgetId }, title: primaryAgent?.label ?? 'Studio AI Assistant', onClick: handleToolbarClick })), menuAnchor && (jsx$1(Menu, { open: true, anchorEl: menuAnchor, onClose: handleMenuClose, anchorOrigin: { vertical: 'bottom', horizontal: 'right' }, transformOrigin: { vertical: 'top', horizontal: 'right' }, disableAutoFocusItem: true, TransitionProps: { timeout: 0 }, children: toolbarList.map((agent) => (jsxs(MenuItem, { onClick: () => {
                         openAgent(agent);
@@ -33893,7 +33943,7 @@ function AiAssistantHelper(props) {
                                         flex: '1 1 auto',
                                         minHeight: 0,
                                         overflow: 'hidden'
-                                    }, children: jsx$1(Box, { sx: { flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column' }, children: jsx$1(AiAssistantChat, { agentId: d.agent.id, llm: d.agent.llm, llmModel: d.agent.llmModel, imageModel: d.agent.imageModel, imageGenerator: d.agent.imageGenerator, llmApiKey: d.agent.llmApiKey, enableTools: d.agent.enableTools, enabledBuiltInTools: d.agent.enabledBuiltInTools, expertSkills: d.agent.expertSkills, configPrompts: d.agent.prompts, ...(d.agent.translateBatchConcurrency != null
+                                    }, children: jsx$1(Box, { sx: { flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column' }, children: jsx$1(AiAssistantChat, { agentId: d.agent.id, llm: d.agent.llm, llmModel: d.agent.llmModel, imageModel: d.agent.imageModel, imageGenerator: d.agent.imageGenerator, llmApiKey: d.agent.llmApiKey, enableTools: d.agent.enableTools, enabledBuiltInTools: d.agent.enabledBuiltInTools, skills: agentSkillsForRequest(d.agent), configPrompts: d.agent.prompts, ...(d.agent.translateBatchConcurrency != null
                                                 ? { translateBatchConcurrency: d.agent.translateBatchConcurrency }
                                                 : {}) }) }) })] }, d.id))), openDialogs
                             .filter((d) => d.minimized)
@@ -34065,7 +34115,7 @@ function mergeAutonomousAgentsForTable(siteId, defs, statusAgents, viewer) {
             ...(d.manageOtherAgentsHumanTasks ? { manageOtherAgentsHumanTasks: true } : {}),
             ...(d.startAutomatically === false ? { startAutomatically: false } : {}),
             ...(d.stopOnFailure === false ? { stopOnFailure: false } : {}),
-            ...(Array.isArray(d.expertSkills) && d.expertSkills.length > 0 ? { expertSkills: d.expertSkills } : {}),
+            ...(agentSkillsForRequest(d) ? { skills: agentSkillsForRequest(d) } : {}),
             siteId
         },
         state: { status: 'pending' },
@@ -34397,7 +34447,13 @@ function AgentConfigurationDetailsContent(props) {
     const apiKeyInConfig = (typeof apiRaw === 'string' && apiRaw.trim().length > 0) ||
         (apiRaw != null && typeof apiRaw !== 'string' && String(apiRaw).trim().length > 0);
     const field = (label, value) => (jsxs(Box, { sx: { minWidth: 0 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", component: "div", sx: { mb: 0.25 }, children: label }), jsx$1(Typography, { variant: "body2", sx: { wordBreak: 'break-word', whiteSpace: 'pre-wrap' }, children: value })] }, label));
-    return (jsxs(Stack$1, { spacing: 2, sx: { minWidth: 0 }, children: [field('Agent id', row.agentId), field('Name', scalarForAgentDetails(d.name ?? d.label)), field('Schedule', scalarForAgentDetails(d.schedule)), field('Scope', scalarForAgentDetails(d.scope)), field('Scope id', scalarForAgentDetails(d.scopeId)), field('LLM', scalarForAgentDetails(d.llm)), field('LLM model', scalarForAgentDetails(d.llmModel)), field('Image model', scalarForAgentDetails(d.imageModel)), field('Image generator', scalarForAgentDetails(d.imageGenerator)), field('Start automatically', definitionStartAutomatically(d) ? 'Yes' : 'No'), field('Stop on failure', definitionStopOnFailure(d) ? 'Yes' : 'No'), field('Expert skills (markdown URLs)', Array.isArray(d.expertSkills) && d.expertSkills.length > 0 ? String(d.expertSkills.length) : '—'), field("Manage other agents' human tasks", parseJsonBoolean(d.manageOtherAgentsHumanTasks) ? 'Yes' : 'No'), field('Per-agent OpenAI API key in config', apiKeyInConfig ? 'Set (hidden)' : '—'), row.syntheticFromConfig ? (jsx$1(Alert, { severity: "info", sx: { py: 0.75 }, children: "This row reflects site UI configuration only. Use Sync so the server registers the agent and returns the canonical definition." })) : null, jsx$1(Divider, {}), jsxs(Box, { sx: { minWidth: 0 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", component: "div", sx: { mb: 0.5 }, children: "Prompt" }), jsx$1(Box, { sx: {
+    return (jsxs(Stack$1, { spacing: 2, sx: { minWidth: 0 }, children: [field('Agent id', row.agentId), field('Name', scalarForAgentDetails(d.name ?? d.label)), field('Schedule', scalarForAgentDetails(d.schedule)), field('Scope', scalarForAgentDetails(d.scope)), field('Scope id', scalarForAgentDetails(d.scopeId)), field('LLM', scalarForAgentDetails(d.llm)), field('LLM model', scalarForAgentDetails(d.llmModel)), field('Image model', scalarForAgentDetails(d.imageModel)), field('Image generator', scalarForAgentDetails(d.imageGenerator)), field('Start automatically', definitionStartAutomatically(d) ? 'Yes' : 'No'), field('Stop on failure', definitionStopOnFailure(d) ? 'Yes' : 'No'), field('Skills (enabled / configured)', (() => {
+                const rows = Array.isArray(d.skills) ? d.skills : [];
+                if (!rows.length)
+                    return '—';
+                const on = rows.filter((s) => s?.enabled === true).length;
+                return on > 0 ? `${on} enabled (${rows.length} configured)` : `0 enabled (${rows.length} configured)`;
+            })()), field("Manage other agents' human tasks", parseJsonBoolean(d.manageOtherAgentsHumanTasks) ? 'Yes' : 'No'), field('Per-agent API key in agents.json', apiKeyInConfig ? 'Set (hidden)' : '—'), row.syntheticFromConfig ? (jsx$1(Alert, { severity: "info", sx: { py: 0.75 }, children: "This row reflects site UI configuration only. Use Sync so the server registers the agent and returns the canonical definition." })) : null, jsx$1(Divider, {}), jsxs(Box, { sx: { minWidth: 0 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", component: "div", sx: { mb: 0.5 }, children: "Prompt" }), jsx$1(Box, { sx: {
                             maxHeight: 280,
                             overflow: 'auto',
                             p: 1.5,
@@ -35146,7 +35202,7 @@ function AiAssistantFormControlPanel(props) {
                                     overflow: 'hidden',
                                     borderTop: 1,
                                     borderColor: 'divider'
-                                }, children: jsx$1(AiAssistantChat, { agentId: agent.id?.trim() || '', llm: agent.llm, llmModel: agent.llmModel, imageModel: agent.imageModel, imageGenerator: agent.imageGenerator, llmApiKey: agent.llmApiKey, enableTools: agent.enableTools, enabledBuiltInTools: agent.enabledBuiltInTools, expertSkills: agent.expertSkills, configPrompts: agent.prompts, embedTarget: "default", getAuthoringFormContext: getAuthoringFormContext, formEngineClientJsonApply: true, ...(agent.translateBatchConcurrency != null
+                                }, children: jsx$1(AiAssistantChat, { agentId: agent.id?.trim() || '', llm: agent.llm, llmModel: agent.llmModel, imageModel: agent.imageModel, imageGenerator: agent.imageGenerator, llmApiKey: agent.llmApiKey, enableTools: agent.enableTools, enabledBuiltInTools: agent.enabledBuiltInTools, skills: agentSkillsForRequest(agent), configPrompts: agent.prompts, embedTarget: "default", getAuthoringFormContext: getAuthoringFormContext, formEngineClientJsonApply: true, ...(agent.translateBatchConcurrency != null
                                         ? { translateBatchConcurrency: agent.translateBatchConcurrency }
                                         : {}) }) })) : null] }, key));
                 }) })] }));
@@ -35432,6 +35488,89 @@ function validateBuiltInToolSettings(state) {
     return { ok: true };
 }
 
+/** Site {@code tools.json} RAG blocks — mirrors {@link StudioAiAssistantProjectConfig} defaults. */
+const PLUGIN_RAG_DEFAULTS = {
+    mode: 'off',
+    kernelMaxChars: 5200,
+    topK: 8,
+    maxAppendChars: 14000,
+    maxChunkChars: 1800,
+    maxChunks: 400,
+    embedBatchSize: 64
+};
+const AGENT_SKILLS_RAG_DEFAULTS = {
+    maxSkills: 12,
+    embeddingModel: 'text-embedding-3-small',
+    maxChunks: 400,
+    maxChunkChars: 1800
+};
+function clampInt(n, min, max) {
+    if (!Number.isFinite(n))
+        return min;
+    return Math.max(min, Math.min(max, Math.round(n)));
+}
+function parsePluginRagMode(raw) {
+    const s = String(raw ?? '').trim().toLowerCase();
+    if (s === 'supplement' || s === 'replace')
+        return s;
+    return 'off';
+}
+function parsePluginRagFromUnknown(raw) {
+    const base = { ...PLUGIN_RAG_DEFAULTS };
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        return base;
+    }
+    const o = raw;
+    return {
+        mode: parsePluginRagMode(o.mode),
+        kernelMaxChars: clampInt(Number(o.kernelMaxChars ?? base.kernelMaxChars), 1024, 16000),
+        topK: clampInt(Number(o.topK ?? base.topK), 1, 24),
+        maxAppendChars: clampInt(Number(o.maxAppendChars ?? base.maxAppendChars), 2000, 80000),
+        maxChunkChars: clampInt(Number(o.maxChunkChars ?? base.maxChunkChars), 512, 8000),
+        maxChunks: clampInt(Number(o.maxChunks ?? base.maxChunks), 8, 2000),
+        embedBatchSize: clampInt(Number(o.embedBatchSize ?? base.embedBatchSize), 8, 128)
+    };
+}
+function parseAgentSkillsRagFromUnknown(raw) {
+    const base = { ...AGENT_SKILLS_RAG_DEFAULTS };
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        return base;
+    }
+    const o = raw;
+    const model = String(o.embeddingModel ?? base.embeddingModel).trim() || base.embeddingModel;
+    return {
+        maxSkills: clampInt(Number(o.maxSkills ?? base.maxSkills), 1, 32),
+        embeddingModel: model,
+        maxChunks: clampInt(Number(o.maxChunks ?? base.maxChunks), 8, 2000),
+        maxChunkChars: clampInt(Number(o.maxChunkChars ?? base.maxChunkChars), 512, 8000)
+    };
+}
+function pluginRagToJsonObject(state) {
+    return {
+        mode: state.mode,
+        kernelMaxChars: state.kernelMaxChars,
+        topK: state.topK,
+        maxAppendChars: state.maxAppendChars,
+        maxChunkChars: state.maxChunkChars,
+        maxChunks: state.maxChunks,
+        embedBatchSize: state.embedBatchSize
+    };
+}
+function agentSkillsRagToJsonObject(state) {
+    return {
+        maxSkills: state.maxSkills,
+        embeddingModel: state.embeddingModel.trim() || AGENT_SKILLS_RAG_DEFAULTS.embeddingModel,
+        maxChunks: state.maxChunks,
+        maxChunkChars: state.maxChunkChars
+    };
+}
+function validateRagPolicy(pluginRag, agentSkillsRag) {
+    if (!agentSkillsRag.embeddingModel.trim()) {
+        return { ok: false, message: 'Agent skills embedding model must not be empty.' };
+    }
+    return { ok: true };
+}
+
 /** Studio module path for site secrets registry (under {@code config/studio/}). */
 const SECRETS_JSON_REL = 'scripts/aiassistant/config/secrets.json';
 /**
@@ -35439,12 +35578,12 @@ const SECRETS_JSON_REL = 'scripts/aiassistant/config/secrets.json';
  * The UI always lists these so authors see every provider even before {@code secrets.json} exists.
  */
 const AI_ASSISTANT_KNOWN_SECRET_SLOTS = [
-    { key: 'openai_api_key', label: 'OpenAI', llmProvider: 'openAI', defaultEnvVar: 'OPENAI_API_KEY' },
-    { key: 'anthropic_api_key', label: 'Claude (Anthropic)', llmProvider: 'claude', defaultEnvVar: 'ANTHROPIC_API_KEY' },
-    { key: 'xai_api_key', label: 'xAI', llmProvider: 'xAI', defaultEnvVar: 'XAI_API_KEY' },
-    { key: 'deepseek_api_key', label: 'DeepSeek', llmProvider: 'deepSeek', defaultEnvVar: 'DEEPSEEK_API_KEY' },
-    { key: 'llama_api_key', label: 'Llama (Ollama-compatible)', llmProvider: 'llama', defaultEnvVar: 'LLAMA_API_KEY' },
-    { key: 'gemini_api_key', label: 'Gemini (Google)', llmProvider: 'gemini', defaultEnvVar: 'GEMINI_API_KEY' }
+    { key: 'openai_api_key', label: 'OpenAI API key', llmProvider: 'openAI', defaultEnvVar: 'OPENAI_API_KEY' },
+    { key: 'anthropic_api_key', label: 'Anthropic Claude API key', llmProvider: 'claude', defaultEnvVar: 'ANTHROPIC_API_KEY' },
+    { key: 'xai_api_key', label: 'xAI API key', llmProvider: 'xAI', defaultEnvVar: 'XAI_API_KEY' },
+    { key: 'deepseek_api_key', label: 'DeepSeek API key', llmProvider: 'deepSeek', defaultEnvVar: 'DEEPSEEK_API_KEY' },
+    { key: 'llama_api_key', label: 'Ollama / Llama API key', llmProvider: 'llama', defaultEnvVar: 'LLAMA_API_KEY' },
+    { key: 'gemini_api_key', label: 'Google Gemini API key', llmProvider: 'gemini', defaultEnvVar: 'GEMINI_API_KEY' }
 ];
 /** Integration keys (mirrors optional slots in {@code StudioAiAssistantSecretsCatalog}). */
 const AI_ASSISTANT_INTEGRATION_SECRET_SLOTS = [{ key: 'serpapi_api_key', label: 'SerpAPI (web search)', defaultEnvVar: 'SERPAPI_API_KEY', optional: true }];
@@ -35614,7 +35753,9 @@ const KNOWN_TOP_LEVEL_KEYS = new Set([
     'mcpEnabled',
     'mcpServers',
     'disabledMcpTools',
-    'intentRecipeRouting'
+    'intentRecipeRouting',
+    'pluginRag',
+    'agentSkillsRag'
 ]);
 const INTENT_RECIPE_ROUTING_KNOWN_KEYS = new Set([
     'enabled',
@@ -35653,6 +35794,8 @@ function defaultToolsPolicyFormState() {
         disabledUserTools: [],
         disabledMcpTools: [],
         intentRecipeRouting: defaultIntentRecipeRoutingFormState(),
+        pluginRag: { ...PLUGIN_RAG_DEFAULTS },
+        agentSkillsRag: { ...AGENT_SKILLS_RAG_DEFAULTS },
         extraFields: undefined
     };
 }
@@ -35822,6 +35965,8 @@ function parseToolsPolicyFromUnknown(raw) {
         disabledUserTools: asStringArray(o.disabledUserTools),
         disabledMcpTools: asStringArray(o.disabledMcpTools),
         intentRecipeRouting: parseIntentRecipeRoutingFromUnknown(o.intentRecipeRouting),
+        pluginRag: parsePluginRagFromUnknown(o.pluginRag),
+        agentSkillsRag: parseAgentSkillsRagFromUnknown(o.agentSkillsRag),
         extraFields: Object.keys(extraFields).length ? extraFields : undefined
     };
 }
@@ -35866,6 +36011,10 @@ function validateToolsPolicy(state) {
     const builtInCheck = validateBuiltInToolSettings(state);
     if (!builtInCheck.ok) {
         return builtInCheck;
+    }
+    const ragCheck = validateRagPolicy(state.pluginRag, state.agentSkillsRag);
+    if (!ragCheck.ok) {
+        return ragCheck;
     }
     for (let i = 0; i < state.mcpServers.length; i++) {
         const r = state.mcpServers[i];
@@ -35967,6 +36116,8 @@ function serializeToolsPolicyToJson(state) {
             Object.keys(state.intentRecipeRouting.intentRecipeRoutingExtra).length > 0)) {
         obj.intentRecipeRouting = irr;
     }
+    obj.pluginRag = pluginRagToJsonObject(state.pluginRag);
+    obj.agentSkillsRag = agentSkillsRagToJsonObject(state.agentSkillsRag);
     return JSON.stringify(obj, null, 2);
 }
 
@@ -36070,6 +36221,18 @@ function setUserToolEnabled(state, toolId, enabled) {
     return { ...state, disabledUserTools: [...next] };
 }
 
+function IntSlider(props) {
+    const { label, value, min, max, disabled, helperText, onChange } = props;
+    return (jsxs(Stack$1, { spacing: 0.5, children: [jsxs(Typography, { variant: "body2", children: [label, ": ", jsx$1("strong", { children: value })] }), jsx$1(Slider, { size: "small", value: value, min: min, max: max, step: 1, disabled: disabled, valueLabelDisplay: "auto", onChange: (_, v) => onChange(Array.isArray(v) ? v[0] : v) }), helperText ? (jsx$1(Typography, { variant: "caption", color: "text.secondary", children: helperText })) : null] }));
+}
+function AiAssistantRagPolicyFields(props) {
+    const { pluginRag, agentSkillsRag, onPluginRagChange, onAgentSkillsRagChange } = props;
+    const ragActive = pluginRag.mode !== 'off';
+    const patchPlugin = (partial) => onPluginRagChange({ ...pluginRag, ...partial });
+    const patchSkills = (partial) => onAgentSkillsRagChange({ ...agentSkillsRag, ...partial });
+    return (jsxs(Stack$1, { spacing: 2, children: [jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Plugin RAG (bundled instructions)" }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Optional retrieval over the plugin instruction corpus before the tools loop. Default is off (full authoring instructions only)." }), jsxs(Stack$1, { spacing: 2, children: [jsxs(FormControl, { fullWidth: true, size: "small", children: [jsx$1(InputLabel, { id: "aiassistant-plugin-rag-mode", children: "Mode" }), jsxs(Select, { labelId: "aiassistant-plugin-rag-mode", label: "Mode", value: pluginRag.mode, onChange: (ev) => patchPlugin({ mode: ev.target.value }), children: [jsx$1(MenuItem, { value: "off", children: "Off" }), jsx$1(MenuItem, { value: "supplement", children: "Supplement (full instructions + retrieved appendix)" }), jsx$1(MenuItem, { value: "replace", children: "Replace (compact kernel + retrieved appendix)" })] })] }), jsx$1(IntSlider, { label: "Kernel max characters (replace mode)", value: pluginRag.kernelMaxChars, min: 1024, max: 16000, disabled: pluginRag.mode !== 'replace', helperText: "Leading slice of authoring instructions when mode is Replace.", onChange: (kernelMaxChars) => patchPlugin({ kernelMaxChars }) }), jsx$1(IntSlider, { label: "Retrieval top K", value: pluginRag.topK, min: 1, max: 24, disabled: !ragActive, onChange: (topK) => patchPlugin({ topK }) }), jsx$1(IntSlider, { label: "Max appendix characters", value: pluginRag.maxAppendChars, min: 2000, max: 80000, disabled: !ragActive, onChange: (maxAppendChars) => patchPlugin({ maxAppendChars }) }), jsx$1(IntSlider, { label: "Index max chunk characters", value: pluginRag.maxChunkChars, min: 512, max: 8000, disabled: !ragActive, onChange: (maxChunkChars) => patchPlugin({ maxChunkChars }) }), jsx$1(IntSlider, { label: "Index max chunks", value: pluginRag.maxChunks, min: 8, max: 2000, disabled: !ragActive, onChange: (maxChunks) => patchPlugin({ maxChunks }) }), jsx$1(IntSlider, { label: "Embedding batch size", value: pluginRag.embedBatchSize, min: 8, max: 128, disabled: !ragActive, onChange: (embedBatchSize) => patchPlugin({ embedBatchSize }) })] })] }), jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Agent skills RAG" }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Limits for per-agent markdown URL skills (**QueryExpertGuidance**). Skills are configured per agent; only enabled skills are indexed." }), jsxs(Stack$1, { spacing: 2, children: [jsx$1(TextField, { label: "Embedding model", value: agentSkillsRag.embeddingModel, onChange: (ev) => patchSkills({ embeddingModel: ev.target.value }), fullWidth: true, size: "small", helperText: "Embedding model id for skill indexing (default text-embedding-3-small)." }), jsx$1(IntSlider, { label: "Max enabled skills per request", value: agentSkillsRag.maxSkills, min: 1, max: 32, onChange: (maxSkills) => patchSkills({ maxSkills }) }), jsx$1(IntSlider, { label: "Max chunks per skill", value: agentSkillsRag.maxChunks, min: 8, max: 2000, onChange: (maxChunks) => patchSkills({ maxChunks }) }), jsx$1(IntSlider, { label: "Max characters per chunk", value: agentSkillsRag.maxChunkChars, min: 512, max: 8000, onChange: (maxChunkChars) => patchSkills({ maxChunkChars }) })] })] })] }));
+}
+
 /**
  * Site-wide {@code tools.json} policy: built-in tool enable/disable and optional per-tool settings.
  */
@@ -36087,7 +36250,7 @@ function AiAssistantSiteOrchestrationToolsForm(props) {
         }
         setConfigureDraft(getBuiltInToolSettingsState(value, activeDescriptor));
     }, [activeDescriptor, configureWire, value]);
-    return (jsxs(Stack$1, { spacing: 3, children: [jsxs(Typography, { variant: "body2", color: "text.secondary", children: ["Intent recipe routing and the recipe catalog are configured under the ", jsx$1("strong", { children: "Recipes" }), " tab."] }), jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Built-in tools" }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: whitelistMode ? (jsxs(Fragment, { children: [jsx$1("strong", { children: "Whitelist mode:" }), " only enabled tools register (plus ", jsx$1("code", { children: "InvokeSiteUserTool" }), " and", ' ', jsx$1("code", { children: "mcp_*" }), " when configured)."] })) : (jsxs(Fragment, { children: ["Disabled tools are listed in ", jsx$1("code", { children: "disabledBuiltInTools" }), " in ", jsx$1("code", { children: "tools.json" }), ".", ' ', jsx$1("code", { children: "InvokeSiteUserTool" }), " and dynamic ", jsx$1("code", { children: "mcp_*" }), " tools follow MCP settings unless also disabled here."] })) }), jsxs(Table$1, { size: "small", sx: { border: 1, borderColor: 'divider', borderRadius: 1 }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Tool" }), jsx$1(TableCell, { width: 100, align: "center", children: "Enabled" }), jsx$1(TableCell, { width: 120, align: "center", children: "Settings" })] }) }), jsx$1(TableBody, { children: builtInWires.map((wire) => (jsxs(TableRow, { children: [jsx$1(TableCell, { children: jsx$1(Typography, { variant: "body2", component: "code", children: wire }) }), jsx$1(TableCell, { align: "center", children: jsx$1(Switch, { size: "small", checked: isBuiltInToolEnabled(value, wire), onChange: (_, checked) => onChange(setBuiltInToolEnabled(value, wire, checked)), inputProps: { 'aria-label': `Enable ${wire}` } }) }), jsx$1(TableCell, { align: "center", children: builtInToolHasProjectSettings(wire) ? (jsx$1(Button, { size: "small", variant: "outlined", onClick: () => setConfigureWire(wire), children: "Configure" })) : (jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "\u2014" })) })] }, wire))) })] })] }), activeDescriptor && configureDraft !== undefined ? (jsx$1(activeDescriptor.ConfigureDialog, { open: Boolean(configureWire), draft: configureDraft, onDraftChange: setConfigureDraft, onClose: () => setConfigureWire(null), onApply: (draft) => {
+    return (jsxs(Stack$1, { spacing: 3, children: [jsxs(Typography, { variant: "body2", color: "text.secondary", children: ["Intent recipe routing and the recipe catalog are configured under the ", jsx$1("strong", { children: "Recipes" }), " tab."] }), jsx$1(AiAssistantRagPolicyFields, { pluginRag: value.pluginRag, agentSkillsRag: value.agentSkillsRag, onPluginRagChange: (pluginRag) => onChange({ ...value, pluginRag }), onAgentSkillsRagChange: (agentSkillsRag) => onChange({ ...value, agentSkillsRag }) }), jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Built-in tools" }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: whitelistMode ? (jsxs(Fragment, { children: [jsx$1("strong", { children: "Whitelist mode:" }), " only enabled tools register (plus ", jsx$1("code", { children: "InvokeSiteUserTool" }), " and", ' ', jsx$1("code", { children: "mcp_*" }), " when configured)."] })) : (jsxs(Fragment, { children: ["Disabled tools are listed in ", jsx$1("code", { children: "disabledBuiltInTools" }), " in ", jsx$1("code", { children: "tools.json" }), ".", ' ', jsx$1("code", { children: "InvokeSiteUserTool" }), " and dynamic ", jsx$1("code", { children: "mcp_*" }), " tools follow MCP settings unless also disabled here."] })) }), jsxs(Table$1, { size: "small", sx: { border: 1, borderColor: 'divider', borderRadius: 1 }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Tool" }), jsx$1(TableCell, { width: 100, align: "center", children: "Enabled" }), jsx$1(TableCell, { width: 120, align: "center", children: "Settings" })] }) }), jsx$1(TableBody, { children: builtInWires.map((wire) => (jsxs(TableRow, { children: [jsx$1(TableCell, { children: jsx$1(Typography, { variant: "body2", component: "code", children: wire }) }), jsx$1(TableCell, { align: "center", children: jsx$1(Switch, { size: "small", checked: isBuiltInToolEnabled(value, wire), onChange: (_, checked) => onChange(setBuiltInToolEnabled(value, wire, checked)), inputProps: { 'aria-label': `Enable ${wire}` } }) }), jsx$1(TableCell, { align: "center", children: builtInToolHasProjectSettings(wire) ? (jsx$1(Button, { size: "small", variant: "outlined", onClick: () => setConfigureWire(wire), children: "Configure" })) : (jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "\u2014" })) })] }, wire))) })] })] }), activeDescriptor && configureDraft !== undefined ? (jsx$1(activeDescriptor.ConfigureDialog, { open: Boolean(configureWire), draft: configureDraft, onDraftChange: setConfigureDraft, onClose: () => setConfigureWire(null), onApply: (draft) => {
                     onChange(patchBuiltInToolSettings(value, activeDescriptor, draft));
                     setConfigureWire(null);
                 } })) : null] }));
@@ -36463,12 +36626,11 @@ function llmModelPresetRows(vendor) {
 }
 function mergeAgentAdvancedCatalogFields(draft, expertSkillRows, translateBatchStr) {
     const rec = { ...draft };
-    const skills = serializeCentralCatalogExpertSkills(expertSkillRows);
+    const skills = serializeCentralCatalogSkills(expertSkillRows);
     if (skills)
-        rec.expertSkills = skills;
+        rec.skills = skills;
     else {
-        delete rec.expertSkills;
-        delete rec.expertSkill;
+        delete rec.skills;
     }
     const tbc = translateBatchStr.trim();
     if (tbc) {
@@ -36490,7 +36652,10 @@ function mergeAgentAdvancedCatalogFields(draft, expertSkillRows, translateBatchS
 }
 function AgentAdvancedAgentFields(props) {
     const { draft, setDraft, expertSkillRows, setExpertSkillRows, translateBatchStr, setTranslateBatchStr } = props;
-    return (jsxs(Stack$1, { spacing: 2, sx: { width: '100%' }, children: [jsxs(Box, { children: [jsx$1(FormLabel, { component: "legend", sx: { fontSize: '1.05rem', fontWeight: 600, color: 'text.primary' }, children: "Expert skills (markdown URLs)" }), jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mt: 0.5, mb: 1 }, children: ["Public http(s) URLs indexed for ", jsx$1("strong", { children: "QueryExpertGuidance" }), " when tools are enabled (OpenAI and compatible providers)."] }), jsx$1(Stack$1, { spacing: 1.5, children: expertSkillRows.map((row, idx) => (jsxs(Box, { sx: { border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5, pr: 5, position: 'relative' }, children: [jsx$1(IconButton, { size: "small", "aria-label": "Remove expert skill", sx: { position: 'absolute', right: 4, top: 4 }, onClick: () => setExpertSkillRows(expertSkillRows.filter((_, i) => i !== idx)), children: jsx$1(DeleteOutlineRounded, { fontSize: "small" }) }), jsxs(Stack$1, { spacing: 1, children: [jsx$1(TextField, { label: "Name (optional)", value: row.name, onChange: (ev) => {
+    return (jsxs(Stack$1, { spacing: 2, sx: { width: '100%' }, children: [jsxs(Box, { children: [jsx$1(FormLabel, { component: "legend", sx: { fontSize: '1.05rem', fontWeight: 600, color: 'text.primary' }, children: "Skills (markdown URLs)" }), jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mt: 0.5, mb: 1 }, children: ["Public http(s) URLs indexed for ", jsx$1("strong", { children: "QueryExpertGuidance" }), " when a skill is enabled and tools are on (requires tools-loop chat and a configured embeddings API for skill indexing)."] }), jsx$1(Stack$1, { spacing: 1.5, children: expertSkillRows.map((row, idx) => (jsxs(Box, { sx: { border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5, pr: 5, position: 'relative' }, children: [jsx$1(IconButton, { size: "small", "aria-label": "Remove skill", sx: { position: 'absolute', right: 4, top: 4 }, onClick: () => setExpertSkillRows(expertSkillRows.filter((_, i) => i !== idx)), children: jsx$1(DeleteOutlineRounded, { fontSize: "small" }) }), jsxs(Stack$1, { spacing: 1, children: [jsx$1(FormControlLabel, { control: jsx$1(Switch, { size: "small", checked: row.enabled === true, onChange: (ev) => {
+                                                    const on = ev.target.checked;
+                                                    setExpertSkillRows(expertSkillRows.map((r, i) => (i === idx ? { ...r, enabled: on } : r)));
+                                                } }), label: "Enabled" }), jsx$1(TextField, { label: "Name (optional)", value: row.name, onChange: (ev) => {
                                                 const v = ev.target.value;
                                                 setExpertSkillRows(expertSkillRows.map((r, i) => (i === idx ? { ...r, name: v } : r)));
                                             }, fullWidth: true, size: "small" }), jsx$1(TextField, { label: "Markdown URL", value: row.url, onChange: (ev) => {
@@ -36499,7 +36664,7 @@ function AgentAdvancedAgentFields(props) {
                                             }, fullWidth: true, size: "small", placeholder: "https://example.com/docs/guide.md" }), jsx$1(TextField, { label: "When to use (optional)", value: row.description, onChange: (ev) => {
                                                 const v = ev.target.value;
                                                 setExpertSkillRows(expertSkillRows.map((r, i) => (i === idx ? { ...r, description: v } : r)));
-                                            }, fullWidth: true, size: "small", multiline: true, minRows: 2 })] })] }, idx))) }), jsx$1(Button, { sx: { mt: 1 }, size: "small", startIcon: jsx$1(AddRounded, {}), onClick: () => setExpertSkillRows([...expertSkillRows, { name: '', url: '', description: '' }]), children: "Add expert skill" })] }), jsx$1(TextField, { label: "Translate batch concurrency (1\u201364, optional)", value: translateBatchStr, onChange: (ev) => setTranslateBatchStr(ev.target.value), fullWidth: true, size: "small", placeholder: "25", helperText: "Default parallelism for TranslateContentBatch when the model omits maxConcurrency. Leave empty for server default (25)." }), jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", children: ["API keys are not stored in ", jsx$1("strong", { children: "agents.json" }), ". On the ", jsx$1("strong", { children: "General" }), " tab, each agent uses the built-in secret for its LLM provider or a custom secret from ", jsx$1("strong", { children: "Project Tools \u2192 Secrets" }), " (", jsx$1("code", { children: "secrets.json" }), ")."] })] }));
+                                            }, fullWidth: true, size: "small", multiline: true, minRows: 2 })] })] }, idx))) }), jsx$1(Button, { sx: { mt: 1 }, size: "small", startIcon: jsx$1(AddRounded, {}), onClick: () => setExpertSkillRows([...expertSkillRows, { name: '', url: '', description: '', enabled: false }]), children: "Add skill" })] }), jsx$1(TextField, { label: "Translate batch concurrency (1\u201364, optional)", value: translateBatchStr, onChange: (ev) => setTranslateBatchStr(ev.target.value), fullWidth: true, size: "small", placeholder: "25", helperText: "Default parallelism for TranslateContentBatch when the model omits maxConcurrency. Leave empty for server default (25)." }), jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", children: ["API keys are not stored in ", jsx$1("strong", { children: "agents.json" }), ". On the ", jsx$1("strong", { children: "General" }), " tab, each agent uses the built-in secret for its LLM provider or a custom secret from ", jsx$1("strong", { children: "Project Tools \u2192 Secrets" }), " (", jsx$1("code", { children: "secrets.json" }), ")."] })] }));
 }
 function CmsToolCheckboxes(props) {
     const { draft, onToggle } = props;
@@ -36586,7 +36751,7 @@ function summarizeEntry(e) {
     if (mode === 'autonomous') {
         return `${String(e.name ?? e.label ?? 'Unnamed')} — ${e.schedule ?? '(no schedule)'}`;
     }
-    return `${String(e.label ?? e.name ?? 'Unnamed')} (${String(e.llm ?? 'openAI')})`;
+    return `${String(e.label ?? e.name ?? 'Unnamed')} (${llmVendorDisplayLabel(String(e.llm ?? 'openAI'))})`;
 }
 function isAutonomousEntry(e) {
     return String(e.mode ?? 'chat').toLowerCase() === 'autonomous';
@@ -36832,7 +36997,8 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
             ? { ...entry }
             : ensureAgentCatalogId({ ...entry }));
         setChatPromptRows(rawPromptsToEditorRows(entry.prompts));
-        setExpertSkillRows(rawExpertSkillsToEditorRows(entry.expertSkills ?? entry.expertSkill));
+        const entryRec = entry;
+        setExpertSkillRows(rawAgentSkillsToEditorRows(entryRec.skills));
         const tbcRaw = entry.translateBatchConcurrency ?? entry.translate_batch_concurrency;
         const tbcNum = tbcRaw != null ? Number(tbcRaw) : NaN;
         setTranslateBatchStr(Number.isFinite(tbcNum) && tbcNum >= 1 ? String(Math.round(tbcNum)) : '');
@@ -36997,7 +37163,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
                                                                 ...(nextSk ? { llmSecretKey: nextSk } : {})
                                                             };
                                                         });
-                                                    }, children: STUDIO_AI_LLM_VENDOR_IDS.map((id) => (jsx$1(MenuItem, { value: id, children: id }, id))) })] }), sp.vendor !== 'script'
+                                                    }, children: STUDIO_AI_LLM_VENDOR_IDS.map((id) => (jsx$1(MenuItem, { value: id, children: llmVendorDisplayLabel(id) }, id))) })] }), sp.vendor !== 'script'
                                             ? (() => {
                                                 const builtinKey = secretKeyForLlmVendor(sp.vendor);
                                                 const llmSecretValue = String(draft.llmSecretKey ?? '').trim() || builtinKey || '';
@@ -37055,7 +37221,9 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
                                                                                 return { ...d, imageGenerator: 'script' };
                                                                             return { ...d, imageGenerator: `script:${v}` };
                                                                         });
-                                                                    }, children: [imgScriptRows.map((row) => (jsxs(MenuItem, { value: row.id, children: [row.id, !row.hasSource ? ' — add generate.groovy' : ''] }, row.id))), jsx$1(MenuItem, { value: CQ_SCRIPT_IMAGE_SELECT_CUSTOM, children: "Custom id\u2026" })] })] }), jsx$1(Tooltip, { title: "Refresh list", children: jsx$1(IconButton, { size: "small", sx: { mt: 0.5 }, "aria-label": "Refresh image script list", onClick: () => void loadScriptsSandboxIndex(), children: jsx$1(RefreshRounded, { fontSize: "small" }) }) })] }), imgScriptSelectVal === CQ_SCRIPT_IMAGE_SELECT_CUSTOM ? (jsx$1(TextField, { label: "Custom image generator script id", value: imageGenScriptId(draft.imageGenerator), onChange: (ev) => setDraft((d) => d ? { ...d, imageGenerator: `script:${ev.target.value.trim()}` } : d), fullWidth: true, size: "small", helperText: "1\u201364 characters: letters, numbers, dash, underscore." })) : null] })) : null, jsx$1(TextField, { label: "Image model (OpenAI Images default)", value: String(draft.imageModel ?? STUDIO_AI_DEFAULT_IMAGE_MODEL), onChange: (ev) => setDraft((d) => (d ? { ...d, imageModel: ev.target.value } : d)), fullWidth: true, size: "small" })] }));
+                                                                    }, children: [imgScriptRows.map((row) => (jsxs(MenuItem, { value: row.id, children: [row.id, !row.hasSource ? ' — add generate.groovy' : ''] }, row.id))), jsx$1(MenuItem, { value: CQ_SCRIPT_IMAGE_SELECT_CUSTOM, children: "Custom id\u2026" })] })] }), jsx$1(Tooltip, { title: "Refresh list", children: jsx$1(IconButton, { size: "small", sx: { mt: 0.5 }, "aria-label": "Refresh image script list", onClick: () => void loadScriptsSandboxIndex(), children: jsx$1(RefreshRounded, { fontSize: "small" }) }) })] }), imgScriptSelectVal === CQ_SCRIPT_IMAGE_SELECT_CUSTOM ? (jsx$1(TextField, { label: "Custom image generator script id", value: imageGenScriptId(draft.imageGenerator), onChange: (ev) => setDraft((d) => d ? { ...d, imageGenerator: `script:${ev.target.value.trim()}` } : d), fullWidth: true, size: "small", helperText: "1\u201364 characters: letters, numbers, dash, underscore." })) : null] })) : null, jsx$1(TextField, { label: "Image model", value: String(draft.imageModel ?? STUDIO_AI_DEFAULT_IMAGE_MODEL), onChange: (ev) => setDraft((d) => (d ? { ...d, imageModel: ev.target.value } : d)), fullWidth: true, size: "small", helperText: imgK === 'openai'
+                                                ? 'Model id for built-in image generation (e.g. gpt-image-1). Set on the agent — no server default.'
+                                                : 'Ignored when image generator is None or a site script.' })] }));
                                 return (jsxs(Stack$1, { spacing: 2, sx: { mt: 1 }, children: [formError ? (jsx$1(Alert, { severity: "error", onClose: () => setFormError(null), children: formError })) : null, jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: mode === 'autonomous', onChange: (ev) => {
                                                     const autonomous = ev.target.checked;
                                                     setAgentDialogTab('general');
@@ -38487,7 +38655,14 @@ function AiAssistantIntentRecipeToolsLoopFields(props) {
     const patchRecipe = (partial) => {
         onChange({ ...recipe, ...partial });
     };
-    return (jsxs(Stack$1, { spacing: 2, children: [jsx$1(Typography, { variant: "subtitle2", children: "Tools loop (orchestration)" }), jsxs(Typography, { variant: "body2", color: "text.secondary", children: ["Applied when this recipe matches: round-0 ", jsx$1("strong", { children: "tool_choice" }), ", tool allowlist, and server fetch limits. Names must match built-in wire tools (e.g. ", jsx$1("strong", { children: "WebSearch" }), ", ", jsx$1("strong", { children: "SerpApiWebSearch" }), ",", ' ', jsx$1("strong", { children: "FetchHttpUrl" }), ")."] }), jsx$1(Autocomplete, { freeSolo: true, options: TOOLS_LOOP_WIRE_OPTIONS, value: recipe.toolsLoopForceTool ?? '', onInputChange: (_, v) => patchRecipe({ toolsLoopForceTool: v.trim() || undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Force tool (round 0)", size: "small", placeholder: "WebSearch", helperText: "Required first tool call. If disabled in tools.json, the turn fails with \u201CRecipe tool unavailable\u201D.", InputProps: { ...params.InputProps, sx: { fontFamily: 'monospace' } } })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: TOOLS_LOOP_WIRE_OPTIONS, value: recipe.toolsLoopAllowlist ?? [], onChange: (_, v) => patchRecipe({ toolsLoopAllowlist: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Tools-loop allowlist", size: "small", helperText: "Only these tools are registered for the turn (unless bypass keywords match)." })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: TOOLS_LOOP_WIRE_OPTIONS, value: recipe.toolsLoopExcludeTools ?? [], onChange: (_, v) => patchRecipe({ toolsLoopExcludeTools: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Exclude tools", size: "small", helperText: "Removed from the session tool list when this recipe matches." })) }), jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 2, children: [jsx$1(TextField, { label: "Max FetchHttpUrl calls per turn", type: "number", size: "small", value: recipe.toolsLoopMaxFetchHttpUrlCalls ?? '', onChange: (e) => {
+    return (jsxs(Stack$1, { spacing: 2, children: [jsx$1(Typography, { variant: "subtitle2", children: "Tools loop (orchestration)" }), jsxs(Typography, { variant: "body2", color: "text.secondary", children: ["Applied when this recipe matches: round-0 ", jsx$1("strong", { children: "tool_choice" }), ", tool allowlist, and server fetch limits. Names must match built-in wire tools (e.g. ", jsx$1("strong", { children: "WebSearch" }), ", ", jsx$1("strong", { children: "SerpApiWebSearch" }), ",", ' ', jsx$1("strong", { children: "FetchHttpUrl" }), ")."] }), jsx$1(Autocomplete, { freeSolo: true, options: TOOLS_LOOP_WIRE_OPTIONS, value: recipe.toolsLoopForceTool ?? '', onInputChange: (_, v, reason) => {
+                    if (reason === 'input') {
+                        patchRecipe({ toolsLoopForceTool: v.trim() || undefined });
+                    }
+                }, onChange: (_, v) => {
+                    const value = typeof v === 'string' ? v : (v?.toString() ?? '');
+                    patchRecipe({ toolsLoopForceTool: value.trim() || undefined });
+                }, renderInput: (params) => (jsx$1(TextField, { ...params, label: "Force tool (round 0)", size: "small", placeholder: "WebSearch", helperText: "Required first tool call. If disabled in tools.json, the turn fails with \u201CRecipe tool unavailable\u201D.", InputProps: { ...params.InputProps, sx: { fontFamily: 'monospace' } } })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: TOOLS_LOOP_WIRE_OPTIONS, value: recipe.toolsLoopAllowlist ?? [], onChange: (_, v) => patchRecipe({ toolsLoopAllowlist: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Tools-loop allowlist", size: "small", helperText: "Only these tools are registered for the turn (unless bypass keywords match)." })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: TOOLS_LOOP_WIRE_OPTIONS, value: recipe.toolsLoopExcludeTools ?? [], onChange: (_, v) => patchRecipe({ toolsLoopExcludeTools: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Exclude tools", size: "small", helperText: "Removed from the session tool list when this recipe matches." })) }), jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 2, children: [jsx$1(TextField, { label: "Max FetchHttpUrl calls per turn", type: "number", size: "small", value: recipe.toolsLoopMaxFetchHttpUrlCalls ?? '', onChange: (e) => {
                             const t = e.target.value.trim();
                             patchRecipe({
                                 toolsLoopMaxFetchHttpUrlCalls: t === '' ? undefined : Math.max(0, Math.min(10, Number(t) || 0))
@@ -73882,7 +74057,7 @@ const AI_ASSISTANT_IMAGEGEN_GROOVY_STUB = `{ Map input, Map context ->
 }
 `;
 /** Default Groovy for script LLM {@code script:id} (see {@code StudioAiScriptLlmLoader} and demo runtime). */
-const AI_ASSISTANT_LLM_RUNTIME_GROOVY_STUB = `import plugins.org.craftercms.aiassistant.llm.OpenAiSpringAiLlmRuntime
+const AI_ASSISTANT_LLM_RUNTIME_GROOVY_STUB = `import plugins.org.craftercms.aiassistant.llm.OpenAiSpecSpringAiLlmRuntime
 import plugins.org.craftercms.aiassistant.llm.StudioAiLlmKind
 import plugins.org.craftercms.aiassistant.llm.StudioAiRuntimeBuildRequest
 
@@ -73907,7 +74082,7 @@ import plugins.org.craftercms.aiassistant.llm.StudioAiRuntimeBuildRequest
     sub.protectedFormItemPath = r.protectedFormItemPath
     sub.enableTools = r.enableTools
     sub.agentEnabledBuiltInTools = r.agentEnabledBuiltInTools
-    OpenAiSpringAiLlmRuntime.INSTANCE.buildSessionBundle(sub)
+    OpenAiSpecSpringAiLlmRuntime.INSTANCE.buildSessionBundle(sub)
   }
 ]
 `;

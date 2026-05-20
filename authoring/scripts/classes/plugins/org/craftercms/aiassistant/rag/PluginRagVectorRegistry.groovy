@@ -1,5 +1,6 @@
 package plugins.org.craftercms.aiassistant.rag
 
+import plugins.org.craftercms.aiassistant.config.StudioAiAssistantProjectConfig
 import plugins.org.craftercms.aiassistant.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
 
@@ -28,7 +29,7 @@ import org.springframework.ai.embedding.EmbeddingModel
  * Lazy-loaded RAG index over bundled AI Assistant instruction corpus: load persisted embeddings from the site's Studio
  * configuration repo via {@link StudioToolOperations}, or rebuild (embed + write) when missing/stale.
  * <p>
- * JVM {@code aiassistant.pluginRag.mode}: {@code off} (default), {@code supplement} (full instructions + retrieved appendix),
+ * Site {@code tools.json} {@code pluginRag.mode}: {@code off} (default), {@code supplement} (full instructions + retrieved appendix),
  * {@code replace} (compact kernel + retrieved appendix). Opt-in only.</p>
  */
 class PluginRagVectorRegistry {
@@ -54,34 +55,26 @@ class PluginRagVectorRegistry {
     }
   }
 
-  static String pluginRagMode() {
-    (System.getProperty('aiassistant.pluginRag.mode') ?: 'off').toString().trim().toLowerCase(Locale.US)
+  static String pluginRagMode(Map projectCfg) {
+    StudioAiAssistantProjectConfig.pluginRagMode(projectCfg ?: [:])
   }
 
-  static boolean pluginRagModeActive() {
-    def m = pluginRagMode()
-    return m == 'supplement' || m == 'replace'
+  static boolean pluginRagModeActive(Map projectCfg) {
+    StudioAiAssistantProjectConfig.pluginRagModeActive(projectCfg ?: [:])
   }
 
   /** Compact kernel for {@code replace} mode — leading slice of full authoring instructions (classpath overrides apply). */
-  static String ragKernelFromAuthoringInstructions() {
+  static String ragKernelFromAuthoringInstructions(Map projectCfg) {
     String full = ToolPrompts.getLlm_AUTHORING_INSTRUCTIONS()
-    int max = resolveKernelMaxChars()
+    int max = resolveKernelMaxChars(projectCfg)
     if (full.length() <= max) {
       return full
     }
     return full.substring(0, max) + '\n\n[Kernel ends — follow every retrieved chunk in "## Retrieved AI Assistant plugin reference" as part of system policy.]'
   }
 
-  private static int resolveKernelMaxChars() {
-    try {
-      def p = System.getProperty('aiassistant.pluginRag.kernelMaxChars')?.toString()?.trim()
-      if (p) {
-        int n = Integer.parseInt(p)
-        return Math.min(16_000, Math.max(1024, n))
-      }
-    } catch (Throwable ignored) {}
-    return 5200
+  private static int resolveKernelMaxChars(Map projectCfg) {
+    StudioAiAssistantProjectConfig.pluginRagKernelMaxChars(projectCfg ?: [:])
   }
 
   /**
@@ -93,12 +86,14 @@ class PluginRagVectorRegistry {
     String userText,
     StudioToolOperations ops,
     String llmApiKey,
-    boolean toolSchemasOnApi
+    boolean toolSchemasOnApi,
+    Map projectCfg = null
   ) {
     if (!toolSchemasOnApi) {
       return authoringCore
     }
-    def mode = pluginRagMode()
+    Map cfg = projectCfg ?: [:]
+    def mode = pluginRagMode(cfg)
     if (mode == 'off') {
       return authoringCore
     }
@@ -108,7 +103,7 @@ class PluginRagVectorRegistry {
       return authoringCore
     }
     try {
-      def appendix = buildRetrievalAppendix(site, userText, ops, key)
+      def appendix = buildRetrievalAppendix(site, userText, ops, key, cfg)
       if (mode == 'supplement') {
         return appendix ? (authoringCore + '\n\n' + appendix) : authoringCore
       }
@@ -117,7 +112,7 @@ class PluginRagVectorRegistry {
           log.warn('Plugin RAG replace mode: no retrieval appendix; falling back to full authoring instructions')
           return authoringCore
         }
-        return ragKernelFromAuthoringInstructions() + '\n\n' + appendix
+        return ragKernelFromAuthoringInstructions(cfg) + '\n\n' + appendix
       }
     } catch (Throwable t) {
       log.warn('Plugin RAG adjustAuthoringCore failed (using full core): {}', t.message)
@@ -125,12 +120,18 @@ class PluginRagVectorRegistry {
     return authoringCore
   }
 
-  private static String buildRetrievalAppendix(String siteId, String userText, StudioToolOperations ops, String apiKey) {
-    List<RagChunk> idx = getOrBuildIndex(siteId, ops, apiKey)
+  private static String buildRetrievalAppendix(
+    String siteId,
+    String userText,
+    StudioToolOperations ops,
+    String apiKey,
+    Map projectCfg
+  ) {
+    List<RagChunk> idx = getOrBuildIndex(siteId, ops, apiKey, projectCfg)
     if (idx == null || idx.isEmpty()) {
       return ''
     }
-    EmbeddingModel embeddingModel = ExpertSkillVectorRegistry.buildEmbeddingModel(apiKey)
+    EmbeddingModel embeddingModel = ExpertSkillVectorRegistry.buildEmbeddingModel(apiKey, projectCfg)
     List<String> queries = retrievalQueries(userText)
     List<float[]> queryVecs = []
     for (String q : queries) {
@@ -143,8 +144,8 @@ class PluginRagVectorRegistry {
     if (queryVecs.isEmpty()) {
       return ''
     }
-    int topK = resolveTopK()
-    int maxChars = resolveMaxAppendChars()
+    int topK = resolveTopK(projectCfg)
+    int maxChars = resolveMaxAppendChars(projectCfg)
     List<ScoredChunk> scored = []
     for (RagChunk ch : idx) {
       float best = -1f
@@ -223,24 +224,12 @@ class PluginRagVectorRegistry {
     return q
   }
 
-  private static int resolveTopK() {
-    try {
-      def p = System.getProperty('aiassistant.pluginRag.topK')?.toString()?.trim()
-      if (p) {
-        return Math.min(24, Math.max(1, Integer.parseInt(p)))
-      }
-    } catch (Throwable ignored) {}
-    return 8
+  private static int resolveTopK(Map projectCfg) {
+    StudioAiAssistantProjectConfig.pluginRagTopK(projectCfg ?: [:])
   }
 
-  private static int resolveMaxAppendChars() {
-    try {
-      def p = System.getProperty('aiassistant.pluginRag.maxAppendChars')?.toString()?.trim()
-      if (p) {
-        return Math.min(80_000, Math.max(2000, Integer.parseInt(p)))
-      }
-    } catch (Throwable ignored) {}
-    return 14_000
+  private static int resolveMaxAppendChars(Map projectCfg) {
+    StudioAiAssistantProjectConfig.pluginRagMaxAppendChars(projectCfg ?: [:])
   }
 
   private static float cosineSimilarity(float[] a, float[] b) {
@@ -261,7 +250,7 @@ class PluginRagVectorRegistry {
     return denom > 1e-12 ? (float) (dot / denom) : 0f
   }
 
-  static List<RagChunk> getOrBuildIndex(String siteId, StudioToolOperations ops, String apiKey) {
+  static List<RagChunk> getOrBuildIndex(String siteId, StudioToolOperations ops, String apiKey, Map projectCfg = null) {
     def site = (siteId ?: '').toString().trim()
     if (!site || !ops || !apiKey?.trim()) {
       return []
@@ -279,7 +268,7 @@ class PluginRagVectorRegistry {
       String corpus = buildCorpusText()
       String corpusSha = sha256Utf8(corpus)
       String pluginBuild = resolvePluginBuildId()
-      String embeddingModelName = ExpertSkillVectorRegistry.resolveEmbeddingModelName()
+      String embeddingModelName = ExpertSkillVectorRegistry.resolveEmbeddingModelName(projectCfg)
       Map persisted = readPersistedWrapper(ops, site)
       List<RagChunk> loaded = tryLoadFromPersisted(persisted, corpusSha, pluginBuild, embeddingModelName)
       if (loaded != null && !loaded.isEmpty()) {
@@ -288,7 +277,7 @@ class PluginRagVectorRegistry {
         return loaded
       }
       log.info('Plugin RAG index rebuild start siteId={} corpusSha={} model={}', site, corpusSha, embeddingModelName)
-      List<RagChunk> built = buildIndexFromCorpus(corpus, apiKey)
+      List<RagChunk> built = buildIndexFromCorpus(corpus, apiKey, projectCfg)
       if (built.isEmpty()) {
         SITE_INDEX.put(site, built)
         return built
@@ -407,35 +396,18 @@ class PluginRagVectorRegistry {
     return a
   }
 
-  private static List<RagChunk> buildIndexFromCorpus(String corpus, String apiKey) {
-    EmbeddingModel embeddingModel = ExpertSkillVectorRegistry.buildEmbeddingModel(apiKey)
-    int maxChunkChars = 1800
-    try {
-      def pcc = System.getProperty('aiassistant.pluginRag.maxChunkChars')?.toString()?.trim()
-      if (pcc) {
-        maxChunkChars = Math.min(8000, Math.max(512, Integer.parseInt(pcc)))
-      }
-    } catch (Throwable ignored) {}
+  private static List<RagChunk> buildIndexFromCorpus(String corpus, String apiKey, Map projectCfg) {
+    Map cfg = projectCfg ?: [:]
+    EmbeddingModel embeddingModel = ExpertSkillVectorRegistry.buildEmbeddingModel(apiKey, cfg)
+    int maxChunkChars = StudioAiAssistantProjectConfig.pluginRagMaxChunkChars(cfg)
     List<String> texts = ExpertSkillVectorRegistry.chunkMarkdown(corpus, maxChunkChars)
-    int maxChunks = 400
-    try {
-      def pc = System.getProperty('aiassistant.pluginRag.maxChunks')?.toString()?.trim()
-      if (pc) {
-        maxChunks = Math.min(2000, Math.max(8, Integer.parseInt(pc)))
-      }
-    } catch (Throwable ignored) {}
+    int maxChunks = StudioAiAssistantProjectConfig.pluginRagMaxChunks(cfg)
     if (texts.size() > maxChunks) {
       log.warn('Plugin RAG truncating chunks {} -> {}', texts.size(), maxChunks)
       texts = texts.subList(0, maxChunks)
     }
     List<RagChunk> out = new ArrayList<>()
-    int batchSize = 64
-    try {
-      def pb = System.getProperty('aiassistant.pluginRag.embedBatchSize')?.toString()?.trim()
-      if (pb) {
-        batchSize = Math.min(128, Math.max(8, Integer.parseInt(pb)))
-      }
-    } catch (Throwable ignored) {}
+    int batchSize = StudioAiAssistantProjectConfig.pluginRagEmbedBatchSize(cfg)
     for (int i = 0; i < texts.size(); i += batchSize) {
       int hi = Math.min(i + batchSize, texts.size())
       List<String> sub = texts.subList(i, hi)
@@ -546,12 +518,6 @@ class PluginRagVectorRegistry {
             is.close()
           } catch (Throwable ignored) {}
         }
-      }
-    } catch (Throwable ignored) {}
-    try {
-      def p = System.getProperty('aiassistant.pluginRag.pluginBuildId')?.toString()?.trim()
-      if (p) {
-        return p
       }
     } catch (Throwable ignored) {}
     return 'unknown'

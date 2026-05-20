@@ -19,7 +19,7 @@ final class PlanOrchestration {
   static final String ORCH_BLOCK_END = '-->'
 
   /**
-   * Appended to the OpenAI authoring system message when native tools are on the API.
+   * Appended to the LLM authoring system message when native tools are on the API.
    */
   static String machineInstructionsAddendum() {
     return '''
@@ -38,7 +38,7 @@ Rules:
 - Keep `summary` short (for logs). Authors do not need to read this block; do not narrate it outside the comment.'''
   }
 
-  /** Removes the orchestration comment so authors and downstream OpenAI turns do not see machine JSON. */
+  /** Removes the orchestration comment so authors and downstream LLM turns do not see machine JSON. */
   static String stripOrchestrationPlanBlock(String raw) {
     if (raw == null) {
       return ''

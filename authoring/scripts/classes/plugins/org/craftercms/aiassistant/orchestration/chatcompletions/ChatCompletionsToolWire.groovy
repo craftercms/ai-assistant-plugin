@@ -13,7 +13,7 @@ import java.util.regex.Pattern
 /**
  * Chat-completions-shaped native tools wire: compact {@code GenerateImage} payloads and
  * {@code studio-ai-inline-image://…} placeholders keyed by {@code tool_call_id}.
- * OpenAI-compatible POST bodies use these semantics; this type is the single place for that protocol.
+ * OpenAISpec semantics for these POST bodies; this type is the single place for that protocol.
  */
 final class ChatCompletionsToolWire {
 

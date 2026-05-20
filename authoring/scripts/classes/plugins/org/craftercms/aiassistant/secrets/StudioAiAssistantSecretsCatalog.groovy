@@ -19,42 +19,42 @@ final class StudioAiAssistantSecretsCatalog {
   private static final List<Map> KNOWN_SLOTS = [
     [
       key          : 'openai_api_key',
-      label        : 'OpenAI',
+      label        : 'OpenAI API key',
       provider     : StudioAiLlmKind.OPENAI_NATIVE,
       defaultEnvVar: 'OPENAI_API_KEY',
       llmKinds     : [StudioAiLlmKind.OPENAI_NATIVE]
     ],
     [
       key          : 'anthropic_api_key',
-      label        : 'Claude (Anthropic)',
+      label        : 'Anthropic Claude API key',
       provider     : StudioAiLlmKind.CLAUDE_NATIVE,
       defaultEnvVar: 'ANTHROPIC_API_KEY',
       llmKinds     : [StudioAiLlmKind.CLAUDE_NATIVE]
     ],
     [
       key          : 'xai_api_key',
-      label        : 'xAI',
+      label        : 'xAI API key',
       provider     : StudioAiLlmKind.XAI_NATIVE,
       defaultEnvVar: 'XAI_API_KEY',
       llmKinds     : [StudioAiLlmKind.XAI_NATIVE]
     ],
     [
       key          : 'deepseek_api_key',
-      label        : 'DeepSeek',
+      label        : 'DeepSeek API key',
       provider     : StudioAiLlmKind.DEEPSEEK_NATIVE,
       defaultEnvVar: 'DEEPSEEK_API_KEY',
       llmKinds     : [StudioAiLlmKind.DEEPSEEK_NATIVE]
     ],
     [
       key          : 'llama_api_key',
-      label        : 'Llama (Ollama-compatible)',
+      label        : 'Ollama / Llama API key',
       provider     : StudioAiLlmKind.LLAMA_NATIVE,
       defaultEnvVar: 'LLAMA_API_KEY',
       llmKinds     : [StudioAiLlmKind.LLAMA_NATIVE]
     ],
     [
       key          : 'gemini_api_key',
-      label        : 'Gemini (Google)',
+      label        : 'Google Gemini API key',
       provider     : StudioAiLlmKind.GEMINI_NATIVE,
       defaultEnvVar: 'GEMINI_API_KEY',
       llmKinds     : [StudioAiLlmKind.GEMINI_NATIVE]

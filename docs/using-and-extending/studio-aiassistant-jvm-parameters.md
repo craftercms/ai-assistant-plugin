@@ -14,18 +14,18 @@ Use this file when you need to tune timeouts, logging, or defaults that are not 
 |----------|-------------|
 | **`crafter.openai.apiKey`** | OpenAI API key when **`OPENAI_API_KEY`** is not set. |
 | **`crafter.openai.model`** | Default chat model when **`<llmModel>`** / request body omit it (OpenAI path). |
-| **`crafter.openai.imagesOpenAiBaseUrl`** | Override host for default **`/v1/images/generations`** (also env **`OPENAI_IMAGES_OPENAI_BASE_URL`** in code — env is documented in [image-generation.md](image-generation.md) / [studio-plugins-guide.md](studio-plugins-guide.md)). |
+| **`crafter.openai.imagesBaseUrl`** | Override host for default **`/v1/images/generations`** (env **`OPENAI_IMAGES_BASE_URL`**). |
 | **`crafter.xai.apiKey`** | xAI key when **`XAI_API_KEY`** is unset. |
-| **`crafter.xai.openAiBaseUrl`** | Tools-loop chat base URL for xAI (env **`XAI_OPENAI_BASE_URL`** takes precedence when set). |
+| **`crafter.xai.llmBaseUrl`** | Tools-loop chat base URL for xAI (env **`XAI_BASE_URL`** takes precedence when set). |
 | **`crafter.xai.model`** | Default xAI chat model. |
 | **`crafter.deepseek.apiKey`** | DeepSeek key when **`DEEPSEEK_API_KEY`** is unset. |
-| **`crafter.deepseek.openAiBaseUrl`** | DeepSeek tools-loop chat base (env **`DEEPSEEK_OPENAI_BASE_URL`**). |
+| **`crafter.deepseek.llmBaseUrl`** | DeepSeek tools-loop chat base (env **`DEEPSEEK_BASE_URL`**). |
 | **`crafter.deepseek.model`** | Default DeepSeek chat model. |
 | **`crafter.llama.apiKey`** | API key for the **llama** tools-loop row when **`LLAMA_API_KEY`** is unset (Ollama often accepts a placeholder). |
-| **`crafter.llama.openAiBaseUrl`** | Base URL (env **`LLAMA_OPENAI_BASE_URL`** / **`OLLAMA_OPENAI_BASE_URL`**). |
+| **`crafter.llama.llmBaseUrl`** | Base URL (env **`LLAMA_BASE_URL`**). |
 | **`crafter.llama.model`** | Default chat model id. |
 | **`crafter.gemini.apiKey`** / **`crafter.google.apiKey`** | Gemini / Google GenAI key when env keys are unset. |
-| **`crafter.gemini.openAiBaseUrl`** | Gemini tools-loop chat base (env **`GEMINI_OPENAI_BASE_URL`** / **`GOOGLE_GENAI_OPENAI_BASE_URL`**). |
+| **`crafter.gemini.llmBaseUrl`** | Gemini tools-loop chat base (env **`GEMINI_BASE_URL`**). |
 | **`crafter.gemini.model`** | Default Gemini chat model. |
 | **`crafter.anthropic.apiKey`** | Anthropic key when **`ANTHROPIC_API_KEY`** is unset. |
 | **`crafter.anthropic.model`** | Default Claude chat model. |
@@ -59,31 +59,6 @@ Historical note: property names use the **`aiassistant.*`** prefix; they apply t
 | **`aiassistant.preview.fetch.stripCookieNames`** | Cookie stripping for preview fetch. |
 | **`aiassistant.preview.fetch.forwardAuthorization`** | **`false`** — whether to forward **`Authorization`** on preview fetch. |
 | **`aiassistant.mcp.maxResponseChars`** | Max MCP HTTP response body size (default **500000**). |
-
----
-
-## Expert Skills (`aiassistant.expertSkill.*`)
-
-| Property | Role |
-|----------|------|
-| **`aiassistant.expertSkill.embeddingModel`** | Embedding model id for **`QueryExpertGuidance`**. |
-| **`aiassistant.expertSkill.maxSkills`** | Max distinct expert skills indexed. |
-| **`aiassistant.expertSkill.maxChunks`** | Chunk count limits per skill. |
-| **`aiassistant.expertSkill.maxChunkChars`** | Chunk size limits. |
-
----
-
-## Plugin RAG (`aiassistant.pluginRag.*`)
-
-| Property | Role |
-|----------|------|
-| **`aiassistant.pluginRag.mode`** | **`off`** by default; enables bundled plugin RAG kernel when set. |
-| **`aiassistant.pluginRag.kernelMaxChars`** | Kernel text size. |
-| **`aiassistant.pluginRag.topK`** | Retrieval **`topK`**. |
-| **`aiassistant.pluginRag.maxAppendChars`** | Max appended RAG text to prompts. |
-| **`aiassistant.pluginRag.maxChunkChars`** / **`aiassistant.pluginRag.maxChunks`** | Chunking for plugin RAG. |
-| **`aiassistant.pluginRag.embedBatchSize`** | Embedding batch size. |
-| **`aiassistant.pluginRag.pluginBuildId`** | Optional build id marker for caches. |
 
 ---
 

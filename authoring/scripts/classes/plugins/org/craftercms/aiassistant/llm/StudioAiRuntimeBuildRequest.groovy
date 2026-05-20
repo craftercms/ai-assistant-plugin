@@ -24,7 +24,7 @@ class StudioAiRuntimeBuildRequest {
   String llmNormalized
 
   String llmModelParam
-  /** Optional per-agent key from POST / ui.xml ({@code llmApiKey}); {@link OpenAiSpringAiLlmRuntime} maps this to {@code apiKeyFromRequest}. */
+  /** Optional per-agent key from POST / ui.xml ({@code llmApiKey}); {@link OpenAiSpecSpringAiLlmRuntime} maps this to {@code apiKeyFromRequest}. */
   String llmApiKeyFromRequest
   /** Optional {@code secrets.json} entry id from agents.json ({@code llmSecretKey}). */
   String llmSecretKeyFromAgent

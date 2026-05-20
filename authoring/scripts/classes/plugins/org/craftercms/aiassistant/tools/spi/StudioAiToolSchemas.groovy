@@ -1,7 +1,7 @@
 package plugins.org.craftercms.aiassistant.tools.spi
 
 /**
- * OpenAI-compatible JSON Schema strings for built-in tools (must match {@link plugins.org.craftercms.aiassistant.tools.AiOrchestrationTools}).
+ * JSON Schema strings for built-in tools on the chat-completions tools-loop wire (must match {@link plugins.org.craftercms.aiassistant.tools.AiOrchestrationTools}).
  */
 final class StudioAiToolSchemas {
 

@@ -3,7 +3,7 @@ import { useLayoutEffect, useRef } from 'react';
 import { Box, GlobalStyles } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import AiAssistantChat from './AiAssistantChat';
-import { AI_ASSISTANT_DEFAULT_AGENT_ID, type ExpertSkillConfig } from './agentConfig';
+import { AI_ASSISTANT_DEFAULT_AGENT_ID, type AgentSkillConfig } from './agentConfig';
 
 /** Same scroll-port detection as {@link AiAssistantChat} — ICE `ResizeableDrawer` drawerBody is `overflow-y: auto`. */
 function getScrollParent(node: HTMLElement | null): HTMLElement | null {
@@ -85,7 +85,7 @@ export interface AiAssistantDialogContentProps {
   prompts?: Array<{ userText: string; additionalContext?: string }>;
   enableTools?: boolean;
   enabledBuiltInTools?: string[];
-  expertSkills?: ExpertSkillConfig[];
+  skills?: AgentSkillConfig[];
   translateBatchConcurrency?: number;
 }
 
@@ -104,7 +104,7 @@ function AiAssistantDialogContent(props: Readonly<AiAssistantDialogContentProps>
     prompts,
     enableTools,
     enabledBuiltInTools,
-    expertSkills,
+    skills,
     translateBatchConcurrency
   } = props;
   return (
@@ -117,7 +117,7 @@ function AiAssistantDialogContent(props: Readonly<AiAssistantDialogContentProps>
       llmApiKey={llmApiKey}
       enableTools={enableTools}
       enabledBuiltInTools={enabledBuiltInTools}
-      expertSkills={expertSkills}
+      skills={skills}
       configPrompts={prompts}
       {...(translateBatchConcurrency != null ? { translateBatchConcurrency } : {})}
     />

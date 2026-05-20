@@ -11,18 +11,22 @@ import org.springframework.ai.openai.OpenAiChatOptions
 import org.springframework.ai.openai.api.OpenAiApi
 
 /**
- * LLM runtime for the built-in <strong>{@link StudioAiLlmKind#OPENAI_NATIVE}</strong> row (<strong>OpenAI</strong> vendor)
- * and the other built-in <strong>tools-loop</strong> rows (<strong>xAI</strong>, <strong>deepSeek</strong>, <strong>llama</strong>, <strong>gemini</strong>)
- * via Spring AI {@link OpenAiChatModel} plus this plugin’s tools-loop Spring {@code RestClient} native-tool execution in
+ * Spring AI session builder for built-in <strong>tools-loop</strong> vendors on the <strong>OpenAISpec</strong>
+ * chat/tools wire ({@code /v1/chat/completions} + native {@code tools[]}).
+ * <p>
+ * Covers {@link StudioAiLlmKind#OPENAI_NATIVE} (<strong>OpenAI</strong> vendor), {@link StudioAiLlmKind#XAI_NATIVE},
+ * {@link StudioAiLlmKind#DEEPSEEK_NATIVE}, {@link StudioAiLlmKind#LLAMA_NATIVE}, and {@link StudioAiLlmKind#GEMINI_NATIVE}
+ * via Spring AI {@link OpenAiChatModel} (client for that chat-completions wire) plus tools-loop {@code RestClient} execution in
  * {@link AiOrchestration}.
+ * </p>
  */
-class OpenAiSpringAiLlmRuntime implements StudioAiLlmRuntime {
+class OpenAiSpecSpringAiLlmRuntime implements StudioAiLlmRuntime {
 
-  private static final Logger log = LoggerFactory.getLogger(OpenAiSpringAiLlmRuntime.class)
+  private static final Logger log = LoggerFactory.getLogger(OpenAiSpecSpringAiLlmRuntime.class)
 
-  static final OpenAiSpringAiLlmRuntime INSTANCE = new OpenAiSpringAiLlmRuntime()
+  static final OpenAiSpecSpringAiLlmRuntime INSTANCE = new OpenAiSpecSpringAiLlmRuntime()
 
-  private OpenAiSpringAiLlmRuntime() {}
+  private OpenAiSpecSpringAiLlmRuntime() {}
 
   @Override
   String normalizedKind() {

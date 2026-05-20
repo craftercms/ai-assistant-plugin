@@ -18,6 +18,7 @@ import java.util.Comparator
 import java.util.Set
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import plugins.org.craftercms.aiassistant.config.StudioAiAssistantProjectConfig
 import plugins.org.craftercms.aiassistant.llm.StudioAiLlmKind
 import plugins.org.craftercms.aiassistant.llm.StudioAiLlmRuntimeFactory
 import plugins.org.craftercms.aiassistant.llm.StudioAiRuntimeBuildRequest
@@ -150,7 +151,8 @@ final class AutonomousAssistantWorker {
           [siteId: (siteId ?: '').toString(), crafterSite: (siteId ?: '').toString()],
           null
         )
-        List<Map> exNorm = ExpertSkillVectorRegistry.normalizeRequestExpertSkills(definition?.get('expertSkills'))
+        Map projectToolCfg = StudioAiAssistantProjectConfig.load(studioOps)
+        List<Map> exNorm = ExpertSkillVectorRegistry.normalizeRequestExpertSkills(definition?.get('skills'), projectToolCfg)
         AiOrchestration orch = new AiOrchestration(null, null, app, [siteId: (siteId ?: '').toString()], null)
         // Bundle only resolves API key / model / wire URL; tools are built below via buildWithDefaultWireConverter.
         // enableTools false avoids referencing Spring AI ToolCallResultConverter on the Studio script compile classpath.
@@ -331,7 +333,7 @@ final class AutonomousAssistantWorker {
 
   /**
    * Copy of in-memory state for the LLM user message only — avoids huge {@code pastRunReports} / {@code humanTasks}
-   * / {@code lastError.stackTrace} blowing the OpenAI context window alongside tool results.
+   * / {@code lastError.stackTrace} blowing the LLM context window alongside tool results.
    */
   private static Map slimStateForAutonomousLlmPrompt(Map state) {
     if (state == null) {

@@ -9,6 +9,7 @@ import plugins.org.craftercms.aiassistant.http.AiHttpProxy
 import plugins.org.craftercms.aiassistant.http.AiAssistantCentralAgentsMerge
 import plugins.org.craftercms.aiassistant.orchestration.AiOrchestration
 import plugins.org.craftercms.aiassistant.prompt.ToolPromptsSiteContext
+import plugins.org.craftercms.aiassistant.config.StudioAiAssistantProjectConfig
 import plugins.org.craftercms.aiassistant.rag.ExpertSkillVectorRegistry
 import plugins.org.craftercms.aiassistant.secrets.StudioAiAssistantSecretsContext
 import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
@@ -24,13 +25,13 @@ import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
  *   "authoringSurface": "formEngine" | omit for XB/preview,
  *   "formEngineClientJsonApply": optional boolean — when true **and** formEngine, append client-JSON apply instructions (XB must omit)
  *   "formEngineItemPath": optional — repo path of the open form item; when set with client JSON apply, WriteContent/publish/revert are blocked **only** for this path (other paths may still persist). If omitted, all repo writes are suppressed for that mode (safe default).
- *   "enableTools": optional boolean — when false, OpenAI chat omits function tools (matches ui.xml enableTools false). Absent defaults true.
+ *   "enableTools": optional boolean — when false, the LLM chat request omits function tools (matches ui.xml enableTools false). Absent defaults true.
  *   "omitTools": optional boolean — when true, function tools are omitted for this request only (copy/image-style LLM steps); overrides enableTools. Same for XB/ICE preview chat, dialog, and form-engine (`authoringSurface`). Absent/false keeps normal tool registration from enableTools/agent defaults.
  *   "enabledBuiltInTools": optional JSON array of tool name strings — after site {@code tools.json} policy, only these built-in tools (exact wire names) remain registered; include {@code "mcp:*"} to keep all dynamic {@code mcp_*} tools. Absent or empty = no per-request subset (full catalog subject to site policy).
- *   "llmModel": optional string — OpenAI chat model id (e.g. gpt-4o-mini).
- *   "imageModel": optional string — Default image model for GenerateImage on the built-in images wire (e.g. gpt-image-1); agent ui.xml **imageModel**; no JVM fallback. Ignored when **imageGenerator** selects a pure script backend unless the script reads it from context.
+ *   "llmModel": optional string — chat model id for the configured vendor (e.g. gpt-4o-mini on OpenAI).
+ *   "imageModel": optional string — Default image model for GenerateImage on the built-in images wire (e.g. gpt-image-1); from agent config or request when set. Ignored when **imageGenerator** selects a pure script backend unless the script reads it from context.
  *   "imageGenerator": optional string — **GenerateImage** backend: blank = built-in Images wire when key+imageModel exist; **none** / **off** / **disabled** omits the tool; **script:{id}** runs **`/scripts/aiassistant/imagegen/{id}/generate.groovy`**. Agent ui.xml **imageGenerator**; merged from site ui.xml like **imageModel** when POST omits it.
- *   "expertSkills": optional JSON array of { name, url, description } — per-agent markdown URLs for {@code QueryExpertGuidance} (Spring AI vector store); normalized server-side.
+ *   "skills": optional JSON array of { name, url, description, enabled } — enabled per-agent markdown URLs for {@code QueryExpertGuidance}; normalized server-side.
  *   "translateBatchConcurrency": optional integer 1–64 — parallel {@code TranslateContentBatch} workers when the model omits {@code maxConcurrency}; from agent ui.xml; server default 25 when omitted.
  *   "previewToken": optional string — Studio {@code crafterPreview} cookie value; enables {@code GetPreviewHtml} without passing the token on every tool call. When omitted, the server still uses {@code crafterPreview} from the **incoming request cookies** (HttpOnly-safe).
  *   Response:  text/event-stream (SSE) on success, or application/json on error
@@ -111,9 +112,14 @@ try {
       request.setAttribute('aiassistant.previewToken', previewTokenBody)
     } catch (Throwable ignored) {}
   }
-  def expertSkillsNorm = ExpertSkillVectorRegistry.normalizeRequestExpertSkills(body?.expertSkills)
+  Map projectToolCfg = [:]
   try {
-    request.setAttribute('aiassistant.expertSkills', expertSkillsNorm)
+    def cfgOps = new StudioToolOperations(request, applicationContext, params)
+    projectToolCfg = StudioAiAssistantProjectConfig.load(cfgOps)
+  } catch (Throwable ignoredCfg) {}
+  def skillsNorm = ExpertSkillVectorRegistry.normalizeRequestExpertSkills(body?.skills, projectToolCfg)
+  try {
+    request.setAttribute('aiassistant.expertSkills', skillsNorm)
   } catch (Throwable ignored) {}
   def agentToolsRaw = body?.enabledBuiltInTools
   if (agentToolsRaw instanceof List && !((List) agentToolsRaw).isEmpty()) {

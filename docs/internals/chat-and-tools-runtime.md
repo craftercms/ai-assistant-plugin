@@ -131,7 +131,7 @@ Inside an `<agent>` that uses `<llm>openAI</llm>`, add one or more **`<expertSki
 
 Element form is also supported: `<expertSkill><name>…</name><url>…</url><description>…</description></expertSkill>`.
 
-**Optional tuning (expert skills only):** Markdown from `<expertSkill>` URLs is chunked and embedded into a per-skill in-memory index on the Studio server; defaults are usually enough. If you hit size or memory limits, optional JVM tuning keys are documented in **[studio-aiassistant-jvm-parameters.md](../using-and-extending/studio-aiassistant-jvm-parameters.md)** (section **Expert skills**). This is **not** agent `ui.xml` configuration.
+**Optional tuning (agent skills RAG):** Markdown from per-agent **`skills`** URLs is chunked and embedded into a per-skill in-memory index on the Studio server. Limits (max skills, chunk size, embedding model) are in site **`tools.json`** → **`agentSkillsRag`**, edited under **Project Tools → Agents → Site orchestration**. This is **not** agent `ui.xml` configuration.
 
 ---
 
@@ -165,9 +165,9 @@ If a tool throws mid-stream (e.g. Spring AI `MessageAggregator` / `UndeclaredThr
 - `openAiApiKey`: optional string — **testing only**; per-provider precedence (OpenAI, xAI, DeepSeek, etc.): ignored when the matching server-side key is set (host **env** vars per **[llm-configuration.md](../using-and-extending/llm-configuration.md)**, plus JVM fallbacks in **[studio-aiassistant-jvm-parameters.md](../using-and-extending/studio-aiassistant-jvm-parameters.md)**). For **`claude`**, the same field can carry the Anthropic key when no **`ANTHROPIC_API_KEY`** is configured.
 - `contentPath`: optional repository path of the item open in Studio preview (e.g. `/site/website/about/index.xml`). When set, the server appends **Studio authoring context** to the user prompt so the model treats phrases like “this page”, “my page”, or “update my content” (with no path) as that item.
 - `contentTypeId`: optional preview content type (e.g. `/page/home`); included in that context when present.
-- `expertSkills`: optional JSON array of `{ "name", "url", "description" }` — same semantics as ui.xml **`<expertSkill>`**; server normalizes URLs and registers **`QueryExpertGuidance`** when non-empty and tools are on.
+- `skills`: optional JSON array of `{ "name", "url", "description", "enabled" }` — enabled rows only; server normalizes URLs and registers **`QueryExpertGuidance`** when tools are on.
 
-The React widget sends `llm` / model / key from the selected agent config and sends `contentPath` / `contentTypeId` from the current preview item when available. When the agent defines expert skills, the widget also sends **`expertSkills`** on stream/chat POST.
+The React widget sends `llm` / model / key from the selected agent config and sends `contentPath` / `contentTypeId` from the current preview item when available. When the agent has enabled skills, the widget sends **`skills`** on stream/chat POST.
 
 ---
 
@@ -188,7 +188,7 @@ If the file is missing at runtime, the tool still returns a short embedded fallb
 
 ## Troubleshooting: `400 Bad Request` On `/v1/chat/completions` (Tools-loop)
 
-Often caused by **invalid tool `parameters` JSON Schema**. This plugin registers Spring AI `FunctionToolCallback` tools with explicit `inputSchema` strings so chat hosts that accept OpenAI-shaped `tools[]` accept the request. If you still see 400, check Studio logs for a line **`Tools-loop chat error response body:`** — it includes the upstream JSON error (`error.message`, `param`, etc.).
+Often caused by **invalid tool `parameters` JSON Schema**. This plugin registers Spring AI `FunctionToolCallback` tools with explicit `inputSchema` strings so chat hosts that accept OpenAISpec-shaped `tools[]` accept the request. If you still see 400, check Studio logs for a line **`Tools-loop chat error response body:`** — it includes the upstream JSON error (`error.message`, `param`, etc.).
 
 ### Tool / Edit Prompts: `JsonEOFException` or Empty JSON from the Chat Host
 
@@ -233,7 +233,7 @@ The plugin **captures** `SecurityContextHolder.getContext()` on the **Studio ser
 
 ## Studio AI Assistant — Autonomous (Scheduled Steps) {#autonomous-assistants}
 
-The **Tools Panel** widget **`craftercms.components.aiassistant.AutonomousAssistants`** (**Studio AI assistant — autonomous**) uses **`autonomousAgents`** / **`agent`** rows with **`llm`**, **`llmModel`**, optional **`openAiApiKey`**, optional **`startAutomatically`** (default **true**; when **false**, sync registers the agent as **stopped** until **Start** in the widget), optional **`stopOnFailure`** (default **true**; when **false**, a failed run records **`lastError`** and schedules a retry instead of **`error`** status), and optional **`expertSkills`** (same JSON shape as Helper **`<expertSkill>`** for **QueryExpertGuidance**). Each autonomous step uses a **tools-loop** **`llm`** (`openAI`, `xAI`, `deepSeek`, `llama`, `genesis` / `gemini`): the **same authoring system stack** as **`/ai/stream`** where RAG/embeddings still prefer **`OPENAI_API_KEY`**, the **same native `tools[]` catalog** and **RestClient** tool loop, then the agent’s per-step JSON contract. **`claude`** is **not** supported for autonomous runs (use a **tools-loop** provider). **Key precedence** per provider matches interactive chat (server env/JVM first; per-agent **`<openAiApiKey>`** only when no server key for that provider).
+The **Tools Panel** widget **`craftercms.components.aiassistant.AutonomousAssistants`** (**Studio AI assistant — autonomous**) uses **`autonomousAgents`** / **`agent`** rows with **`llm`**, **`llmModel`**, optional **`openAiApiKey`**, optional **`startAutomatically`** (default **true**; when **false**, sync registers the agent as **stopped** until **Start** in the widget), optional **`stopOnFailure`** (default **true**; when **false**, a failed run records **`lastError`** and schedules a retry instead of **`error`** status), and optional **`skills`** (enabled markdown URLs for **QueryExpertGuidance**). Each autonomous step uses a **tools-loop** **`llm`** (`openAI`, `xAI`, `deepSeek`, `llama`, `genesis` / `gemini`): the **same authoring system stack** as **`/ai/stream`** where RAG/embeddings still prefer **`OPENAI_API_KEY`**, the **same native `tools[]` catalog** and **RestClient** tool loop, then the agent’s per-step JSON contract. **`claude`** is **not** supported for autonomous runs (use a **tools-loop** provider). **Key precedence** per provider matches interactive chat (server env/JVM first; per-agent **`<openAiApiKey>`** only when no server key for that provider).
 
 ---
 

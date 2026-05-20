@@ -6,7 +6,7 @@ import AlertDialog from '@craftercms/studio-ui/components/AlertDialog';
 import PrimaryButton from '@craftercms/studio-ui/components/PrimaryButton/PrimaryButton';
 import SecondaryButton from '@craftercms/studio-ui/components/SecondaryButton/SecondaryButton';
 import AiAssistantChat from './AiAssistantChat';
-import { AI_ASSISTANT_DEFAULT_AGENT_ID, type ExpertSkillConfig } from './agentConfig';
+import { AI_ASSISTANT_DEFAULT_AGENT_ID, type AgentSkillConfig } from './agentConfig';
 
 export interface AiAssistantPopoverProps extends PopoverProps {
   appBarTitle?: string;
@@ -27,10 +27,10 @@ export interface AiAssistantPopoverProps extends PopoverProps {
   llmApiKey?: string;
   /** Prompts to show above the chat (quick message buttons). Overrides API quick messages when set. */
   prompts?: Array<{ userText: string; additionalContext?: string }>;
-  /** When false, server omits OpenAI function tools. */
+  /** When false, server omits native function tools on the LLM request. */
   enableTools?: boolean;
   enabledBuiltInTools?: string[];
-  expertSkills?: ExpertSkillConfig[];
+  skills?: AgentSkillConfig[];
   translateBatchConcurrency?: number;
 }
 
@@ -57,7 +57,7 @@ function AiAssistantPopover(props: Readonly<AiAssistantPopoverProps>) {
     prompts,
     enableTools,
     enabledBuiltInTools,
-    expertSkills,
+    skills,
     translateBatchConcurrency,
     anchorPosition: anchorPositionProp,
     ...popoverProps
@@ -119,7 +119,7 @@ function AiAssistantPopover(props: Readonly<AiAssistantPopoverProps>) {
           llmApiKey={llmApiKey}
           enableTools={enableTools}
           enabledBuiltInTools={enabledBuiltInTools}
-          expertSkills={expertSkills}
+          skills={skills}
           configPrompts={prompts}
           {...(translateBatchConcurrency != null ? { translateBatchConcurrency } : {})}
         />

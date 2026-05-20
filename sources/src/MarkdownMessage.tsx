@@ -23,7 +23,7 @@ import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import StudioDraggableImage from './StudioDraggableImage';
 
 /**
- * OpenAI / streaming payloads sometimes leave escape sequences as the two-character
+ * LLM streaming payloads sometimes leave escape sequences as the two-character
  * sequences backslash+n or backslash+t instead of real newlines/tabs. Markdown then
  * shows one long line. Convert those literals to actual whitespace for display.
  */

@@ -24,30 +24,28 @@ final class StudioAiProviderCredentials {
     }
     if (StudioAiLlmKind.XAI_NATIVE == n) {
       return firstNonBlank(
-        System.getenv('XAI_OPENAI_BASE_URL'),
+        System.getenv('XAI_BASE_URL'),
         System.getProperty('crafter.xai.llmBaseUrl'),
         'https://api.x.ai'
       )
     }
     if (StudioAiLlmKind.DEEPSEEK_NATIVE == n) {
       return firstNonBlank(
-        System.getenv('DEEPSEEK_OPENAI_BASE_URL'),
+        System.getenv('DEEPSEEK_BASE_URL'),
         System.getProperty('crafter.deepseek.llmBaseUrl'),
         'https://api.deepseek.com'
       )
     }
     if (StudioAiLlmKind.LLAMA_NATIVE == n) {
       return firstNonBlank(
-        System.getenv('LLAMA_OPENAI_BASE_URL'),
-        System.getenv('OLLAMA_OPENAI_BASE_URL'),
+        System.getenv('LLAMA_BASE_URL'),
         System.getProperty('crafter.llama.llmBaseUrl'),
         'http://127.0.0.1:11434'
       )
     }
     if (StudioAiLlmKind.GEMINI_NATIVE == n) {
       return firstNonBlank(
-        System.getenv('GEMINI_OPENAI_BASE_URL'),
-        System.getenv('GOOGLE_GENAI_OPENAI_BASE_URL'),
+        System.getenv('GEMINI_BASE_URL'),
         System.getProperty('crafter.gemini.llmBaseUrl'),
         'https://generativelanguage.googleapis.com/v1beta/openai'
       )
@@ -70,11 +68,11 @@ final class StudioAiProviderCredentials {
   /**
    * Absolute POST URL for OpenAI Images-compatible {@code /v1/images/generations}.
    * Defaults to the same host family as {@link #wireLlmRestBaseUrl}{@code (OPENAI_NATIVE)}; override with
-   * {@code OPENAI_IMAGES_OPENAI_BASE_URL} or JVM {@code crafter.openai.imagesBaseUrl} when using a compatible proxy.
+   * {@code OPENAI_IMAGES_BASE_URL} or JVM {@code crafter.openai.imagesBaseUrl} when using a proxy for the Images API.
    */
   static String httpLlmImagesGenerationsUrl() {
     String b = firstNonBlank(
-      System.getenv('OPENAI_IMAGES_OPENAI_BASE_URL'),
+      System.getenv('OPENAI_IMAGES_BASE_URL'),
       System.getProperty('crafter.openai.imagesBaseUrl'),
       wireLlmRestBaseUrl(StudioAiLlmKind.OPENAI_NATIVE)
     )
@@ -240,7 +238,7 @@ final class StudioAiProviderCredentials {
       }
       if (!raw) {
         throw new IllegalStateException(
-          'The OpenAI chat model is not configured properly. Set the agent LLM / llmModel in Studio (for example ui.xml), pass llmModel on the chat request, or set JVM property crafter.openai.model to a valid OpenAI chat model id.'
+          'The chat model is not configured properly. Set the agent LLM / llmModel in Studio (for example ui.xml), pass llmModel on the chat request, or set JVM property crafter.openai.model to a valid model id for this agent.'
         )
       }
       return plugins.org.craftercms.aiassistant.orchestration.AiOrchestration.llmCanonicalizeApiModelToken(raw)

@@ -132,8 +132,8 @@ for (Object raw : (List) agents) {
     startAutomatically          : startAutomatically,
     stopOnFailure               : stopOnFailure
   ]
-  if (a.get('expertSkills') instanceof List && !((List) a.get('expertSkills')).isEmpty()) {
-    agentDef.put('expertSkills', new ArrayList((List) a.get('expertSkills')))
+  if (a.get('skills') instanceof List && !((List) a.get('skills')).isEmpty()) {
+    agentDef.put('skills', new ArrayList((List) a.get('skills')))
   }
   AutonomousAssistantRegistry.putAgent(siteId, fullId, agentDef)
   AutonomousAssistantStateStore.ensureEntry(fullId, [

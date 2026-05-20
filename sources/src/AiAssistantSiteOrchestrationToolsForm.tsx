@@ -19,6 +19,7 @@ import {
   patchBuiltInToolSettings
 } from './builtInToolSettings/registry';
 import { BUILTIN_ORCHESTRATION_TOOL_WIRES, isBuiltInToolEnabled, setBuiltInToolEnabled } from './aiAssistantToolsPolicyUi';
+import AiAssistantRagPolicyFields from './AiAssistantRagPolicyFields';
 
 export interface AiAssistantSiteOrchestrationToolsFormProps {
   value: ToolsPolicyFormState;
@@ -50,6 +51,13 @@ export default function AiAssistantSiteOrchestrationToolsForm(props: AiAssistant
       <Typography variant="body2" color="text.secondary">
         Intent recipe routing and the recipe catalog are configured under the <strong>Recipes</strong> tab.
       </Typography>
+
+      <AiAssistantRagPolicyFields
+        pluginRag={value.pluginRag}
+        agentSkillsRag={value.agentSkillsRag}
+        onPluginRagChange={(pluginRag) => onChange({ ...value, pluginRag })}
+        onAgentSkillsRagChange={(agentSkillsRag) => onChange({ ...value, agentSkillsRag })}
+      />
 
       <Paper variant="outlined" sx={{ p: 2.5 }}>
         <Typography variant="subtitle2" gutterBottom>

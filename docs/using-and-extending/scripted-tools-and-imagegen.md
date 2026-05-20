@@ -248,7 +248,7 @@ Compiled closures are cached **per site + id** with a SHA-256 of the script text
 
 **Chat** backends live under **`config/studio/scripts/aiassistant/llm/{id}/`** (not `user-tools/` or `imagegen/`). They implement **`StudioAiLlmRuntime`** or the documented **Map** bundle contract — see **[llm-configuration.md](llm-configuration.md)** and the plugin **`docs/examples/aiassistant-llm/`** tree.
 
-For a **real-world Groovy `StudioAiLlmRuntime` class** that builds the **full** Spring AI session (your vendor’s base URL + API key for Studio’s **tools-loop** chat, **no** delegation to built-in vendor runtimes), see **[script-llm-bring-your-own-backend.md](script-llm-bring-your-own-backend.md)** and the sample **`docs/examples/aiassistant-llm/byo-openai-compat/runtime.groovy`** (folder name is the example **script id**, not a vendor claim). For **Groq**, see **`docs/examples/aiassistant-llm/groq/runtime.groovy`** in the same doc.
+For a **real-world Groovy `StudioAiLlmRuntime` class** that builds the **full** Spring AI session (your vendor’s base URL + API key for Studio’s **tools-loop** chat, **no** delegation to built-in vendor runtimes), see **[script-llm-bring-your-own-backend.md](script-llm-bring-your-own-backend.md)** and the sample **`docs/examples/aiassistant-llm/byo-llm/runtime.groovy`**. For **Groq**, see **`docs/examples/aiassistant-llm/groq/runtime.groovy`** in the same doc.
 
 ---
 

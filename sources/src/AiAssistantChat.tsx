@@ -46,7 +46,7 @@ import {
   mergePipelineTimingFields,
   parseNonNegativeNumber
 } from './pipelineTiming';
-import type { ExpertSkillConfig, PromptConfig } from './agentConfig';
+import type { AgentSkillConfig, PromptConfig } from './agentConfig';
 import type { AuthoringFormContextSnapshot } from './aiAssistantFormAuthoringTypes';
 import MarkdownMessage, { normalizeLlmLiteralEscapes } from './MarkdownMessage';
 import GenerateImageBlurredPlaceholder from './GenerateImageBlurredPlaceholder';
@@ -59,7 +59,7 @@ import {
 import { getSpeechRecognitionCtor } from './browserSpeechRecognition';
 import { formatIntentRecipeChatLine, intentRecipeLineFromRoutingTelemetry } from './intentRecipeChatDisplay';
 import { STUDIO_AI_DEFAULT_IMAGE_MODEL } from './studioAiOrchestrationToolIds';
-/** OpenAI transport: send default image model when agent/panel snapshot omitted it (server applies the same default). */
+/** When llm is openAI: send default image model when agent/panel snapshot omitted it (server applies the same default). */
 function resolveWireImageModel(llm: string | undefined, imageModel: string | undefined): string | undefined {
   const trimmed = imageModel?.trim();
   if (trimmed) return trimmed;
@@ -1194,7 +1194,7 @@ type UiMessage = {
   toolPipelineTaskCompletionSec?: number;
   /** Transient: server signaled final narrative is starting (cleared when summary text arrives). */
   summarizingResults?: boolean;
-  /** In-place wait indicator while the OpenAI+tools worker is busy (SSE `pipeline-heartbeat`; not tool-log lines). */
+  /** In-place wait indicator while the LLM worker is busy (SSE `pipeline-heartbeat`; not tool-log lines). */
   pipelineHeartbeat?: { elapsedSec: number; nextInSec: number; hint: string };
   /** URLs for {@code studio-ai-inline-image://toolCallId} from server SSE (see {@code writeToolProgressSse} GenerateImage rows). */
   studioAiInlineImageUrls?: Record<string, string>;
@@ -1332,7 +1332,7 @@ function abbreviateAssistantTurnForPriorContext(body: string): string {
 }
 
 /**
- * Abbreviated prior user/assistant turns so OpenAI single-turn requests retain conversational continuity
+ * Abbreviated prior user/assistant turns so LLM single-turn requests retain conversational continuity
  * without multi-message API history. Used for **every** AI panel embed (XB/ICE preview sidebar, floating dialog,
  * content-type form assistant) — not form-engine-specific.
  */
@@ -1372,7 +1372,7 @@ export interface AiAssistantChatProps {
   /** Agent `llm` from agents.json (or ICE inline props). Server merges from catalog when omitted on POST. */
   llm?: string;
   llmModel?: string;
-  /** OpenAI Images API model for GenerateImage; from agents.json **imageModel** or request body only (no default). */
+  /** Image model for GenerateImage; from agents.json **imageModel** or request body only (no server default). */
   imageModel?: string;
   /** GenerateImage backend from agents.json **imageGenerator** or stream POST. */
   imageGenerator?: string;
@@ -1397,7 +1397,7 @@ export interface AiAssistantChatProps {
    */
   formEngineClientJsonApply?: boolean;
   /**
-   * When false, POST omits OpenAI function tools (agents.json `enableTools`).
+   * When false, POST omits native function tools for the LLM request (agents.json `enableTools`).
    * Applies on **all** surfaces (XB/ICE, dialog, form engine). Focused no-tools turns also use quick-prompt **`omitTools`** (see {@link PromptConfig.omitTools} / POST **`omitTools`**).
    */
   enableTools?: boolean;
@@ -1405,8 +1405,8 @@ export interface AiAssistantChatProps {
    * Optional subset of built-in tool wire names (POST **enabledBuiltInTools**). Include **`mcp:*`** for all MCP tools.
    */
   enabledBuiltInTools?: string[];
-  /** Optional per-agent markdown RAG URLs (OpenAI); sent as `expertSkills` on stream POST. */
-  expertSkills?: ExpertSkillConfig[];
+  /** Enabled per-agent markdown skills sent on stream POST. */
+  skills?: AgentSkillConfig[];
   /** 1–64; sent on stream POST for TranslateContentBatch default parallelism (agents.json translateBatchConcurrency). */
   translateBatchConcurrency?: number;
 }
@@ -1427,7 +1427,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     formEngineClientJsonApply,
     enableTools,
     enabledBuiltInTools,
-    expertSkills,
+    skills,
     translateBatchConcurrency
   } = props;
   /** Widget **`agentId`** from agent configuration (UUID when applicable). */
@@ -1992,7 +1992,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
         ...(omitToolsThisSend ? { omitTools: true } : {}),
         ...(enableTools === false ? { enableTools: false } : {}),
         ...(Array.isArray(enabledBuiltInTools) && enabledBuiltInTools.length > 0 ? { enabledBuiltInTools } : {}),
-        ...(Array.isArray(expertSkills) && expertSkills.length > 0 ? { expertSkills } : {}),
+        ...(Array.isArray(skills) && skills.length > 0 ? { skills } : {}),
         ...(translateBatchConcurrency != null &&
         Number.isFinite(translateBatchConcurrency) &&
         translateBatchConcurrency >= 1 &&
@@ -2278,7 +2278,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
         }
       });
 
-      // OpenAI + multi-step tools can exceed several minutes; cap aligns with the plugin orchestration stream await default.
+      // LLM tools-loop + multi-step tools can exceed several minutes; cap aligns with the plugin orchestration stream await default.
       const CHAT_STREAM_TIMEOUT_MS = 600000;
       let streamTimeoutId: number | undefined;
       const timeoutPromise = new Promise<never>((_, reject) => {

@@ -7,14 +7,16 @@
  */
 export type AgentLlm = string;
 
-/** Optional per-agent markdown RAG source (OpenAI path); configured in `agents.json` as `expertSkills`. */
-export interface ExpertSkillConfig {
+/** Per-agent markdown skill (URL indexed for **QueryExpertGuidance** when enabled). */
+export interface AgentSkillConfig {
   /** Display name for the system prompt table. */
   name?: string;
   /** Public http(s) URL whose body is treated as UTF-8 markdown for chunking + embeddings. */
   url: string;
   /** When to call QueryExpertGuidance for this skill. */
   description?: string;
+  /** When true, skill is sent on chat requests and indexed; omitted or false = off (default). */
+  enabled?: boolean;
 }
 
 export interface AgentConfig {
@@ -33,8 +35,8 @@ export interface AgentConfig {
   /** Provider id (e.g. `openAI`, `claude`, `script:…`). Omitted on the client when unset; server merges from `agents.json` when possible. */
   llm?: AgentLlm;
   /**
-   * When false (`enableTools: false` in `agents.json`), the plugin sends `enableTools: false` so OpenAI
-   * requests omit function tools. Omitted or true: default (tools on for OpenAI).
+   * When false (`enableTools: false` in `agents.json`), the plugin sends `enableTools: false` so the
+   * LLM request omits native function tools. Omitted or true: default (tools on for tools-loop vendors).
    */
   enableTools?: boolean;
   /**
@@ -44,22 +46,22 @@ export interface AgentConfig {
   enabledBuiltInTools?: string[];
   /** Optional provider model id when `llm` is `openAI` (e.g. `gpt-4o-mini`). */
   llmModel?: string;
-  /** OpenAI Images API model when llm is openAI (e.g. gpt-image-1) — no JVM fallback. */
+  /** Image generation model id when using built-in image API (e.g. gpt-image-1). */
   imageModel?: string;
   /**
    * GenerateImage backend. Blank = built-in GenerateImage HTTP wire when configured; values **none**, **off**, or **disabled** turn the tool off; **script:{id}** runs `/scripts/aiassistant/imagegen/{id}/generate.groovy`.
    */
   imageGenerator?: string;
   /**
-   * Optional OpenAI API key from agent config — **not recommended** (exposed in Studio config / sent on requests).
+   * Optional per-agent API key in config — **not recommended** (exposed in Studio config / sent on requests).
    * Used only when `OPENAI_API_KEY` / JVM keys are unset. For local testing.
    */
   llmApiKey?: string;
   /** Key in site {@code secrets.json} for this agent's LLM credentials (e.g. {@code openai_api_key}). Omitted for script LLMs. */
   llmSecretKey?: string;
   prompts?: PromptConfig[];
-  /** Markdown URLs for server-side QueryExpertGuidance (Spring AI vector store); OpenAI agents only. */
-  expertSkills?: ExpertSkillConfig[];
+  /** Markdown URL skills (`agents.json` **`skills`**); only **enabled** rows are sent on chat. */
+  skills?: AgentSkillConfig[];
   /**
    * Parallel **TranslateContentBatch** workers when the model omits **maxConcurrency** (1–64).
    * `agents.json`: **`translateBatchConcurrency`** (or `translate_batch_concurrency`). Omitted → server default **25**.
@@ -129,7 +131,7 @@ export function dropPlaceholderAgentsWhenRicherMatchesExist(agents: AgentConfig[
 export type PromptConfig = {
   userText: string;
   additionalContext?: string;
-  /** When true, chip-triggered request sends {@code omitTools} — OpenAI omits tools for that LLM call (copy/generation focus). */
+  /** When true, chip-triggered request sends {@code omitTools} — that LLM call omits native tools (copy/generation focus). */
   omitTools?: boolean;
 };
 
@@ -160,36 +162,40 @@ export const DEFAULT_FORM_CONTROL_AGENTS: AgentConfig[] = [
   }
 ];
 
-export function normalizeExpertSkillsRaw(raw: unknown): ExpertSkillConfig[] | undefined {
-  if (raw == null) return undefined;
-  const rows: ExpertSkillConfig[] = [];
-  const pushFromRecord = (r: Record<string, unknown>) => {
+function parseSkillEnabled(r: Record<string, unknown>): boolean {
+  const v = r.enabled;
+  if (v === true) return true;
+  if (v === false) return false;
+  const s = extractString(v)?.toLowerCase();
+  return s === 'true' || s === '1' || s === 'yes';
+}
+
+export function normalizeAgentSkillsRaw(raw: unknown): AgentSkillConfig[] | undefined {
+  if (!Array.isArray(raw) || !raw.length) return undefined;
+  const rows: AgentSkillConfig[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const r = item as Record<string, unknown>;
     const url = extractString(r.url) ?? extractString(r.href);
-    if (!url?.trim()) return;
+    if (!url?.trim()) continue;
     rows.push({
-      name: extractString(r.name) ?? 'Expert guidance',
+      name: extractString(r.name) ?? 'Skill',
       url: url.trim(),
-      description: extractString(r.description) ?? ''
+      description: extractString(r.description) ?? '',
+      enabled: parseSkillEnabled(r)
     });
-  };
-  if (Array.isArray(raw)) {
-    for (const item of raw) {
-      if (!item || typeof item !== 'object') continue;
-      pushFromRecord(item as Record<string, unknown>);
-    }
-  } else if (typeof raw === 'object') {
-    const o = raw as Record<string, unknown>;
-    const nested = o.expertSkill;
-    if (Array.isArray(nested)) {
-      for (const item of nested) {
-        if (!item || typeof item !== 'object') continue;
-        pushFromRecord(item as Record<string, unknown>);
-      }
-    } else if (nested && typeof nested === 'object') {
-      pushFromRecord(nested as Record<string, unknown>);
-    }
   }
   return rows.length ? rows : undefined;
+}
+
+/** Skills that should be sent on stream/chat (`enabled` and non-empty URL). */
+export function agentSkillsForRequest(
+  agent: Pick<AgentConfig, 'skills'> | undefined | null
+): AgentSkillConfig[] | undefined {
+  const raw = agent?.skills;
+  if (!raw?.length) return undefined;
+  const on = raw.filter((s) => s.enabled === true && (s.url || '').trim());
+  return on.length ? on : undefined;
 }
 
 export function normalizeEnabledBuiltInToolsRaw(raw: unknown): string[] | undefined {

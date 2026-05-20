@@ -1,0 +1,84 @@
+# OpenAISpec vs OpenAI naming
+
+Use consistent terms so readers know whether code targets **OpenAI Inc.** or the **portable chat/tools wire** many vendors share.
+
+## OpenAISpec (generic wire)
+
+Use **OpenAISpec** in comments, docs, and user-facing copy when describing:
+
+- **`/v1/chat/completions`** request/response shape (messages, `tools[]`, `tool_calls`, `role: tool`, streaming SSE deltas)
+- **Tools-loop** orchestration shared by **`openAI`**, **`xAI`**, **`deepSeek`**, **`llama`**, **`gemini`**, and **`script:{id}`** hosts on that wire
+- JSON Schema for function tools on the wire (`StudioAiToolSchemas`, `FunctionToolCallback` `inputSchema`)
+- **`ChatCompletionsToolWire`**, payload caps, `max_tokens` / `max_completion_tokens` bridging
+- Inner completions that reuse the same chat wire without attaching tools (`GenerateTextNoTools`, translate inner passes) — even when the **vendor** is xAI/DeepSeek/etc.
+
+**Code identifiers:** prefer **`OpenAiSpec`** in Java/Groovy class names (e.g. `OpenAiSpecSpringAiLlmRuntime`). In prose and markdown use **OpenAISpec**.
+
+**Do not** call these “OpenAI” unless the behavior is **only** valid on OpenAI Inc.’s product.
+
+## OpenAI (vendor only)
+
+Reserve **OpenAI** for OpenAI Inc.–specific behavior:
+
+- **`llm` `openAI`** / **`OPENAI_NATIVE`** / **`OPENAI_API_KEY`** / default host `api.openai.com`
+- **Images API** (`GenerateImage`, `gpt-image-1`, `imageModel`, `POST /v1/images/generations`)
+- **Embeddings** via OpenAI embedding models (`text-embedding-3-small`, `OpenAiEmbeddingModel` in Spring AI)
+- UI labels for the OpenAI secret row, per-agent key on **`openAI`** agents, OpenAI product docs links
+
+## Unchanged wire tokens
+
+Keep stable config/API spellings: **`openAI`**, **`openAiApiKey`**, Spring AI types **`OpenAiChatModel`**, **`OpenAiApi`**, env **`OPENAI_API_KEY`**. Document what they mean (vendor vs OpenAISpec) in comments; do not rename wire fields without an explicit migration.
+
+## LLM base URL env vars (no `*_OPENAI_*` in the name)
+
+Use **`{VENDOR}_BASE_URL`** for tools-loop chat hosts. JVM mirrors: **`crafter.{vendor}.llmBaseUrl`**. Do **not** read legacy names such as **`XAI_OPENAI_BASE_URL`**, **`OLLAMA_OPENAI_BASE_URL`**, **`SCRIPT_LLM_OPENAI_COMPAT_BASE_URL`**, or **`GROQ_OPENAI_COMPAT_BASE_URL`**.
+
+| Vendor / use | Env | JVM (optional) |
+|--------------|-----|----------------|
+| xAI | **`XAI_BASE_URL`** | **`crafter.xai.llmBaseUrl`** |
+| DeepSeek | **`DEEPSEEK_BASE_URL`** | **`crafter.deepseek.llmBaseUrl`** |
+| Llama / Ollama | **`LLAMA_BASE_URL`** | **`crafter.llama.llmBaseUrl`** |
+| Gemini tools-loop | **`GEMINI_BASE_URL`** | **`crafter.gemini.llmBaseUrl`** |
+| OpenAI Images API | **`OPENAI_IMAGES_BASE_URL`** | **`crafter.openai.imagesBaseUrl`** |
+| Script LLM (BYO) | **`SCRIPT_LLM_BASE_URL`** | (set in script) |
+| Groq sample | **`GROQ_BASE_URL`** | (set in script) |
+
+## LLM (vendor- and wire-agnostic)
+
+In **comments**, **Javadoc**, and **log messages**, prefer **LLM** when the point is only “we call the model / await completion / stream tokens” and **neither** OpenAI Inc. **nor** the OpenAISpec wire shape adds clarity.
+
+Examples: wait indicators, plan gates, client abort during tool workflow, generic “upstream returned 400”, inner translate passes described as a second model call.
+
+**Do not** use **LLM** when the reader must know **which** transport (OpenAISpec vs Anthropic) or **which** vendor (OpenAI Images, `OPENAI_API_KEY`).
+
+## Model-facing prompts (vendor-neutral)
+
+Strings that reach the **chat model** — `ToolPrompts` system/user policy, tool **`description`** / JSON Schema **`description`**, inner-worker system prompts, tool **result `message`** fields the model reads — must **not** name vendors or product brands unless unavoidable for a **vendor-only** operator doc (not model text).
+
+| Avoid in model text | Use instead |
+|---------------------|-------------|
+| OpenAI completion / request / call | **LLM completion**, **inner LLM pass**, **second model pass** |
+| GPT‑5 / gpt-5-nano / gpt-4o-mini examples | **Some chat models**; **smaller model in the same family** (no concrete model ids) |
+| GPT Image / OpenAI Images API | **configured image backend**, **built-in images API** (when size/quality applies) |
+| OpenAI products or billing (plans) | **external AI vendors**, **model brands**, **billing** |
+
+**OK in model text:** Crafter Studio, tool names (`GetContent`, `GenerateImage`), **LLM**, **inner completion**, **imageModel**, generic **chat models**.
+
+**Author/setup markdown** shown only in Studio UI (not injected as model system text) may mention `OPENAI_API_KEY` / `openAI` when explaining configuration.
+
+## Studio UI labels (Project Tools, Secrets, RAG)
+
+- **LLM provider** dropdown: use `llmVendorDisplayLabel()` in `studioAiOrchestrationToolIds.ts` — neutral names for wire ids (e.g. `openAI` → “Compatible chat API”); keep raw ids in saved JSON.
+- **Secrets** built-in rows: provider name + “API key” (e.g. “OpenAI API key”) — vendor is relevant because it identifies which credential slot.
+- **Image model**, **embedding model**, skills caption: no “OpenAI Images” / “GPT Image” marketing; describe **built-in image API**, **embeddings API**, or **imageModel** instead.
+- Model id **examples** in helper text (`gpt-image-1`, `text-embedding-3-small`) are fine — they are configuration values, not vendor branding in prose.
+
+## Quick check
+
+| Topic | Term |
+|--------|------|
+| xAI uses same tools loop as `openAI` | OpenAISpec tools-loop |
+| `gpt-4o-mini` on api.openai.com | OpenAI vendor |
+| Invalid tool JSON Schema on Groq | OpenAISpec-shaped `tools[]` |
+| Plugin RAG / skills embeddings | OpenAI vendor (embeddings API) |
+| “Streaming hung until timeout” (generic) | LLM |

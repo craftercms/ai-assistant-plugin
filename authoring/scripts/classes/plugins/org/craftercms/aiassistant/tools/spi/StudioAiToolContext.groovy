@@ -142,7 +142,7 @@ class StudioAiToolContext {
     Builder toolProgressListener(Closure v) { this.toolProgressListener = v; return this }
     /** Persists vendor API key material for bitmap generation; returns {@code this}. */
     Builder apiKeyForImages(String v) { this.apiKeyForImages = v; return this }
-    /** Sets configured OpenAI-compatible image SKU; returns {@code this}. */
+    /** Sets configured OpenAI vendor image SKU; returns {@code this}. */
     Builder imageModel(String v) { this.imageModel = v; return this }
     /** Mirrors servlet attribute suppressing repo writes; returns {@code this}. */
     Builder fullSuppressRepoWrites(boolean v) { this.fullSuppressRepoWrites = v; return this }

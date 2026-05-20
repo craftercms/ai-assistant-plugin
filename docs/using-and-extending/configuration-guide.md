@@ -274,7 +274,7 @@ Each **chat** row (`mode: chat` or omitted) is one Helper picker entry (and one 
 - **`label`** — Display name.
 - **`agentId`** — System-generated UUID for the row (read-only in Project Tools). Sent as **`agentId`** on stream/chat; do not change after go-live.
 - **`llm`** — **`openAI`**, **`claude`**, **`xAI`**, **`deepSeek`**, **`llama`**, **`gemini`**, or **`script:{id}`**. Unsupported hosted-only values (**`aiassistant`**, **`hostedchat`**, …) return **HTTP 400**.
-- **`llmModel`**, **`imageModel`**, **`imageGenerator`**, **`enableTools`**, **`enabledBuiltInTools`**, **`prompts`**, **`expertSkills`**, etc.
+- **`llmModel`**, **`imageModel`**, **`imageGenerator`**, **`enableTools`**, **`enabledBuiltInTools`**, **`prompts`**, **`skills`** (per-agent markdown URLs), etc.
 - **`llmSecretKey`** (optional) — In Project Tools, pick a row from **Secrets** for this agent: the built-in slot for the agent’s current **`llm`** provider, or a **custom** secret key. When set, runtime resolves that entry from **`secrets.json`** instead of only the provider default row. Omit to use the provider’s default secret row.
 
 **Autonomous** rows use **`mode: autonomous`** with **`name`**, **`schedule`**, **`prompt`**, **`scope`**, and the same LLM fields.
@@ -481,6 +481,32 @@ config/studio/scripts/aiassistant/config/tools.json
 | **`enabledBuiltInTools`** | If this array is **non‑empty**, it is a **whitelist** of **built‑in** tool wire names to **keep**; every other built‑in is removed **except** **`InvokeSiteUserTool`** and any **`mcp_*`** tools (unless those appear in **`disabledBuiltInTools`** / **`disabledMcpTools`**). Names must match the registered tool string **exactly** (case‑sensitive). If **omitted** or **empty**, all built‑ins are available minus **`disabledBuiltInTools`**. |
 | **`builtInToolSettings`** | Per–built-in tool options (not enable/disable). **`SerpApiWebSearch.defaults`** holds Google/SerpAPI params (`engine`, `gl`, `hl`, **`tbs`** for date range such as **`qdr:w`** past week, etc.). Configure **`serpapi_api_key`** on **Secrets** only — missing or unresolved key fails the tool call; Studio does not hide the wire or substitute another search tool. |
 | **`disabledUserTools`** | JSON array of site user tool ids (from **`user-tools/registry.json`**) to hide from **`InvokeSiteUserTool`** while keeping registry rows. |
+| **`pluginRag`** | Bundled instruction RAG before the tools loop (**`mode`**: **`off`** default, **`supplement`**, **`replace`**; sliders for kernel size, retrieval **topK**, appendix/chunk limits). |
+| **`agentSkillsRag`** | Limits for per-agent markdown **skills** (**`QueryExpertGuidance`**): max enabled skills per request, embedding model, chunk caps. |
+
+**Studio UI:** **Project Tools → Agents** → open an agent → **Site orchestration (tools.json)** — RAG sliders and built-in tool toggles. Intent recipe routing remains on the **Recipes** tab.
+
+**Example — plugin RAG off (default), agent skills limits explicit:**
+
+```json
+{
+  "pluginRag": {
+    "mode": "off",
+    "kernelMaxChars": 5200,
+    "topK": 8,
+    "maxAppendChars": 14000,
+    "maxChunkChars": 1800,
+    "maxChunks": 400,
+    "embedBatchSize": 64
+  },
+  "agentSkillsRag": {
+    "maxSkills": 12,
+    "embeddingModel": "text-embedding-3-small",
+    "maxChunks": 400,
+    "maxChunkChars": 1800
+  }
+}
+```
 
 **Registered built-in wire names** — use these strings verbatim in **`disabledBuiltInTools`**, **`enabledBuiltInTools`**, and **`omitTools`**. Canonical UI list: **`sources/src/studioAiOrchestrationToolIds.ts`** (`STUDIO_AI_BUILTIN_TOOL_IDS`); server registration in **`AiOrchestrationTools.groovy`**. When MCP is enabled, the server also registers dynamic **`mcp_<serverId>_<toolName>`** tools (sanitized); those are not listed here.
 

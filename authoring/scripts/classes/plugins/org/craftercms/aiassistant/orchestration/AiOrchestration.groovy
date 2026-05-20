@@ -85,7 +85,7 @@ import reactor.core.publisher.Flux
  * Central place for server-side orchestration for the <strong>Studio AI Assistant</strong> plugin.
  *
  * <p><strong>LLM adapters:</strong> Chat sessions are built through {@link StudioAiLlmRuntime} implementations
- * ({@link OpenAiSpringAiLlmRuntime}, {@link AnthropicSpringAiLlmRuntime}, {@link StudioAiScriptLlmContainerRuntime} for
+ * ({@link OpenAiSpecSpringAiLlmRuntime}, {@link AnthropicSpringAiLlmRuntime}, {@link StudioAiScriptLlmContainerRuntime} for
  * {@code script:…} site Groovy). Each agent must configure a supported {@code llm}; there is no implicit hosted remote chat adapter.
  * Additional providers should implement {@link StudioAiLlmRuntime}, register in {@link StudioAiLlmRuntimeFactory}, and extend
  * {@link StudioAiLlmKind}.</p>
@@ -119,7 +119,7 @@ class AiOrchestration {
    * held server-side and expanded into the final assistant text for SSE only (see
    * {@link ChatCompletionsToolWire#STUDIO_AI_INLINE_IMAGE_REF_PREFIX}).</p>
    */
-  /** Cap for tools-loop {@code /v1/chat/completions} JSON body size (any native-tools vendor — not OpenAI-specific). */
+  /** Cap for tools-loop {@code /v1/chat/completions} JSON body size (any tools-loop vendor). */
   private static final int NATIVE_TOOLS_WIRE_JSON_MAX_CHARS = 36_000
 
   /**
@@ -937,7 +937,7 @@ For **content XML** (pages/components): do not invent a new element tree — pre
 
   /**
    * Parses vendor JSON bodies heuristically for unknown-model / permission strings.
-   * Uses substring guards across OpenAI-compatible variants.
+   * Uses substring guards across chat-completions response bodies from the LLM.
    * Lets orchestration normalize models instead of failing opaque 400s.
    */
   private static boolean responseBodyLooksLikeInvalidModelId(String responseBody) {
@@ -1045,7 +1045,7 @@ For **content XML** (pages/components): do not invent a new element tree — pre
   }
 
   /**
-   * When bundled inner tools omit {@code llmModel}, pick a **smaller** model in the **same** OpenAI family as
+   * When bundled inner tools omit {@code llmModel}, pick a **smaller** model in the **same** model family as
    * {@code defaultChatModel} (main chat): e.g. {@code gpt-5-2025-08-07} → {@code gpt-5-nano}, {@code gpt-4o} → {@code gpt-4o-mini}.
    * Used by {@code TransformContentSubgraph} and {@code TranslateContentItem}.
    */
@@ -1144,7 +1144,7 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     return normalizeImagesApiModelId(canon)
   }
 
-  /** Per-request expert skill URLs from the client (see {@code aiassistant.expertSkills} request attribute). */
+  /** Per-request enabled agent skills from the client (see {@code aiassistant.expertSkills} request attribute). */
   List<Map> readExpertSkillSpecsFromRequest() {
     try {
       def v = request?.getAttribute('aiassistant.expertSkills')
@@ -1162,7 +1162,7 @@ For **content XML** (pages/components): do not invent a new element tree — pre
   }
 
   /**
-   * Builds the Spring AI chat client + tools via {@link StudioAiLlmRuntime} ({@link OpenAiSpringAiLlmRuntime}, Claude, script hosts).
+   * Builds the Spring AI chat client + tools via {@link StudioAiLlmRuntime} ({@link OpenAiSpecSpringAiLlmRuntime}, Claude, script hosts).
    */
   private Map buildSpringAiChatClient(
     String agentId,
@@ -1268,7 +1268,7 @@ For **content XML** (pages/components): do not invent a new element tree — pre
   }
 
   /**
-   * OpenAI authoring <strong>system</strong> text only — same assembly as {@link #authoringPrompt} uses for
+   * Tools-loop authoring <strong>system</strong> text only — same assembly as {@link #authoringPrompt} uses for
    * {@link SystemMessage}, without servlet {@code request}. Used by the autonomous worker (and keeps stream + headless aligned).
    *
    * @param expertSkillSpecsNormalized maps with {@code skillId}, {@code name}, {@code url}, {@code description}
@@ -1288,7 +1288,8 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     String utEarly = (userTextForRagAdjust ?: '').toString()
     String normProt = AuthoringPreviewContext.normalizeRepoPath(protectedFormItemPathNormalized)
     def core = toolSchemasOnApi ? ToolPrompts.getLlm_AUTHORING_INSTRUCTIONS() : ToolPrompts.getLlm_CHAT_ONLY_SYSTEM()
-    core = PluginRagVectorRegistry.adjustAuthoringCore(core, site, utEarly, studioOps, llmApiKey, toolSchemasOnApi)
+    Map projectCfg = studioOps != null ? StudioAiAssistantProjectConfig.load(studioOps) : Collections.emptyMap()
+    core = PluginRagVectorRegistry.adjustAuthoringCore(core, site, utEarly, studioOps, llmApiKey, toolSchemasOnApi, projectCfg)
     String sys = core
     if (fullSuppressRepoWrites) {
       sys += ToolPrompts.getLlm_FORM_ENGINE_SUPPRESS_REPO_WRITES()
@@ -1319,7 +1320,7 @@ For **content XML** (pages/components): do not invent a new element tree — pre
   }
 
   /**
-   * Includes active site id when available. When {@code toolSchemasOnApi} is false, system text matches OpenAI requests
+   * Includes active site id when available. When {@code toolSchemasOnApi} is false, system text matches LLM requests
    * that omit function tools ({@code <enableTools>false</enableTools>}).
    */
   private Prompt authoringPrompt(
@@ -1491,7 +1492,7 @@ For **content XML** (pages/components): do not invent a new element tree — pre
   }
 
   /**
-   * Reads OpenAI {@code text/event-stream} chat.completions chunks and forwards assistant deltas as Studio SSE.
+   * Reads upstream LLM {@code text/event-stream} chat.completions chunks and forwards assistant deltas as Studio SSE.
    */
   private static void copyUpstreamSseChatCompletionsToStudio(
     InputStream upstream,
@@ -1632,7 +1633,7 @@ For **content XML** (pages/components): do not invent a new element tree — pre
   /**
    * Indexes callbacks by wire-safe tool names for O(1) dispatch.
    * Throws when duplicates appear to prevent ambiguous executions.
-   * Feeds parallel Anthropic/OpenAI bridging layers.
+   * Feeds parallel Anthropic / tools-loop bridging layers.
    */
   private static Map<String, FunctionToolCallback> toolCallbacksByName(List tools) {
     Map<String, FunctionToolCallback> m = new LinkedHashMap<>()
@@ -1801,10 +1802,10 @@ For **content XML** (pages/components): do not invent a new element tree — pre
 Studio matched **Generate image (bitmap)** for this turn, but the **GenerateImage** tool is not available in this session.
 
 **Check:**
-- **Project Tools → AI Assistant → Agents** — save the chat agent with an **Image model** (stored in `config/studio/ai-assistant/agents.json`), or
-- **OpenAI API key** — set `OPENAI_API_KEY` (or the site LLM key your Studio uses for `openAI`).
+- **Project Tools → AI Assistant → Agents** — save the chat agent with an **Image model** (`imageModel` in `config/studio/ai-assistant/agents.json`), or
+- **LLM / images API key** — configure the key your Studio site uses for the agent’s LLM kind (e.g. `OPENAI_API_KEY` when the agent uses `openAI`).
 
-OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when generation is enabled. Retry the same prompt after keys/catalog are in place.'''
+When the built-in images wire is enabled, set **imageModel** on the agent or pass it on the chat request — there is no server default. Retry the same prompt after keys and catalog are in place.'''
   }
 
   private static String synthesizeForcedToolUnavailableMarkdown(
@@ -2888,7 +2889,7 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
 
   /**
    * Last line of defense: some Studio builds / classpath merges have still sent {@code temperature} for gpt-5/o
-   * and OpenAI returns 400. Parse wire JSON and drop {@code temperature} when {@link #modelNeedsNeoChatCompletionWireParams} applies.
+   * and the upstream LLM returns 400. Parse wire JSON and drop {@code temperature} when {@link #modelNeedsNeoChatCompletionWireParams} applies.
    */
   /**
    * Last-resort strip when JsonSlurper path fails or another layer reintroduces {@code temperature}.
@@ -6770,7 +6771,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
   }
 
   /**
-   * OpenAI + native tools off: explicit {@code stream=true} on the request record (no {@link OpenAiChatModel} merge).
+   * Tools-loop path with native tools off: explicit {@code stream=true} on the request record (no {@link OpenAiChatModel} merge).
    * Uses {@link RestClient} {@code exchange} + line-wise SSE parsing so token deltas reach Studio (same HTTP path
    * that avoids {@code retrieve().body(String)} truncation). Emits Studio SSE then returns.
    */
@@ -6906,7 +6907,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     return t
   }
 
-  /** OpenAI errors often include a JSON body with {@code error.message} — log / surface it for debugging. */
+  /** Upstream chat errors often include a JSON body with {@code error.message} — log / surface it for debugging. */
   private static String extractChatCompletionsHttpErrorBody(Throwable t) {
     Throwable c = unwrapThrowable(t)
     while (c != null) {
@@ -7328,7 +7329,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
   }
 
   /**
-   * Emits a chat SSE chunk so the UI shows tool progress while OpenAI runs tools (Reactor thread).
+   * Emits a chat SSE chunk so the UI shows tool progress while the LLM runs tools (Reactor thread).
    * Each line starts with {@code 🛠️} plus a category emoji ({@code 🔍} read, {@code ✏️} write/revert, {@code 📈} analysis, {@code 🔄} other); expert guidance tools use {@code 🛠️🤓} before the category emoji. Phases add ✅ / ❌ / ⚠️ where applicable.
    * Non-terminal {@code progress} phase: {@code input.progressMessage} is appended after the prefix (e.g. batch translate dispatch list).
    * @param taskDurationMs wall time for this tool invocation (terminal phases only); rendered as a subtle suffix.
@@ -7500,7 +7501,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
    * (avoids {@code AsyncRequestNotUsableException} on committed async responses).
    */
   /**
-   * OpenAI streaming often ends with an assistant delta that has {@code finishReason=stop} (or similar) but
+   * LLM streaming often ends with an assistant delta that has {@code finishReason=stop} (or similar) but
    * <strong>empty</strong> {@code getText()} and no {@code completed} flag in message metadata. If we drop that
    * chunk, the Studio UI never receives {@code metadata.completed=true} and appears to hang until timeout.
    */
@@ -7845,8 +7846,8 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       log.debug("chatStreamWithSpringAi start: llm={} agentId={} promptLen={} toolRequiredIntent={} chatIdPresent={} useTools={} enableTools={} formEngineClientForward={} fullSuppressWrites={} protectedFormItemPath={}",
         springAi.llm, agentId, (bodyPrompt ?: '').length(), toolRequiredIntent, (chatId != null && chatId.toString().trim().length() > 0), springAi.useTools, enableTools, formEngineClientForward, fullSuppress, protNorm ?: '')
 
-      // OpenAI + tools off: RestClient + upstream SSE (stream=true), not OpenAiChatModel (merge can break stream).
-      // OpenAI + tools on: avoid OpenAiChatModel / OpenAiApi.chatCompletionEntity (truncated JSON on some Studio stacks);
+      // Tools off: RestClient + upstream SSE (stream=true), not OpenAiChatModel (merge can break stream).
+      // Tools on: avoid OpenAiChatModel / OpenAiApi.chatCompletionEntity (truncated JSON on some Studio stacks);
       // use RestClient + stream:false + JsonSlurper tool loop on a worker thread with the same await budget.
       Prompt authoringChatPrompt = null
       def promptSpec
@@ -7884,7 +7885,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       }
       def toolsLoopBlockingForStudioStream = (StudioAiLlmKind.useToolsLoopChatRestClient(springAi.llm, springAi) && springAi.useTools)
 
-      // OpenAI + native tools: RestClient loop streams **## Plan** (or fallback) before repo tool rows. Sending the
+      // Native tools on: RestClient loop streams **## Plan** (or fallback) before repo tool rows. Sending the
       // workflow hint first makes the client treat 🛠️ as the first chunk and clears main text — authors see tools
       // with no plan above them. Flux/Spring-AI tool paths still get the hint (long gaps before first delta).
       if (toolRequiredIntent && !toolsLoopBlockingForStudioStream) {
@@ -8278,7 +8279,7 @@ If this is unexpected: verify outbound HTTPS from Studio to your configured chat
                 }
                 if (isSseClientDisconnected(ee) || isSseClientDisconnected(c)) {
                   log.warn(
-                    'AI Assistant chat stream: CLIENT_ABORT during OpenAI tool workflow — {}',
+                    'AI Assistant chat stream: CLIENT_ABORT during LLM tool workflow — {}',
                     c?.message ?: ee.message
                   )
                   ensureSseTerminalCompletedIfNeeded(out, toolTimingCtx, toolsLoopTerminalEmitted, 'client disconnect during tool workflow')

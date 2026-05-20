@@ -1,4 +1,15 @@
 import {
+  agentSkillsRagToJsonObject,
+  parseAgentSkillsRagFromUnknown,
+  parsePluginRagFromUnknown,
+  pluginRagToJsonObject,
+  validateRagPolicy,
+  AGENT_SKILLS_RAG_DEFAULTS,
+  PLUGIN_RAG_DEFAULTS,
+  type AgentSkillsRagFormState,
+  type PluginRagFormState
+} from './aiAssistantRagUiModel';
+import {
   defaultBuiltInToolSettingsByWire,
   mergeBuiltInToolSettingsForSave,
   parseBuiltInToolSettingsByWire,
@@ -41,7 +52,9 @@ const KNOWN_TOP_LEVEL_KEYS = new Set([
   'mcpEnabled',
   'mcpServers',
   'disabledMcpTools',
-  'intentRecipeRouting'
+  'intentRecipeRouting',
+  'pluginRag',
+  'agentSkillsRag'
 ]);
 
 const INTENT_RECIPE_ROUTING_KNOWN_KEYS = new Set([
@@ -93,6 +106,9 @@ export function defaultIntentRecipeRoutingFormState(): IntentRecipeRoutingFormSt
   };
 }
 
+export type { AgentSkillsRagFormState, PluginRagFormState, PluginRagMode } from './aiAssistantRagUiModel';
+export { AGENT_SKILLS_RAG_DEFAULTS, PLUGIN_RAG_DEFAULTS } from './aiAssistantRagUiModel';
+
 export interface ToolsPolicyFormState {
   mcpEnabled: boolean;
   mcpServers: McpServerFormRow[];
@@ -103,6 +119,8 @@ export interface ToolsPolicyFormState {
   disabledUserTools: string[];
   disabledMcpTools: string[];
   intentRecipeRouting: IntentRecipeRoutingFormState;
+  pluginRag: PluginRagFormState;
+  agentSkillsRag: AgentSkillsRagFormState;
   /** Other top-level keys from tools.json preserved when saving. */
   extraFields?: Record<string, unknown>;
 }
@@ -117,6 +135,8 @@ export function defaultToolsPolicyFormState(): ToolsPolicyFormState {
     disabledUserTools: [],
     disabledMcpTools: [],
     intentRecipeRouting: defaultIntentRecipeRoutingFormState(),
+    pluginRag: { ...PLUGIN_RAG_DEFAULTS },
+    agentSkillsRag: { ...AGENT_SKILLS_RAG_DEFAULTS },
     extraFields: undefined
   };
 }
@@ -296,6 +316,8 @@ export function parseToolsPolicyFromUnknown(raw: unknown): ToolsPolicyFormState 
     disabledUserTools: asStringArray(o.disabledUserTools),
     disabledMcpTools: asStringArray(o.disabledMcpTools),
     intentRecipeRouting: parseIntentRecipeRoutingFromUnknown(o.intentRecipeRouting),
+    pluginRag: parsePluginRagFromUnknown(o.pluginRag),
+    agentSkillsRag: parseAgentSkillsRagFromUnknown(o.agentSkillsRag),
     extraFields: Object.keys(extraFields).length ? extraFields : undefined
   };
 }
@@ -339,6 +361,10 @@ export function validateToolsPolicy(state: ToolsPolicyFormState): { ok: true } |
   const builtInCheck = validateBuiltInToolSettings(state);
   if (!builtInCheck.ok) {
     return builtInCheck;
+  }
+  const ragCheck = validateRagPolicy(state.pluginRag, state.agentSkillsRag);
+  if (!ragCheck.ok) {
+    return ragCheck;
   }
   for (let i = 0; i < state.mcpServers.length; i++) {
     const r = state.mcpServers[i];
@@ -450,5 +476,7 @@ export function serializeToolsPolicyToJson(state: ToolsPolicyFormState): string 
   ) {
     obj.intentRecipeRouting = irr;
   }
+  obj.pluginRag = pluginRagToJsonObject(state.pluginRag);
+  obj.agentSkillsRag = agentSkillsRagToJsonObject(state.agentSkillsRag);
   return JSON.stringify(obj, null, 2);
 }

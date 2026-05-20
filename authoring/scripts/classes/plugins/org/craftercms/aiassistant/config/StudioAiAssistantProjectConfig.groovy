@@ -32,17 +32,21 @@ import java.util.Set
  *       "defaults": { "engine": "google", "googleDomain": "google.com", "gl": "us", "hl": "en", "num": 10 }
  *     }
  *   },
- *   "intentRecipeRouting": {
- *     "enabled": true,
- *     "eligibilityGateEnabled": false,
- *     "engineEnabled": true,
- *     "engineMaxSteps": 8,
- *     "engineMaxTotalChars": 200000,
- *     "engineMaxFieldChars": 120000,
- *     "requestClarificationOnUnmatched": false,
- *     "wholeTurnJsonRouterEnabled": false,
- *     "minConfidence": 0.55,
- *     "customRecipesPath": "/scripts/aiassistant/config/intent-recipes.json"
+ *   "intentRecipeRouting": { ... },
+ *   "pluginRag": {
+ *     "mode": "off",
+ *     "kernelMaxChars": 5200,
+ *     "topK": 8,
+ *     "maxAppendChars": 14000,
+ *     "maxChunkChars": 1800,
+ *     "maxChunks": 400,
+ *     "embedBatchSize": 64
+ *   },
+ *   "agentSkillsRag": {
+ *     "maxSkills": 12,
+ *     "embeddingModel": "text-embedding-3-small",
+ *     "maxChunks": 400,
+ *     "maxChunkChars": 1800
  *   }
  * }
  * }</pre>
@@ -411,7 +415,90 @@ final class StudioAiAssistantProjectConfig {
 
   private static int intentRecipeRoutingInt(Map cfg, String key, int defaultValue, int min, int max) {
     Map m = intentRecipeRoutingSection(cfg)
-    Object v = m.get(key)
+    return sectionInt(m, key, defaultValue, min, max)
+  }
+
+  static Map pluginRagSection(Map cfg) {
+    if (!(cfg instanceof Map)) {
+      return Collections.emptyMap()
+    }
+    Object s = cfg.get('pluginRag')
+    return s instanceof Map ? (Map) s : Collections.emptyMap()
+  }
+
+  static Map agentSkillsRagSection(Map cfg) {
+    if (!(cfg instanceof Map)) {
+      return Collections.emptyMap()
+    }
+    Object s = cfg.get('agentSkillsRag')
+    return s instanceof Map ? (Map) s : Collections.emptyMap()
+  }
+
+  /** {@code off} (default), {@code supplement}, or {@code replace} — bundled plugin instruction RAG. */
+  static String pluginRagMode(Map cfg) {
+    Map m = pluginRagSection(cfg)
+    if (!m.containsKey('mode')) {
+      return 'off'
+    }
+    String raw = m.get('mode')?.toString()?.trim()?.toLowerCase(Locale.US)
+    if (raw == 'supplement' || raw == 'replace') {
+      return raw
+    }
+    return 'off'
+  }
+
+  static boolean pluginRagModeActive(Map cfg) {
+    String m = pluginRagMode(cfg)
+    return m == 'supplement' || m == 'replace'
+  }
+
+  static int pluginRagKernelMaxChars(Map cfg) {
+    return sectionInt(pluginRagSection(cfg), 'kernelMaxChars', 5200, 1024, 16_000)
+  }
+
+  static int pluginRagTopK(Map cfg) {
+    return sectionInt(pluginRagSection(cfg), 'topK', 8, 1, 24)
+  }
+
+  static int pluginRagMaxAppendChars(Map cfg) {
+    return sectionInt(pluginRagSection(cfg), 'maxAppendChars', 14_000, 2000, 80_000)
+  }
+
+  static int pluginRagMaxChunkChars(Map cfg) {
+    return sectionInt(pluginRagSection(cfg), 'maxChunkChars', 1800, 512, 8000)
+  }
+
+  static int pluginRagMaxChunks(Map cfg) {
+    return sectionInt(pluginRagSection(cfg), 'maxChunks', 400, 8, 2000)
+  }
+
+  static int pluginRagEmbedBatchSize(Map cfg) {
+    return sectionInt(pluginRagSection(cfg), 'embedBatchSize', 64, 8, 128)
+  }
+
+  static int agentSkillsRagMaxSkills(Map cfg) {
+    return sectionInt(agentSkillsRagSection(cfg), 'maxSkills', 12, 1, 32)
+  }
+
+  static String agentSkillsRagEmbeddingModel(Map cfg) {
+    Map m = agentSkillsRagSection(cfg)
+    String p = m.get('embeddingModel')?.toString()?.trim()
+    return p ?: 'text-embedding-3-small'
+  }
+
+  static int agentSkillsRagMaxChunks(Map cfg) {
+    return sectionInt(agentSkillsRagSection(cfg), 'maxChunks', 400, 8, 2000)
+  }
+
+  static int agentSkillsRagMaxChunkChars(Map cfg) {
+    return sectionInt(agentSkillsRagSection(cfg), 'maxChunkChars', 1800, 512, 8000)
+  }
+
+  private static int sectionInt(Map section, String key, int defaultValue, int min, int max) {
+    if (!(section instanceof Map)) {
+      return defaultValue
+    }
+    Object v = section.get(key)
     if (v == null) {
       return defaultValue
     }

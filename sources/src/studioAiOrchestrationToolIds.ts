@@ -50,7 +50,29 @@ export const STUDIO_AI_LLM_VENDOR_IDS: readonly string[] = [
 
 export type StudioAiLlmVendorId = (typeof STUDIO_AI_LLM_VENDOR_IDS)[number];
 
-/** Default chat models for **tools-loop** vendors (UI hints; includes common OpenAI **vendor** defaults; server may accept others). */
+/** User-facing label for Project Tools LLM provider ids (wire id stays {@link STUDIO_AI_LLM_VENDOR_IDS}). */
+export function llmVendorDisplayLabel(vendorId: string): string {
+  switch ((vendorId ?? '').trim()) {
+    case 'openAI':
+      return 'Compatible chat API';
+    case 'claude':
+      return 'Anthropic Claude';
+    case 'xAI':
+      return 'xAI';
+    case 'deepSeek':
+      return 'DeepSeek';
+    case 'llama':
+      return 'Ollama / local';
+    case 'gemini':
+      return 'Google Gemini';
+    case 'script':
+      return 'Custom script';
+    default:
+      return vendorId?.trim() || 'Compatible chat API';
+  }
+}
+
+/** Default chat models for tools-loop providers (UI presets; server may accept other ids). */
 export const STUDIO_AI_TOOLS_LOOP_CHAT_MODELS: readonly string[] = [
   'gpt-4o-mini',
   'gpt-4o',

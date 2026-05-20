@@ -110,7 +110,7 @@ YAHOO.extend(CStudioForms.Datasources.AiAssistantImgFromUrl, CStudioForms.CStudi
     }
 
     var url = window.prompt(
-      'Paste image URL (https). The server will download it into:\n' + path + '\n\n(OpenAI / temporary URLs are OK.)'
+      'Paste image URL (https). The server will download it into:\n' + path + '\n\n(Temporary signed URLs from image APIs are OK.)'
     );
     if (!url || !url.trim()) {
       insertCb.failure('Cancelled');

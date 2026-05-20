@@ -54,7 +54,7 @@ import java.util.regex.Pattern
  * {@code tools.cms}, {@code tools.development}, and {@code tools.general}, composed by
  * {@link plugins.org.craftercms.aiassistant.tools.catalog.StudioAiToolRegistry}; this class adds supplemental tools
  * (translate, image, MCP, site user tools).</p>
- * <p><strong>Every</strong> {@link FunctionToolCallback} must call {@code .inputSchema(...)} — OpenAI rejects
+ * <p><strong>Every</strong> {@link FunctionToolCallback} must call {@code .inputSchema(...)} — upstream chat APIs reject
  * bare {@code Map.class} schemas ("object schema missing properties").</p>
  */
 class AiOrchestrationTools {
@@ -387,7 +387,7 @@ class AiOrchestrationTools {
   }
 
   /**
-   * OpenAI returns 400 if tool {@code parameters} are not valid JSON Schema objects.
+   * Upstream APIs return 400 if tool {@code parameters} are not valid JSON Schema objects.
    * {@code FunctionToolCallback} with {@code Map.class} alone often produces schemas the API rejects.
    */
   private static final String SCHEMA_GET_CONTENT =
@@ -418,16 +418,16 @@ class AiOrchestrationTools {
   private static final String SCHEMA_CMS_LOOSE =
     StudioAiToolSchemas.CMS_LOOSE
   private static final String SCHEMA_GENERATE_IMAGE =
-    '{"type":"object","additionalProperties":false,"properties":{"prompt":{"type":"string","description":"Description of the image to generate"},"size":{"type":"string","enum":["auto","1024x1024","1024x1536","1536x1024"],"description":"Optional GPT Image size only — omit unless the author asked for aspect ratio. Server coerces invalid values (e.g. 1024x768 → nearest supported)."},"quality":{"type":"string","description":"Optional quality for GPT image models: low, medium, high, auto"},"model":{"type":"string","description":"Optional override of the configured OpenAI image model. Do not pass response_format (rejected by the GPT image Images API)."}},"required":["prompt"]}'
+    '{"type":"object","additionalProperties":false,"properties":{"prompt":{"type":"string","description":"Description of the image to generate"},"size":{"type":"string","enum":["auto","1024x1024","1024x1536","1536x1024"],"description":"Optional image size preset (built-in images API when active): auto, 1024x1024, 1024x1536, 1536x1024 — omit unless the author asked for aspect ratio. Server coerces invalid values (e.g. 1024x768 → nearest supported)."},"quality":{"type":"string","description":"Optional quality: low, medium, high, auto"},"model":{"type":"string","description":"Optional override of configured imageModel. Do not pass response_format when the images API rejects it."}},"required":["prompt"]}'
   /** One-shot chat completion (no further function tools on that inner request). Invoked only when the main agent calls this tool. */
   private static final String SCHEMA_GENERATE_TEXT_NO_TOOLS =
-    '{"type":"object","properties":{"userPrompt":{"type":"string","description":"Full user/task text for the inner model (what to write, format, constraints)."},"prompt":{"type":"string","description":"Alias for userPrompt."},"systemInstructions":{"type":"string","description":"Optional system message for this inner call only (role, output shape, tone)."},"system":{"type":"string","description":"Alias for systemInstructions."},"maxOutTokens":{"type":"integer","description":"Max completion tokens for this inner call (256–8192; server may clamp per model)."},"model":{"type":"string","description":"Optional OpenAI chat model id for this inner call only; default matches the agent chat model family."},"llmModel":{"type":"string","description":"Alias for model."},"readTimeoutMs":{"type":"integer","description":"HTTP read timeout ms (60000–600000)."}},"required":[]}'
+    '{"type":"object","properties":{"userPrompt":{"type":"string","description":"Full user/task text for the inner model (what to write, format, constraints)."},"prompt":{"type":"string","description":"Alias for userPrompt."},"systemInstructions":{"type":"string","description":"Optional system message for this inner call only (role, output shape, tone)."},"system":{"type":"string","description":"Alias for systemInstructions."},"maxOutTokens":{"type":"integer","description":"Max completion tokens for this inner call (256–8192; server may clamp per model)."},"model":{"type":"string","description":"Optional chat model id for this inner call only; default matches the agent chat model family."},"llmModel":{"type":"string","description":"Alias for model."},"readTimeoutMs":{"type":"integer","description":"HTTP read timeout ms (60000–600000)."}},"required":[]}'
   private static final String SCHEMA_TRANSFORM_CONTENT_SUBGRAPH =
-    '{"type":"object","properties":{"siteId":{"type":"string"},"contentPath":{"type":"string","description":"Root page or component XML under /site/... ending in .xml"},"path":{"type":"string","description":"Alias for contentPath"},"instructions":{"type":"string","description":"Task for the worker model (e.g. translate all author-visible copy to Arabic ar-SA; preserve XML structure)"},"writeResults":{"type":"boolean","description":"If true (default), WriteContent each document after a valid LLM bundle"},"maxItems":{"type":"integer","description":"Max documents in walk (default 300, cap 2000)"},"maxDepth":{"type":"integer","description":"Max reference depth (default 40, cap 100)"},"unlock":{"type":"string","description":"Unlock flag for WriteContent (default true)"},"llmModel":{"type":"string","description":"OpenAI chat model for the bundled inner completion only. Omit to use a smaller model in the same family as main chat (e.g. gpt-5-* → gpt-5-nano, gpt-4o → gpt-4o-mini). Pass explicitly to override. Alias: model"},"readTimeoutMs":{"type":"integer","description":"OpenAI HTTP read timeout ms (default 600000)"}},"required":["siteId","instructions"]}'
+    '{"type":"object","properties":{"siteId":{"type":"string"},"contentPath":{"type":"string","description":"Root page or component XML under /site/... ending in .xml"},"path":{"type":"string","description":"Alias for contentPath"},"instructions":{"type":"string","description":"Task for the worker model (e.g. translate all author-visible copy to Arabic ar-SA; preserve XML structure)"},"writeResults":{"type":"boolean","description":"If true (default), WriteContent each document after a valid LLM bundle"},"maxItems":{"type":"integer","description":"Max documents in walk (default 300, cap 2000)"},"maxDepth":{"type":"integer","description":"Max reference depth (default 40, cap 100)"},"unlock":{"type":"string","description":"Unlock flag for WriteContent (default true)"},"llmModel":{"type":"string","description":"Chat model for the bundled inner completion only. Omit to use a smaller model in the same family as main chat. Pass explicitly to override. Alias: model"},"readTimeoutMs":{"type":"integer","description":"HTTP read timeout ms for the inner call (default 600000)"}},"required":["siteId","instructions"]}'
 
   /** Single-path inner LLM + write; {@link #ENABLE_TRANSFORM_CONTENT_SUBGRAPH_BULK} keeps the multi-document tool off by default. */
   private static final String SCHEMA_TRANSLATE_CONTENT_ITEM =
-    '{"type":"object","properties":{"siteId":{"type":"string"},"contentPath":{"type":"string","description":"One page or component XML under /site/... ending in .xml"},"path":{"type":"string","description":"Alias for contentPath"},"instructions":{"type":"string","description":"Same task for every item when translating a page tree (e.g. translate author-visible copy to Arabic ar-SA; preserve XML)"},"writeResults":{"type":"boolean","description":"If true (default), WriteContent after a valid LLM bundle"},"unlock":{"type":"string","description":"Unlock flag for WriteContent (default true)"},"llmModel":{"type":"string","description":"OpenAI chat model for this item only (inner completion). Omit for server default smaller model (e.g. gpt-4o-mini). Alias: model"},"readTimeoutMs":{"type":"integer","description":"OpenAI HTTP read timeout ms (default 600000)"}},"required":["siteId","instructions"]}'
+    '{"type":"object","properties":{"siteId":{"type":"string"},"contentPath":{"type":"string","description":"One page or component XML under /site/... ending in .xml"},"path":{"type":"string","description":"Alias for contentPath"},"instructions":{"type":"string","description":"Same task for every item when translating a page tree (e.g. translate author-visible copy to Arabic ar-SA; preserve XML)"},"writeResults":{"type":"boolean","description":"If true (default), WriteContent after a valid LLM bundle"},"unlock":{"type":"string","description":"Unlock flag for WriteContent (default true)"},"llmModel":{"type":"string","description":"Chat model for this item only (inner completion). Omit for server default smaller model in the same family. Alias: model"},"readTimeoutMs":{"type":"integer","description":"HTTP read timeout ms for the inner call (default 600000)"}},"required":["siteId","instructions"]}'
 
   private static final String SCHEMA_TRANSLATE_CONTENT_BATCH =
     '{"type":"object","properties":{"siteId":{"type":"string"},"instructions":{"type":"string","description":"Same instruction for every path (e.g. translate author-visible copy to French fr-FR)"},"paths":{"type":"array","items":{"type":"string"},"description":"List of /site/.../*.xml paths"},"contentPaths":{"type":"array","items":{"type":"string"},"description":"Alias for paths"},"pathChunks":{"type":"array","description":"Optional: **pathChunks** from ListContentDependencyScope — same shape as that tool (outer array of chunks; each chunk is an array of path strings). Server flattens to paths.","items":{"type":"array","items":{"type":"string","description":"/site/.../*.xml repository path"}}},"maxConcurrency":{"type":"integer","description":"Parallel workers for this batch only (default from agent agents.json translateBatchConcurrency, else 25; hard cap 64)"},"writeResults":{"type":"boolean"},"unlock":{"type":"string"},"llmModel":{"type":"string"},"model":{"type":"string"},"readTimeoutMs":{"type":"integer"}},"required":["siteId","instructions"]}'
@@ -475,7 +475,7 @@ class AiOrchestrationTools {
   }
 
   /**
-   * Logs everything the subgraph tool uses so operators can see payload weight (slow OpenAI vs slow Studio writes).
+   * Logs everything the subgraph tool uses so operators can see payload weight (slow inner LLM vs slow Studio writes).
    * Bundle XML is logged via {@link AiHttpProxy#elideForLog} (head + tail); instructions up to {@code maxInstrLog} chars.
    */
   private static void logTransformContentSubgraphPayload(
@@ -803,7 +803,7 @@ class AiOrchestrationTools {
   }
 
   /**
-   * Loads subgraph via {@link ContentSubgraphAggregator#build}, one non-streaming OpenAI completion (bundle + instructions only), optional {@link ContentSubgraphAggregator#apply}.
+   * Loads subgraph via {@link ContentSubgraphAggregator#build}, one non-streaming inner LLM completion (bundle + instructions only), optional {@link ContentSubgraphAggregator#apply}.
    * Inner completion model when {@code llmModel}/{@code model} omitted: {@link AiOrchestration#transformSubgraphDefaultInnerModel(String)} (smaller model in same family as main chat).
    * @param toolDiagKey prefix for {@link AiOrchestration#aiAssistantToolWorkerDiagPhase} and logs ({@code TransformContentSubgraph} vs {@code TranslateContentItem})
    * @param resultAction {@code action} field in returned maps
@@ -893,7 +893,7 @@ class AiOrchestrationTools {
       return [
         error  : true,
         action : actionTag,
-        message: 'OpenAI API key not configured for this agent',
+        message: 'LLM API key not configured for this agent',
       ]
     }
     AiOrchestration.aiAssistantToolWorkerDiagPhase(
@@ -1007,7 +1007,7 @@ class AiOrchestrationTools {
         error    : true,
         action   : actionTag,
         cancelled: true,
-        message  : 'Request was stopped before the bundled inner LLM call (no OpenAI completion or writes for this transform).',
+        message  : 'Request was stopped before the bundled inner LLM call (no inner completion or writes for this transform).',
         siteId   : siteId,
         paths    : built?.paths,
       ]
@@ -1381,7 +1381,7 @@ class AiOrchestrationTools {
 
   /**
    * Runs {@link #runTransformContentSubgraph} with {@code maxItems=1} per path on a fixed pool — same instructions,
-   * parallel OpenAI inner completions + writes (bounded concurrency). Emits {@code TranslateContentItem} progress per path when a listener is set.
+   * parallel inner LLM completions + writes (bounded concurrency). Emits {@code TranslateContentItem} progress per path when a listener is set.
    */
   static Map runTranslateContentBatchParallel(
     StudioToolOperations ops,
@@ -1405,7 +1405,7 @@ class AiOrchestrationTools {
       return [
         error  : true,
         action : 'translate_content_batch',
-        message: 'OpenAI API key not configured for this agent',
+        message: 'LLM API key not configured for this agent',
       ]
     }
     List<String> paths = collectTranslateBatchPaths(input)
@@ -1440,7 +1440,7 @@ class AiOrchestrationTools {
             .append('** content item(s) will be translated ')
           sb.append('(up to **')
             .append(concurrency)
-            .append('** OpenAI inner runs **in parallel**). ')
+            .append('** inner LLM runs **in parallel**). ')
           sb.append('Paths **listed below** are all handed to the worker pool next; watch for a **TranslateContentItem** line as **each** finishes:\n')
           int idx = 0
           for (String p : paths) {
@@ -1777,8 +1777,8 @@ class AiOrchestrationTools {
    * @param imageModel resolved default image model from agent/request for the built-in images wire (e.g. gpt-image-1); optional per-call {@code model} in tool args; ignored for pure {@code script:…} image backends unless the script reads it from context
    * @param fullSuppressRepoWrites when true (form engine + client JSON apply but no item path), omit write/publish/revert tools entirely
    * @param protectedFormItemPath normalized repo path of the open form item — when set (and not full suppress), write/publish/revert stay registered but are rejected only for this path; {@code update_content} for this path steers toward {@code aiassistantFormFieldUpdates}
-   * @param expertSkillSpecs normalized maps {@code skillId},{@code name},{@code url},{@code description} from the chat request; when non-empty and an OpenAI API key is available, registers {@code QueryExpertGuidance}
-   * @param textModel resolved OpenAI chat model id for inner completions ({@code TranslateContentItem} / bulk subgraph when enabled) default {@code llmModel}; ignored when no API key
+   * @param expertSkillSpecs normalized maps {@code skillId},{@code name},{@code url},{@code description} from the chat request; when non-empty and an LLM API key is available, registers {@code QueryExpertGuidance}
+   * @param textModel resolved chat model id for inner completions ({@code TranslateContentItem} / bulk subgraph when enabled) default {@code llmModel}; ignored when no API key
    * @param llmNormalized {@link plugins.org.craftercms.aiassistant.llm.StudioAiLlmKind#normalize} result for the active session (image wire defaults)
    * @param imageGeneratorParam optional {@code wire} (default when blank), {@code none}|{@code off}|{@code disabled}, or {@code script:id} — see site docs
    * <p>Built-in tool visibility may be constrained by site {@code /scripts/aiassistant/config/tools.json} — see {@link StudioAiAssistantProjectConfig}.
@@ -1825,7 +1825,7 @@ class AiOrchestrationTools {
     }
     String embKey = (apiKeyForImages ?: '').toString().trim()
     def expertEmbedModel =
-      (!expertSpecs.isEmpty() && embKey) ? ExpertSkillVectorRegistry.buildEmbeddingModel(embKey) : null
+      (!expertSpecs.isEmpty() && embKey) ? ExpertSkillVectorRegistry.buildEmbeddingModel(embKey, aiProjectToolCfg) : null
     Map<String, String> expertUrlBySkillId = new HashMap<>()
     for (Map m : expertSpecs) {
       String sid = m.skillId?.toString()?.trim()
@@ -1987,6 +1987,7 @@ class AiOrchestrationTools {
     if (expertEmbedModel != null && !expertUrlBySkillId.isEmpty()) {
       final def exEmbedFinal = expertEmbedModel
       final Map<String, String> expertUrlBySkillIdFinal = new HashMap<>(expertUrlBySkillId)
+      final Map aiProjectToolCfgFinal = aiProjectToolCfg
       queryExpertGuidanceTool = FunctionToolCallback.builder('QueryExpertGuidance', new Function<Map, Map>() {
         @Override
         Map apply(Map input) {
@@ -2006,7 +2007,7 @@ class AiOrchestrationTools {
             } catch (Throwable ignored) {
               tk = 8
             }
-            ExpertSkillVectorRegistry.queryExpertSkill(sid, q, tk, expertUrlBySkillIdFinal, exEmbedFinal, ops)
+            ExpertSkillVectorRegistry.queryExpertSkill(sid, q, tk, expertUrlBySkillIdFinal, exEmbedFinal, ops, aiProjectToolCfgFinal)
           })
         }
       })

@@ -1,4 +1,4 @@
-import type { ExpertSkillConfig } from './agentConfig';
+import type { AgentSkillConfig } from './agentConfig';
 import { extractTerminalPipelineTiming, isTerminalMetadata } from './pipelineTiming';
 import { getGlobalHeaders } from '@craftercms/studio-ui/utils/ajax';
 import {
@@ -27,7 +27,7 @@ export interface AiAssistantChatMessage {
     messageId?: string;
     completed?: boolean;
     error?: boolean;
-    /** Server set when the OpenAI plan gate stops the tool workflow — client may replace partial assistant output. */
+    /** Server set when the LLM plan gate stops the tool workflow — client may replace partial assistant output. */
     planGateFailure?: boolean;
     role?: string;
     [key: string]: unknown;
@@ -74,9 +74,9 @@ export interface StreamChatArgs {
   formEngineItemPath?: string;
   /** Provider id for this agent — e.g. `openAI`, `claude`, `gemini`, `script:{id}` (must match server `StudioAiLlmKind`). */
   llm?: string;
-  /** Provider model id when llm is openAI; optional (server default gpt-4o-mini). Request body key **`llmModel`**. */
+  /** Chat model id for the agent LLM; optional (server may apply a default). Request body key **`llmModel`**. */
   llmModel?: string;
-  /** OpenAI Images API model for GenerateImage; agent **imageModel** / request body **imageModel** (no default). */
+  /** Image model for GenerateImage; agent **imageModel** / request body **imageModel** (no server default). */
   imageModel?: string;
   /** GenerateImage backend: agent **imageGenerator** / POST **imageGenerator** (blank / llmWire / none / script:{id}). */
   imageGenerator?: string;
@@ -106,8 +106,8 @@ export interface StreamChatArgs {
    * to retain all MCP tools after site policy. Omitted = full catalog (subject to site **tools.json**).
    */
   enabledBuiltInTools?: string[];
-  /** Per-agent markdown RAG sources (OpenAI); forwarded as JSON for QueryExpertGuidance. */
-  expertSkills?: ExpertSkillConfig[];
+  /** Per-agent markdown RAG sources (embeddings API); forwarded as JSON for QueryExpertGuidance. */
+  skills?: AgentSkillConfig[];
   /**
    * 1–64; forwarded on stream POST for default **TranslateContentBatch** parallelism when the model omits **maxConcurrency**
    * (from agent `translateBatchConcurrency` in agents.json). Server default 25 when omitted.
@@ -180,7 +180,7 @@ export async function streamChat(args: StreamChatArgs): Promise<void> {
     enableTools,
     omitTools,
     enabledBuiltInTools,
-    expertSkills,
+    skills,
     translateBatchConcurrency,
     signal,
     onMessage,
@@ -232,12 +232,18 @@ export async function streamChat(args: StreamChatArgs): Promise<void> {
   if (previewToken != null && String(previewToken).trim() !== '') {
     requestBody.previewToken = String(previewToken).trim();
   }
-  if (Array.isArray(expertSkills) && expertSkills.length > 0) {
-    requestBody.expertSkills = expertSkills.map((s) => ({
-      name: s.name,
-      url: s.url,
-      description: s.description
-    }));
+  if (Array.isArray(skills) && skills.length > 0) {
+    const enabled = skills
+      .filter((s) => s.enabled === true && (s.url || '').trim())
+      .map((s) => ({
+        name: s.name,
+        url: s.url,
+        description: s.description,
+        enabled: true
+      }));
+    if (enabled.length) {
+      requestBody.skills = enabled;
+    }
   }
   if (
     translateBatchConcurrency != null &&

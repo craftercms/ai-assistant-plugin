@@ -3,10 +3,10 @@
 //
 // Minimal illustration: temporarily re-targets llmNormalized to the built-in OpenAI runtime for one call.
 // For production-style script LLMs that fully own keys, base URL, and ChatModel construction, see
-// docs/using-and-extending/script-llm-bring-your-own-backend.md and docs/examples/aiassistant-llm/byo-openai-compat/runtime.groovy (tools-loop custom-host sample)
+// docs/using-and-extending/script-llm-bring-your-own-backend.md and docs/examples/aiassistant-llm/byo-llm/runtime.groovy (tools-loop custom-host sample)
 // (StudioAiScriptLlmContainerRuntime overwrites bundle.llm to scriptLlm:demo after this closure returns).
 
-import plugins.org.craftercms.aiassistant.llm.OpenAiSpringAiLlmRuntime
+import plugins.org.craftercms.aiassistant.llm.OpenAiSpecSpringAiLlmRuntime
 import plugins.org.craftercms.aiassistant.llm.StudioAiLlmKind
 import plugins.org.craftercms.aiassistant.llm.StudioAiRuntimeBuildRequest
 
@@ -31,6 +31,6 @@ import plugins.org.craftercms.aiassistant.llm.StudioAiRuntimeBuildRequest
     sub.protectedFormItemPath = r.protectedFormItemPath
     sub.enableTools = r.enableTools
     sub.agentEnabledBuiltInTools = r.agentEnabledBuiltInTools
-    OpenAiSpringAiLlmRuntime.INSTANCE.buildSessionBundle(sub)
+    OpenAiSpecSpringAiLlmRuntime.INSTANCE.buildSessionBundle(sub)
   }
 ]

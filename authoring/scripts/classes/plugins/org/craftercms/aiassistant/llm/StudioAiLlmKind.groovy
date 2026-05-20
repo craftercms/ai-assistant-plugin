@@ -42,10 +42,10 @@ final class StudioAiLlmKind {
   /** Bundle: {@code nativeToolTransport} value selecting the tools-loop RestClient path. */
   static final String NATIVE_TRANSPORT_TOOLS_LOOP_WIRE = 'toolsLoopWire'
 
-  /** Spring AI OpenAI ChatModel + RestClient native-tool loop (tools on the wire). */
+  /** OpenAI vendor ({@code openAI} agent {@code llm} value) on the tools-loop wire. */
   static final String OPENAI_NATIVE = 'openAI'
 
-  /** OpenAI vendor + other LLMs on the same tools-loop REST surface; see {@link StudioAiProviderCredentials}. */
+  /** Other vendors on the same tools-loop REST surface; see {@link StudioAiProviderCredentials}. */
   static final String XAI_NATIVE = 'xAI'
 
   static final String DEEPSEEK_NATIVE = 'deepSeek'
@@ -53,7 +53,7 @@ final class StudioAiLlmKind {
   /** Google Generative Language tools-loop endpoint; {@code genesis} is an accepted alias in {@link #normalize}. */
   static final String GEMINI_NATIVE = 'gemini'
 
-  /** Spring AI Anthropic (Claude); tools via Spring {@code ChatClient}, not the OpenAI RestClient loop. */
+  /** Spring AI Anthropic (Claude); tools via Spring {@code ChatClient}, not the tools-loop RestClient path. */
   static final String CLAUDE_NATIVE = 'claude'
 
   /**
@@ -87,7 +87,7 @@ final class StudioAiLlmKind {
   }
 
   /**
-   * Enumerates first-party vendor constants wired to the OpenAI-compatible RestClient loop.
+   * Enumerates first-party vendor constants wired to the tools-loop RestClient (chat-completions wire).
    * Compares normalized strings exactly (already lowercase canonical ids).
    * Avoids probing script bundles—call {@link #useToolsLoopChatRestClient} for those merges.
    */

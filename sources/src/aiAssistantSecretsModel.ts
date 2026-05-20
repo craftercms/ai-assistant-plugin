@@ -42,12 +42,12 @@ export const AI_ASSISTANT_KNOWN_SECRET_SLOTS: ReadonlyArray<{
   defaultEnvVar: string;
   optional?: boolean;
 }> = [
-  { key: 'openai_api_key', label: 'OpenAI', llmProvider: 'openAI', defaultEnvVar: 'OPENAI_API_KEY' },
-  { key: 'anthropic_api_key', label: 'Claude (Anthropic)', llmProvider: 'claude', defaultEnvVar: 'ANTHROPIC_API_KEY' },
-  { key: 'xai_api_key', label: 'xAI', llmProvider: 'xAI', defaultEnvVar: 'XAI_API_KEY' },
-  { key: 'deepseek_api_key', label: 'DeepSeek', llmProvider: 'deepSeek', defaultEnvVar: 'DEEPSEEK_API_KEY' },
-  { key: 'llama_api_key', label: 'Llama (Ollama-compatible)', llmProvider: 'llama', defaultEnvVar: 'LLAMA_API_KEY' },
-  { key: 'gemini_api_key', label: 'Gemini (Google)', llmProvider: 'gemini', defaultEnvVar: 'GEMINI_API_KEY' }
+  { key: 'openai_api_key', label: 'OpenAI API key', llmProvider: 'openAI', defaultEnvVar: 'OPENAI_API_KEY' },
+  { key: 'anthropic_api_key', label: 'Anthropic Claude API key', llmProvider: 'claude', defaultEnvVar: 'ANTHROPIC_API_KEY' },
+  { key: 'xai_api_key', label: 'xAI API key', llmProvider: 'xAI', defaultEnvVar: 'XAI_API_KEY' },
+  { key: 'deepseek_api_key', label: 'DeepSeek API key', llmProvider: 'deepSeek', defaultEnvVar: 'DEEPSEEK_API_KEY' },
+  { key: 'llama_api_key', label: 'Ollama / Llama API key', llmProvider: 'llama', defaultEnvVar: 'LLAMA_API_KEY' },
+  { key: 'gemini_api_key', label: 'Google Gemini API key', llmProvider: 'gemini', defaultEnvVar: 'GEMINI_API_KEY' }
 ];
 
 /** Integration keys (mirrors optional slots in {@code StudioAiAssistantSecretsCatalog}). */

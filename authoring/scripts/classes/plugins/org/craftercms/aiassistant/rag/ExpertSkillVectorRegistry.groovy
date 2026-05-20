@@ -1,5 +1,6 @@
 package plugins.org.craftercms.aiassistant.rag
 
+import plugins.org.craftercms.aiassistant.config.StudioAiAssistantProjectConfig
 import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
 
 @Grab(group='org.springframework.ai', module='spring-ai-core', version='1.0.0-M6', initClass=false)
@@ -49,24 +50,16 @@ class ExpertSkillVectorRegistry {
   }
 
   /**
-   * Normalize client {@code expertSkills} JSON: https? URLs, dedupe by {@link #skillIdForUrl}, cap list size.
+   * Normalize client {@code skills} JSON: https? URLs, dedupe by {@link #skillIdForUrl}, cap list size.
    * @return list of maps: {@code skillId}, {@code name}, {@code url}, {@code description}
    */
-  static List<Map> normalizeRequestExpertSkills(Object raw) {
+  static List<Map> normalizeRequestExpertSkills(Object raw, Map projectCfg = null) {
     List<Map> out = new ArrayList<>()
     if (!(raw instanceof List)) {
       return out
     }
     Set<String> seen = new HashSet<>()
-    int cap = 12
-    try {
-      def p = System.getProperty('aiassistant.expertSkill.maxSkills')?.toString()?.trim()
-      if (p) {
-        cap = Math.min(32, Math.max(1, Integer.parseInt(p)))
-      }
-    } catch (Throwable ignored) {
-      cap = 12
-    }
+    int cap = StudioAiAssistantProjectConfig.agentSkillsRagMaxSkills(projectCfg ?: [:])
     for (Object row : (List) raw) {
       if (out.size() >= cap) {
         break
@@ -83,7 +76,18 @@ class ExpertSkillVectorRegistry {
       if (!low.startsWith('https://') && !low.startsWith('http://')) {
         continue
       }
-      String name = m.name?.toString()?.trim() ?: 'Expert guidance'
+      boolean enabled = false
+      def enRaw = m.enabled
+      if (enRaw == Boolean.TRUE) {
+        enabled = true
+      } else if (enRaw != null) {
+        String enStr = enRaw.toString().trim().toLowerCase(Locale.US)
+        enabled = enStr == 'true' || enStr == '1' || enStr == 'yes'
+      }
+      if (!enabled) {
+        continue
+      }
+      String name = m.name?.toString()?.trim() ?: 'Skill'
       String desc = m.description?.toString()?.trim() ?: ''
       String sid = skillIdForUrl(url)
       if (!seen.add(sid)) {
@@ -94,14 +98,13 @@ class ExpertSkillVectorRegistry {
     return out
   }
 
-  static String resolveEmbeddingModelName() {
-    def p = System.getProperty('aiassistant.expertSkill.embeddingModel')?.toString()?.trim()
-    return p ?: 'text-embedding-3-small'
+  static String resolveEmbeddingModelName(Map projectCfg = null) {
+    StudioAiAssistantProjectConfig.agentSkillsRagEmbeddingModel(projectCfg ?: [:])
   }
 
-  static EmbeddingModel buildEmbeddingModel(String llmApiKey) {
+  static EmbeddingModel buildEmbeddingModel(String llmApiKey, Map projectCfg = null) {
     OpenAiApi api = OpenAiApi.builder().apiKey(llmApiKey).build()
-    OpenAiEmbeddingOptions opts = OpenAiEmbeddingOptions.builder().model(resolveEmbeddingModelName()).build()
+    OpenAiEmbeddingOptions opts = OpenAiEmbeddingOptions.builder().model(resolveEmbeddingModelName(projectCfg)).build()
     return new OpenAiEmbeddingModel(api, MetadataMode.EMBED, opts)
   }
 
@@ -146,7 +149,8 @@ class ExpertSkillVectorRegistry {
     String skillId,
     String sourceUrl,
     EmbeddingModel embeddingModel,
-    StudioToolOperations ops
+    StudioToolOperations ops,
+    Map projectCfg = null
   ) {
     if (STORES.containsKey(skillId)) {
       return
@@ -165,24 +169,8 @@ class ExpertSkillVectorRegistry {
       if (!body.trim()) {
         throw new IllegalStateException("Expert skill URL returned empty body: ${sourceUrl}")
       }
-      int maxChunks = 400
-      try {
-        def pc = System.getProperty('aiassistant.expertSkill.maxChunks')?.toString()?.trim()
-        if (pc) {
-          maxChunks = Math.min(2000, Math.max(8, Integer.parseInt(pc)))
-        }
-      } catch (Throwable ignored) {
-        maxChunks = 400
-      }
-      int maxChunkChars = 1800
-      try {
-        def pcc = System.getProperty('aiassistant.expertSkill.maxChunkChars')?.toString()?.trim()
-        if (pcc) {
-          maxChunkChars = Math.min(8000, Math.max(512, Integer.parseInt(pcc)))
-        }
-      } catch (Throwable ignored) {
-        maxChunkChars = 1800
-      }
+      int maxChunks = StudioAiAssistantProjectConfig.agentSkillsRagMaxChunks(projectCfg ?: [:])
+      int maxChunkChars = StudioAiAssistantProjectConfig.agentSkillsRagMaxChunkChars(projectCfg ?: [:])
       List<String> chunks = chunkMarkdown(body, maxChunkChars)
       if (chunks.size() > maxChunks) {
         log.warn('Expert skill {}: truncating chunks {} -> {}', skillId, chunks.size(), maxChunks)
@@ -210,7 +198,8 @@ class ExpertSkillVectorRegistry {
     int topK,
     Map<String, String> urlBySkillId,
     EmbeddingModel embeddingModel,
-    StudioToolOperations ops
+    StudioToolOperations ops,
+    Map projectCfg = null
   ) {
     String sid = (skillId ?: '').toString().trim()
     if (!sid) {
@@ -229,7 +218,7 @@ class ExpertSkillVectorRegistry {
         message: "Unknown skillId '${sid}'. Use a skillId from the expert skills table in the system message."
       ]
     }
-    ensureCorpusLoaded(sid, url.trim(), embeddingModel, ops)
+    ensureCorpusLoaded(sid, url.trim(), embeddingModel, ops, projectCfg)
     SimpleVectorStore store = STORES.get(sid)
     if (store == null) {
       throw new IllegalStateException("Corpus missing after load for skillId=${sid}")

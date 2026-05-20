@@ -404,11 +404,16 @@ function AgentConfigurationDetailsContent(props: { readonly row: AutonomousTable
       {field('Start automatically', definitionStartAutomatically(d) ? 'Yes' : 'No')}
       {field('Stop on failure', definitionStopOnFailure(d) ? 'Yes' : 'No')}
       {field(
-        'Expert skills (markdown URLs)',
-        Array.isArray(d.expertSkills) && d.expertSkills.length > 0 ? String(d.expertSkills.length) : '—'
+        'Skills (enabled / configured)',
+        (() => {
+          const rows = Array.isArray(d.skills) ? d.skills : [];
+          if (!rows.length) return '—';
+          const on = rows.filter((s) => s?.enabled === true).length;
+          return on > 0 ? `${on} enabled (${rows.length} configured)` : `0 enabled (${rows.length} configured)`;
+        })()
       )}
       {field("Manage other agents' human tasks", parseJsonBoolean(d.manageOtherAgentsHumanTasks) ? 'Yes' : 'No')}
-      {field('Per-agent OpenAI API key in config', apiKeyInConfig ? 'Set (hidden)' : '—')}
+      {field('Per-agent API key in agents.json', apiKeyInConfig ? 'Set (hidden)' : '—')}
       {row.syntheticFromConfig ? (
         <Alert severity="info" sx={{ py: 0.75 }}>
           This row reflects site UI configuration only. Use Sync so the server registers the agent and returns the

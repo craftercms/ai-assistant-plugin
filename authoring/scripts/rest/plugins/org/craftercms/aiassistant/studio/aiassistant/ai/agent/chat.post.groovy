@@ -30,7 +30,7 @@ import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
  *   "enableTools": "optional — false omits OpenAI function tools; absent defaults true",
  *   "omitTools": "optional — true omits tools for this request only (focused copy/generation); overrides enableTools; same for XB/ICE, dialog, form-engine",
  *   "previewToken": "optional — Studio crafterPreview cookie value for GetPreviewHtml",
- *   "expertSkills": "optional array of { name, url, description } — per-agent markdown RAG for QueryExpertGuidance",
+ *   "skills": "optional array of { name, url, description, enabled } — enabled per-agent markdown for QueryExpertGuidance",
  *   "llmModel": "optional — model id for the selected LLM",
  *   "imageModel": "optional — default image model for GenerateImage on the built-in images wire",
  *   "imageGenerator": "optional — GenerateImage backend (blank = default when key+imageModel exist; none; script:{id}); see llm-configuration.md"
@@ -99,9 +99,14 @@ if (previewTokenBody) {
     request.setAttribute('aiassistant.previewToken', previewTokenBody)
   } catch (Throwable ignored) {}
 }
-def expertSkillsNorm = ExpertSkillVectorRegistry.normalizeRequestExpertSkills(body?.expertSkills)
+Map projectToolCfg = [:]
 try {
-  request.setAttribute('aiassistant.expertSkills', expertSkillsNorm)
+  def cfgOps = new StudioToolOperations(request, applicationContext, params)
+  projectToolCfg = plugins.org.craftercms.aiassistant.config.StudioAiAssistantProjectConfig.load(cfgOps)
+} catch (Throwable ignoredCfg) {}
+def skillsNorm = ExpertSkillVectorRegistry.normalizeRequestExpertSkills(body?.skills, projectToolCfg)
+try {
+  request.setAttribute('aiassistant.expertSkills', skillsNorm)
 } catch (Throwable ignored) {}
 def siteForBearer = siteIdBody ?: params?.siteId?.toString()?.trim()
 if (body instanceof Map && siteForBearer) {

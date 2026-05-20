@@ -1,5 +1,10 @@
 /** Autonomous agent rows from `config/studio/ai-assistant/agents.json` (`mode: autonomous`). */
-import { normalizeExpertSkillsRaw, type ExpertSkillConfig, normalizeEnabledBuiltInToolsRaw } from './agentConfig';
+import {
+  normalizeAgentSkillsRaw,
+  agentSkillsForRequest,
+  type AgentSkillConfig,
+  normalizeEnabledBuiltInToolsRaw
+} from './agentConfig';
 
 export type AutonomousScope = 'user' | 'role' | 'project';
 
@@ -32,8 +37,8 @@ export interface AutonomousAgentDefinition {
    * When false, the failure is recorded on state but the agent returns to **waiting** with **next step due** so the next tick retries.
    */
   stopOnFailure?: boolean;
-  /** Optional markdown URLs for OpenAI **QueryExpertGuidance** (same shape as Helper `<expertSkill>` rows). */
-  expertSkills?: ExpertSkillConfig[];
+  /** Optional markdown URL skills; only **enabled** rows are synced for **QueryExpertGuidance**. */
+  skills?: AgentSkillConfig[];
   /**
    * Optional subset of built-in tool wire names for autonomous runs (same as chat stream **enabledBuiltInTools**).
    * Include **mcp:*** to keep all MCP tools.
@@ -123,7 +128,7 @@ export function mergeAutonomousAgentsForTable(
       ...(d.manageOtherAgentsHumanTasks ? { manageOtherAgentsHumanTasks: true } : {}),
       ...(d.startAutomatically === false ? { startAutomatically: false } : {}),
       ...(d.stopOnFailure === false ? { stopOnFailure: false } : {}),
-      ...(Array.isArray(d.expertSkills) && d.expertSkills.length > 0 ? { expertSkills: d.expertSkills } : {}),
+      ...(agentSkillsForRequest(d) ? { skills: agentSkillsForRequest(d) } : {}),
       siteId
     },
     state: { status: 'pending' },
@@ -226,7 +231,8 @@ function normalizeOne(raw: unknown): AutonomousAgentDefinition | null {
     o.startAutomatically ?? o.start_automatically ?? o.automaticallyStart ?? o.automatically_start
   );
   const stopFail = normalizeStopOnFailure(o.stopOnFailure ?? o.stop_on_failure);
-  const expertSkills = normalizeExpertSkillsRaw(o.expertSkills) ?? normalizeExpertSkillsRaw(o.expertSkill);
+  const skillsParsed = normalizeAgentSkillsRaw(o.skills);
+  const skillsForSync = agentSkillsForRequest({ skills: skillsParsed });
   const enabledBuiltIn = normalizeEnabledBuiltInToolsRaw(o.enabledBuiltInTools ?? o.enabled_built_in_tools);
   return {
     name,
@@ -244,7 +250,7 @@ function normalizeOne(raw: unknown): AutonomousAgentDefinition | null {
     ...(manageCross !== undefined ? { manageOtherAgentsHumanTasks: manageCross } : {}),
     ...(startAuto === false ? { startAutomatically: false } : {}),
     ...(stopFail === false ? { stopOnFailure: false } : {}),
-    ...(expertSkills && expertSkills.length > 0 ? { expertSkills } : {}),
+    ...(skillsForSync && skillsForSync.length > 0 ? { skills: skillsForSync } : {}),
     ...(enabledBuiltIn?.length ? { enabledBuiltInTools: enabledBuiltIn } : {})
   };
 }

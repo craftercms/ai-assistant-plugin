@@ -24,7 +24,7 @@ import java.util.regex.Pattern
  *   <li>An instance of {@link StudioAiLlmRuntime}, or</li>
  *   <li>A {@link Map} with {@code supportsNativeStudioTools} (boolean), optional {@code normalizedKind} (string),
  *       and {@code buildSessionBundle} — a one-arg {@link groovy.lang.Closure} taking {@link StudioAiRuntimeBuildRequest}
- *       and returning the same map shape as {@link OpenAiSpringAiLlmRuntime#buildSessionBundle} (or Anthropic equivalent).</li>
+ *       and returning the same map shape as {@link OpenAiSpecSpringAiLlmRuntime#buildSessionBundle} (or Anthropic equivalent).</li>
  * </ul>
  * </p>
  */

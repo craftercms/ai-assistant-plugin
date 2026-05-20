@@ -84,34 +84,44 @@ export function rawPromptsToEditorRows(raw: unknown): PromptConfig[] {
   });
 }
 
-/** Editor row for {@link ExpertSkillConfig} in Project Tools → Agents. */
-export type ExpertSkillEditorRow = {
+/** Editor row for {@link AgentSkillConfig} in Project Tools → Agents. */
+export type AgentSkillEditorRow = {
   name: string;
   url: string;
   description: string;
+  enabled: boolean;
 };
 
+function parseSkillEnabledFromRecord(o: Record<string, unknown>): boolean {
+  const v = o.enabled;
+  if (v === true) return true;
+  if (v === false) return false;
+  const s = String(v ?? '').trim().toLowerCase();
+  return s === 'true' || s === '1' || s === 'yes';
+}
+
 /** One row per array element for the Studio catalog editor. */
-export function rawExpertSkillsToEditorRows(raw: unknown): ExpertSkillEditorRow[] {
+export function rawAgentSkillsToEditorRows(raw: unknown): AgentSkillEditorRow[] {
   if (!Array.isArray(raw)) return [];
-  return raw.map((item): ExpertSkillEditorRow => {
+  return raw.map((item): AgentSkillEditorRow => {
     const o = asRecord(item);
-    if (!o) return { name: '', url: '', description: '' };
+    if (!o) return { name: '', url: '', description: '', enabled: false };
     return {
       name: String(o.name ?? '').trim(),
       url: String(o.url ?? o.href ?? '').trim(),
-      description: String(o.description ?? '').trim()
+      description: String(o.description ?? '').trim(),
+      enabled: parseSkillEnabledFromRecord(o)
     };
   });
 }
 
-/** Persistable `expertSkills` array for agents.json (requires URL). */
-export function serializeCentralCatalogExpertSkills(rows: ExpertSkillEditorRow[]): unknown[] | undefined {
+/** Persistable `skills` array for agents.json (requires URL). */
+export function serializeCentralCatalogSkills(rows: AgentSkillEditorRow[]): unknown[] | undefined {
   const out: unknown[] = [];
   for (const row of rows) {
     const url = row.url.trim();
     if (!url) continue;
-    const o: Record<string, unknown> = { url };
+    const o: Record<string, unknown> = { url, enabled: row.enabled === true };
     const name = row.name.trim();
     if (name) o.name = name;
     const description = row.description.trim();
@@ -136,9 +146,9 @@ export function serializeCentralCatalogPrompts(rows: PromptConfig[]): unknown[] 
   return out.length ? out : undefined;
 }
 
-function parseExpertSkills(raw: unknown): AgentConfig['expertSkills'] {
+function parseAgentSkills(raw: unknown): AgentConfig['skills'] {
   if (!Array.isArray(raw) || !raw.length) return undefined;
-  const skills: NonNullable<AgentConfig['expertSkills']> = [];
+  const skills: NonNullable<AgentConfig['skills']> = [];
   for (const e of raw) {
     const o = asRecord(e);
     if (!o) continue;
@@ -147,10 +157,16 @@ function parseExpertSkills(raw: unknown): AgentConfig['expertSkills'] {
     skills.push({
       name: typeof o.name === 'string' ? o.name.trim() : undefined,
       url,
-      description: typeof o.description === 'string' ? o.description.trim() : undefined
+      description: typeof o.description === 'string' ? o.description.trim() : undefined,
+      enabled: parseSkillEnabledFromRecord(o)
     });
   }
   return skills.length ? skills : undefined;
+}
+
+function readEntrySkills(entry: CentralAgentFileEntry): AgentConfig['skills'] {
+  const rec = entry as Record<string, unknown>;
+  return parseAgentSkills(rec.skills);
 }
 
 /** True when the site file is present, parses, and declares an `agents` array (even empty). */
@@ -182,7 +198,7 @@ export function entryToChatAgent(entry: CentralAgentFileEntry): AgentConfig | nu
   }
   const icon = typeof entry.icon === 'string' ? entry.icon.trim() : undefined;
   const prompts = parsePrompts(entry.prompts);
-  const expertSkills = parseExpertSkills(entry.expertSkills ?? entry.expertSkill);
+  const skills = readEntrySkills(entry);
   const out: AgentConfig = { id, label, ...(icon ? { icon } : {}), ...(prompts ? { prompts } : {}) };
   if (llm) out.llm = llm;
   const lmTrim = typeof entry.llmModel === 'string' ? entry.llmModel.trim() : '';
@@ -194,7 +210,7 @@ export function entryToChatAgent(entry: CentralAgentFileEntry): AgentConfig | nu
   const popRaw = entry.openAsPopup;
   if (popRaw === true || String(popRaw ?? '').trim().toLowerCase() === 'true') out.openAsPopup = true;
   else if (popRaw === false || String(popRaw ?? '').trim().toLowerCase() === 'false') out.openAsPopup = false;
-  if (expertSkills) out.expertSkills = expertSkills;
+  if (skills) out.skills = skills;
   const tbc = entry.translateBatchConcurrency ?? entry.translate_batch_concurrency;
   if (tbc != null) {
     const n = parseInt(String(tbc).trim(), 10);
@@ -233,7 +249,7 @@ export function entryToAutonomousDefinition(entry: CentralAgentFileEntry): Auton
       : undefined;
   const stopOnFailure =
     entry.stopOnFailure === false || String(entry.stopOnFailure ?? '').toLowerCase() === 'false' ? false : undefined;
-  const expertSkills = parseExpertSkills(entry.expertSkills ?? entry.expertSkill);
+  const skills = readEntrySkills(entry);
   const enabledBuiltIn = normalizeEnabledBuiltInToolsRaw(entry.enabledBuiltInTools ?? entry.enabled_built_in_tools);
   const out: AutonomousAgentDefinition = {
     name,
@@ -248,8 +264,8 @@ export function entryToAutonomousDefinition(entry: CentralAgentFileEntry): Auton
     ...(startAutomatically === false ? { startAutomatically: false } : {}),
     ...(stopOnFailure === false ? { stopOnFailure: false } : {})
   };
-  if (expertSkills) {
-    out.expertSkills = expertSkills as AutonomousAgentDefinition['expertSkills'];
+  if (skills) {
+    out.skills = skills;
   }
   if (enabledBuiltIn?.length) {
     out.enabledBuiltInTools = enabledBuiltIn;

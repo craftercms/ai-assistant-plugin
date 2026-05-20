@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import AiAssistantChat from './AiAssistantChat';
-import { agentStableKey, type AgentConfig } from './agentConfig';
+import { agentSkillsForRequest, agentStableKey, type AgentConfig } from './agentConfig';
 import { getAgentIcon } from './agentIcon';
 import type { AuthoringFormContextSnapshot } from './aiAssistantFormAuthoringTypes';
 
@@ -210,7 +210,7 @@ export default function AiAssistantFormControlPanel(props: AiAssistantFormContro
                     llmApiKey={agent.llmApiKey}
                     enableTools={agent.enableTools}
                     enabledBuiltInTools={agent.enabledBuiltInTools}
-                    expertSkills={agent.expertSkills}
+                    skills={agentSkillsForRequest(agent)}
                     configPrompts={agent.prompts}
                     embedTarget="default"
                     getAuthoringFormContext={getAuthoringFormContext}

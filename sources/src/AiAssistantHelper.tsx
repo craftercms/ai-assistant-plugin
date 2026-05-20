@@ -32,9 +32,10 @@ import {
   dropPlaceholderAgentsWhenRicherMatchesExist,
   extractPositiveInt,
   normalizeEnabledBuiltInToolsRaw,
+  agentSkillsForRequest,
   readOptionalBooleanFromConfiguration,
   type AgentConfig,
-  type ExpertSkillConfig
+  type AgentSkillConfig
 } from './agentConfig';
 import { fetchSiteChatAgentsForOverlay, type SiteChatAgentsOverlayResult } from './fetchAiAssistantUiAgents';
 import { logoWidgetId } from './consts';
@@ -336,9 +337,9 @@ export function AiAssistantHelper(props: Readonly<AiAssistantHelperProps>) {
       : undefined;
     const iceEnableTools = readOptionalBooleanFromConfiguration(iceChatCfg, 'enableTools', 'enable_tools');
     const iceEnabledBuiltIn = normalizeEnabledBuiltInToolsRaw(iceRaw.enabledBuiltInTools);
-    const iceExpertSkills = Array.isArray(iceChatCfg.expertSkills)
-      ? (iceChatCfg.expertSkills as ExpertSkillConfig[])
-      : undefined;
+    const iceSkills = agentSkillsForRequest({
+      skills: Array.isArray(iceChatCfg.skills) ? (iceChatCfg.skills as AgentSkillConfig[]) : undefined
+    });
     const iceTranslateBatch = extractPositiveInt(iceRaw as Record<string, unknown>, 1, 64, 'translateBatchConcurrency', 'translate_batch_concurrency');
     return (
       <AiAssistantIceChatShell>
@@ -351,7 +352,7 @@ export function AiAssistantHelper(props: Readonly<AiAssistantHelperProps>) {
           llmApiKey={llmApiKey}
           enableTools={iceEnableTools}
           enabledBuiltInTools={iceEnabledBuiltIn}
-          expertSkills={iceExpertSkills}
+          skills={iceSkills}
           configPrompts={configPrompts}
           embedTarget="icePanel"
           {...(iceTranslateBatch != null ? { translateBatchConcurrency: iceTranslateBatch } : {})}
@@ -497,7 +498,7 @@ export function AiAssistantHelper(props: Readonly<AiAssistantHelperProps>) {
                         llmApiKey={d.agent.llmApiKey}
                         enableTools={d.agent.enableTools}
                         enabledBuiltInTools={d.agent.enabledBuiltInTools}
-                        expertSkills={d.agent.expertSkills}
+                        skills={agentSkillsForRequest(d.agent)}
                         configPrompts={d.agent.prompts}
                         {...(d.agent.translateBatchConcurrency != null
                           ? { translateBatchConcurrency: d.agent.translateBatchConcurrency }

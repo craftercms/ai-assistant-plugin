@@ -12,7 +12,7 @@ import plugins.org.craftercms.aiassistant.orchestration.AiOrchestration
  * Merges missing stream/chat POST fields from site {@code config/studio/ai-assistant/agents.json}
  * (Project Tools → Agents). Reads the catalog server-side, picks the matching chat agent row, then copies
  * catalog defaults into the POST body only when fields were omitted.
- * When {@code imageModel} is still absent and transport is OpenAI native,
+ * When {@code imageModel} is still absent and transport is OpenAI vendor ({@code openAI}),
  * applies the same default as the central agents catalog UI ({@code gpt-image-1}).
  */
 final class AiAssistantCentralAgentsMerge {
@@ -198,7 +198,7 @@ final class AiAssistantCentralAgentsMerge {
   }
 
   /**
-   * When transport is OpenAI native and {@code imageModel} is still unset, use {@link #DEFAULT_OPENAI_IMAGE_MODEL}
+   * When transport is OpenAI vendor ({@code openAI}) and {@code imageModel} is still unset, use {@link #DEFAULT_OPENAI_IMAGE_MODEL}
    * unless {@code imageGenerator} explicitly disables bitmap generation.
    */
   static void applyOpenAiDefaultImageModelIfMissing(Map body, String llmNormalized) {

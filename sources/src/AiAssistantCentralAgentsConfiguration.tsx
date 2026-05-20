@@ -74,7 +74,8 @@ import {
   STUDIO_AI_CLAUDE_CHAT_MODELS,
   STUDIO_AI_DEFAULT_IMAGE_MODEL,
   STUDIO_AI_LLM_VENDOR_IDS,
-  STUDIO_AI_TOOLS_LOOP_CHAT_MODELS
+  STUDIO_AI_TOOLS_LOOP_CHAT_MODELS,
+  llmVendorDisplayLabel
 } from './studioAiOrchestrationToolIds';
 import {
   CENTRAL_AGENTS_STUDIO_PATH,
@@ -82,12 +83,12 @@ import {
   catalogChatAgents,
   defaultCentralAgentsFile,
   getEffectiveCentralAgentsCatalog,
-  rawExpertSkillsToEditorRows,
+  rawAgentSkillsToEditorRows,
   rawPromptsToEditorRows,
-  serializeCentralCatalogExpertSkills,
+  serializeCentralCatalogSkills,
   serializeCentralCatalogPrompts,
   type CentralAgentFileEntry,
-  type ExpertSkillEditorRow,
+  type AgentSkillEditorRow,
   type CentralAgentMode,
   type CentralAgentsFile
 } from './centralAgentCatalog';
@@ -186,15 +187,14 @@ function llmModelPresetRows(vendor: string): readonly string[] {
 
 function mergeAgentAdvancedCatalogFields(
   draft: CentralAgentFileEntry,
-  expertSkillRows: ExpertSkillEditorRow[],
+  expertSkillRows: AgentSkillEditorRow[],
   translateBatchStr: string
 ): { error: string } | CentralAgentFileEntry {
   const rec = { ...draft } as Record<string, unknown>;
-  const skills = serializeCentralCatalogExpertSkills(expertSkillRows);
-  if (skills) rec.expertSkills = skills;
+  const skills = serializeCentralCatalogSkills(expertSkillRows);
+  if (skills) rec.skills = skills;
   else {
-    delete rec.expertSkills;
-    delete rec.expertSkill;
+    delete rec.skills;
   }
   const tbc = translateBatchStr.trim();
   if (tbc) {
@@ -217,8 +217,8 @@ function mergeAgentAdvancedCatalogFields(
 function AgentAdvancedAgentFields(props: {
   draft: CentralAgentFileEntry;
   setDraft: React.Dispatch<React.SetStateAction<CentralAgentFileEntry | null>>;
-  expertSkillRows: ExpertSkillEditorRow[];
-  setExpertSkillRows: React.Dispatch<React.SetStateAction<ExpertSkillEditorRow[]>>;
+  expertSkillRows: AgentSkillEditorRow[];
+  setExpertSkillRows: React.Dispatch<React.SetStateAction<AgentSkillEditorRow[]>>;
   translateBatchStr: string;
   setTranslateBatchStr: React.Dispatch<React.SetStateAction<string>>;
 }) {
@@ -227,11 +227,11 @@ function AgentAdvancedAgentFields(props: {
     <Stack spacing={2} sx={{ width: '100%' }}>
       <Box>
         <FormLabel component="legend" sx={{ fontSize: '1.05rem', fontWeight: 600, color: 'text.primary' }}>
-          Expert skills (markdown URLs)
+          Skills (markdown URLs)
         </FormLabel>
         <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5, mb: 1 }}>
-          Public http(s) URLs indexed for <strong>QueryExpertGuidance</strong> when tools are enabled (OpenAI and
-          compatible providers).
+          Public http(s) URLs indexed for <strong>QueryExpertGuidance</strong> when a skill is enabled and tools are on
+          (requires tools-loop chat and a configured embeddings API for skill indexing).
         </Typography>
         <Stack spacing={1.5}>
           {expertSkillRows.map((row, idx) => (
@@ -241,13 +241,26 @@ function AgentAdvancedAgentFields(props: {
             >
               <IconButton
                 size="small"
-                aria-label="Remove expert skill"
+                aria-label="Remove skill"
                 sx={{ position: 'absolute', right: 4, top: 4 }}
                 onClick={() => setExpertSkillRows(expertSkillRows.filter((_, i) => i !== idx))}
               >
                 <DeleteOutlineRounded fontSize="small" />
               </IconButton>
               <Stack spacing={1}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      size="small"
+                      checked={row.enabled === true}
+                      onChange={(ev) => {
+                        const on = ev.target.checked;
+                        setExpertSkillRows(expertSkillRows.map((r, i) => (i === idx ? { ...r, enabled: on } : r)));
+                      }}
+                    />
+                  }
+                  label="Enabled"
+                />
                 <TextField
                   label="Name (optional)"
                   value={row.name}
@@ -289,9 +302,9 @@ function AgentAdvancedAgentFields(props: {
           sx={{ mt: 1 }}
           size="small"
           startIcon={<AddRounded />}
-          onClick={() => setExpertSkillRows([...expertSkillRows, { name: '', url: '', description: '' }])}
+          onClick={() => setExpertSkillRows([...expertSkillRows, { name: '', url: '', description: '', enabled: false }])}
         >
-          Add expert skill
+          Add skill
         </Button>
       </Box>
       <TextField
@@ -425,7 +438,7 @@ function summarizeEntry(e: CentralAgentFileEntry): string {
   if (mode === 'autonomous') {
     return `${String(e.name ?? e.label ?? 'Unnamed')} — ${e.schedule ?? '(no schedule)'}`;
   }
-  return `${String(e.label ?? e.name ?? 'Unnamed')} (${String(e.llm ?? 'openAI')})`;
+  return `${String(e.label ?? e.name ?? 'Unnamed')} (${llmVendorDisplayLabel(String(e.llm ?? 'openAI'))})`;
 }
 
 function isAutonomousEntry(e: CentralAgentFileEntry): boolean {
@@ -461,7 +474,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
   const [draft, setDraft] = useState<CentralAgentFileEntry | null>(null);
   /** Chat quick-prompt rows while the edit dialog is open (trimmed on save). */
   const [chatPromptRows, setChatPromptRows] = useState<PromptConfig[]>([]);
-  const [expertSkillRows, setExpertSkillRows] = useState<ExpertSkillEditorRow[]>([]);
+  const [expertSkillRows, setExpertSkillRows] = useState<AgentSkillEditorRow[]>([]);
   const [translateBatchStr, setTranslateBatchStr] = useState('');
   const [agentDialogFullscreen, setAgentDialogFullscreen] = useState(false);
   const [agentDialogTab, setAgentDialogTab] = useState<'general' | 'advanced'>('general');
@@ -697,7 +710,8 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
         : (ensureAgentCatalogId({ ...entry } as Record<string, unknown>) as CentralAgentFileEntry)
     );
     setChatPromptRows(rawPromptsToEditorRows(entry.prompts));
-    setExpertSkillRows(rawExpertSkillsToEditorRows(entry.expertSkills ?? entry.expertSkill));
+    const entryRec = entry as Record<string, unknown>;
+    setExpertSkillRows(rawAgentSkillsToEditorRows(entryRec.skills));
     const tbcRaw = entry.translateBatchConcurrency ?? entry.translate_batch_concurrency;
     const tbcNum = tbcRaw != null ? Number(tbcRaw) : NaN;
     setTranslateBatchStr(Number.isFinite(tbcNum) && tbcNum >= 1 ? String(Math.round(tbcNum)) : '');
@@ -1158,7 +1172,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                     >
                       {STUDIO_AI_LLM_VENDOR_IDS.map((id) => (
                         <MenuItem key={id} value={id}>
-                          {id}
+                          {llmVendorDisplayLabel(id)}
                         </MenuItem>
                       ))}
                     </Select>
@@ -1389,11 +1403,16 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                     </>
                   ) : null}
                   <TextField
-                    label="Image model (OpenAI Images default)"
+                    label="Image model"
                     value={String(draft.imageModel ?? STUDIO_AI_DEFAULT_IMAGE_MODEL)}
                     onChange={(ev) => setDraft((d) => (d ? { ...d, imageModel: ev.target.value } : d))}
                     fullWidth
                     size="small"
+                    helperText={
+                      imgK === 'openai'
+                        ? 'Model id for built-in image generation (e.g. gpt-image-1). Set on the agent — no server default.'
+                        : 'Ignored when image generator is None or a site script.'
+                    }
                   />
                 </Stack>
               );

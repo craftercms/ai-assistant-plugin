@@ -13,7 +13,7 @@ final class StudioAiLlmRuntimeFactory {
       return new StudioAiScriptLlmContainerRuntime(StudioAiLlmKind.scriptLlmIdFromNormalized(n))
     }
     if (StudioAiLlmKind.useToolsLoopChatRestClientBuiltInKinds(n)) {
-      return OpenAiSpringAiLlmRuntime.INSTANCE
+      return OpenAiSpecSpringAiLlmRuntime.INSTANCE
     }
     if (StudioAiLlmKind.isAnthropicClaude(n)) {
       return AnthropicSpringAiLlmRuntime.INSTANCE
