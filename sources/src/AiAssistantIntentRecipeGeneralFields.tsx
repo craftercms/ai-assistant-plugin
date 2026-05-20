@@ -1,8 +1,8 @@
 import { Autocomplete, Stack, TextField } from '@mui/material';
 import type { IntentRecipe } from './aiAssistantIntentRecipesModel';
-import { INTENT_RECIPE_READ_ONLY_TOOLS } from './aiAssistantIntentRecipesModel';
 import AiAssistantIntentRecipeEmojiField from './AiAssistantIntentRecipeEmojiField';
 import { AiAssistantIntentRecipeRoutingRulesSection } from './AiAssistantIntentRecipeMatchRulesField';
+import AiAssistantIntentRecipeToolsLoopFields from './AiAssistantIntentRecipeToolsLoopFields';
 
 export interface AiAssistantIntentRecipeGeneralFieldsProps {
   recipe: IntentRecipe;
@@ -81,16 +81,7 @@ export default function AiAssistantIntentRecipeGeneralFields(props: AiAssistantI
         )}
       />
       <AiAssistantIntentRecipeRoutingRulesSection recipe={recipe} onChange={onChange} />
-      <Autocomplete
-        multiple
-        freeSolo
-        options={[...INTENT_RECIPE_READ_ONLY_TOOLS, 'GenerateImage', 'WriteContent', 'update_content']}
-        value={recipe.toolsLoopAllowlist ?? []}
-        onChange={(_, v) => patchRecipe({ toolsLoopAllowlist: v.length ? v.map(String) : undefined })}
-        renderInput={(params) => (
-          <TextField {...params} label="Tools-loop allowlist (optional)" size="small" />
-        )}
-      />
+      <AiAssistantIntentRecipeToolsLoopFields recipe={recipe} onChange={onChange} />
       <Autocomplete
         multiple
         freeSolo

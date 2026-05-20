@@ -479,6 +479,13 @@ For **content-only** tasks, use **`aiassistantFormFieldUpdates`** in your final 
     )
   }
 
+  static String getDESC_SERP_API_WEB_SEARCH() {
+    p(
+      'GENERAL_DESC_SERP_API_WEB_SEARCH',
+      'Search the **public web** via **SerpAPI** (Google with professional site defaults). Requires the secret named in tools.json (**secretKey**, default **serpapi_api_key**) to be set under Project Tools → **Secrets**, and **SerpApiWebSearch** enabled (not in **disabledBuiltInTools**). Required: **query**. Optional **maxResults** (1–20) and SerpAPI params (**engine**, **googleDomain**, **gl**, **hl**, **location**, **num**, **device**, **safe**, **tbm**, **tbs**, **start**). Returns **title**, **url**, **snippet** — cite sources; **do not** invent links. **Not** for repository search (**ResearchSiteContent**). **Not** for a URL the author already gave (**FetchHttpUrl**).'
+    )
+  }
+
   /**
    * Loads CMS/general markdown describing `RESEARCH_SITE_CONTENT` tool invocation contracts.
    * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.

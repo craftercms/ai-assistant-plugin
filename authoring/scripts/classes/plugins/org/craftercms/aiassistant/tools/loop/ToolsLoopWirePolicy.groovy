@@ -24,6 +24,8 @@ final class ToolsLoopWirePolicy {
   static final String WIRE_COMPACT_UPDATE_CONTENT = 'compact_update_content'
   /** Compact {@code GenerateImage} payloads (inline ref pattern). */
   static final String WIRE_COMPACT_GENERATE_IMAGE = 'compact_generate_image'
+  /** Compact {@code FetchHttpUrl} payloads (cap HTML body on the chat wire). */
+  static final String WIRE_COMPACT_FETCH_HTTP = 'compact_fetch_http'
 
   /** Maps to 🔍 / ✏️ / 📈 / 🔄 via {@link ToolsLoopWirePolicyRegistry#progressCategoryEmoji}. */
   final String progressCategory
@@ -116,6 +118,11 @@ final class ToolsLoopWirePolicy {
   /** GenerateImage: compact wire output; not counted as a repository XML mutation. */
   static ToolsLoopWirePolicy generateImagePolicy() {
     return new ToolsLoopWirePolicy(PROGRESS_WRITE, false, false, false, false, WIRE_COMPACT_GENERATE_IMAGE, null, null, 'main', false)
+  }
+
+  /** FetchHttpUrl: cap large HTML bodies on the tools-loop wire to avoid context overflow. */
+  static ToolsLoopWirePolicy fetchHttpUrlPolicy() {
+    return new ToolsLoopWirePolicy(PROGRESS_READ, false, false, false, false, WIRE_COMPACT_FETCH_HTTP, null, null, 'main', false)
   }
 
   /** InvokeSiteUserTool: prose blocks may use {@code {"toolId":"…"}} instead of API tool_calls. */

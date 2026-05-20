@@ -35,6 +35,8 @@
 | Debug logging (loggers, Spring AI HTTP trace JVM flag) | [internals/README.md](internals/README.md#debug-logging) · JVM reference: [studio-aiassistant-jvm-parameters.md](using-and-extending/studio-aiassistant-jvm-parameters.md) |
 | MCP client (`mcpEnabled` + `mcpServers` in `tools.json`, Streamable HTTP) | [chat-and-tools-runtime.md](internals/chat-and-tools-runtime.md#mcp-client-tools-streamable-http) |
 | Intent recipe routing (maintainer) | [intent-recipe-routing.md](internals/intent-recipe-routing.md) · admin: [configuration-guide §9.0](using-and-extending/configuration-guide.md#cg-9-0) |
+| Recipe phase clock templates (`{{studio.today-7D}}`, …) | [configuration-guide §9.0](using-and-extending/configuration-guide.md#cg-9-0) · [intent-recipe-routing — prelude](internals/intent-recipe-routing.md#matched-recipe-prelude-text) |
+| **`SerpApiWebSearch`**, `builtInToolSettings`, `serpapi_api_key` | [configuration-guide §9.2](using-and-extending/configuration-guide.md#cg-9-2) · [spec.md — secrets](internals/spec.md) |
 | Site secrets (`secrets.json`, `${secret:}`) | [configuration-guide §4](using-and-extending/configuration-guide.md#cg-4) · [spec.md — secrets](internals/spec.md) |
 | Configuration tour (joyride) | [configuration-guide §4b](using-and-extending/configuration-guide.md#cg-joyride) |
 | REST/stream body, tools, MCP | [chat-and-tools-runtime.md](internals/chat-and-tools-runtime.md) |

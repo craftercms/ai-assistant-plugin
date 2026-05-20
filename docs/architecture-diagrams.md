@@ -179,11 +179,11 @@ flowchart TB
 | Artifact | Purpose |
 |----------|---------|
 | **`agents.json`** | Chat agents (`mode: chat`) and autonomous agents (`mode: autonomous`); **`agentId`**, **`llm`**, models, tools policy, prompts |
-| **`secrets.json`** | API keys and headers; referenced as **`${secret:…}`** from agents and MCP |
+| **`secrets.json`** | Site credential slots (`${env:…}`, `${enc:…}`); resolve at runtime only stored rows — **`${secret:…}`** in MCP/agents; **`serpapi_api_key`** for **SerpApiWebSearch** |
 | **`ui.xml`** | Registers **Helper**, optional **AutonomousAssistants**, **TinyMCE** external plugin URL |
 | **`studio-ui.json`** | Toolbar/sidebar visibility, XB image scope, bulk form-control helpers |
-| **`tools.json`** | Built-in tool allow/deny, MCP **`mcpEnabled`** + **`mcpServers`**, intent recipe routing flags |
-| **`intent-recipes.json`** | Pre-tools workflow recipes (site override of plugin defaults) |
+| **`tools.json`** | Built-in tool allow/deny, **`builtInToolSettings`** (e.g. **SerpApiWebSearch** defaults), MCP **`mcpEnabled`** + **`mcpServers`**, intent recipe routing flags |
+| **`intent-recipes.json`** | Pre-tools workflow recipes (phases, **`toolsLoopForceTool`**, **`{{studio.today-7D}}`** hints; site override of plugin defaults) |
 | **Site scripts** | User tools, script LLMs, image generators, prompt markdown overrides |
 
 ---

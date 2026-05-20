@@ -37,10 +37,11 @@ final class ToolsLoopWirePolicyRegistry {
       'ListPagesAndComponents',
       'ResearchSiteContent',
       'WebSearch',
+      'SerpApiWebSearch',
       'GenerateTextNoTools'
     ]
     for (String w : readTools) {
-      m.put(w, ToolsLoopWirePolicy.readPolicy())
+      m.put(w, 'FetchHttpUrl'.equals(w) ? ToolsLoopWirePolicy.fetchHttpUrlPolicy() : ToolsLoopWirePolicy.readPolicy())
     }
 
     m.put('QueryExpertGuidance', ToolsLoopWirePolicy.expertReadPolicy())

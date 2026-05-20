@@ -3,6 +3,7 @@ package plugins.org.craftercms.aiassistant.tools.development
 import plugins.org.craftercms.aiassistant.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.tools.spi.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolContext
+import plugins.org.craftercms.aiassistant.tools.cms.support.CmsGetContent
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSchemas
 
 class AnalyzeTemplateTool extends AbstractStudioAiTool {
@@ -28,12 +29,12 @@ class AnalyzeTemplateTool extends AbstractStudioAiTool {
     def templatePath = input?.templatePath?.toString()?.trim()
     def contentPath = input?.contentPath?.toString()?.trim()
     if (!templatePath && contentPath) {
-      templatePath = ctx.ops.resolveTemplatePathFromContent(siteId, contentPath)
+      templatePath = CmsGetContent.resolveTemplatePath(ctx.ops, siteId, contentPath)
     }
     if (!templatePath) {
       throw new IllegalArgumentException('Missing required field: templatePath (or contentPath that resolves a display-template)')
     }
-    def templateText = ctx.ops.getContent(siteId, templatePath)?.contentXml?.toString() ?: ''
+    def templateText = CmsGetContent.read(ctx.ops, siteId, templatePath)?.contentXml?.toString() ?: ''
     return [
       action: 'analyze_template',
       siteId: siteId,

@@ -5,6 +5,7 @@ import plugins.org.craftercms.aiassistant.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.tools.spi.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolContext
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSchemas
+import plugins.org.craftercms.aiassistant.tools.cms.support.CmsRevertChange
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSupport
 
 import org.slf4j.Logger
@@ -62,11 +63,11 @@ class RevertChangeTool extends AbstractStudioAiTool {
     boolean revertToInitial = AuthoringPreviewContext.isTruthy(input?.revertToInitial) ||
       AuthoringPreviewContext.isTruthy(input?.revertToOldest) ||
       AuthoringPreviewContext.isTruthy(input?.revertToFirst)
-    Map sel = ctx.ops.resolveRevertChangeVersionSelection(siteId, path, input ?: [:])
+    Map sel = CmsRevertChange.resolveVersionSelection(ctx.ops, siteId, path, input ?: [:])
     String versionToUse = sel.version?.toString()?.trim()
     String err = null
     try {
-      ctx.ops.revertContentItem(siteId, path, versionToUse, false, 'revert_change tool')
+      CmsRevertChange.revertItem(ctx.ops, siteId, path, versionToUse, false, 'revert_change tool')
     } catch (Throwable t) {
       err = (t.message ?: t.toString())
       log.warn('revert_change failed: {}', err)

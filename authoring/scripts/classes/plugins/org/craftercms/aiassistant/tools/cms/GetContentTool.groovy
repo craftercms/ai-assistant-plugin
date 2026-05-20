@@ -4,6 +4,7 @@ import plugins.org.craftercms.aiassistant.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.tools.spi.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolContext
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSchemas
+import plugins.org.craftercms.aiassistant.tools.cms.support.CmsGetContent
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSupport
 
 /**
@@ -40,6 +41,6 @@ class GetContentTool extends AbstractStudioAiTool {
       throw new IllegalArgumentException('Missing required field: path (or contentPath)')
     }
     String siteId = ctx.ops.resolveEffectiveSiteId(input?.siteId?.toString()?.trim() ?: '')
-    return ctx.ops.getContent(siteId, path, commitRef) as Map
+    return CmsGetContent.read(ctx.ops, siteId, path, commitRef) as Map
   }
 }

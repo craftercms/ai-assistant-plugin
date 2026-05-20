@@ -3,6 +3,7 @@ package plugins.org.craftercms.aiassistant.tools.cms
 import plugins.org.craftercms.aiassistant.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.tools.spi.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolContext
+import plugins.org.craftercms.aiassistant.tools.cms.support.CmsPreviewHtmlFetch
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSchemas
 
 /**
@@ -43,6 +44,6 @@ class GetPreviewHtmlTool extends AbstractStudioAiTool {
     }
     def tok = m.previewToken?.toString()?.trim()
     def sid = m.siteId?.toString()?.trim()
-    return ctx.ops.fetchPreviewRenderedHtml(abs, tok, sid) as Map
+    return CmsPreviewHtmlFetch.fetch(ctx.ops, abs, tok, sid) as Map
   }
 }

@@ -1,8 +1,8 @@
 const { Fragment, jsx: jsx$1, jsxs } = craftercms.libs?.reactJsxRuntime;
 const require$$2 = craftercms.libs?.reactJsxRuntime && Object.prototype.hasOwnProperty.call(craftercms.libs?.reactJsxRuntime, 'default') ? craftercms.libs?.reactJsxRuntime['default'] : craftercms.libs?.reactJsxRuntime;
-const { useTheme, Box, CircularProgress, Typography, TableContainer, Paper, Table: Table$1, TableHead, TableBody, TableRow, TableCell, Stack: Stack$1, Tooltip, IconButton, Tabs, Tab, Button, Divider, TextField, Chip, FormControlLabel, Switch, Popover, paperClasses, GlobalStyles, Menu, MenuItem, ListItemIcon, ListItemText, Dialog, DialogContent, Alert, FormControl, InputLabel, Select, List, ListItem, Checkbox, ListItemButton, Badge, DialogTitle, DialogActions, Avatar, useMediaQuery, Autocomplete, ListItemSecondaryAction, ListSubheader, FormLabel, FormGroup, Snackbar, Link, RadioGroup, Radio, InputAdornment } = craftercms.libs.MaterialUI;
+const { useTheme, Box, CircularProgress, Typography, TableContainer, Paper, Table: Table$1, TableHead, TableBody, TableRow, TableCell, Stack: Stack$1, Tooltip, IconButton, Tabs, Tab, Button, Divider, TextField, Chip, FormControlLabel, Switch, Popover, paperClasses, GlobalStyles, Menu, MenuItem, ListItemIcon, ListItemText, Dialog, DialogContent, Alert, FormControl, InputLabel, Select, List, ListItem, Checkbox, ListItemButton, Badge, DialogTitle, DialogActions, Avatar, useMediaQuery, ListItemSecondaryAction, ListSubheader, FormLabel, FormGroup, Autocomplete, Snackbar, Link: Link$1, RadioGroup, Radio, InputAdornment } = craftercms.libs.MaterialUI;
 const React = craftercms.libs.React;
-const { useRef, useState, useEffect, useCallback, useMemo, useLayoutEffect, useSyncExternalStore, createElement, forwardRef, useImperativeHandle } = craftercms.libs.React;
+const { useRef, useState, useEffect, useCallback, useMemo, useLayoutEffect, useSyncExternalStore, forwardRef, useImperativeHandle, createElement } = craftercms.libs.React;
 const React__default = craftercms.libs.React && Object.prototype.hasOwnProperty.call(craftercms.libs.React, 'default') ? craftercms.libs.React['default'] : craftercms.libs.React;
 const MinimizedBar = craftercms.components.MinimizedBar && Object.prototype.hasOwnProperty.call(craftercms.components.MinimizedBar, 'default') ? craftercms.components.MinimizedBar['default'] : craftercms.components.MinimizedBar;
 const DialogHeader = craftercms.components.DialogHeader && Object.prototype.hasOwnProperty.call(craftercms.components.DialogHeader, 'default') ? craftercms.components.DialogHeader['default'] : craftercms.components.DialogHeader;
@@ -67,6 +67,8 @@ const AddRounded = craftercms.utils.constants.components.get('@mui/icons-materia
 const DeleteOutlineRounded = craftercms.utils.constants.components.get('@mui/icons-material/DeleteOutlineRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/DeleteOutlineRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/DeleteOutlineRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/DeleteOutlineRounded');
 const RefreshRounded = craftercms.utils.constants.components.get('@mui/icons-material/RefreshRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/RefreshRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/RefreshRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/RefreshRounded');
 const SaveRounded = craftercms.utils.constants.components.get('@mui/icons-material/SaveRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/SaveRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/SaveRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/SaveRounded');
+const Link = craftercms.libs.MaterialUI.Link && Object.prototype.hasOwnProperty.call(craftercms.libs.MaterialUI.Link, 'default') ? craftercms.libs.MaterialUI.Link['default'] : craftercms.libs.MaterialUI.Link;
+const TextField$1 = craftercms.libs.MaterialUI.TextField && Object.prototype.hasOwnProperty.call(craftercms.libs.MaterialUI.TextField, 'default') ? craftercms.libs.MaterialUI.TextField['default'] : craftercms.libs.MaterialUI.TextField;
 const DownloadRounded = craftercms.utils.constants.components.get('@mui/icons-material/DownloadRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/DownloadRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/DownloadRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/DownloadRounded');
 const RestartAltRounded = craftercms.utils.constants.components.get('@mui/icons-material/RestartAltRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/RestartAltRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/RestartAltRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/RestartAltRounded');
 const AutoFixHighRounded = craftercms.utils.constants.components.get('@mui/icons-material/AutoFixHighRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/AutoFixHighRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/AutoFixHighRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/AutoFixHighRounded');
@@ -29756,6 +29758,7 @@ const STUDIO_AI_BUILTIN_TOOL_IDS = [
     'GetPreviewHtml',
     'FetchHttpUrl',
     'WebSearch',
+    'SerpApiWebSearch',
     'ResearchSiteContent',
     'QueryExpertGuidance',
     'WriteContent',
@@ -35276,6 +35279,159 @@ function AiAssistantFormControl(props) {
 
 const fetchSiteUiConfig = /*#__PURE__*/ createAction('FETCH_SITE_UI_CONFIG');
 
+function SerpApiWebSearchConfigureDialog(props) {
+    const { open, draft, onDraftChange, onClose, onApply } = props;
+    const patch = (partial) => {
+        onDraftChange({ ...draft, ...partial });
+    };
+    return (jsxs(Dialog$1, { open: open, onClose: onClose, maxWidth: "sm", fullWidth: true, children: [jsx$1(DialogTitle$1, { children: "SerpApiWebSearch \u2014 site defaults" }), jsx$1(DialogContent$1, { children: jsxs(Stack$2, { spacing: 2, sx: { pt: 1 }, children: [jsxs(Typography$1, { variant: "body2", color: "text.secondary", children: ["Set search defaults for this site. Your SerpAPI API key is configured separately on", ' ', jsx$1("strong", { children: "Project Tools \u2192 Secrets" }), " (SerpAPI entry). It is not entered here."] }), jsx$1(TextField$1, { label: "Engine", size: "small", fullWidth: true, value: draft.engine, onChange: (e) => patch({ engine: e.target.value }) }), jsx$1(TextField$1, { label: "Google domain", size: "small", fullWidth: true, value: draft.googleDomain, onChange: (e) => patch({ googleDomain: e.target.value }), placeholder: "google.com" }), jsxs(Stack$2, { direction: "row", spacing: 2, children: [jsx$1(TextField$1, { label: "Country (gl)", size: "small", fullWidth: true, value: draft.gl, onChange: (e) => patch({ gl: e.target.value }), placeholder: "us" }), jsx$1(TextField$1, { label: "Language (hl)", size: "small", fullWidth: true, value: draft.hl, onChange: (e) => patch({ hl: e.target.value }), placeholder: "en" })] }), jsx$1(TextField$1, { label: "Location", size: "small", fullWidth: true, value: draft.location, onChange: (e) => patch({ location: e.target.value }) }), jsxs(Stack$2, { direction: "row", spacing: 2, children: [jsx$1(TextField$1, { label: "Default result count (num)", size: "small", fullWidth: true, value: draft.num, onChange: (e) => patch({ num: e.target.value }), helperText: "1\u201320 when set" }), jsx$1(TextField$1, { label: "Device", size: "small", fullWidth: true, value: draft.device, onChange: (e) => patch({ device: e.target.value }) })] }), jsx$1(TextField$1, { label: "Safe search", size: "small", fullWidth: true, value: draft.safe, onChange: (e) => patch({ safe: e.target.value }) }), jsx$1(Typography$1, { variant: "caption", color: "text.secondary", children: jsx$1(Link, { href: "https://serpapi.com/search-api", target: "_blank", rel: "noopener noreferrer", children: "SerpAPI parameter reference" }) })] }) }), jsxs(DialogActions$1, { children: [jsx$1(Button$1, { onClick: onClose, children: "Cancel" }), jsx$1(Button$1, { variant: "contained", onClick: () => {
+                            onApply(draft);
+                            onClose();
+                        }, children: "Apply" })] })] }));
+}
+
+const SERP_API_WEB_SEARCH_WIRE = 'SerpApiWebSearch';
+function defaultSerpApiWebSearchSettingsFormState() {
+    return {
+        engine: 'google',
+        googleDomain: 'google.com',
+        gl: 'us',
+        hl: 'en',
+        location: 'United States',
+        num: '10',
+        device: 'desktop',
+        safe: 'active'
+    };
+}
+function parseSerpApiSettingsFromUnknown(raw) {
+    const base = defaultSerpApiWebSearchSettingsFormState();
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        return base;
+    }
+    const o = raw;
+    const defaults = o.defaults && typeof o.defaults === 'object' && !Array.isArray(o.defaults)
+        ? o.defaults
+        : {};
+    const numRaw = defaults.num ?? o.num;
+    return {
+        engine: defaults.engine != null ? String(defaults.engine) : base.engine,
+        googleDomain: defaults.googleDomain != null ? String(defaults.googleDomain) : base.googleDomain,
+        gl: defaults.gl != null ? String(defaults.gl) : base.gl,
+        hl: defaults.hl != null ? String(defaults.hl) : base.hl,
+        location: defaults.location != null ? String(defaults.location) : base.location,
+        num: numRaw != null ? String(numRaw) : base.num,
+        device: defaults.device != null ? String(defaults.device) : base.device,
+        safe: defaults.safe != null ? String(defaults.safe) : base.safe
+    };
+}
+function serpApiSettingsToJsonObject(state) {
+    const num = Number(state.num.trim());
+    const defaults = {
+        engine: state.engine.trim() || 'google',
+        googleDomain: state.googleDomain.trim() || 'google.com',
+        gl: state.gl.trim() || 'us',
+        hl: state.hl.trim() || 'en',
+        device: state.device.trim() || 'desktop',
+        safe: state.safe.trim() || 'active'
+    };
+    const loc = state.location.trim();
+    if (loc) {
+        defaults.location = loc;
+    }
+    if (Number.isFinite(num) && num >= 1 && num <= 20) {
+        defaults.num = Math.round(num);
+    }
+    return { defaults };
+}
+function validateSerpApiWebSearchSettings(state) {
+    const serpNum = Number(state.num.trim());
+    if (state.num.trim() && (!Number.isFinite(serpNum) || serpNum < 1 || serpNum > 20)) {
+        return { ok: false, message: 'SerpAPI default result count must be between 1 and 20 when set.' };
+    }
+    return { ok: true };
+}
+const serpApiWebSearchSettingsDescriptor = {
+    wireName: SERP_API_WEB_SEARCH_WIRE,
+    defaultState: defaultSerpApiWebSearchSettingsFormState,
+    parse: parseSerpApiSettingsFromUnknown,
+    serialize: serpApiSettingsToJsonObject,
+    validate: validateSerpApiWebSearchSettings,
+    ConfigureDialog: SerpApiWebSearchConfigureDialog
+};
+
+/** Built-in wires that expose a Project Tools → Integrations configure dialog. */
+const BUILTIN_TOOL_SETTINGS_DESCRIPTORS = [
+    serpApiWebSearchSettingsDescriptor
+];
+const DESCRIPTOR_BY_WIRE = new Map(BUILTIN_TOOL_SETTINGS_DESCRIPTORS.map((d) => [d.wireName, d]));
+function builtInToolSettingsDescriptorForWire(wireName) {
+    return DESCRIPTOR_BY_WIRE.get(wireName.trim());
+}
+function builtInToolHasProjectSettings(wireName) {
+    return DESCRIPTOR_BY_WIRE.has(wireName.trim());
+}
+function defaultBuiltInToolSettingsByWire() {
+    const out = {};
+    for (const d of BUILTIN_TOOL_SETTINGS_DESCRIPTORS) {
+        out[d.wireName] = d.defaultState();
+    }
+    return out;
+}
+function parseBuiltInToolSettingsByWire(builtInRaw) {
+    const out = {};
+    for (const d of BUILTIN_TOOL_SETTINGS_DESCRIPTORS) {
+        out[d.wireName] = d.parse(builtInRaw[d.wireName]);
+    }
+    for (const [wire, raw] of Object.entries(builtInRaw)) {
+        if (!DESCRIPTOR_BY_WIRE.has(wire)) {
+            out[wire] = raw;
+        }
+    }
+    return out;
+}
+function mergeBuiltInToolSettingsForSave(state, priorBuiltIn) {
+    const merged = { ...priorBuiltIn };
+    for (const d of BUILTIN_TOOL_SETTINGS_DESCRIPTORS) {
+        const block = state.builtInToolSettingsByWire[d.wireName];
+        merged[d.wireName] = d.serialize(block !== undefined ? d.parse(block) : d.defaultState());
+    }
+    for (const [wire, raw] of Object.entries(state.builtInToolSettingsByWire)) {
+        if (!DESCRIPTOR_BY_WIRE.has(wire)) {
+            merged[wire] = raw;
+        }
+    }
+    return merged;
+}
+function getBuiltInToolSettingsState(policy, descriptor) {
+    const raw = policy.builtInToolSettingsByWire[descriptor.wireName];
+    if (raw === undefined) {
+        return descriptor.defaultState();
+    }
+    return descriptor.parse(raw);
+}
+function patchBuiltInToolSettings(policy, descriptor, state) {
+    return {
+        ...policy,
+        builtInToolSettingsByWire: {
+            ...policy.builtInToolSettingsByWire,
+            [descriptor.wireName]: state
+        }
+    };
+}
+function validateBuiltInToolSettings(state) {
+    for (const d of BUILTIN_TOOL_SETTINGS_DESCRIPTORS) {
+        if (!d.validate) {
+            continue;
+        }
+        const toolState = d.parse(state.builtInToolSettingsByWire[d.wireName]);
+        const result = d.validate(toolState);
+        if (!result.ok) {
+            return result;
+        }
+    }
+    return { ok: true };
+}
+
 /** Studio module path for site secrets registry (under {@code config/studio/}). */
 const SECRETS_JSON_REL = 'scripts/aiassistant/config/secrets.json';
 /**
@@ -35290,22 +35446,25 @@ const AI_ASSISTANT_KNOWN_SECRET_SLOTS = [
     { key: 'llama_api_key', label: 'Llama (Ollama-compatible)', llmProvider: 'llama', defaultEnvVar: 'LLAMA_API_KEY' },
     { key: 'gemini_api_key', label: 'Gemini (Google)', llmProvider: 'gemini', defaultEnvVar: 'GEMINI_API_KEY' }
 ];
+/** Integration keys (mirrors optional slots in {@code StudioAiAssistantSecretsCatalog}). */
+const AI_ASSISTANT_INTEGRATION_SECRET_SLOTS = [{ key: 'serpapi_api_key', label: 'SerpAPI (web search)', defaultEnvVar: 'SERPAPI_API_KEY', optional: true }];
+function secretAdminRowFromSlot(slot) {
+    const expr = `\${env:${slot.defaultEnvVar}}`;
+    return {
+        key: slot.key,
+        label: slot.label,
+        configured: false,
+        valueKind: 'env',
+        llmProvider: slot.llmProvider,
+        optional: slot.optional,
+        defaultEnvVar: slot.defaultEnvVar,
+        suggestedExpression: expr,
+        valueExpression: expr,
+        envVar: slot.defaultEnvVar
+    };
+}
 function defaultKnownSecretAdminRows() {
-    return AI_ASSISTANT_KNOWN_SECRET_SLOTS.map((slot) => {
-        const expr = `\${env:${slot.defaultEnvVar}}`;
-        return {
-            key: slot.key,
-            label: slot.label,
-            configured: false,
-            valueKind: 'env',
-            llmProvider: slot.llmProvider,
-            optional: slot.optional,
-            defaultEnvVar: slot.defaultEnvVar,
-            suggestedExpression: expr,
-            valueExpression: expr,
-            envVar: slot.defaultEnvVar
-        };
-    });
+    return [...AI_ASSISTANT_KNOWN_SECRET_SLOTS, ...AI_ASSISTANT_INTEGRATION_SECRET_SLOTS].map(secretAdminRowFromSlot);
 }
 /** Merge server admin rows over the built-in catalog (server wins per key). */
 /** Built-in {@code secrets.json} key for a Project Tools LLM vendor id (empty for script). */
@@ -35450,6 +35609,8 @@ const BUILTIN_TOOL_NAME_OPTIONS = STUDIO_AI_BUILTIN_TOOL_IDS.filter((id) => id !
 const KNOWN_TOP_LEVEL_KEYS = new Set([
     'disabledBuiltInTools',
     'enabledBuiltInTools',
+    'disabledUserTools',
+    'builtInToolSettings',
     'mcpEnabled',
     'mcpServers',
     'disabledMcpTools',
@@ -35488,6 +35649,8 @@ function defaultToolsPolicyFormState() {
         mcpServers: [],
         disabledBuiltInTools: [],
         enabledBuiltInTools: [],
+        builtInToolSettingsByWire: defaultBuiltInToolSettingsByWire(),
+        disabledUserTools: [],
         disabledMcpTools: [],
         intentRecipeRouting: defaultIntentRecipeRoutingFormState(),
         extraFields: undefined
@@ -35647,11 +35810,16 @@ function parseToolsPolicyFromUnknown(raw) {
             mcpServers.push(mcpServerRowFromUnknown(s));
         }
     }
+    const builtInRaw = o.builtInToolSettings && typeof o.builtInToolSettings === 'object' && !Array.isArray(o.builtInToolSettings)
+        ? o.builtInToolSettings
+        : {};
     return {
         mcpEnabled: Boolean(o.mcpEnabled),
         mcpServers,
         disabledBuiltInTools: asStringArray(o.disabledBuiltInTools),
         enabledBuiltInTools: asStringArray(o.enabledBuiltInTools),
+        builtInToolSettingsByWire: parseBuiltInToolSettingsByWire(builtInRaw),
+        disabledUserTools: asStringArray(o.disabledUserTools),
         disabledMcpTools: asStringArray(o.disabledMcpTools),
         intentRecipeRouting: parseIntentRecipeRoutingFromUnknown(o.intentRecipeRouting),
         extraFields: Object.keys(extraFields).length ? extraFields : undefined
@@ -35694,6 +35862,10 @@ function validateToolsPolicy(state) {
         const check = posInt(label, raw);
         if (!check.ok)
             return check;
+    }
+    const builtInCheck = validateBuiltInToolSettings(state);
+    if (!builtInCheck.ok) {
+        return builtInCheck;
     }
     for (let i = 0; i < state.mcpServers.length; i++) {
         const r = state.mcpServers[i];
@@ -35767,6 +35939,17 @@ function serializeToolsPolicyToJson(state) {
     const obj = { ...(state.extraFields ?? {}) };
     obj.disabledBuiltInTools = [...new Set(state.disabledBuiltInTools.map((s) => s.trim()).filter(Boolean))];
     obj.enabledBuiltInTools = [...new Set(state.enabledBuiltInTools.map((s) => s.trim()).filter(Boolean))];
+    const disabledUser = [...new Set(state.disabledUserTools.map((s) => s.trim()).filter(Boolean))];
+    if (disabledUser.length) {
+        obj.disabledUserTools = disabledUser;
+    }
+    const priorBuiltIn = typeof obj.builtInToolSettings === 'object' && obj.builtInToolSettings && !Array.isArray(obj.builtInToolSettings)
+        ? obj.builtInToolSettings
+        : {};
+    const builtInToolSettings = mergeBuiltInToolSettingsForSave(state, priorBuiltIn);
+    if (Object.keys(builtInToolSettings).length) {
+        obj.builtInToolSettings = builtInToolSettings;
+    }
     obj.mcpEnabled = Boolean(state.mcpEnabled);
     obj.mcpServers = mcpServers;
     obj.disabledMcpTools = [...new Set(state.disabledMcpTools.map((s) => s.trim()).filter(Boolean))];
@@ -35787,12 +35970,127 @@ function serializeToolsPolicyToJson(state) {
     return JSON.stringify(obj, null, 2);
 }
 
+/** Built-in orchestration wires shown on Project Tools → Integrations → Tools (excludes agent-only {@code mcp:*}). */
+const BUILTIN_ORCHESTRATION_TOOL_WIRES = BUILTIN_TOOL_NAME_OPTIONS;
+function disabledBuiltInLower(state) {
+    return new Set(state.disabledBuiltInTools.map((s) => s.trim().toLowerCase()).filter(Boolean));
+}
+function enabledBuiltInLower(state) {
+    return new Set(state.enabledBuiltInTools.map((s) => s.trim().toLowerCase()).filter(Boolean));
+}
+/** Whether a built-in wire is enabled per {@code tools.json} hide/whitelist policy. */
+function isBuiltInToolEnabled(state, wireName) {
+    const wire = wireName.trim();
+    if (!wire) {
+        return false;
+    }
+    const lower = wire.toLowerCase();
+    const whitelist = state.enabledBuiltInTools.map((s) => s.trim()).filter(Boolean);
+    if (whitelist.length > 0) {
+        return enabledBuiltInLower(state).has(lower);
+    }
+    return !disabledBuiltInLower(state).has(lower);
+}
+function setBuiltInToolEnabled(state, wireName, enabled) {
+    const wire = wireName.trim();
+    if (!wire) {
+        return state;
+    }
+    const lower = wire.toLowerCase();
+    const whitelist = state.enabledBuiltInTools.map((s) => s.trim()).filter(Boolean);
+    if (whitelist.length > 0) {
+        const nextWl = new Set(whitelist);
+        if (enabled) {
+            nextWl.add(wire);
+        }
+        else {
+            for (const w of whitelist) {
+                if (w.toLowerCase() === lower) {
+                    nextWl.delete(w);
+                }
+            }
+        }
+        return { ...state, enabledBuiltInTools: [...nextWl] };
+    }
+    const nextDis = new Set(state.disabledBuiltInTools.map((s) => s.trim()).filter(Boolean));
+    if (enabled) {
+        for (const d of [...nextDis]) {
+            if (d.toLowerCase() === lower) {
+                nextDis.delete(d);
+            }
+        }
+    }
+    else {
+        let found = false;
+        for (const d of nextDis) {
+            if (d.toLowerCase() === lower) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            nextDis.add(wire);
+        }
+    }
+    return { ...state, disabledBuiltInTools: [...nextDis] };
+}
+function disabledUserToolsLower(state) {
+    return new Set(state.disabledUserTools.map((s) => s.trim().toLowerCase()).filter(Boolean));
+}
+function isUserToolEnabled(state, toolId) {
+    const id = toolId.trim().toLowerCase();
+    return id.length > 0 && !disabledUserToolsLower(state).has(id);
+}
+function setUserToolEnabled(state, toolId, enabled) {
+    const id = toolId.trim();
+    if (!id) {
+        return state;
+    }
+    const lower = id.toLowerCase();
+    const next = new Set(state.disabledUserTools.map((s) => s.trim()).filter(Boolean));
+    if (enabled) {
+        for (const d of [...next]) {
+            if (d.toLowerCase() === lower) {
+                next.delete(d);
+            }
+        }
+    }
+    else {
+        let found = false;
+        for (const d of next) {
+            if (d.toLowerCase() === lower) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            next.add(id);
+        }
+    }
+    return { ...state, disabledUserTools: [...next] };
+}
+
 /**
- * Site-wide {@code tools.json} policy: built-in tool hide/whitelist. Intent recipe routing lives on the **Recipes** tab.
+ * Site-wide {@code tools.json} policy: built-in tool enable/disable and optional per-tool settings.
  */
 function AiAssistantSiteOrchestrationToolsForm(props) {
     const { value, onChange } = props;
-    return (jsxs(Stack$1, { spacing: 3, children: [jsxs(Typography, { variant: "body2", color: "text.secondary", children: ["Intent recipe routing and the recipe catalog are configured under the ", jsx$1("strong", { children: "Recipes" }), " tab."] }), jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Built-in tools" }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Optional lists use exact wire names. If ", jsx$1("strong", { children: "Whitelist" }), " is non-empty, only those built-in tools stay;", jsx$1("code", { children: " InvokeSiteUserTool" }), " and dynamic ", jsx$1("code", { children: "mcp_*" }), " tools still register unless disabled under MCP."] }), jsxs(Stack$1, { spacing: 2, children: [jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [...BUILTIN_TOOL_NAME_OPTIONS], value: value.disabledBuiltInTools, onChange: (_, v) => onChange({ ...value, disabledBuiltInTools: v.map(String) }), renderTags: (tagValue, getTagProps) => tagValue.map((option, index) => (createElement(Chip, { variant: "outlined", label: option, size: "small", ...getTagProps({ index }), key: `${option}-${index}` }))), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Hide built-in tools", placeholder: "e.g. GenerateImage", size: "small" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [...BUILTIN_TOOL_NAME_OPTIONS], value: value.enabledBuiltInTools, onChange: (_, v) => onChange({ ...value, enabledBuiltInTools: v.map(String) }), renderTags: (tagValue, getTagProps) => tagValue.map((option, index) => (createElement(Chip, { variant: "outlined", label: option, size: "small", ...getTagProps({ index }), key: `${option}-${index}` }))), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Whitelist built-in tools (optional)", placeholder: "Leave empty for no whitelist", size: "small" })) })] })] })] }));
+    const whitelistMode = value.enabledBuiltInTools.length > 0;
+    const builtInWires = useMemo(() => [...BUILTIN_ORCHESTRATION_TOOL_WIRES], []);
+    const [configureWire, setConfigureWire] = useState(null);
+    const [configureDraft, setConfigureDraft] = useState(undefined);
+    const activeDescriptor = configureWire ? builtInToolSettingsDescriptorForWire(configureWire) : undefined;
+    useEffect(() => {
+        if (!activeDescriptor) {
+            setConfigureDraft(undefined);
+            return;
+        }
+        setConfigureDraft(getBuiltInToolSettingsState(value, activeDescriptor));
+    }, [activeDescriptor, configureWire, value]);
+    return (jsxs(Stack$1, { spacing: 3, children: [jsxs(Typography, { variant: "body2", color: "text.secondary", children: ["Intent recipe routing and the recipe catalog are configured under the ", jsx$1("strong", { children: "Recipes" }), " tab."] }), jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Built-in tools" }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: whitelistMode ? (jsxs(Fragment, { children: [jsx$1("strong", { children: "Whitelist mode:" }), " only enabled tools register (plus ", jsx$1("code", { children: "InvokeSiteUserTool" }), " and", ' ', jsx$1("code", { children: "mcp_*" }), " when configured)."] })) : (jsxs(Fragment, { children: ["Disabled tools are listed in ", jsx$1("code", { children: "disabledBuiltInTools" }), " in ", jsx$1("code", { children: "tools.json" }), ".", ' ', jsx$1("code", { children: "InvokeSiteUserTool" }), " and dynamic ", jsx$1("code", { children: "mcp_*" }), " tools follow MCP settings unless also disabled here."] })) }), jsxs(Table$1, { size: "small", sx: { border: 1, borderColor: 'divider', borderRadius: 1 }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Tool" }), jsx$1(TableCell, { width: 100, align: "center", children: "Enabled" }), jsx$1(TableCell, { width: 120, align: "center", children: "Settings" })] }) }), jsx$1(TableBody, { children: builtInWires.map((wire) => (jsxs(TableRow, { children: [jsx$1(TableCell, { children: jsx$1(Typography, { variant: "body2", component: "code", children: wire }) }), jsx$1(TableCell, { align: "center", children: jsx$1(Switch, { size: "small", checked: isBuiltInToolEnabled(value, wire), onChange: (_, checked) => onChange(setBuiltInToolEnabled(value, wire, checked)), inputProps: { 'aria-label': `Enable ${wire}` } }) }), jsx$1(TableCell, { align: "center", children: builtInToolHasProjectSettings(wire) ? (jsx$1(Button, { size: "small", variant: "outlined", onClick: () => setConfigureWire(wire), children: "Configure" })) : (jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "\u2014" })) })] }, wire))) })] })] }), activeDescriptor && configureDraft !== undefined ? (jsx$1(activeDescriptor.ConfigureDialog, { open: Boolean(configureWire), draft: configureDraft, onDraftChange: setConfigureDraft, onClose: () => setConfigureWire(null), onApply: (draft) => {
+                    onChange(patchBuiltInToolSettings(value, activeDescriptor, draft));
+                    setConfigureWire(null);
+                } })) : null] }));
 }
 
 const BASE$1 = '/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/scripts';
@@ -38182,13 +38480,33 @@ function AiAssistantIntentRecipeRoutingRulesSection(props) {
     return (jsx$1(Box, { children: jsxs(Stack$1, { spacing: 2, children: [jsx$1(AiAssistantIntentRecipeMatchRulesField, { label: "Deterministic match", value: recipe.deterministicMatch, matchHints: recipe.matchHints ?? [], onChange: (deterministicMatch) => onChange({ ...recipe, deterministicMatch }) }), jsx$1(AiAssistantIntentRecipeMatchRulesField, { label: "Ambiguity match (optional)", value: recipe.ambiguityMatch, matchHints: recipe.matchHints ?? [], onChange: (ambiguityMatch) => onChange({ ...recipe, ambiguityMatch }) })] }) }));
 }
 
+const TOOLS_LOOP_WIRE_OPTIONS = [...INTENT_RECIPE_WIRE_TOOL_OPTIONS];
+/** Recipe tools-loop policy: force tool, allowlist, excludes, fetch caps, prelude. */
+function AiAssistantIntentRecipeToolsLoopFields(props) {
+    const { recipe, onChange } = props;
+    const patchRecipe = (partial) => {
+        onChange({ ...recipe, ...partial });
+    };
+    return (jsxs(Stack$1, { spacing: 2, children: [jsx$1(Typography, { variant: "subtitle2", children: "Tools loop (orchestration)" }), jsxs(Typography, { variant: "body2", color: "text.secondary", children: ["Applied when this recipe matches: round-0 ", jsx$1("strong", { children: "tool_choice" }), ", tool allowlist, and server fetch limits. Names must match built-in wire tools (e.g. ", jsx$1("strong", { children: "WebSearch" }), ", ", jsx$1("strong", { children: "SerpApiWebSearch" }), ",", ' ', jsx$1("strong", { children: "FetchHttpUrl" }), ")."] }), jsx$1(Autocomplete, { freeSolo: true, options: TOOLS_LOOP_WIRE_OPTIONS, value: recipe.toolsLoopForceTool ?? '', onInputChange: (_, v) => patchRecipe({ toolsLoopForceTool: v.trim() || undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Force tool (round 0)", size: "small", placeholder: "WebSearch", helperText: "Required first tool call. If disabled in tools.json, the turn fails with \u201CRecipe tool unavailable\u201D.", InputProps: { ...params.InputProps, sx: { fontFamily: 'monospace' } } })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: TOOLS_LOOP_WIRE_OPTIONS, value: recipe.toolsLoopAllowlist ?? [], onChange: (_, v) => patchRecipe({ toolsLoopAllowlist: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Tools-loop allowlist", size: "small", helperText: "Only these tools are registered for the turn (unless bypass keywords match)." })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: TOOLS_LOOP_WIRE_OPTIONS, value: recipe.toolsLoopExcludeTools ?? [], onChange: (_, v) => patchRecipe({ toolsLoopExcludeTools: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Exclude tools", size: "small", helperText: "Removed from the session tool list when this recipe matches." })) }), jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 2, children: [jsx$1(TextField, { label: "Max FetchHttpUrl calls per turn", type: "number", size: "small", value: recipe.toolsLoopMaxFetchHttpUrlCalls ?? '', onChange: (e) => {
+                            const t = e.target.value.trim();
+                            patchRecipe({
+                                toolsLoopMaxFetchHttpUrlCalls: t === '' ? undefined : Math.max(0, Math.min(10, Number(t) || 0))
+                            });
+                        }, inputProps: { min: 0, max: 10 }, sx: { flex: '0 0 220px' } }), jsx$1(TextField, { label: "FetchHttpUrl wire max chars", type: "number", size: "small", value: recipe.toolsLoopFetchHttpUrlWireMaxChars ?? '', onChange: (e) => {
+                            const t = e.target.value.trim();
+                            patchRecipe({
+                                toolsLoopFetchHttpUrlWireMaxChars: t === '' ? undefined : Math.max(256, Math.min(24000, Number(t) || 0))
+                            });
+                        }, inputProps: { min: 256, max: 24000 }, sx: { flex: '0 0 220px' } })] }), jsx$1(TextField, { label: "Matched user prelude", value: recipe.matchedUserPrelude ?? '', onChange: (e) => patchRecipe({ matchedUserPrelude: e.target.value.trim() || undefined }), size: "small", fullWidth: true, multiline: true, minRows: 3, helperText: "Prepended to the tools-loop user message when this recipe matches (markdown)." })] }));
+}
+
 /** Recipe metadata, match rules, and tools-loop policy (editor General tab). */
 function AiAssistantIntentRecipeGeneralFields(props) {
     const { recipe, onChange, idReadOnly } = props;
     const patchRecipe = (partial) => {
         onChange({ ...recipe, ...partial });
     };
-    return (jsxs(Stack$1, { spacing: 2, children: [jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 2, alignItems: "flex-start", children: [jsx$1(AiAssistantIntentRecipeEmojiField, { emoji: recipe.chatEmoji ?? '', title: recipe.title ?? '', recipeId: recipe.id, onChange: (chatEmoji) => patchRecipe({ chatEmoji: chatEmoji || undefined }) }), jsx$1(TextField, { label: "Recipe id", value: recipe.id, onChange: (e) => patchRecipe({ id: e.target.value.trim() }), size: "small", disabled: idReadOnly, sx: { flex: '0 0 220px' }, InputProps: { sx: { fontFamily: 'monospace' } } }), jsx$1(TextField, { label: "Title", value: recipe.title ?? '', onChange: (e) => patchRecipe({ title: e.target.value }), size: "small", fullWidth: true })] }), jsx$1(TextField, { label: "Description (router)", value: recipe.description ?? '', onChange: (e) => patchRecipe({ description: e.target.value }), size: "small", fullWidth: true, multiline: true, minRows: 2 }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.matchHints ?? [], onChange: (_, v) => patchRecipe({ matchHints: v.map(String) }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Match hints", size: "small", placeholder: "translate, publish, \u2026" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.dontMatchHints ?? [], onChange: (_, v) => patchRecipe({ dontMatchHints: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Don't match hints", size: "small", placeholder: "translate, publish, \u2026" })) }), jsx$1(AiAssistantIntentRecipeRoutingRulesSection, { recipe: recipe, onChange: onChange }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [...INTENT_RECIPE_READ_ONLY_TOOLS, 'GenerateImage', 'WriteContent', 'update_content'], value: recipe.toolsLoopAllowlist ?? [], onChange: (_, v) => patchRecipe({ toolsLoopAllowlist: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Tools-loop allowlist (optional)", size: "small" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.toolsLoopAllowlistBypassIfAuthorMentions ?? [], onChange: (_, v) => patchRecipe({
+    return (jsxs(Stack$1, { spacing: 2, children: [jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 2, alignItems: "flex-start", children: [jsx$1(AiAssistantIntentRecipeEmojiField, { emoji: recipe.chatEmoji ?? '', title: recipe.title ?? '', recipeId: recipe.id, onChange: (chatEmoji) => patchRecipe({ chatEmoji: chatEmoji || undefined }) }), jsx$1(TextField, { label: "Recipe id", value: recipe.id, onChange: (e) => patchRecipe({ id: e.target.value.trim() }), size: "small", disabled: idReadOnly, sx: { flex: '0 0 220px' }, InputProps: { sx: { fontFamily: 'monospace' } } }), jsx$1(TextField, { label: "Title", value: recipe.title ?? '', onChange: (e) => patchRecipe({ title: e.target.value }), size: "small", fullWidth: true })] }), jsx$1(TextField, { label: "Description (router)", value: recipe.description ?? '', onChange: (e) => patchRecipe({ description: e.target.value }), size: "small", fullWidth: true, multiline: true, minRows: 2 }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.matchHints ?? [], onChange: (_, v) => patchRecipe({ matchHints: v.map(String) }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Match hints", size: "small", placeholder: "translate, publish, \u2026" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.dontMatchHints ?? [], onChange: (_, v) => patchRecipe({ dontMatchHints: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Don't match hints", size: "small", placeholder: "translate, publish, \u2026" })) }), jsx$1(AiAssistantIntentRecipeRoutingRulesSection, { recipe: recipe, onChange: onChange }), jsx$1(AiAssistantIntentRecipeToolsLoopFields, { recipe: recipe, onChange: onChange }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.toolsLoopAllowlistBypassIfAuthorMentions ?? [], onChange: (_, v) => patchRecipe({
                     toolsLoopAllowlistBypassIfAuthorMentions: v.length ? v.map(String) : undefined
                 }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Allowlist bypass keywords (optional)", size: "small" })) })] }));
 }
@@ -38613,7 +38931,7 @@ function AiAssistantIntentRecipeView(props) {
     const { recipe, entry, onEdit } = props;
     const bindingNames = declaredBindingNames(recipe);
     const chatEmoji = resolveRecipeChatEmoji(recipe);
-    return (jsxs(Stack$1, { spacing: 2, children: [jsxs(Stack$1, { direction: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 1, flexWrap: "wrap", children: [jsxs(Box, { sx: { minWidth: 0 }, children: [jsxs(Stack$1, { direction: "row", spacing: 1, alignItems: "center", sx: { mb: recipe.description ? 1 : 0 }, children: [jsx$1(Typography, { component: "span", sx: { fontSize: '1.5rem', lineHeight: 1 }, "aria-hidden": true, children: chatEmoji }), jsx$1(Typography, { variant: "subtitle2", children: recipe.title || recipe.id })] }), recipe.description ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 1 }, children: recipe.description })) : null, recipe.matchHints && recipe.matchHints.length > 0 ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", sx: { mb: 0.5 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Match:" }), recipe.matchHints.map((h) => (jsx$1(Chip, { size: "small", label: h, variant: "outlined" }, `m:${h}`)))] })) : null, recipe.dontMatchHints && recipe.dontMatchHints.length > 0 ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Don't match:" }), recipe.dontMatchHints.map((h) => (jsx$1(Chip, { size: "small", label: h, variant: "outlined", color: "warning" }, `d:${h}`)))] })) : null] }), jsx$1(Button, { size: "small", variant: "contained", startIcon: jsx$1(EditRounded, {}), onClick: onEdit, children: "Edit recipe" })] }), bindingNames.length > 0 ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Prefetch:" }), bindingNames.map((n) => (jsx$1(Chip, { size: "small", label: n, variant: "outlined" }, n)))] })) : null, jsx$1(AiAssistantIntentRecipeSwimlane, { recipe: recipe }), entry.source === 'bundled' ? (jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Built-in recipe \u2014 Edit to customize for your project." })) : null] }));
+    return (jsxs(Stack$1, { spacing: 2, children: [jsxs(Stack$1, { direction: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 1, flexWrap: "wrap", children: [jsxs(Box, { sx: { minWidth: 0 }, children: [jsxs(Stack$1, { direction: "row", spacing: 1, alignItems: "center", sx: { mb: recipe.description ? 1 : 0 }, children: [jsx$1(Typography, { component: "span", sx: { fontSize: '1.5rem', lineHeight: 1 }, "aria-hidden": true, children: chatEmoji }), jsx$1(Typography, { variant: "subtitle2", children: recipe.title || recipe.id })] }), recipe.description ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 1 }, children: recipe.description })) : null, recipe.matchHints && recipe.matchHints.length > 0 ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", sx: { mb: 0.5 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Match:" }), recipe.matchHints.map((h) => (jsx$1(Chip, { size: "small", label: h, variant: "outlined" }, `m:${h}`)))] })) : null, recipe.dontMatchHints && recipe.dontMatchHints.length > 0 ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Don't match:" }), recipe.dontMatchHints.map((h) => (jsx$1(Chip, { size: "small", label: h, variant: "outlined", color: "warning" }, `d:${h}`)))] })) : null, recipe.toolsLoopForceTool ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", sx: { mb: 0.5 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Force tool:" }), jsx$1(Chip, { size: "small", label: recipe.toolsLoopForceTool, variant: "outlined", color: "primary" })] })) : null, recipe.toolsLoopAllowlist && recipe.toolsLoopAllowlist.length > 0 ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", sx: { mb: 0.5 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Allowlist:" }), recipe.toolsLoopAllowlist.map((t) => (jsx$1(Chip, { size: "small", label: t, variant: "outlined" }, `a:${t}`)))] })) : null, recipe.toolsLoopExcludeTools && recipe.toolsLoopExcludeTools.length > 0 ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", sx: { mb: 0.5 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Exclude:" }), recipe.toolsLoopExcludeTools.map((t) => (jsx$1(Chip, { size: "small", label: t, variant: "outlined", color: "warning" }, `x:${t}`)))] })) : null] }), jsx$1(Button, { size: "small", variant: "contained", startIcon: jsx$1(EditRounded, {}), onClick: onEdit, children: "Edit recipe" })] }), bindingNames.length > 0 ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Prefetch:" }), bindingNames.map((n) => (jsx$1(Chip, { size: "small", label: n, variant: "outlined" }, n)))] })) : null, jsx$1(AiAssistantIntentRecipeSwimlane, { recipe: recipe }), entry.source === 'bundled' ? (jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Built-in recipe \u2014 Edit to customize for your project." })) : null] }));
 }
 
 function AiAssistantIntentRecipeRoutingFields(props) {
@@ -73618,7 +73936,7 @@ function emptyMcpServerRow() {
     return { id: '', url: '', readTimeoutMs: '', authSecretKey: '', headerPairs: [{ key: '', value: '' }] };
 }
 function AiAssistantToolsMcpForm(props) {
-    const { value, onChange, sections = 'both' } = props;
+    const { value, onChange, sections = 'both', userTools } = props;
     const activeSite = useActiveSiteId();
     const siteId = useMemo(() => effectiveStudioSiteId(activeSite), [activeSite]);
     const [customSecretKeyOptions, setCustomSecretKeyOptions] = useState([]);
@@ -73655,7 +73973,7 @@ function AiAssistantToolsMcpForm(props) {
     const removeServer = (index) => {
         onChange({ ...value, mcpServers: value.mcpServers.filter((_, i) => i !== index) });
     };
-    return (jsxs(Stack$1, { spacing: 4, children: [showBuiltIn ? jsx$1(AiAssistantSiteOrchestrationToolsForm, { value: value, onChange: onChange }) : null, showMcp ? (jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "subtitle2", children: "MCP (Streamable HTTP):" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.mcpEnabled, onChange: (_, c) => setMcpEnabled(c), size: "small" }), label: "Enable MCP client" })] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "When enabled, each server below is contacted on chat requests to list and call remote tools. URLs must pass the same outbound rules as FetchHttpUrl." }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Example (streamable HTTP, optional headers, read-only URL patterns):", ' ', jsx$1(Link, { href: "https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md", target: "_blank", rel: "noopener noreferrer", children: "GitHub MCP Server \u2014 remote-server.md" }), "."] }), value.mcpEnabled ? (jsxs(Fragment, { children: [jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "body2", children: "MCP servers" }), jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: addServer, children: "Add server" })] }), value.mcpServers.length === 0 ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 1 }, children: "No servers yet. Use Add server to register a Streamable HTTP MCP endpoint." })) : (jsxs(Table$1, { size: "small", sx: { border: 1, borderColor: 'divider', borderRadius: 1, mb: 1 }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Server id" }), jsx$1(TableCell, { children: "MCP URL and optional headers" }), jsx$1(TableCell, { width: 120, children: "Timeout (ms)" }), jsx$1(TableCell, { align: "right", width: 88, children: ' ' })] }) }), jsx$1(TableBody, { children: value.mcpServers.map((row, si) => (jsxs(TableRow, { children: [jsx$1(TableCell, { sx: { verticalAlign: 'top' }, children: jsx$1(TextField, { size: "small", fullWidth: true, value: row.id, onChange: (e) => updateServer(si, { ...row, id: e.target.value }), placeholder: "e.g. docs" }) }), jsxs(TableCell, { sx: { verticalAlign: 'top' }, children: [jsx$1(TextField, { size: "small", fullWidth: true, value: row.url, onChange: (e) => updateServer(si, { ...row, url: e.target.value }), placeholder: "https://host/\u2026/mcp" }), jsxs(FormControl, { fullWidth: true, size: "small", sx: { mt: 1 }, children: [jsx$1(InputLabel, { id: `cq-mcp-auth-secret-${si}`, children: "Auth secret (custom)" }), jsxs(Select, { labelId: `cq-mcp-auth-secret-${si}`, label: "Auth secret (custom)", value: row.authSecretKey, onChange: (e) => updateServer(si, { ...row, authSecretKey: String(e.target.value) }), children: [jsx$1(MenuItem, { value: "", children: jsx$1("em", { children: "None" }) }), row.authSecretKey &&
+    return (jsxs(Stack$1, { spacing: 4, children: [showBuiltIn ? jsx$1(AiAssistantSiteOrchestrationToolsForm, { value: value, onChange: onChange }) : null, showMcp ? (jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "subtitle2", children: "MCP (Streamable HTTP):" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.mcpEnabled, onChange: (_, c) => setMcpEnabled(c), size: "small" }), label: "Enable MCP client" })] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "When enabled, each server below is contacted on chat requests to list and call remote tools. URLs must pass the same outbound rules as FetchHttpUrl." }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Example (streamable HTTP, optional headers, read-only URL patterns):", ' ', jsx$1(Link$1, { href: "https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md", target: "_blank", rel: "noopener noreferrer", children: "GitHub MCP Server \u2014 remote-server.md" }), "."] }), value.mcpEnabled ? (jsxs(Fragment, { children: [jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "body2", children: "MCP servers" }), jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: addServer, children: "Add server" })] }), value.mcpServers.length === 0 ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 1 }, children: "No servers yet. Use Add server to register a Streamable HTTP MCP endpoint." })) : (jsxs(Table$1, { size: "small", sx: { border: 1, borderColor: 'divider', borderRadius: 1, mb: 1 }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Server id" }), jsx$1(TableCell, { children: "MCP URL and optional headers" }), jsx$1(TableCell, { width: 120, children: "Timeout (ms)" }), jsx$1(TableCell, { align: "right", width: 88, children: ' ' })] }) }), jsx$1(TableBody, { children: value.mcpServers.map((row, si) => (jsxs(TableRow, { children: [jsx$1(TableCell, { sx: { verticalAlign: 'top' }, children: jsx$1(TextField, { size: "small", fullWidth: true, value: row.id, onChange: (e) => updateServer(si, { ...row, id: e.target.value }), placeholder: "e.g. docs" }) }), jsxs(TableCell, { sx: { verticalAlign: 'top' }, children: [jsx$1(TextField, { size: "small", fullWidth: true, value: row.url, onChange: (e) => updateServer(si, { ...row, url: e.target.value }), placeholder: "https://host/\u2026/mcp" }), jsxs(FormControl, { fullWidth: true, size: "small", sx: { mt: 1 }, children: [jsx$1(InputLabel, { id: `cq-mcp-auth-secret-${si}`, children: "Auth secret (custom)" }), jsxs(Select, { labelId: `cq-mcp-auth-secret-${si}`, label: "Auth secret (custom)", value: row.authSecretKey, onChange: (e) => updateServer(si, { ...row, authSecretKey: String(e.target.value) }), children: [jsx$1(MenuItem, { value: "", children: jsx$1("em", { children: "None" }) }), row.authSecretKey &&
                                                                             !customSecretKeyOptions.includes(row.authSecretKey) ? (jsx$1(MenuItem, { value: row.authSecretKey, children: row.authSecretKey })) : null, customSecretKeyOptions.map((key) => (jsx$1(MenuItem, { value: key, children: key }, key)))] })] }), jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mt: 0.5 }, children: ["Sets ", jsxs("code", { children: ["Authorization: Bearer ", '${secret:…}'] }), " from a custom secret in Project Tools \u2192 Secrets. LLM provider keys are not listed here."] }), jsxs(Stack$1, { spacing: 0.5, sx: { mt: 1 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Optional headers" }), row.headerPairs.map((hp, hi) => (jsxs(Stack$1, { direction: "row", spacing: 0.5, alignItems: "center", children: [jsx$1(TextField, { size: "small", label: "Name", value: hp.key, onChange: (e) => {
                                                                                 const headerPairs = row.headerPairs.map((p, j) => j === hi ? { ...p, key: e.target.value } : p);
                                                                                 updateServer(si, { ...row, headerPairs });
@@ -74404,7 +74722,10 @@ function AiAssistantScriptsSandboxConfiguration(props) {
                                 } }), jsxs(Stack$1, { direction: "row", spacing: 1, sx: { mt: 2 }, flexWrap: "wrap", alignItems: "center", children: [jsx$1(Button, { size: "small", variant: "contained", startIcon: savingToolsPolicy ? jsx$1(CircularProgress, { size: 16, color: "inherit" }) : jsx$1(SaveRounded, {}), disabled: savingToolsPolicy || !toolsPolicyDirty, onClick: () => void saveToolsPolicy(), children: "Save MCP settings" }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: listingMcpTools ? jsx$1(CircularProgress, { size: 16, color: "inherit" }) : jsx$1(FormatListBulletedRounded, {}), disabled: savingToolsPolicy || listingMcpTools || !mcpListPreviewAllowed, onClick: () => void openMcpToolsListOnly(), children: "List MCP tools" })] })] })) : null, showToolsBuiltIn && showMcp ? jsx$1(Divider, { sx: { my: 4 } }) : null, showToolsUser ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["Registry (", jsx$1("code", { children: REGISTRY_REL }), "):"] }), showRegistryJsonEditor ? null : (jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Use ", jsx$1("strong", { children: "Add tool" }), " and ", jsx$1("strong", { children: "Registry" }), " on each row to edit description and intent-routing hints (", jsx$1("code", { children: "matchHints" }), " / ", jsx$1("code", { children: "dontMatchHints" }), ", same as recipes). ", jsx$1("strong", { children: "Script" }), " opens the Groovy file. For raw JSON, use ", jsx$1("strong", { children: "Open in editor" }), "."] })), showRegistryJsonEditor ? (jsx$1(AiAssistantStudioCodeEditor, { language: "json", value: registryDraft, onChange: (v) => {
                                     setRegistryDraft(v);
                                     setRegistryDirty(true);
-                                }, minHeightPx: 260 })) : null, showRegistryJsonEditor ? (jsx$1(Button, { sx: { mt: 1 }, size: "small", variant: "contained", startIcon: jsx$1(SaveRounded, {}), disabled: savingRegistry || !registryDirty, onClick: () => void saveRegistry(), children: "Save registry" })) : null, jsx$1(Button, { sx: { mt: 1, ...(showRegistryJsonEditor ? { ml: 1 } : {}) }, size: "small", onClick: () => loadFileForEditor('Registry', `/${REGISTRY_REL}`, AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB), children: "Open in editor" }), jsx$1(Divider, { sx: { my: 3 } }), jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "subtitle1", children: "User tools (Groovy):" }), jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: () => { setAddDialogFullscreen(false); setAddOpen('tool'); }, children: "Add tool" })] }), jsxs(Table$1, { size: "small", sx: { border: 1, borderColor: 'divider', borderRadius: 1 }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Id" }), jsx$1(TableCell, { children: "Script" }), jsx$1(TableCell, { children: "Description" }), jsx$1(TableCell, { children: "Routing hints" }), jsx$1(TableCell, { align: "right", children: "Actions" })] }) }), jsx$1(TableBody, { children: tools.length === 0 ? (jsx$1(TableRow, { children: jsx$1(TableCell, { colSpan: 5, children: jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No tools in registry (or registry missing)." }) }) })) : (tools.map((t) => (jsxs(TableRow, { children: [jsx$1(TableCell, { children: t.id }), jsx$1(TableCell, { children: jsx$1("code", { children: t.script }) }), jsx$1(TableCell, { sx: { maxWidth: 280 }, children: t.description || '—' }), jsx$1(TableCell, { children: (t.matchHints?.length ?? 0) > 0 || (t.dontMatchHints?.length ?? 0) > 0 ? (jsxs(Typography, { variant: "body2", component: "span", children: [t.matchHints?.length ?? 0, " match", (t.dontMatchHints?.length ?? 0) > 0 ? ` · ${t.dontMatchHints?.length} don’t` : ''] })) : (jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "\u2014" })) }), jsxs(TableCell, { align: "right", sx: { whiteSpace: 'nowrap' }, children: [jsx$1(Button, { size: "small", onClick: () => openToolMetadataEditor(t), children: "Registry" }), jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: () => void loadFileForEditor(`Tool ${t.id}`, t.studioPath, AI_ASSISTANT_USER_TOOL_GROOVY_STUB), children: "Script" }), jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), onClick: () => void removeUserTool(t.id), children: "Remove" })] })] }, t.id)))) })] }), jsx$1(Stack$1, { direction: "row", spacing: 1, sx: { mt: 2 }, flexWrap: "wrap", alignItems: "center", children: jsx$1(Button, { size: "small", variant: "contained", startIcon: savingToolsPolicy ? jsx$1(CircularProgress, { size: 16, color: "inherit" }) : jsx$1(SaveRounded, {}), disabled: savingToolsPolicy || !toolsPolicyDirty, onClick: () => void saveToolsPolicy(), children: "Save tools policy" }) })] })) : null, (showToolsBuiltIn || showToolsUser) && showPrompts ? jsx$1(Divider, { sx: { my: 4 } }) : null, showPrompts ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["Tool Prompt Overrides (", jsx$1("code", { children: "scripts/aiassistant/prompts/" }), "):"] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Non-empty markdown for a key replaces the plugin default (see ToolPromptsLoader). Remove the file to use the built-in text again. Click a row to read the default and the site file side by side." }), jsx$1(TableContainer, { sx: { maxHeight: 420, border: 1, borderColor: 'divider', borderRadius: 1 }, children: jsxs(Table$1, { size: "small", stickyHeader: true, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Key" }), jsx$1(TableCell, { children: "Status" }), jsx$1(TableCell, { align: "right", children: "Actions" })] }) }), jsx$1(TableBody, { children: toolPromptOverrides.length === 0 ? (jsx$1(TableRow, { children: jsx$1(TableCell, { colSpan: 3, children: jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No prompt keys returned from the server." }) }) })) : (toolPromptOverrides.map((row) => (jsxs(TableRow, { hover: true, selected: promptReadOpen && promptReadKey === row.key, sx: { cursor: 'pointer' }, onClick: () => openPromptRead(row.key), children: [jsx$1(TableCell, { children: jsx$1("code", { children: row.key }) }), jsx$1(TableCell, { children: row.hasOverride ? `Site override (${row.byteLength} bytes)` : 'Built-in default' }), jsxs(TableCell, { align: "right", children: [jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: (ev) => {
+                                }, minHeightPx: 260 })) : null, showRegistryJsonEditor ? (jsx$1(Button, { sx: { mt: 1 }, size: "small", variant: "contained", startIcon: jsx$1(SaveRounded, {}), disabled: savingRegistry || !registryDirty, onClick: () => void saveRegistry(), children: "Save registry" })) : null, jsx$1(Button, { sx: { mt: 1, ...(showRegistryJsonEditor ? { ml: 1 } : {}) }, size: "small", onClick: () => loadFileForEditor('Registry', `/${REGISTRY_REL}`, AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB), children: "Open in editor" }), jsx$1(Divider, { sx: { my: 3 } }), jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "subtitle1", children: "User tools (Groovy):" }), jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: () => { setAddDialogFullscreen(false); setAddOpen('tool'); }, children: "Add tool" })] }), jsxs(Table$1, { size: "small", sx: { border: 1, borderColor: 'divider', borderRadius: 1 }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Id" }), jsx$1(TableCell, { children: "Script" }), jsx$1(TableCell, { children: "Description" }), jsx$1(TableCell, { children: "Routing hints" }), jsx$1(TableCell, { width: 100, align: "center", children: "Enabled" }), jsx$1(TableCell, { align: "right", children: "Actions" })] }) }), jsx$1(TableBody, { children: tools.length === 0 ? (jsx$1(TableRow, { children: jsx$1(TableCell, { colSpan: 6, children: jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No tools in registry (or registry missing)." }) }) })) : (tools.map((t) => (jsxs(TableRow, { children: [jsx$1(TableCell, { children: t.id }), jsx$1(TableCell, { children: jsx$1("code", { children: t.script }) }), jsx$1(TableCell, { sx: { maxWidth: 280 }, children: t.description || '—' }), jsx$1(TableCell, { children: (t.matchHints?.length ?? 0) > 0 || (t.dontMatchHints?.length ?? 0) > 0 ? (jsxs(Typography, { variant: "body2", component: "span", children: [t.matchHints?.length ?? 0, " match", (t.dontMatchHints?.length ?? 0) > 0 ? ` · ${t.dontMatchHints?.length} don’t` : ''] })) : (jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "\u2014" })) }), jsx$1(TableCell, { align: "center", children: jsx$1(Switch, { size: "small", checked: isUserToolEnabled(toolsPolicy, t.id), onChange: (_, checked) => {
+                                                            setToolsPolicy((prev) => setUserToolEnabled(prev, t.id, checked));
+                                                            setToolsPolicyDirty(true);
+                                                        }, inputProps: { 'aria-label': `Enable user tool ${t.id}` } }) }), jsxs(TableCell, { align: "right", sx: { whiteSpace: 'nowrap' }, children: [jsx$1(Button, { size: "small", onClick: () => openToolMetadataEditor(t), children: "Registry" }), jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: () => void loadFileForEditor(`Tool ${t.id}`, t.studioPath, AI_ASSISTANT_USER_TOOL_GROOVY_STUB), children: "Script" }), jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), onClick: () => void removeUserTool(t.id), children: "Remove" })] })] }, t.id)))) })] }), jsx$1(Stack$1, { direction: "row", spacing: 1, sx: { mt: 2 }, flexWrap: "wrap", alignItems: "center", children: jsx$1(Button, { size: "small", variant: "contained", startIcon: savingToolsPolicy ? jsx$1(CircularProgress, { size: 16, color: "inherit" }) : jsx$1(SaveRounded, {}), disabled: savingToolsPolicy || !toolsPolicyDirty, onClick: () => void saveToolsPolicy(), children: "Save tools policy" }) })] })) : null, (showToolsBuiltIn || showToolsUser) && showPrompts ? jsx$1(Divider, { sx: { my: 4 } }) : null, showPrompts ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["Tool Prompt Overrides (", jsx$1("code", { children: "scripts/aiassistant/prompts/" }), "):"] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Non-empty markdown for a key replaces the plugin default (see ToolPromptsLoader). Remove the file to use the built-in text again. Click a row to read the default and the site file side by side." }), jsx$1(TableContainer, { sx: { maxHeight: 420, border: 1, borderColor: 'divider', borderRadius: 1 }, children: jsxs(Table$1, { size: "small", stickyHeader: true, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Key" }), jsx$1(TableCell, { children: "Status" }), jsx$1(TableCell, { align: "right", children: "Actions" })] }) }), jsx$1(TableBody, { children: toolPromptOverrides.length === 0 ? (jsx$1(TableRow, { children: jsx$1(TableCell, { colSpan: 3, children: jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No prompt keys returned from the server." }) }) })) : (toolPromptOverrides.map((row) => (jsxs(TableRow, { hover: true, selected: promptReadOpen && promptReadKey === row.key, sx: { cursor: 'pointer' }, onClick: () => openPromptRead(row.key), children: [jsx$1(TableCell, { children: jsx$1("code", { children: row.key }) }), jsx$1(TableCell, { children: row.hasOverride ? `Site override (${row.byteLength} bytes)` : 'Built-in default' }), jsxs(TableCell, { align: "right", children: [jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: (ev) => {
                                                                     ev.stopPropagation();
                                                                     void openToolPromptOverride(row.key);
                                                                 }, children: "Override" }), jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), disabled: !row.hasOverride, onClick: (ev) => {
@@ -74675,7 +74996,7 @@ function AiAssistantSecretsConfiguration() {
             setSaving(false);
         }
     }, [allRows, reload, siteId]);
-    return (jsx$1(Box, { sx: { p: 2, maxWidth: 1200 }, children: jsxs(Stack$1, { spacing: 2.5, children: [jsxs(Box, { children: [jsx$1(Typography, { variant: "h6", gutterBottom: true, children: "Secrets" }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Configure credentials the AI Assistant resolves on the Studio server for this site. Settings are stored in", ' ', jsx$1("code", { children: SECRETS_JSON_REL }), " separately from tool and MCP policy so secrets can be managed and audited on their own."] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 0 }, children: "After you save, resolved values are never sent back to the browser. To update an encrypted entry, enter a new value; previously saved plaintext is not shown again." })] }), jsxs(Alert, { severity: "info", sx: { '& .MuiAlert-message': { width: '100%' } }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Value formats" }), jsx$1(Typography, { variant: "body2", component: "div", sx: { '& ul': { m: 0, pl: 2.25 } }, children: jsxs("ul", { children: [jsxs("li", { children: [jsx$1("strong", { children: "Environment variable" }), " \u2014 ", jsx$1("code", { children: '${env:VAR_NAME}' }), ". Studio reads the variable from the JVM environment at runtime."] }), jsxs("li", { children: [jsx$1("strong", { children: "Encrypted (Crafter)" }), " \u2014 ", jsx$1("code", { children: '${enc:…}' }), " ciphertext from Studio", ' ', jsx$1("em", { children: "Encrypt Marked" }), ", or paste an existing ciphertext when editing."] }), jsxs("li", { children: [jsx$1("strong", { children: "Plain text (encrypt on save)" }), " \u2014 Values you enter are encrypted before storage and saved as ", jsx$1("code", { children: '${enc:…}' }), "."] }), jsxs("li", { children: [jsx$1("strong", { children: "Secret reference" }), " \u2014 ", jsx$1("code", { children: '${secret:key}' }), " in MCP headers or other config (for example ", jsx$1("code", { children: '${secret:openai_api_key}' }), ")."] })] }) })] }), loadError ? jsx$1(Alert, { severity: "error", children: loadError }) : null, secretsSeededNotice ? jsx$1(Alert, { severity: "success", children: secretsSeededNotice }) : null, catalogWarning ? jsx$1(Alert, { severity: "warning", children: catalogWarning }) : null, saveError ? jsx$1(Alert, { severity: "warning", children: saveError }) : null, dirty ? (jsxs(Alert, { severity: "warning", variant: "outlined", children: ["LLM provider rows below show recommended environment variables. Click ", jsx$1("strong", { children: "Save secrets" }), " to write them to ", jsx$1("code", { children: SECRETS_JSON_REL }), " for this site."] })) : null, !loaded ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "Loading secrets\u2026" })) : (jsxs(Fragment, { children: [jsxs(Box, { children: [jsx$1(Typography, { variant: "subtitle1", gutterBottom: true, children: "LLM provider credentials" }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Each supported provider has a fixed secret key and defaults to the environment variable shown. Set the variable on the Studio host, or switch the row to an encrypted value." }), jsx$1(SecretsTable, { rows: providerRows, showPlainByKey: showPlainByKey, onToggleShow: (key) => setShowPlainByKey((m) => ({ ...m, [key]: !m[key] })), onPatch: patchRow, allowRemove: false })] }), jsx$1(Divider, {}), jsxs(Box, { children: [jsx$1(Typography, { variant: "subtitle1", gutterBottom: true, children: "Custom secrets" }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Additional keys for MCP headers, webhooks, or other integrations. Reference them with", ' ', jsx$1("code", { children: '${secret:your_key}' }), "."] }), jsx$1(SecretsTable, { rows: customRows, showPlainByKey: showPlainByKey, onToggleShow: (key) => setShowPlainByKey((m) => ({ ...m, [key]: !m[key] })), onPatch: patchRow, allowRemove: true }), jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 1, alignItems: { sm: 'flex-end' }, sx: { mt: 2 }, children: [jsx$1(TextField, { size: "small", label: "Custom secret key", placeholder: "my_api_token", value: newCustomKey, onChange: (e) => setNewCustomKey(e.target.value), sx: { minWidth: 220 } }), jsx$1(Button, { variant: "outlined", startIcon: jsx$1(AddRounded, {}), onClick: addCustom, disabled: !newCustomKey.trim(), children: "Add secret" })] })] })] })), jsxs(Stack$1, { direction: "row", spacing: 1, children: [jsx$1(Button, { variant: "contained", startIcon: jsx$1(SaveRounded, {}), disabled: !dirty || saving, onClick: () => void save(), children: saving ? 'Saving…' : 'Save secrets' }), jsx$1(Button, { variant: "text", disabled: saving || !dirty, onClick: () => void reload(), children: "Reload" })] })] }) }));
+    return (jsx$1(Box, { sx: { p: 2, maxWidth: 1200 }, children: jsxs(Stack$1, { spacing: 2.5, children: [jsxs(Box, { children: [jsx$1(Typography, { variant: "h6", gutterBottom: true, children: "Secrets" }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Configure credentials the AI Assistant resolves on the Studio server for this site. Settings are stored in", ' ', jsx$1("code", { children: SECRETS_JSON_REL }), " separately from tool and MCP policy so secrets can be managed and audited on their own."] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 0 }, children: "After you save, resolved values are never sent back to the browser. To update an encrypted entry, enter a new value; previously saved plaintext is not shown again." })] }), jsxs(Alert, { severity: "info", sx: { '& .MuiAlert-message': { width: '100%' } }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Value formats" }), jsx$1(Typography, { variant: "body2", component: "div", sx: { '& ul': { m: 0, pl: 2.25 } }, children: jsxs("ul", { children: [jsxs("li", { children: [jsx$1("strong", { children: "Environment variable" }), " \u2014 ", jsx$1("code", { children: '${env:VAR_NAME}' }), ". Studio reads the variable from the JVM environment at runtime."] }), jsxs("li", { children: [jsx$1("strong", { children: "Encrypted (Crafter)" }), " \u2014 ", jsx$1("code", { children: '${enc:…}' }), " ciphertext from Studio", ' ', jsx$1("em", { children: "Encrypt Marked" }), ", or paste an existing ciphertext when editing."] }), jsxs("li", { children: [jsx$1("strong", { children: "Plain text (encrypt on save)" }), " \u2014 Values you enter are encrypted before storage and saved as ", jsx$1("code", { children: '${enc:…}' }), "."] }), jsxs("li", { children: [jsx$1("strong", { children: "Secret reference" }), " \u2014 ", jsx$1("code", { children: '${secret:key}' }), " in MCP headers or other config (for example ", jsx$1("code", { children: '${secret:openai_api_key}' }), ")."] })] }) })] }), loadError ? jsx$1(Alert, { severity: "error", children: loadError }) : null, secretsSeededNotice ? jsx$1(Alert, { severity: "success", children: secretsSeededNotice }) : null, catalogWarning ? jsx$1(Alert, { severity: "warning", children: catalogWarning }) : null, saveError ? jsx$1(Alert, { severity: "warning", children: saveError }) : null, dirty ? (jsxs(Alert, { severity: "warning", variant: "outlined", children: ["LLM provider rows below show recommended environment variables. Click ", jsx$1("strong", { children: "Save secrets" }), " to write them to ", jsx$1("code", { children: SECRETS_JSON_REL }), " for this site."] })) : null, !loaded ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "Loading secrets\u2026" })) : (jsxs(Fragment, { children: [jsxs(Box, { children: [jsx$1(Typography, { variant: "subtitle1", gutterBottom: true, children: "LLM provider credentials" }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Each supported provider and optional integration (e.g. SerpAPI) has a fixed secret key and defaults to the environment variable shown. Set the variable on the Studio host, or switch the row to an encrypted value." }), jsx$1(SecretsTable, { rows: providerRows, showPlainByKey: showPlainByKey, onToggleShow: (key) => setShowPlainByKey((m) => ({ ...m, [key]: !m[key] })), onPatch: patchRow, allowRemove: false })] }), jsx$1(Divider, {}), jsxs(Box, { children: [jsx$1(Typography, { variant: "subtitle1", gutterBottom: true, children: "Custom secrets" }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Additional keys for MCP headers, webhooks, or other integrations. Reference them with", ' ', jsx$1("code", { children: '${secret:your_key}' }), "."] }), jsx$1(SecretsTable, { rows: customRows, showPlainByKey: showPlainByKey, onToggleShow: (key) => setShowPlainByKey((m) => ({ ...m, [key]: !m[key] })), onPatch: patchRow, allowRemove: true }), jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 1, alignItems: { sm: 'flex-end' }, sx: { mt: 2 }, children: [jsx$1(TextField, { size: "small", label: "Custom secret key", placeholder: "my_api_token", value: newCustomKey, onChange: (e) => setNewCustomKey(e.target.value), sx: { minWidth: 220 } }), jsx$1(Button, { variant: "outlined", startIcon: jsx$1(AddRounded, {}), onClick: addCustom, disabled: !newCustomKey.trim(), children: "Add secret" })] })] })] })), jsxs(Stack$1, { direction: "row", spacing: 1, children: [jsx$1(Button, { variant: "contained", startIcon: jsx$1(SaveRounded, {}), disabled: !dirty || saving, onClick: () => void save(), children: saving ? 'Saving…' : 'Save secrets' }), jsx$1(Button, { variant: "text", disabled: saving || !dirty, onClick: () => void reload(), children: "Reload" })] })] }) }));
 }
 
 const BASE = '/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/content-types/list';

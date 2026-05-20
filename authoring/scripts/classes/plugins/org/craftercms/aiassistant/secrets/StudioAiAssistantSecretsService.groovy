@@ -10,7 +10,14 @@ import java.util.Locale
 
 /**
  * Site-scoped secrets registry at {@link StudioAiAssistantSecretsCatalog#SECRETS_JSON_PATH}.
- * Resolved values stay on the server; admin APIs return expressions and metadata only.
+ * <p><strong>Load:</strong> {@link #loadDocument(StudioToolOperations)} uses
+ * {@link plugins.org.craftercms.aiassistant.tools.StudioToolOperations#readStudioConfigurationUtf8}
+ * (same path as {@code tools.json}). Missing or blank file → empty in-memory document (no synthetic rows).
+ * First visit seeds {@link StudioAiAssistantSecretsCatalog#defaultSecretsDocument()} via
+ * {@link #ensureDefaultSecretsFileIfMissing}.</p>
+ * <p><strong>Resolve:</strong> {@link #resolveSecretKey} reads only values stored in the committed file for that key
+ * (no catalog default substitution at runtime). Expands {@code ${env:…}}, {@code ${enc:…}}, and {@code ${secret:…}} via
+ * {@link StudioAiSecretMacroResolver}. Admin APIs return expressions and metadata only — never decrypted literals.</p>
  */
 final class StudioAiAssistantSecretsService {
 
@@ -21,20 +28,39 @@ final class StudioAiAssistantSecretsService {
 
   private StudioAiAssistantSecretsService() {}
 
+  private static Map emptyDocument() {
+    return [version: 1, secrets: []]
+  }
+
+  /**
+   * Parsed {@code secrets.json} for the site. Empty document when the file is missing or unreadable
+   * (not {@link StudioAiAssistantSecretsCatalog#defaultSecretsDocument()}).
+   */
   static Map loadDocument(StudioToolOperations ops) {
-    return loadDocument(ops.resolveEffectiveSiteId(''), ops?.applicationContext)
+    if (ops == null) {
+      return emptyDocument()
+    }
+    String site = ops.resolveEffectiveSiteId('')
+    if (!site) {
+      return emptyDocument()
+    }
+    String raw = ops.readStudioConfigurationUtf8(site, StudioAiAssistantSecretsCatalog.SECRETS_JSON_PATH)
+    if (raw == null || !raw.toString().trim()) {
+      return emptyDocument()
+    }
+    return parseDocument(raw.toString()) ?: emptyDocument()
   }
 
   static Map loadDocument(String siteId, Object applicationContext) {
     String site = (siteId ?: '').toString().trim()
     if (!site) {
-      return StudioAiAssistantSecretsCatalog.defaultSecretsDocument()
+      return emptyDocument()
     }
     String raw = readConfigurationUtf8(site, applicationContext)
     if (raw == null || !raw.toString().trim()) {
-      return StudioAiAssistantSecretsCatalog.defaultSecretsDocument()
+      return emptyDocument()
     }
-    return parseDocument(raw.toString()) ?: StudioAiAssistantSecretsCatalog.defaultSecretsDocument()
+    return parseDocument(raw.toString()) ?: emptyDocument()
   }
 
   static Map parseDocument(String raw) {
@@ -69,22 +95,38 @@ final class StudioAiAssistantSecretsService {
     }
   }
 
+  /** Stored expression for {@code secretKey} only when that key exists in the loaded document. */
+  static String rawStoredValue(StudioToolOperations ops, String secretKey) {
+    if (ops == null) {
+      return ''
+    }
+    return rawStoredValueFromDocument(loadDocument(ops), secretKey)
+  }
+
   static String rawStoredValue(String siteId, Object applicationContext, String secretKey) {
     String key = (secretKey ?: '').toString().trim()
     if (!key) {
       return ''
     }
-    Map doc = loadDocument(siteId, applicationContext)
-    for (Map row : (List<Map>) (doc.secrets ?: [])) {
+    return rawStoredValueFromDocument(loadDocument(siteId, applicationContext), key)
+  }
+
+  private static String rawStoredValueFromDocument(Map doc, String secretKey) {
+    String key = (secretKey ?: '').toString().trim()
+    if (!key) {
+      return ''
+    }
+    for (Map row : (List<Map>) (doc?.secrets ?: [])) {
       if (key == row.key?.toString()) {
         return row.value != null ? row.value.toString() : ''
       }
     }
-    return StudioAiAssistantSecretsCatalog.defaultValueExpressionForKey(key)
+    return ''
   }
 
   /**
-   * Resolves a secret to plaintext for server-side use only.
+   * Resolves a secret to plaintext for server-side use only (tools, LLM, MCP headers).
+   * Returns empty when the key is absent from {@code secrets.json} or expansion yields no value.
    */
   static String resolveSecretKey(String siteId, Object applicationContext, String secretKey) {
     String stored = rawStoredValue(siteId, applicationContext, secretKey)
@@ -98,11 +140,40 @@ final class StudioAiAssistantSecretsService {
     if (ops == null) {
       return ''
     }
-    return resolveSecretKey(ops.resolveEffectiveSiteId(''), ops.applicationContext, secretKey)
+    String siteId = ops.resolveEffectiveSiteId('')
+    String stored = rawStoredValue(ops, secretKey)
+    if (!stored?.trim()) {
+      return ''
+    }
+    return StudioAiSecretMacroResolver.expand(siteId, ops.applicationContext, stored)
+  }
+
+  /** Stored expression from site {@code secrets.json} (not expanded). */
+  static String storedSecretExpression(StudioToolOperations ops, String secretKey) {
+    if (ops == null) {
+      return ''
+    }
+    return rawStoredValue(ops, secretKey)
+  }
+
+  /** Stored kind + resolution outcome for author-facing errors (never includes resolved plaintext). */
+  static Map secretResolutionStatus(StudioToolOperations ops, String secretKey) {
+    String stored = rawStoredValue(ops, secretKey)
+    String kind = StudioAiSecretMacroResolver.classifyStoredValue(stored)
+    String resolved = resolveSecretKey(ops, secretKey)
+    boolean unresolvedMacro = resolved?.contains('${')
+    return [
+      configured      : (stored ?: '').trim().length() > 0,
+      storedKind      : kind,
+      envVar          : StudioAiSecretMacroResolver.envVarFromExpression(stored),
+      unresolvedMacro : unresolvedMacro,
+      resolvedEmpty   : !(resolved ?: '').trim()
+    ]
   }
 
   /**
    * Writes {@link StudioAiAssistantSecretsCatalog#defaultSecretsDocument()} when the site file is missing or blank.
+   * Out-of-the-box LLM and integration keys start as {@code ${env:VAR}}; authors may replace with {@code ${enc:…}} or other expressions.
    * @return {@code true} when a new file was written
    */
   static boolean ensureDefaultSecretsFileIfMissing(StudioToolOperations ops) {
@@ -110,7 +181,7 @@ final class StudioAiAssistantSecretsService {
       return false
     }
     String siteId = ops.resolveEffectiveSiteId('')
-    String raw = readConfigurationUtf8(siteId, ops.applicationContext)
+    String raw = ops.readStudioConfigurationUtf8(siteId, StudioAiAssistantSecretsCatalog.SECRETS_JSON_PATH)
     if (raw != null && raw.toString().trim()) {
       return false
     }
@@ -183,11 +254,7 @@ final class StudioAiAssistantSecretsService {
   ) {
     String persisted = (stored ?: '').toString().trim()
     String defaultExpr = knownSlot ? StudioAiAssistantSecretsCatalog.defaultValueExpressionForKey(key) : ''
-    String displayValue = persisted ?: (knownSlot ? defaultExpr : '')
-    String kind = StudioAiSecretMacroResolver.classifyStoredValue(displayValue)
-    if (!persisted && knownSlot && defaultExpr) {
-      kind = 'env'
-    }
+    String kind = persisted ? StudioAiSecretMacroResolver.classifyStoredValue(persisted) : 'empty'
     Map row = [
       key          : key,
       label        : label ?: key,
@@ -199,12 +266,12 @@ final class StudioAiAssistantSecretsService {
       suggestedExpression: defaultExpr ?: ''
     ]
     if ('env' == kind) {
-      row.valueExpression = displayValue
-      row.envVar = StudioAiSecretMacroResolver.envVarFromExpression(displayValue) ?: (defaultEnvVar ?: '')
+      row.valueExpression = persisted
+      row.envVar = StudioAiSecretMacroResolver.envVarFromExpression(persisted) ?: (defaultEnvVar ?: '')
     } else if ('enc' == kind) {
-      row.valueExpression = maskEncExpression(displayValue)
+      row.valueExpression = maskEncExpression(persisted)
     } else if ('secret_ref' == kind) {
-      row.valueExpression = displayValue
+      row.valueExpression = persisted
     } else if ('literal' == kind) {
       row.hasEncryptedLiteral = true
     }

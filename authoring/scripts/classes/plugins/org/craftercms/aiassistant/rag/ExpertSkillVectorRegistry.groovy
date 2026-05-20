@@ -156,7 +156,7 @@ class ExpertSkillVectorRegistry {
       if (STORES.containsKey(skillId)) {
         return
       }
-      def fetch = ops.fetchHttpUrl(sourceUrl, null)
+      def fetch = plugins.org.craftercms.aiassistant.tools.http.HttpUrlFetch.fetch(sourceUrl, null)
       if (!Boolean.TRUE.equals(fetch?.ok)) {
         String msg = fetch?.message?.toString() ?: 'fetch failed'
         throw new IllegalStateException("Expert skill URL could not be loaded (${sourceUrl}): ${msg}")

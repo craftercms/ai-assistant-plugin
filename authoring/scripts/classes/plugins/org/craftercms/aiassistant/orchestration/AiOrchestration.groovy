@@ -1807,6 +1807,29 @@ Studio matched **Generate image (bitmap)** for this turn, but the **GenerateImag
 OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when generation is enabled. Retry the same prompt after keys/catalog are in place.'''
   }
 
+  private static String synthesizeForcedToolUnavailableMarkdown(
+    String forceTool,
+    String recipeTitle,
+    String recipeId,
+    String reason
+  ) {
+    String ft = (forceTool ?: '').trim() ?: '(unknown)'
+    String title = (recipeTitle ?: '').trim() ?: recipeId?.trim() ?: 'Intent recipe'
+    String rid = (recipeId ?: '').trim()
+    StringBuilder sb = new StringBuilder('## Recipe tool unavailable\n\n')
+    sb.append('Studio matched **').append(title).append('**')
+    if (rid) {
+      sb.append(' (`').append(rid).append('`)')
+    }
+    sb.append(', which requires **').append(ft).append('** as the first tool call, but that tool is **not available** in this session.\n\n')
+    if (reason?.trim()) {
+      sb.append(reason.trim()).append('\n\n')
+    }
+    sb.append('**Fix:** Enable the tool (and any required secret) under **Project Tools → AI Assistant → Tools and MCP**, ')
+    sb.append('or change **toolsLoopForceTool** on the site intent recipe to a tool that is actually enabled.')
+    return sb.toString()
+  }
+
   /**
    * When a matched recipe sets {@code toolsLoopDisable}, turn off tools for this turn (e.g. {@code llm_research}).
    */
@@ -1822,6 +1845,25 @@ OpenAI chat with no explicit image model uses **`gpt-image-1`** by default when 
           null)
     if (!(tel instanceof Map) || !'matched'.equals(tel.get('outcome')?.toString())) {
       return
+    }
+    Object fetchCap = tel.get('toolsLoopFetchHttpUrlWireMaxChars')
+    if (fetchCap instanceof Number && ((Number) fetchCap).intValue() > 256) {
+      springAi.toolsLoopFetchHttpUrlWireMaxChars = Math.min(((Number) fetchCap).intValue(), 24_000)
+    }
+    if (Boolean.TRUE.equals(tel.get('toolsLoopWebResearchOnly'))) {
+      int maxWire = StudioAiLlmKind.toolsLoopChatMaxWirePayloadCharsFromBundle(springAi)
+      if (maxWire <= 0) {
+        springAi.toolsLoopChatMaxWirePayloadChars = 320_000
+        log.info(
+          'Tools-loop: web-research-only recipe {} — toolsLoopChatMaxWirePayloadChars=320000 agentId={}',
+          tel.get('recipeId')?.toString()?.trim() ?: '(unknown)',
+          springAi.agentId ?: ''
+        )
+      }
+    }
+    Object maxFetchObj = tel.get('toolsLoopMaxFetchHttpUrlCalls')
+    if (maxFetchObj instanceof Number && ((Number) maxFetchObj).intValue() > 0) {
+      springAi.toolsLoopMaxFetchHttpUrlCalls = Math.min(((Number) maxFetchObj).intValue(), 10)
     }
     if (Boolean.TRUE.equals(tel.get('toolsLoopDisable'))) {
       springAi.useTools = false
@@ -5569,6 +5611,111 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       s.contains('missing typical Crafter item markers')
   }
 
+  /**
+   * Shrinks {@code FetchHttpUrl} tool JSON on the wire: caps {@code body}, drops bulky {@code stylesheetHrefs}.
+   */
+  private static String compactFetchHttpUrlToolWire(String s, int maxBodyChars) {
+    if (!s?.trim() || maxBodyChars < 512) {
+      return s ?: ''
+    }
+
+    try {
+      def parsed = new JsonSlurper().parseText(s)
+      if (!(parsed instanceof Map)) {
+        return s.length() <= maxBodyChars ? s : s.substring(0, maxBodyChars)
+      }
+
+      Map m = new LinkedHashMap<>((Map) parsed)
+      Object bodyObj = m.get('body')
+      String body = bodyObj != null ? bodyObj.toString() : ''
+
+      if (body.length() > maxBodyChars) {
+        m.put('bodyOriginalChars', body.length())
+        m.put(
+          'body',
+          body.substring(0, maxBodyChars) +
+            '\n…[FetchHttpUrl body truncated on wire — use WebSearch snippets or fetch a narrower page]'
+        )
+        m.put('bodyTruncatedOnWire', Boolean.TRUE)
+      }
+
+      if (m.containsKey('stylesheetHrefs')) {
+        m.remove('stylesheetHrefs')
+        m.put('stylesheetHrefsOmittedOnWire', Boolean.TRUE)
+      }
+
+      String out = JsonOutput.toJson(m)
+      return out.length() <= NATIVE_TOOLS_WIRE_JSON_MAX_CHARS ?
+        out :
+        out.substring(0, NATIVE_TOOLS_WIRE_JSON_MAX_CHARS) +
+          '\n…[FetchHttpUrl JSON truncated on wire]'
+    } catch (Throwable ignored) {
+      return s.length() <= maxBodyChars ? s : s.substring(0, maxBodyChars)
+    }
+  }
+
+  /** Reads {@code toolsLoopMaxFetchHttpUrlCalls} from the session bundle or intent-routing telemetry. */
+  private static int toolsLoopMaxFetchHttpUrlCallsFromBundle(Map toolsLoopSessionBundle) {
+    if (toolsLoopSessionBundle instanceof Map) {
+      Object direct = toolsLoopSessionBundle.get('toolsLoopMaxFetchHttpUrlCalls')
+      if (direct instanceof Number) {
+        int n = ((Number) direct).intValue()
+        if (n > 0) {
+          return Math.min(n, 10)
+        }
+      }
+      Object tel = toolsLoopSessionBundle.get('intentRecipeRoutingTelemetry')
+      if (tel instanceof Map) {
+        Object fromTel = ((Map) tel).get('toolsLoopMaxFetchHttpUrlCalls')
+        if (fromTel instanceof Number) {
+          int n = ((Number) fromTel).intValue()
+          if (n > 0) {
+            return Math.min(n, 10)
+          }
+        }
+      }
+    }
+    return 0
+  }
+
+  private static String fetchHttpUrlFromToolArgsJson(String argsStr, JsonSlurper slurper) {
+    try {
+      Object parsed = slurper.parseText((argsStr ?: '{}').toString())
+      if (parsed instanceof Map) {
+        String u = (parsed.get('url') ?: parsed.get('href') ?: '').toString().trim()
+        if (u) {
+          return u
+        }
+      }
+    } catch (Throwable ignored) {
+    }
+    return ''
+  }
+
+  /** Reads {@code toolsLoopFetchHttpUrlWireMaxChars} from the session bundle or intent-routing telemetry. */
+  private static int fetchHttpUrlWireMaxCharsFromBundle(Map toolsLoopSessionBundle) {
+    if (toolsLoopSessionBundle instanceof Map) {
+      Object direct = toolsLoopSessionBundle.get('toolsLoopFetchHttpUrlWireMaxChars')
+      if (direct instanceof Number) {
+        int n = ((Number) direct).intValue()
+        if (n > 256) {
+          return Math.min(n, 24_000)
+        }
+      }
+      Object tel = toolsLoopSessionBundle.get('intentRecipeRoutingTelemetry')
+      if (tel instanceof Map) {
+        Object fromTel = ((Map) tel).get('toolsLoopFetchHttpUrlWireMaxChars')
+        if (fromTel instanceof Number) {
+          int n = ((Number) fromTel).intValue()
+          if (n > 256) {
+            return Math.min(n, 24_000)
+          }
+        }
+      }
+    }
+    return 0
+  }
+
   /** Shrinks {@code update_content} tool results on the wire — keeps {@code contentXml} but drops bulky form XML. */
   private static String compactUpdateContentToolWire(String rawJson, int maxChars) {
     String s = (rawJson ?: '').toString()
@@ -5614,12 +5761,14 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
    * @param toolOutRaw tool callback return value (string or map already serialized)
    * @param toolCallId native tool_call id (for GenerateImage inline refs)
    * @param generateImageDataUrlByToolCallId backlog map for image ref compaction
+   * @param toolsLoopSessionBundle session bundle (optional) for per-recipe {@code FetchHttpUrl} wire caps
    */
   private static String truncateNativeToolWireContent(
     String fnName,
     Object toolOutRaw,
     String toolCallId = null,
-    Map<String, String> generateImageDataUrlByToolCallId = null
+    Map<String, String> generateImageDataUrlByToolCallId = null,
+    Map toolsLoopSessionBundle = null
   ) {
     String s = toolOutRaw != null ? toolOutRaw.toString() : ''
     def pol = plugins.org.craftercms.aiassistant.tools.loop.ToolsLoopWirePolicyRegistry.policyFor(fnName)
@@ -5641,6 +5790,13 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       return head +
         '\n\n[aiassistant: output truncated for chat context limit; tool=' + fnName + ' originalChars=' + s.length() + ']' +
         '\nHint: payload too large for wire; use a smaller image or save to /static-assets/.]'
+    }
+    if (pol.wireOutputMode == plugins.org.craftercms.aiassistant.tools.loop.ToolsLoopWirePolicy.WIRE_COMPACT_FETCH_HTTP) {
+      int bodyCap = fetchHttpUrlWireMaxCharsFromBundle(toolsLoopSessionBundle)
+      if (bodyCap <= 0) {
+        bodyCap = plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeCatalog.DEFAULT_WEB_RESEARCH_FETCH_HTTP_WIRE_MAX_CHARS
+      }
+      return compactFetchHttpUrlToolWire(s, bodyCap)
     }
     if (s.length() <= NATIVE_TOOLS_WIRE_JSON_MAX_CHARS) {
       return s
@@ -5685,6 +5841,9 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     String lastPreviewContentGoalPhrase = frozenAuthorOutcomePhrase ?: ''
     int writeContentInvalidDocumentFailures = 0
     String lastInvalidWriteContentPath = ''
+    int maxFetchHttpUrlCallsThisTurn = toolsLoopMaxFetchHttpUrlCallsFromBundle(toolsLoopSessionBundle)
+    int fetchHttpUrlCallsThisTurn = 0
+    Set<String> fetchedHttpUrlsThisTurn = new LinkedHashSet<>()
     StudioToolOperations ops = (toolsLoopSessionBundle?.studioOps instanceof StudioToolOperations) ?
       (StudioToolOperations) toolsLoopSessionBundle.studioOps :
       null
@@ -5925,6 +6084,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           def fn = tc.get('function') as Map
           String fnName = fn instanceof Map ? (fn.get('name')?.toString() ?: '') : ''
           String argsStr = fn instanceof Map ? (fn.get('arguments')?.toString() ?: '{}') : '{}'
+          String fetchHttpUrlThisCall = ''
           toolsRan = true
           def toolPol =
             plugins.org.craftercms.aiassistant.tools.loop.ToolsLoopWirePolicyRegistry.policyFor(fnName)
@@ -5975,6 +6135,40 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
               continue
             }
           }
+          if ('FetchHttpUrl'.equals(fnName) && maxFetchHttpUrlCallsThisTurn > 0) {
+            String fetchUrl = fetchHttpUrlFromToolArgsJson(argsStr, slurper)
+            fetchHttpUrlThisCall = fetchUrl ? fetchUrl.trim() : ''
+            if (fetchHttpUrlThisCall && fetchedHttpUrlsThisTurn.contains(fetchHttpUrlThisCall)) {
+              String dupOut = JsonOutput.toJson([
+                ok                       : false,
+                skippedDuplicateFetchThisTurn: true,
+                url                      : fetchUrl,
+                message                  :
+                  'FetchHttpUrl skipped: this URL was already fetched in this chat turn. Use the prior tool result or pick a different citation from WebSearch.'
+              ])
+              wireMessages << [role: 'tool', tool_call_id: id, content: dupOut]
+              continue
+            }
+            if (fetchHttpUrlCallsThisTurn >= maxFetchHttpUrlCallsThisTurn) {
+              String limitOut = JsonOutput.toJson([
+                ok                      : false,
+                skippedFetchLimit       : true,
+                maxFetchHttpUrlCalls    : maxFetchHttpUrlCallsThisTurn,
+                message                 :
+                  'FetchHttpUrl limit reached for this turn (' + maxFetchHttpUrlCallsThisTurn +
+                    '). Finish blog drafts from search snippets and successful fetches — do not call FetchHttpUrl again.'
+              ])
+              wireMessages << [role: 'tool', tool_call_id: id, content: limitOut]
+              log.info(
+                'Tools-loop: FetchHttpUrl capped at {} for web-research recipe agentId={} round={}',
+                maxFetchHttpUrlCallsThisTurn,
+                agentId,
+                round
+              )
+              continue
+            }
+            fetchHttpUrlCallsThisTurn++
+          }
           FunctionToolCallback tcb = fnName ? byName.get(fnName) : null
           String toolOut
           aiAssistantToolWorkerDiagPhase(
@@ -6011,6 +6205,9 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
                 def bod = ((Map) parsedFetch).get('body')
                 if (bod != null && bod.toString().trim()) {
                   anySuccessfulFetchHttpUrl = true
+                  if (fetchHttpUrlThisCall && maxFetchHttpUrlCallsThisTurn > 0) {
+                    fetchedHttpUrlsThisTurn.add(fetchHttpUrlThisCall)
+                  }
                 }
               }
             } catch (Throwable ignoredFetchOk) {
@@ -6080,9 +6277,16 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
               )
             }
           }
-          String toolWire = truncateNativeToolWireContent(fnName, toolOut, id, generateImageDataUrlByToolCallId)
+          String toolWire = truncateNativeToolWireContent(
+            fnName,
+            toolOut,
+            id,
+            generateImageDataUrlByToolCallId,
+            toolsLoopSessionBundle
+          )
           if (toolWire.length() < toolOut.length() &&
-            toolPol.wireOutputMode != plugins.org.craftercms.aiassistant.tools.loop.ToolsLoopWirePolicy.WIRE_COMPACT_GENERATE_IMAGE) {
+            toolPol.wireOutputMode != plugins.org.craftercms.aiassistant.tools.loop.ToolsLoopWirePolicy.WIRE_COMPACT_GENERATE_IMAGE &&
+            toolPol.wireOutputMode != plugins.org.craftercms.aiassistant.tools.loop.ToolsLoopWirePolicy.WIRE_COMPACT_FETCH_HTTP) {
             log.warn(
               'Tools-loop native tools: truncated tool wire output tool={} agentId={} beforeChars={} afterChars={}',
               fnName,
@@ -6264,6 +6468,36 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       return synthesizeGenerateImageUnavailableMarkdown()
     }
     def wireTools = buildWireToolsFromCallbacks(effectiveTools)
+    if (intentTel instanceof Map) {
+      String forceTool = intentTel.get('toolsLoopForceTool')?.toString()?.trim() ?: ''
+      if (forceTool && !AuthoringIntentRecipeCatalog.isToolRegisteredOnWire(wireTools, forceTool)) {
+        Map cfg = [:]
+        StudioToolOperations loopOps = null
+        try {
+          if (toolsLoopSessionBundle?.studioOps instanceof StudioToolOperations) {
+            loopOps = (StudioToolOperations) toolsLoopSessionBundle.studioOps
+            cfg = StudioAiAssistantProjectConfig.load(loopOps)
+          }
+        } catch (Throwable ignoredCfg) {
+        }
+        String reason = AuthoringIntentRecipeCatalog.explainToolsLoopForceToolUnavailable(forceTool, cfg, loopOps)
+        String reasonForLog = (reason ?: '').replaceAll('\\*', '')
+        intentTel.put('toolsLoopForceToolUnavailable', Boolean.TRUE)
+        log.warn(
+          'Tools-loop: recipe {} requires toolsLoopForceTool {} but it is not on the wire — {} agentId={}',
+          intentTel.get('recipeId')?.toString()?.trim() ?: '(unknown)',
+          forceTool,
+          reasonForLog ?: '(no explanation)',
+          agentId
+        )
+        return synthesizeForcedToolUnavailableMarkdown(
+          forceTool,
+          intentTel.get('recipeTitle')?.toString(),
+          intentTel.get('recipeId')?.toString(),
+          reason
+        )
+      }
+    }
     if (!wireTools) {
       if (intentTel instanceof Map && Boolean.TRUE.equals(intentTel.get('generateImageToolUnavailable'))) {
         return synthesizeGenerateImageUnavailableMarkdown()

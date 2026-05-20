@@ -327,13 +327,24 @@ Then: LLM **intent expansion** → `intentRecipeRematchRouterVisible` → **pass
 | `skipped_eligibility` | Eligibility gate only (`eligibilityGateEnabled: true`) |
 | `skipped_*` | Empty prompt, no API key, cancelled, empty catalog, etc. |
 
+### Matched recipe prelude text
+
+**Method:** `AuthoringIntentRecipeCatalog.formatMatchedRecipePrelude` — prepended to `userTextForToolsLoop` on **`matched`**.
+
+- **Phases:** `phases.context`, `phases.action`, `phases.confirmation` (author-facing bullets) plus optional **`matchedUserPrelude`**.
+- **Clock templates:** `StudioRecipeClockTemplates` expands `{{studio.today}}`, `{{studio.today-7D}}`, `{{studio.now}}`, `{{studio.now-2H}}`, etc. (server time zone; offsets subtract; units `D`/`W`/`M` on dates, `H`/`D`/`W`/`M` on `now`) before binding refs.
+- **Binding templates:** `AuthoringIntentRecipeBindings.expandHintTemplates` expands `{{initial.*}}` / `{{current.*}}` from prefetch artifacts.
+- **Web research:** when phases imply web research and **`toolsLoopForceTool`** is set (e.g. **`SerpApiWebSearch`**), the prelude adds round-0 search requirements and **`FetchHttpUrl`** caps from the recipe row.
+
+Admin examples: **[configuration-guide.md §9.0](../using-and-extending/configuration-guide.md#cg-9-0)**.
+
 ### Matched recipe effects on tools
 
 **Method:** `applyIntentRecipeRouteEffects`
 
 - **`toolsLoopDisable: true`** (e.g. `llm_research`, read-only `open_page_inquiry` with successful prefetch): `springAi.useTools = false` — **no** native tools loop; model answers from prefetch + prelude only.
 - **`toolsLoopAllowlist`**: filter registered tools to named set.
-- **`toolsLoopForceTool`**: round 0 `tool_choice` forced to that function (e.g. `GetContent` for inquiry prefetch path).
+- **`toolsLoopForceTool`**: round 0 `tool_choice` forced to that function (e.g. **`SerpApiWebSearch`**, **`GetContent`** for inquiry prefetch).
 
 Bundled chat-only recipes (`llm_research` with `creative_llm_only` / `chat_artifact_followup` deterministic entries) set `toolsLoopDisable: true` in `authoring-intent-recipes-default.json`.
 
@@ -346,7 +357,7 @@ Runs when `springAi.useTools` remains true after prelude.
 **Method:** `executeNativeToolsViaRestClientReturnText` (multi-round).
 
 - Builds wire: system + user (`userTextForToolsLoop` includes recipe prelude, expansion prefix, no-match hints).
-- **Round 0 `tool_choice` biases:** recipe `toolsLoopForceTool`; else web research → `WebSearch`; revert → `revert_change`; image-only → `GenerateImage`; recipes with `toolsLoopForceTool` in bundled JSON (e.g. `web_research`, `site_content_research`).
+- **Round 0 `tool_choice` biases:** recipe `toolsLoopForceTool` when set (e.g. `SerpApiWebSearch` on site recipes); else web research → `WebSearch`; revert → `revert_change`; image-only → `GenerateImage`; bundled `web_research` still defaults to `WebSearch` unless the site overrides the recipe.
 - **Loop:** completion with `tools[]` → execute tool calls → append `role:tool` results → repeat until text-only finish or max rounds.
 - **Tier selection:** when the client sends **`Current request:`**, trivial-turn detection and model policy treat **only** that section as the author’s words this turn (`AuthoringPreviewContext.isTrivialNonAuthoringTurn`, `ToolPrompts` plan tiers) — not prior chat or Studio metadata alone.
 - **Truncation:** large tool JSON capped on wire; `GetContent` keeps path/metadata; `GenerateImage` uses inline ref pattern.
@@ -368,6 +379,9 @@ Runs when `springAi.useTools` remains true after prelude.
 | Prelude + match pass + tools loop | `AiOrchestration.groovy` |
 | Tools-loop wire policy (progress, truncation, prose JSON) | `tools/loop/ToolsLoopWirePolicyRegistry.groovy`, `ProseDeclaredToolCalls.groovy` |
 | Intent prefetch (read-only context in prompt) | `AuthoringIntentRecipeEngine.groovy` |
+| Phase prelude + `{{studio.*}}` clock templates | `AuthoringIntentRecipeCatalog.groovy`, `StudioRecipeClockTemplates.groovy`, `AuthoringIntentRecipeBindings.groovy` |
+| Site secrets + macro expansion | `StudioAiAssistantSecretsService.groovy`, `StudioAiSecretMacroResolver.groovy` |
+| SerpAPI web search wire | `SerpApiWebSearchTool.groovy`, `SerpApiWebSearchProjectSettings.groovy` |
 | Router system prompt | `ToolPrompts.groovy` (`getLlm_AUTHORING_INTENT_RECIPE_ROUTER_SYSTEM`) |
 | Feature flags | `StudioAiAssistantProjectConfig` (`intentRecipeRoutingEnabled`, `intentRecipeMinConfidence`, …) |
 

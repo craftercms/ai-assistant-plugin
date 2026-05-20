@@ -24,7 +24,7 @@ if (!siteId) {
 
 def ops = new StudioToolOperations(request, applicationContext, params)
 
-if (!ops.httpFetchGloballyEnabled()) {
+if (!plugins.org.craftercms.aiassistant.tools.http.OutboundHttpPolicy.globallyEnabled()) {
   return [ok: false, message: 'Outbound HTTP is disabled (aiassistant.httpFetch.enabled=false); MCP preview is unavailable.']
 }
 

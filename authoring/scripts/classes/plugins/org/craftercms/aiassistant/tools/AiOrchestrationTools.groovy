@@ -11,6 +11,8 @@ import plugins.org.craftercms.aiassistant.imagegen.StudioAiImageGeneratorFactory
 import plugins.org.craftercms.aiassistant.orchestration.AiOrchestration
 import plugins.org.craftercms.aiassistant.orchestration.chatcompletions.ChatCompletionsToolWire
 import plugins.org.craftercms.aiassistant.tools.catalog.StudioAiToolRegistry
+import plugins.org.craftercms.aiassistant.tools.cms.support.CmsGetContent
+import plugins.org.craftercms.aiassistant.tools.cms.support.CmsWriteContent
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolContext
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolProgress
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSchemas
@@ -625,7 +627,7 @@ class AiOrchestrationTools {
     }
     Map gotItem
     try {
-      gotItem = ops.getContent(siteId, contentPath) as Map
+      gotItem = CmsGetContent.read(ops, siteId, contentPath) as Map
     } catch (Throwable getEx) {
       return [
         error      : true,
@@ -779,7 +781,7 @@ class AiOrchestrationTools {
     }
     Map w
     try {
-      w = ops.writeContent(siteId, contentPath, outItem.trim(), unlock) as Map
+      w = CmsWriteContent.write(ops, siteId, contentPath, outItem.trim(), unlock) as Map
     } catch (Throwable writeEx) {
       return [
         error      : true,
@@ -2067,7 +2069,7 @@ class AiOrchestrationTools {
       tools.add(generateImageTool)
     }
 
-    List<Map> siteUserToolEntries = StudioAiUserSiteTools.loadRegistryEntries(ops)
+    List<Map> siteUserToolEntries = StudioAiUserSiteTools.loadRegistryEntries(ops, aiProjectToolCfg)
     if (!siteUserToolEntries.isEmpty()) {
       StringBuilder desc = new StringBuilder(512)
       desc.append(
@@ -2353,7 +2355,7 @@ class AiOrchestrationTools {
     boolean sent = block.trim().length() > 0 && hasMarker
 
     List<String> wireNames = wireNamesForPlanDeferCatalog(ops, cfg, toolsLoopSessionBundle) ?: []
-    List<Map> userEntries = StudioAiUserSiteTools.loadRegistryEntries(ops) ?: []
+    List<Map> userEntries = StudioAiUserSiteTools.loadRegistryEntries(ops, cfg) ?: []
     List<String> userToolIds = []
     for (Map e : userEntries) {
       String id = e?.id?.toString()?.trim()
@@ -2422,7 +2424,7 @@ class AiOrchestrationTools {
         sb.append('| `').append(wire).append('` | ').append(notes).append(" |\n")
       }
     }
-    List<Map> userEntries = StudioAiUserSiteTools.loadRegistryEntries(ops)
+    List<Map> userEntries = StudioAiUserSiteTools.loadRegistryEntries(ops, cfg)
     if (!userEntries.isEmpty()) {
       sb.append('\n### Site user tools (`InvokeSiteUserTool`)\n\n')
       sb.append('| toolId | description |\n')

@@ -95,6 +95,10 @@ export type IntentRecipe = {
   toolsLoopAllowlistBypassIfAuthorMentions?: string[];
   /** Wire names removed from the session tool list when this recipe matches (e.g. image turns exclude GenerateTextNoTools). */
   toolsLoopExcludeTools?: string[];
+  /** Max HTML chars per {@code FetchHttpUrl} on the chat wire for this recipe. */
+  toolsLoopFetchHttpUrlWireMaxChars?: number;
+  /** Server cap on {@code FetchHttpUrl} calls per turn (web-research recipes). */
+  toolsLoopMaxFetchHttpUrlCalls?: number;
   matchedUserPrelude?: string;
 };
 

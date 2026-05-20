@@ -3,6 +3,7 @@ package plugins.org.craftercms.aiassistant.tools.cms
 import plugins.org.craftercms.aiassistant.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.tools.spi.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolContext
+import plugins.org.craftercms.aiassistant.tools.cms.support.CmsPublishContent
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSchemas
 
 import org.slf4j.Logger
@@ -40,7 +41,8 @@ class PublishContentTool extends AbstractStudioAiTool {
   @Override
   Map execute(Map input, StudioAiToolContext ctx) {
     try {
-      return ctx.ops.publishContentFromToolInput(
+      return CmsPublishContent.fromToolInput(
+        ctx.ops,
         (Map) (input ?: [:]),
         ctx.pathProtectFormItem,
         ctx.normProtectedFormItemPath

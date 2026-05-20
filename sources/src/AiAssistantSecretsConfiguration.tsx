@@ -367,8 +367,8 @@ export default function AiAssistantSecretsConfiguration() {
                 LLM provider credentials
               </Typography>
               <Typography variant="body2" color="text.secondary" paragraph>
-                Each supported provider has a fixed secret key and defaults to the environment variable shown. Set the
-                variable on the Studio host, or switch the row to an encrypted value.
+                Each supported provider and optional integration (e.g. SerpAPI) has a fixed secret key and defaults to the
+                environment variable shown. Set the variable on the Studio host, or switch the row to an encrypted value.
               </Typography>
               <SecretsTable
                 rows={providerRows}

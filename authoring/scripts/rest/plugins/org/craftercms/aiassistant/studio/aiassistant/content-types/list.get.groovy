@@ -1,4 +1,5 @@
 import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
+import plugins.org.craftercms.aiassistant.tools.cms.support.CmsListStudioContentTypes
 
 String siteId = (params?.siteId ?: request.getParameter('siteId'))?.toString()?.trim()
 if (!siteId) {
@@ -7,7 +8,7 @@ if (!siteId) {
 }
 
 def ops = new StudioToolOperations(request, applicationContext, params)
-Map r = ops.listStudioContentTypes(siteId, false, '')
+Map r = CmsListStudioContentTypes.list(ops, siteId, false, '')
 
 return [
   ok           : r.ok != false,

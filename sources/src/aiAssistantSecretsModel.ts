@@ -50,22 +50,38 @@ export const AI_ASSISTANT_KNOWN_SECRET_SLOTS: ReadonlyArray<{
   { key: 'gemini_api_key', label: 'Gemini (Google)', llmProvider: 'gemini', defaultEnvVar: 'GEMINI_API_KEY' }
 ];
 
+/** Integration keys (mirrors optional slots in {@code StudioAiAssistantSecretsCatalog}). */
+export const AI_ASSISTANT_INTEGRATION_SECRET_SLOTS: ReadonlyArray<{
+  key: string;
+  label: string;
+  defaultEnvVar: string;
+  optional?: boolean;
+}> = [{ key: 'serpapi_api_key', label: 'SerpAPI (web search)', defaultEnvVar: 'SERPAPI_API_KEY', optional: true }];
+
+function secretAdminRowFromSlot(slot: {
+  key: string;
+  label: string;
+  defaultEnvVar: string;
+  llmProvider?: string;
+  optional?: boolean;
+}): AiAssistantSecretAdminRow {
+  const expr = `\${env:${slot.defaultEnvVar}}`;
+  return {
+    key: slot.key,
+    label: slot.label,
+    configured: false,
+    valueKind: 'env',
+    llmProvider: slot.llmProvider,
+    optional: slot.optional,
+    defaultEnvVar: slot.defaultEnvVar,
+    suggestedExpression: expr,
+    valueExpression: expr,
+    envVar: slot.defaultEnvVar
+  };
+}
+
 export function defaultKnownSecretAdminRows(): AiAssistantSecretAdminRow[] {
-  return AI_ASSISTANT_KNOWN_SECRET_SLOTS.map((slot) => {
-    const expr = `\${env:${slot.defaultEnvVar}}`;
-    return {
-      key: slot.key,
-      label: slot.label,
-      configured: false,
-      valueKind: 'env',
-      llmProvider: slot.llmProvider,
-      optional: slot.optional,
-      defaultEnvVar: slot.defaultEnvVar,
-      suggestedExpression: expr,
-      valueExpression: expr,
-      envVar: slot.defaultEnvVar
-    };
-  });
+  return [...AI_ASSISTANT_KNOWN_SECRET_SLOTS, ...AI_ASSISTANT_INTEGRATION_SECRET_SLOTS].map(secretAdminRowFromSlot);
 }
 
 /** Merge server admin rows over the built-in catalog (server wins per key). */

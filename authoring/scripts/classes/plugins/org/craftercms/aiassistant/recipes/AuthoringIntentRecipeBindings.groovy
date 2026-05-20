@@ -14,7 +14,8 @@ import java.util.regex.Matcher
 import java.util.regex.Pattern
 
 /**
- * Named prefetch artifacts ({@code initial.*} / {@code current.*}) and hint template expansion
+ * Named prefetch artifacts ({@code initial.*} / {@code current.*}) and recipe phase hint template expansion:
+ * {@link StudioRecipeClockTemplates} ({@code {{studio.today}}}, {@code {{studio.now-2H}}}, …) and binding refs
  * ({@code {{initial.pageItem}}} / {@code {{current.pageItem}}}).
  */
 final class AuthoringIntentRecipeBindings {
@@ -282,8 +283,8 @@ final class AuthoringIntentRecipeBindings {
   }
 
   /**
-   * Replaces {@code {{initial.name.field}}} / {@code {{current.name.field}}} placeholders in phase hint lines
-   * with truncated artifact values for the matched-recipe prelude.
+   * Replaces {@code {{studio.today}}}, {@code {{studio.today-7D}}}, {@code {{studio.now-2H}}}, etc., then
+   * {@code {{initial.name.field}}} / {@code {{current.name.field}}} binding placeholders in phase hints.
    */
   static String expandHintTemplates(
     String text,
@@ -295,7 +296,7 @@ final class AuthoringIntentRecipeBindings {
       return text?.toString() ?: ''
     }
 
-    String cap = text.toString()
+    String cap = StudioRecipeClockTemplates.expand(text.toString())
     Matcher m = TEMPLATE_REF.matcher(cap)
     StringBuffer sb = new StringBuffer()
 

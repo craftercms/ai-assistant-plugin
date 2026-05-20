@@ -3,6 +3,7 @@ package plugins.org.craftercms.aiassistant.tools.cms
 import plugins.org.craftercms.aiassistant.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.tools.spi.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolContext
+import plugins.org.craftercms.aiassistant.tools.cms.support.CmsListPagesAndComponents
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSchemas
 
 /**
@@ -28,6 +29,6 @@ class ListPagesAndComponentsTool extends AbstractStudioAiTool {
    */
   @Override
   Map execute(Map input, StudioAiToolContext ctx) {
-    return ctx.ops.listPagesAndComponents(input?.siteId as String, (input?.size as Integer) ?: 1000) as Map
+    return CmsListPagesAndComponents.list(ctx.ops, input?.siteId as String, (input?.size as Integer) ?: 1000) as Map
   }
 }

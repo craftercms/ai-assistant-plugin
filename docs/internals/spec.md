@@ -252,7 +252,13 @@ Defined in `sources/src/consts.ts`:
 
 ### Site secrets (`secrets.json`)
 
-**Path:** `config/studio/scripts/aiassistant/config/secrets.json` (Project Tools → **Secrets**). Stores named credential slots (built-in LLM provider rows seeded on install, plus custom keys). Values may use **`${env:VAR}`**, Crafter **`${enc:…}`**, or encrypted literals; the admin UI does not return decrypted secrets after save. Runtime resolves macros server-side for LLM calls and for **`${secret:key}`** in MCP **`headers`** and similar strings. Per-agent **`llmSecretKey`** in **`agents.json`** selects a **custom** secret entry (or the built-in row for the agent’s current **`llm`** provider)—see **[configuration-guide.md §4](../using-and-extending/configuration-guide.md#cg-4)**.
+**Path:** `config/studio/scripts/aiassistant/config/secrets.json` (Project Tools → **Secrets**). Stores named credential slots (built-in LLM provider rows and integration keys such as **`serpapi_api_key`** seeded on first install with **`${env:…}`** defaults authors may override). Values may use **`${env:VAR}`**, Crafter **`${enc:…}`** ciphertext, or encrypted literals; the admin UI does not return decrypted secrets after save.
+
+**Load:** `StudioAiAssistantSecretsService` reads the file via the same Studio configuration path as **`tools.json`** (`readStudioConfigurationUtf8`). A missing or blank file yields an **empty** in-memory document at runtime — not a synthetic copy of the install-time default catalog.
+
+**Resolve:** `resolveSecretKey` uses **only** the value stored for that key in the committed file (no catalog substitution when a row is absent). Macros expand via `StudioAiSecretMacroResolver`: **`${env:…}`** from the Studio JVM; **`${enc:…}`** via **`textEncryptor.decrypt`** on Studio 4.x (encrypt-only `EncryptionService`); **`${secret:…}`** for indirection without cycles. Resolved plaintext stays server-side for LLM calls, **`SerpApiWebSearch`**, and **`${secret:key}`** in MCP **`headers`**. **`SerpApiWebSearch`** does **not** read a separate host env bypass when resolution fails.
+
+Per-agent **`llmSecretKey`** in **`agents.json`** selects a **custom** secret entry (or the built-in row for the agent’s current **`llm`** provider). LLM providers may still apply documented host env / JVM fallbacks **after** secrets resolution — see **[llm-configuration.md](../using-and-extending/llm-configuration.md)** and **[configuration-guide.md §4](../using-and-extending/configuration-guide.md#cg-4)**.
 
 ### Agent catalog (`agents.json`)
 

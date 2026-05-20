@@ -57,6 +57,34 @@ export default function AiAssistantIntentRecipeView(props: AiAssistantIntentReci
               ))}
             </Stack>
           ) : null}
+          {recipe.toolsLoopForceTool ? (
+            <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap alignItems="center" sx={{ mb: 0.5 }}>
+              <Typography variant="caption" color="text.secondary">
+                Force tool:
+              </Typography>
+              <Chip size="small" label={recipe.toolsLoopForceTool} variant="outlined" color="primary" />
+            </Stack>
+          ) : null}
+          {recipe.toolsLoopAllowlist && recipe.toolsLoopAllowlist.length > 0 ? (
+            <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap alignItems="center" sx={{ mb: 0.5 }}>
+              <Typography variant="caption" color="text.secondary">
+                Allowlist:
+              </Typography>
+              {recipe.toolsLoopAllowlist.map((t) => (
+                <Chip key={`a:${t}`} size="small" label={t} variant="outlined" />
+              ))}
+            </Stack>
+          ) : null}
+          {recipe.toolsLoopExcludeTools && recipe.toolsLoopExcludeTools.length > 0 ? (
+            <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap alignItems="center" sx={{ mb: 0.5 }}>
+              <Typography variant="caption" color="text.secondary">
+                Exclude:
+              </Typography>
+              {recipe.toolsLoopExcludeTools.map((t) => (
+                <Chip key={`x:${t}`} size="small" label={t} variant="outlined" color="warning" />
+              ))}
+            </Stack>
+          ) : null}
         </Box>
         <Button size="small" variant="contained" startIcon={<EditRounded />} onClick={onEdit}>
           Edit recipe

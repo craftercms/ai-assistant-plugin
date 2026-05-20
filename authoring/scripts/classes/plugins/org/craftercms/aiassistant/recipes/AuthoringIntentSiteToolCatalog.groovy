@@ -1,5 +1,6 @@
 package plugins.org.craftercms.aiassistant.recipes
 
+import plugins.org.craftercms.aiassistant.config.StudioAiAssistantProjectConfig
 import plugins.org.craftercms.aiassistant.tools.StudioAiUserSiteTools
 import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
 
@@ -22,7 +23,8 @@ final class AuthoringIntentSiteToolCatalog {
    * Loads normalized registry rows (including routing hints) for the current site.
    */
   static List<Map> loadSiteTools(StudioToolOperations ops) {
-    return StudioAiUserSiteTools.loadRegistryEntries(ops)
+    Map cfg = StudioAiAssistantProjectConfig.load(ops)
+    return StudioAiUserSiteTools.loadRegistryEntries(ops, cfg)
   }
 
   /**

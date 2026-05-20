@@ -1,5 +1,18 @@
-import { STUDIO_AI_BUILTIN_TOOL_IDS, STUDIO_AI_MCP_ALL_TOKEN } from './studioAiOrchestrationToolIds';
+import {
+  defaultBuiltInToolSettingsByWire,
+  mergeBuiltInToolSettingsForSave,
+  parseBuiltInToolSettingsByWire,
+  validateBuiltInToolSettings
+} from './builtInToolSettings/registry';
 import { mcpAuthorizationHeaderForSecretKey, secretKeyFromSecretRefHeaderValue } from './aiAssistantSecretsModel';
+import { STUDIO_AI_BUILTIN_TOOL_IDS, STUDIO_AI_MCP_ALL_TOKEN } from './studioAiOrchestrationToolIds';
+
+export { SERP_API_WEB_SEARCH_WIRE } from './builtInToolSettings/serpApiWebSearchSettings';
+export type { SerpApiWebSearchSettingsFormState } from './builtInToolSettings/serpApiWebSearchSettings';
+export {
+  defaultSerpApiWebSearchSettingsFormState,
+  serpApiWebSearchSettingsDescriptor
+} from './builtInToolSettings/serpApiWebSearchSettings';
 
 /** Built-in wire names for hide/whitelist pickers (excludes the agent-only `mcp:*` sentinel). */
 export const BUILTIN_TOOL_NAME_OPTIONS: readonly string[] = STUDIO_AI_BUILTIN_TOOL_IDS.filter(
@@ -23,6 +36,8 @@ export interface McpServerFormRow {
 const KNOWN_TOP_LEVEL_KEYS = new Set([
   'disabledBuiltInTools',
   'enabledBuiltInTools',
+  'disabledUserTools',
+  'builtInToolSettings',
   'mcpEnabled',
   'mcpServers',
   'disabledMcpTools',
@@ -83,6 +98,9 @@ export interface ToolsPolicyFormState {
   mcpServers: McpServerFormRow[];
   disabledBuiltInTools: string[];
   enabledBuiltInTools: string[];
+  /** {@code tools.json} → {@code builtInToolSettings} blocks keyed by wire name. */
+  builtInToolSettingsByWire: Record<string, unknown>;
+  disabledUserTools: string[];
   disabledMcpTools: string[];
   intentRecipeRouting: IntentRecipeRoutingFormState;
   /** Other top-level keys from tools.json preserved when saving. */
@@ -95,6 +113,8 @@ export function defaultToolsPolicyFormState(): ToolsPolicyFormState {
     mcpServers: [],
     disabledBuiltInTools: [],
     enabledBuiltInTools: [],
+    builtInToolSettingsByWire: defaultBuiltInToolSettingsByWire(),
+    disabledUserTools: [],
     disabledMcpTools: [],
     intentRecipeRouting: defaultIntentRecipeRoutingFormState(),
     extraFields: undefined
@@ -263,11 +283,17 @@ export function parseToolsPolicyFromUnknown(raw: unknown): ToolsPolicyFormState 
       mcpServers.push(mcpServerRowFromUnknown(s));
     }
   }
+  const builtInRaw =
+    o.builtInToolSettings && typeof o.builtInToolSettings === 'object' && !Array.isArray(o.builtInToolSettings)
+      ? (o.builtInToolSettings as Record<string, unknown>)
+      : {};
   return {
     mcpEnabled: Boolean(o.mcpEnabled),
     mcpServers,
     disabledBuiltInTools: asStringArray(o.disabledBuiltInTools),
     enabledBuiltInTools: asStringArray(o.enabledBuiltInTools),
+    builtInToolSettingsByWire: parseBuiltInToolSettingsByWire(builtInRaw),
+    disabledUserTools: asStringArray(o.disabledUserTools),
     disabledMcpTools: asStringArray(o.disabledMcpTools),
     intentRecipeRouting: parseIntentRecipeRoutingFromUnknown(o.intentRecipeRouting),
     extraFields: Object.keys(extraFields).length ? extraFields : undefined
@@ -309,6 +335,10 @@ export function validateToolsPolicy(state: ToolsPolicyFormState): { ok: true } |
   ] as const) {
     const check = posInt(label, raw);
     if (!check.ok) return check;
+  }
+  const builtInCheck = validateBuiltInToolSettings(state);
+  if (!builtInCheck.ok) {
+    return builtInCheck;
   }
   for (let i = 0; i < state.mcpServers.length; i++) {
     const r = state.mcpServers[i];
@@ -389,6 +419,18 @@ export function serializeToolsPolicyToJson(state: ToolsPolicyFormState): string 
   const obj: Record<string, unknown> = { ...(state.extraFields ?? {}) };
   obj.disabledBuiltInTools = [...new Set(state.disabledBuiltInTools.map((s) => s.trim()).filter(Boolean))];
   obj.enabledBuiltInTools = [...new Set(state.enabledBuiltInTools.map((s) => s.trim()).filter(Boolean))];
+  const disabledUser = [...new Set(state.disabledUserTools.map((s) => s.trim()).filter(Boolean))];
+  if (disabledUser.length) {
+    obj.disabledUserTools = disabledUser;
+  }
+  const priorBuiltIn =
+    typeof obj.builtInToolSettings === 'object' && obj.builtInToolSettings && !Array.isArray(obj.builtInToolSettings)
+      ? (obj.builtInToolSettings as Record<string, unknown>)
+      : {};
+  const builtInToolSettings = mergeBuiltInToolSettingsForSave(state, priorBuiltIn);
+  if (Object.keys(builtInToolSettings).length) {
+    obj.builtInToolSettings = builtInToolSettings;
+  }
   obj.mcpEnabled = Boolean(state.mcpEnabled);
   obj.mcpServers = mcpServers;
   obj.disabledMcpTools = [...new Set(state.disabledMcpTools.map((s) => s.trim()).filter(Boolean))];

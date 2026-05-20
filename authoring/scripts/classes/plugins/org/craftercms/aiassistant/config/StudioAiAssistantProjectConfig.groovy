@@ -27,6 +27,11 @@ import java.util.Set
  *     { "id": "docs", "url": "https://mcp.example.com/mcp", "headers": { "Authorization": "Bearer ${env:GITHUB_MCP_TOKEN}" }, "readTimeoutMs": 120000 }
  *   ],
  *   "disabledMcpTools": ["mcp_docs_search"],
+ *   "builtInToolSettings": {
+ *     "SerpApiWebSearch": {
+ *       "defaults": { "engine": "google", "googleDomain": "google.com", "gl": "us", "hl": "en", "num": 10 }
+ *     }
+ *   },
  *   "intentRecipeRouting": {
  *     "enabled": true,
  *     "eligibilityGateEnabled": false,
@@ -125,6 +130,32 @@ final class StudioAiAssistantProjectConfig {
       return false
     }
     return disabledLower.contains(toolName.toString().trim().toLowerCase(Locale.ROOT))
+  }
+
+  /** Lowercase site user tool ids listed in {@code disabledUserTools}. */
+  static Set<String> disabledUserToolsSet(Map cfg) {
+    if (!(cfg instanceof Map)) {
+      return Collections.emptySet()
+    }
+    Object raw = cfg.get('disabledUserTools')
+    if (!(raw instanceof List)) {
+      return Collections.emptySet()
+    }
+    Set<String> out = new LinkedHashSet<>()
+    for (Object o : (List) raw) {
+      String n = o != null ? o.toString().trim().toLowerCase(Locale.ROOT) : ''
+      if (n) {
+        out.add(n)
+      }
+    }
+    return out
+  }
+
+  static boolean isUserToolDisabled(String toolId, Set<String> disabledLower) {
+    if (toolId == null || disabledLower == null || disabledLower.isEmpty()) {
+      return false
+    }
+    return disabledLower.contains(toolId.toString().trim().toLowerCase(Locale.ROOT))
   }
 
   /**
@@ -326,6 +357,56 @@ final class StudioAiAssistantProjectConfig {
   /** Max characters retained per tool payload field such as {@code contentXml} / {@code formDefinitionXml} (default {@code 120_000}). */
   static int intentRecipeEngineMaxFieldChars(Map cfg) {
     return intentRecipeRoutingInt(cfg, 'engineMaxFieldChars', 120_000, 4096, 500_000)
+  }
+
+  /** @see plugins.org.craftercms.aiassistant.tools.general.SerpApiWebSearchProjectSettings#WIRE */
+  static final String SERP_API_WEB_SEARCH_WIRE =
+    plugins.org.craftercms.aiassistant.tools.general.SerpApiWebSearchProjectSettings.WIRE
+
+  private static final Set<String> WEB_SEARCH_WIRE_NAMES =
+    Collections.unmodifiableSet(new LinkedHashSet<>(['WebSearch', SERP_API_WEB_SEARCH_WIRE]))
+
+  static boolean isWebSearchWireName(String wireName) {
+    String w = (wireName ?: '').toString().trim()
+    if (!w) {
+      return false
+    }
+    for (String known : WEB_SEARCH_WIRE_NAMES) {
+      if (known.equalsIgnoreCase(w)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  /** Per-tool block under {@code builtInToolSettings.<wireName>} in {@code tools.json}. */
+  static Map builtInToolSettingsForWire(Map cfg, String wireName) {
+    if (!(cfg instanceof Map) || !(wireName?.trim())) {
+      return Collections.emptyMap()
+    }
+    Object section = cfg.get('builtInToolSettings')
+    if (!(section instanceof Map)) {
+      return Collections.emptyMap()
+    }
+    Object tool = ((Map) section).get(wireName.trim())
+    return tool instanceof Map ? (Map) tool : Collections.emptyMap()
+  }
+
+  static boolean isBuiltInWireAllowedByWhitelist(String wireName, Map cfg) {
+    Set<String> wl = enabledBuiltInWhitelist(cfg)
+    if (wl == null) {
+      return true
+    }
+    String w = (wireName ?: '').toString().trim()
+    if (!w) {
+      return false
+    }
+    for (String n : wl) {
+      if (w.equalsIgnoreCase(n?.toString()?.trim())) {
+        return true
+      }
+    }
+    return 'ListContentDependencyScope'.equals(w) && wl.contains('ListContentTranslationScope')
   }
 
   private static int intentRecipeRoutingInt(Map cfg, String key, int defaultValue, int min, int max) {

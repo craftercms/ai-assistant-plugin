@@ -44,7 +44,7 @@ export interface AiAssistantToolsMcpFormProps {
 }
 
 export default function AiAssistantToolsMcpForm(props: AiAssistantToolsMcpFormProps) {
-  const { value, onChange, sections = 'both' } = props;
+  const { value, onChange, sections = 'both', userTools } = props;
   const activeSite = useActiveSiteId();
   const siteId = useMemo(() => effectiveStudioSiteId(activeSite), [activeSite]);
   const [customSecretKeyOptions, setCustomSecretKeyOptions] = useState<string[]>([]);

@@ -68,6 +68,10 @@ Patterns that have bitten us in review or production:
 - **SSE terminal events:** multiple threads (worker vs servlet) can race to emit **completed / error** frames. Use a **single-winner** pattern (`AtomicBoolean.compareAndSet(false, true)`) **only** around the terminal **`metadata.completed`** (or error-with-completed) write—not around the last assistant **text** chunk, or a servlet path that claimed first would **silently drop** a valid reply on a still-connected client.
 - **Tools-loop diag session:** worker threads call **`aiAssistantToolWorkerDiagSessionBind(sessionId)`** before tool work and **`aiAssistantToolWorkerDiagSessionEnd()`** in **`finally`** — the end helper removes only that session’s entry from **`AIASSISTANT_TOOL_WORKER_DIAG_PHASE_BY_SESSION`** and clears the thread-local session id; the servlet thread reads phase via **`aiAssistantToolWorkerDiagPhaseGet(sessionId)`**.
 - **Defensive copies of nested state:** `new LinkedHashMap(existing)` is **shallow**; nested lists/maps (e.g. `humanTasks`, `executionHistory`) stay **aliased**. For in-memory stores returned to callers, use **deep copy** helpers for get/put/merge/snapshot paths when mutation safety matters.
+- **Site secrets at resolve time:** do **not** substitute `StudioAiAssistantSecretsCatalog.defaultSecretsDocument()` when `secrets.json` is missing or a key is absent — only seed that catalog on **first install** / admin save. Wrong pattern: in-memory “full defaults” on empty config read → authors see “env empty” while Git has `${enc:…}`.
+- **`${enc:…}` on Studio 4.x:** decrypt with **`textEncryptor`**, not `EncryptionService.decrypt` (encrypt-only on 4.x). Bare `CCE-V1#…` rows should normalize to `${enc:…}` before expand.
+- **Integration tools (e.g. Serp):** API keys from **`resolveSecretKey`** only — no parallel `System.getenv('SERPAPI_API_KEY')` bypass when the secret row fails.
+- **Recipe phase hints:** use **`{{studio.today}}`** / **`{{studio.today-7D}}`** (or `now` variants) for rolling date windows — avoid hardcoding calendar strings in site `intent-recipes.json`.
 
 ---
 

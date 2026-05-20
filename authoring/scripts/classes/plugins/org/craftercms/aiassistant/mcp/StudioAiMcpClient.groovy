@@ -102,7 +102,7 @@ final class StudioAiMcpClient {
       byte[] bytes = JsonOutput.toJson(body).getBytes(StandardCharsets.UTF_8)
 
       URI uri = new URI(baseUrl)
-      String gate2 = StudioToolOperations.validateOutboundHttpUrlForSsrf(uri.toString())
+      String gate2 = plugins.org.craftercms.aiassistant.tools.http.OutboundHttpPolicy.validateUrl(uri.toString())
       if (gate2) {
         throw new IllegalStateException("MCP url blocked: ${gate2}")
       }
@@ -176,7 +176,7 @@ final class StudioAiMcpClient {
       byte[] bytes = JsonOutput.toJson(body).getBytes(StandardCharsets.UTF_8)
 
       URI uri = new URI(baseUrl)
-      String gate2 = StudioToolOperations.validateOutboundHttpUrlForSsrf(uri.toString())
+      String gate2 = plugins.org.craftercms.aiassistant.tools.http.OutboundHttpPolicy.validateUrl(uri.toString())
       if (gate2) {
         throw new IllegalStateException("MCP url blocked: ${gate2}")
       }
@@ -313,11 +313,11 @@ final class StudioAiMcpClient {
     if (!sid || !url) {
       throw new IllegalArgumentException('mcpServers entry requires non-blank id and url')
     }
-    String gate = StudioToolOperations.validateOutboundHttpUrlForSsrf(url)
+    String gate = plugins.org.craftercms.aiassistant.tools.http.OutboundHttpPolicy.validateUrl(url)
     if (gate) {
       throw new IllegalStateException("MCP url blocked for server '${sid}': ${gate}")
     }
-    if (ops != null && !ops.httpFetchGloballyEnabled()) {
+    if (ops != null && !plugins.org.craftercms.aiassistant.tools.http.OutboundHttpPolicy.globallyEnabled()) {
       throw new IllegalStateException('MCP disabled: aiassistant.httpFetch.enabled=false')
     }
     int readTimeout = DEFAULT_READ_TIMEOUT_MS

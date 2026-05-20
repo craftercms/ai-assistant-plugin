@@ -3,6 +3,7 @@ package plugins.org.craftercms.aiassistant.tools.cms
 import plugins.org.craftercms.aiassistant.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.tools.spi.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolContext
+import plugins.org.craftercms.aiassistant.tools.cms.support.CmsResearchSiteContent
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSchemas
 
 /**
@@ -25,7 +26,7 @@ class ResearchSiteContentTool extends AbstractStudioAiTool {
   /** Only registered when {@code siteContentResearchGloballyEnabled} is true on operations. */
   @Override
   boolean enabled(StudioAiToolContext ctx) {
-    return ctx?.ops?.siteContentResearchGloballyEnabled()
+    return CmsResearchSiteContent.globallyEnabled()
   }
 
   /**
@@ -61,6 +62,6 @@ class ResearchSiteContentTool extends AbstractStudioAiTool {
       maxFetch = null
     }
     String prefix = input?.pathPrefix?.toString()?.trim()
-    return ctx.ops.researchSiteContent(input?.siteId as String, query, maxSearch, maxFetch, prefix) as Map
+    return CmsResearchSiteContent.research(ctx.ops, input?.siteId as String, query, maxSearch, maxFetch, prefix) as Map
   }
 }

@@ -3,6 +3,7 @@ package plugins.org.craftercms.aiassistant.tools.cms
 import plugins.org.craftercms.aiassistant.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.tools.spi.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolContext
+import plugins.org.craftercms.aiassistant.tools.cms.support.CmsGetContentTypeFormDefinition
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSchemas
 
 /**
@@ -35,7 +36,7 @@ class UpdateContentTypeTool extends AbstractStudioAiTool {
     if (!siteId) throw new IllegalArgumentException('Missing required field: siteId')
     def contentType = input?.contentType?.toString()?.trim()
     if (!contentType) throw new IllegalArgumentException('Missing required field: contentType')
-    Map formRes = ctx.ops.getContentTypeFormDefinition(siteId, contentType) as Map
+    Map formRes = CmsGetContentTypeFormDefinition.load(ctx.ops, siteId, contentType) as Map
     def xml = formRes?.formDefinitionXml?.toString() ?: ''
     def cfgPath = formRes?.path?.toString()
     Map payloadCt = [

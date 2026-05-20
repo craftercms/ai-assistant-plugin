@@ -287,8 +287,8 @@ Field reference: [spec.md — Central agent catalog](../internals/spec.md) · [l
 
 ### 4. Secrets and API Keys (Recommended Order)
 
-1. **Project Tools → Secrets** — Site registry at **`config/studio/scripts/aiassistant/config/secrets.json`**. On first open (or **`scripts/install-plugin.sh`** when the file is missing), the plugin seeds one row per built-in LLM provider with **`${env:VAR_NAME}`** (for example **`${env:OPENAI_API_KEY}`**). Authors may add custom keys and store **`${env:…}`**, Crafter **`${enc:…}`** ciphertext (from Studio **Encrypt Marked**), or plain text (encrypted on save). Resolved values are used **only on the server**; the UI never receives decrypted literals after save.
-2. **Studio host environment variables** — Still supported when referenced from **`secrets.json`** or as a direct fallback. Provider names and variables are listed in [llm-configuration.md](llm-configuration.md).
+1. **Project Tools → Secrets** — Site registry at **`config/studio/scripts/aiassistant/config/secrets.json`**. On first open (or **`scripts/install-plugin.sh`** when the file is missing), the plugin seeds one row per built-in LLM provider **and** optional integration rows (e.g. **`serpapi_api_key`**) with **`${env:VAR_NAME}`** defaults authors can change. Store **`${env:…}`**, Crafter **`${enc:…}`** ciphertext (from Studio **Encrypt Marked**), or plain text (encrypted on save). Resolved values are used **only on the server**; the UI never receives decrypted literals after save.
+2. **Runtime resolution** — Tools and LLM code read **only what is stored** in **`secrets.json`** for that key (no silent catalog default if a row is missing). **`${env:VAR}`** expands via the Studio JVM environment; **`${enc:…}`** decrypts via Crafter **`textEncryptor`** on Studio 4.x. LLM providers may still fall back to host env / JVM properties **after** secrets resolution when the provider stack allows it — see [llm-configuration.md](llm-configuration.md). Integration tools such as **`SerpApiWebSearch`** use **secrets only** (no separate env bypass).
 3. **JVM system properties** — Advanced tuning and key fallbacks only; see **[studio-aiassistant-jvm-parameters.md](studio-aiassistant-jvm-parameters.md)**.
 4. **Per‑agent `llmSecretKey` in `agents.json`** — Optional; references a **custom** key in **`secrets.json`** or the built-in provider row for the agent’s **`llm`** (Project Tools → Agents).
 5. **Per‑agent `llmApiKey` in `agents.json` or POST body** — **testing only**; discouraged in Git‑tracked sites.
@@ -399,6 +399,27 @@ All paths in this section are under the **site** Git sandbox (`config/studio/scr
 
 **Integrations → Tools** shows built-in tool allow/deny only; it does **not** host the recipe catalog editor.
 
+**Recipe row fields (site catalog):**
+
+| Field | Role |
+|-------|------|
+| **`phases.context` / `action` / `confirmation`** | Author-facing bullets in the matched-recipe prelude (Context / Action / Confirmation). |
+| **`matchedUserPrelude`** | Extra Studio block prepended when the recipe matches. |
+| **`toolsLoopForceTool`**, **`toolsLoopAllowlist`**, **`toolsLoopExcludeTools`** | Tools-loop policy for this recipe (e.g. force **`SerpApiWebSearch`** on round 0). |
+| **`toolsLoopMaxFetchHttpUrlCalls`**, **`toolsLoopFetchHttpUrlWireMaxChars`** | Caps for web-research + fetch workflows. |
+
+**Phase hint templates** (expanded on the server when the prelude is built):
+
+| Token | Meaning |
+|-------|---------|
+| `{{studio.today}}` | Today’s date (Studio JVM, server time zone). |
+| `{{studio.today-7D}}` | Calendar date 7 days before today (`D` / `W` / `M` units). |
+| `{{studio.now}}` | Current date and time. |
+| `{{studio.now-2H}}` | Date/time minus offset (`H`, `D`, `W`, `M`). |
+| `{{initial.binding.field}}` / `{{current.binding.field}}` | Prefetch artifact snapshots after recipe-engine steps. |
+
+Example Context line: *Today's date: **{{studio.today}}**. Only sources on or after **{{studio.today-7D}}**.*
+
 **Maintainer reference:** [intent-recipe-routing.md](../internals/intent-recipe-routing.md) (pipeline, telemetry, bundled `authoring-intent-recipes-default.json`).
 
 ---
@@ -458,6 +479,8 @@ config/studio/scripts/aiassistant/config/tools.json
 |-------|--------|
 | **`disabledBuiltInTools`** | JSON array of **tool names to hide** (compared case‑insensitively). Example: `["GenerateImage", "FetchHttpUrl"]` removes those tools from the catalog. |
 | **`enabledBuiltInTools`** | If this array is **non‑empty**, it is a **whitelist** of **built‑in** tool wire names to **keep**; every other built‑in is removed **except** **`InvokeSiteUserTool`** and any **`mcp_*`** tools (unless those appear in **`disabledBuiltInTools`** / **`disabledMcpTools`**). Names must match the registered tool string **exactly** (case‑sensitive). If **omitted** or **empty**, all built‑ins are available minus **`disabledBuiltInTools`**. |
+| **`builtInToolSettings`** | Per–built-in tool options (not enable/disable). **`SerpApiWebSearch.defaults`** holds Google/SerpAPI params (`engine`, `gl`, `hl`, **`tbs`** for date range such as **`qdr:w`** past week, etc.). Configure **`serpapi_api_key`** on **Secrets** only — missing or unresolved key fails the tool call; Studio does not hide the wire or substitute another search tool. |
+| **`disabledUserTools`** | JSON array of site user tool ids (from **`user-tools/registry.json`**) to hide from **`InvokeSiteUserTool`** while keeping registry rows. |
 
 **Registered built-in wire names** — use these strings verbatim in **`disabledBuiltInTools`**, **`enabledBuiltInTools`**, and **`omitTools`**. Canonical UI list: **`sources/src/studioAiOrchestrationToolIds.ts`** (`STUDIO_AI_BUILTIN_TOOL_IDS`); server registration in **`AiOrchestrationTools.groovy`**. When MCP is enabled, the server also registers dynamic **`mcp_<serverId>_<toolName>`** tools (sanitized); those are not listed here.
 
@@ -482,6 +505,7 @@ config/studio/scripts/aiassistant/config/tools.json
 | `TranslateContentBatch` |
 | `TranslateContentItem` |
 | `WebSearch` |
+| `SerpApiWebSearch` |
 | `WriteContent` |
 
 | Wire name (snake_case) |
@@ -494,6 +518,33 @@ config/studio/scripts/aiassistant/config/tools.json
 | `update_template` |
 
 Per-request **`omitTools`** / agent **`<enableTools>false</enableTools>`** still apply on top of this file.
+
+**Example — SerpAPI instead of DuckDuckGo (`WebSearch`):**
+
+```json
+{
+  "disabledBuiltInTools": ["WebSearch"],
+  "builtInToolSettings": {
+    "SerpApiWebSearch": {
+      "defaults": {
+        "engine": "google",
+        "googleDomain": "google.com",
+        "gl": "us",
+        "hl": "en",
+        "location": "United States",
+        "num": 10,
+        "device": "desktop",
+        "safe": "active",
+        "tbs": "qdr:w"
+      }
+    }
+  }
+}
+```
+
+Enable **`SerpApiWebSearch`** in **tools.json** (not in **`disabledBuiltInTools`**). Set **`serpapi_api_key`** in **Secrets** (`${env:SERPAPI_API_KEY}` or **`${enc:…}`**). Point intent recipes at **`SerpApiWebSearch`** (`toolsLoopForceTool`, **`toolsLoopAllowlist`**, phase hints) — Studio does **not** substitute another search wire if the forced tool is disabled or missing from the wire.
+
+When **`toolsLoopForceTool`** is set but that tool is not registered, the tools loop returns a **Recipe tool unavailable** message instead of guessing. Web-research recipes may set **`toolsLoopMaxFetchHttpUrlCalls`** (default **3** when the allowlist is search + **`FetchHttpUrl` only**) so the server stops extra **`FetchHttpUrl`** calls after the cap and rejects duplicate URLs in the same turn.
 
 **Example — hide image + outbound fetch, keep the rest:**
 

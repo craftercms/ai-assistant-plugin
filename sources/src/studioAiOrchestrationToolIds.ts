@@ -20,6 +20,7 @@ export const STUDIO_AI_BUILTIN_TOOL_IDS: readonly string[] = [
   'GetPreviewHtml',
   'FetchHttpUrl',
   'WebSearch',
+  'SerpApiWebSearch',
   'ResearchSiteContent',
   'QueryExpertGuidance',
   'WriteContent',

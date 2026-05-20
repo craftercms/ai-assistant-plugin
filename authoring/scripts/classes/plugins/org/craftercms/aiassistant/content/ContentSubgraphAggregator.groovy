@@ -2,6 +2,8 @@ package plugins.org.craftercms.aiassistant.content
 
 import plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext
 import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
+import plugins.org.craftercms.aiassistant.tools.cms.support.CmsGetContent
+import plugins.org.craftercms.aiassistant.tools.cms.support.CmsWriteContent
 
 import java.util.ArrayDeque
 import java.util.ArrayList
@@ -397,7 +399,7 @@ final class ContentSubgraphAggregator {
 
       Map got
       try {
-        got = ops.getContent(site, path) as Map
+        got = CmsGetContent.read(ops, site, path) as Map
       } catch (Throwable t) {
         if (root == path) {
           throw new IllegalStateException("GetContent failed for root '${path}' in scope walk: ${t.message}", t)
@@ -514,7 +516,7 @@ final class ContentSubgraphAggregator {
       }
       Map got
       try {
-        got = ops.getContent(site, path) as Map
+        got = CmsGetContent.read(ops, site, path) as Map
       } catch (Throwable t) {
         if (root == path) {
           throw new IllegalStateException("GetContent failed for root '${path}' in subgraph walk: ${t.message}", t)
@@ -650,7 +652,7 @@ final class ContentSubgraphAggregator {
         continue
       }
       try {
-        Map w = ops.writeContent(site, path, body, unlock) as Map
+        Map w = CmsWriteContent.write(ops, site, path, body, unlock) as Map
         writes.add([path: path, ok: w?.ok != false, message: (w?.message ?: w?.result ?: 'written').toString()])
       } catch (Throwable t) {
         writes.add([path: path, ok: false, message: t.message ?: t.toString()])

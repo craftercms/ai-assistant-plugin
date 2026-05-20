@@ -4,7 +4,7 @@ import plugins.org.craftercms.aiassistant.llm.StudioAiLlmKind
 
 /**
  * Well-known secret keys for vendor LLM credentials and related defaults.
- * Values in {@code secrets.json} normally reference environment variables ({@code ${env:VAR}}).
+ * New sites seed {@code secrets.json} with {@code ${env:VAR}} defaults per slot; authors may change any row (e.g. {@code ${enc:…}}).
  */
 final class StudioAiAssistantSecretsCatalog {
 
@@ -61,9 +61,22 @@ final class StudioAiAssistantSecretsCatalog {
     ],
   ]
 
+  /** Optional integration API keys (not LLM vendors); shown in Secrets admin alongside provider rows. */
+  private static final List<Map> INTEGRATION_SLOTS = [
+    [
+      key          : 'serpapi_api_key',
+      label        : 'SerpAPI (web search)',
+      defaultEnvVar: 'SERPAPI_API_KEY',
+      optional     : true
+    ]
+  ]
+
   static List<Map> knownSlots() {
     List<Map> out = []
     for (Map slot : KNOWN_SLOTS) {
+      out.add(new LinkedHashMap<>(slot))
+    }
+    for (Map slot : INTEGRATION_SLOTS) {
       out.add(new LinkedHashMap<>(slot))
     }
     return Collections.unmodifiableList(out)
@@ -75,6 +88,11 @@ final class StudioAiAssistantSecretsCatalog {
       return null
     }
     for (Map slot : KNOWN_SLOTS) {
+      if (k == slot.key?.toString()) {
+        return new LinkedHashMap<>(slot)
+      }
+    }
+    for (Map slot : INTEGRATION_SLOTS) {
       if (k == slot.key?.toString()) {
         return new LinkedHashMap<>(slot)
       }
@@ -113,7 +131,7 @@ final class StudioAiAssistantSecretsCatalog {
   /** Default {@code secrets.json} document when the file is missing. */
   static Map defaultSecretsDocument() {
     List<Map> entries = []
-    for (Map slot : KNOWN_SLOTS) {
+    for (Map slot : knownSlots()) {
       String key = slot.key?.toString()?.trim()
       if (!key) {
         continue

@@ -4,6 +4,8 @@ import plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext
 import plugins.org.craftercms.aiassistant.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.tools.spi.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolContext
+import plugins.org.craftercms.aiassistant.tools.cms.support.CmsGetContent
+import plugins.org.craftercms.aiassistant.tools.cms.support.CmsGetContentTypeFormDefinition
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSchemas
 
 class UpdateTemplateTool extends AbstractStudioAiTool {
@@ -26,14 +28,14 @@ class UpdateTemplateTool extends AbstractStudioAiTool {
     def templatePath = input?.templatePath?.toString()?.trim()
     def contentPath = input?.contentPath?.toString()?.trim()
     if (!templatePath && contentPath) {
-      templatePath = ctx.ops.resolveTemplatePathFromContent(siteId, contentPath)
+      templatePath = CmsGetContent.resolveTemplatePath(ctx.ops, siteId, contentPath)
     }
     if (!templatePath) {
       throw new IllegalArgumentException('Missing required field: templatePath (or contentPath that resolves a display-template)')
     }
-    def templateText = ctx.ops.getContent(siteId, templatePath)?.contentXml?.toString() ?: ''
+    def templateText = CmsGetContent.read(ctx.ops, siteId, templatePath)?.contentXml?.toString() ?: ''
     def contentType = input?.contentType?.toString()?.trim()
-    def formDef = contentType ? ctx.ops.getContentTypeFormDefinition(siteId, contentType)?.formDefinitionXml?.toString() : null
+    def formDef = contentType ? CmsGetContentTypeFormDefinition.load(ctx.ops, siteId, contentType)?.formDefinitionXml?.toString() : null
     boolean formForwardTpl = ctx.fullSuppressRepoWrites ||
       (ctx.pathProtectFormItem && contentPath && AuthoringPreviewContext.sameRepoPath(contentPath, ctx.normProtectedFormItemPath))
     return [

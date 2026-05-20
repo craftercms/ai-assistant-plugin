@@ -24,6 +24,7 @@ import plugins.org.craftercms.aiassistant.tools.development.AnalyzeTemplateTool
 import plugins.org.craftercms.aiassistant.tools.development.GetCrafterizingPlaybookTool
 import plugins.org.craftercms.aiassistant.tools.development.UpdateTemplateTool
 import plugins.org.craftercms.aiassistant.tools.general.FetchHttpUrlTool
+import plugins.org.craftercms.aiassistant.tools.general.SerpApiWebSearchTool
 import plugins.org.craftercms.aiassistant.tools.general.WebSearchTool
 import plugins.org.craftercms.aiassistant.tools.spi.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolContext
@@ -53,6 +54,7 @@ final class StudioAiToolRegistry {
     new GetPreviewHtmlTool(),
     new FetchHttpUrlTool(),
     new WebSearchTool(),
+    new SerpApiWebSearchTool(),
     new ResearchSiteContentTool(),
     new WriteContentTool(),
     new ListPagesAndComponentsTool(),

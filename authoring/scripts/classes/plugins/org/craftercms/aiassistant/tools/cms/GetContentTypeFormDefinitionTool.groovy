@@ -3,6 +3,8 @@ package plugins.org.craftercms.aiassistant.tools.cms
 import plugins.org.craftercms.aiassistant.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.tools.spi.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolContext
+import plugins.org.craftercms.aiassistant.tools.cms.support.CmsGetContent
+import plugins.org.craftercms.aiassistant.tools.cms.support.CmsGetContentTypeFormDefinition
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSchemas
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSupport
 
@@ -44,7 +46,7 @@ class GetContentTypeFormDefinitionTool extends AbstractStudioAiTool {
     def contentPath = input?.contentPath?.toString()?.trim()
     def contentTypeId = input?.contentTypeId?.toString()?.trim()
     if (contentPath) {
-      def item = ctx.ops.getContent(siteId, contentPath)
+      def item = CmsGetContent.read(ctx.ops, siteId, contentPath)
       def xml = item?.contentXml?.toString()
       def fromXml = StudioAiToolSupport.extractContentTypeIdFromItemXml(xml)
       if (fromXml) {
@@ -66,6 +68,6 @@ class GetContentTypeFormDefinitionTool extends AbstractStudioAiTool {
         'Provide contentPath (page/component XML path — server reads <content-type>) or contentTypeId (exact value from that element, never inferred from filename).'
       )
     }
-    return ctx.ops.getContentTypeFormDefinition(siteId, contentTypeId) as Map
+    return CmsGetContentTypeFormDefinition.load(ctx.ops, siteId, contentTypeId) as Map
   }
 }

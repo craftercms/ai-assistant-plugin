@@ -1,6 +1,7 @@
 package plugins.org.craftercms.aiassistant.tools.general
 
 import plugins.org.craftercms.aiassistant.prompt.ToolPrompts
+import plugins.org.craftercms.aiassistant.tools.http.HttpUrlFetch
 import plugins.org.craftercms.aiassistant.tools.spi.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolContext
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSchemas
@@ -28,6 +29,6 @@ class FetchHttpUrlTool extends AbstractStudioAiTool {
         maxChars = null
       }
     }
-    return ctx.ops.fetchHttpUrl(url, maxChars) as Map
+    return HttpUrlFetch.fetch(url, maxChars) as Map
   }
 }

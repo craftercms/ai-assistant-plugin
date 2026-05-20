@@ -30,9 +30,11 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Switch,
   TextField,
   Typography
 } from '@mui/material';
+import { isUserToolEnabled, setUserToolEnabled } from './aiAssistantToolsPolicyUi';
 import {
   AI_ASSISTANT_IMAGEGEN_GROOVY_STUB,
   AI_ASSISTANT_LLM_RUNTIME_GROOVY_STUB,
@@ -829,13 +831,16 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
                 <TableCell>Script</TableCell>
                 <TableCell>Description</TableCell>
                 <TableCell>Routing hints</TableCell>
+                <TableCell width={100} align="center">
+                  Enabled
+                </TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {tools.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5}>
+                  <TableCell colSpan={6}>
                     <Typography variant="body2" color="text.secondary">
                       No tools in registry (or registry missing).
                     </Typography>
@@ -860,6 +865,17 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
                           —
                         </Typography>
                       )}
+                    </TableCell>
+                    <TableCell align="center">
+                      <Switch
+                        size="small"
+                        checked={isUserToolEnabled(toolsPolicy, t.id)}
+                        onChange={(_, checked) => {
+                          setToolsPolicy((prev) => setUserToolEnabled(prev, t.id, checked));
+                          setToolsPolicyDirty(true);
+                        }}
+                        inputProps={{ 'aria-label': `Enable user tool ${t.id}` }}
+                      />
                     </TableCell>
                     <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
                       <Button size="small" onClick={() => openToolMetadataEditor(t)}>

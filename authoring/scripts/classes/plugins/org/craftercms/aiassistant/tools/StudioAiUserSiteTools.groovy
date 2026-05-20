@@ -5,6 +5,7 @@ import groovy.lang.Binding
 import groovy.lang.GroovyShell
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import plugins.org.craftercms.aiassistant.config.StudioAiAssistantProjectConfig
 
 import java.util.regex.Pattern
 
@@ -32,11 +33,12 @@ final class StudioAiUserSiteTools {
    * Normalized registry rows: {@code id}, {@code script}, {@code description}, optional intent-routing
    * {@code matchHints}, {@code dontMatchHints}, and {@code priority} (same semantics as intent recipes).
    */
-  static List<Map> loadRegistryEntries(StudioToolOperations ops) {
+  static List<Map> loadRegistryEntries(StudioToolOperations ops, Map projectToolCfg = null) {
     List<Map> out = []
     if (ops == null) {
       return out
     }
+    Set<String> disabledUser = StudioAiAssistantProjectConfig.disabledUserToolsSet(projectToolCfg)
     String siteId = ops.resolveEffectiveSiteId('')
     String raw = ops.readStudioConfigurationUtf8(siteId, USER_TOOLS_REGISTRY_PATH)
     if (!raw?.trim()) {
@@ -75,6 +77,9 @@ final class StudioAiUserSiteTools {
         script = m.file?.toString()?.trim()
       }
       if (!id || !script) {
+        continue
+      }
+      if (StudioAiAssistantProjectConfig.isUserToolDisabled(id, disabledUser)) {
         continue
       }
       if (!SAFE_TOOL_ID.matcher(id).matches()) {
@@ -131,7 +136,16 @@ final class StudioAiUserSiteTools {
     if (!id || !SAFE_TOOL_ID.matcher(id).matches()) {
       return [ok: false, error: true, message: "Invalid toolId (use alphanumeric, '_', '-', max 64)."] as Map
     }
-    List<Map> entries = loadRegistryEntries(ops)
+    Map cfg = StudioAiAssistantProjectConfig.load(ops)
+    Set<String> disabledUser = StudioAiAssistantProjectConfig.disabledUserToolsSet(cfg)
+    if (StudioAiAssistantProjectConfig.isUserToolDisabled(id, disabledUser)) {
+      return [
+        ok     : false,
+        error  : true,
+        message: "Site user tool '${id}' is disabled in tools.json (disabledUserTools)."
+      ] as Map
+    }
+    List<Map> entries = loadRegistryEntries(ops, cfg)
     Map entry = null
     for (Map e : entries) {
       String rowId = e.id?.toString()?.trim()

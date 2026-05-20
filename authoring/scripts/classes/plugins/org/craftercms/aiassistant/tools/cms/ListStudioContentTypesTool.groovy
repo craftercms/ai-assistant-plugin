@@ -4,6 +4,7 @@ import plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext
 import plugins.org.craftercms.aiassistant.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.tools.spi.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolContext
+import plugins.org.craftercms.aiassistant.tools.cms.support.CmsListStudioContentTypes
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSchemas
 
 /**
@@ -37,6 +38,6 @@ class ListStudioContentTypesTool extends AbstractStudioAiTool {
     if (!siteId) throw new IllegalArgumentException('Missing required field: siteId')
     boolean searchable = AuthoringPreviewContext.isTruthy(input?.searchable)
     def contentPath = input?.contentPath?.toString()?.trim() ?: input?.path?.toString()?.trim()
-    return ctx.ops.listStudioContentTypes(siteId, searchable, contentPath) as Map
+    return CmsListStudioContentTypes.list(ctx.ops, siteId, searchable, contentPath) as Map
   }
 }

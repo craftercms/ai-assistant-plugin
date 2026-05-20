@@ -95,6 +95,8 @@ When **`siteId`** + **`agentId`** match a catalog row, the server may **copy `ll
 | **`agentId`** | Chat rows | System-generated UUID (Project Tools). Sent on stream/chat; used for catalog merge and form toggles. |
 | **`llmSecretKey`** | Production | Optional; **`secrets.json`** entry key (custom secret or built-in provider row). Set in Project Tools → Agents. |
 | **`llmApiKey`** | Testing | Per-agent key when no **env** / secrets row; discouraged in production. |
+
+**Credential order (LLM):** resolve the agent’s **`llmSecretKey`** or provider default row from **`secrets.json`** first (`${env:…}` / `${enc:…}` expansion). Provider stacks may then apply documented **host env** or JVM property fallbacks when the resolved secret is still empty — see **[configuration-guide §4](configuration-guide.md#cg-4)**. This is **not** the same as inventing a default row at runtime when the file or key is missing. Built-in integration tools (e.g. **`SerpApiWebSearch`**) use **secrets only** — no second env bypass.
 | **`enableTools`** | Tool-capable | When **`false`**, tools are off for that agent (subject to per-request **`omitTools`**). |
 | **`expertSkills`** | Tools-loop + Claude (tools on) | Markdown URL skills → **QueryExpertGuidance**. |
 

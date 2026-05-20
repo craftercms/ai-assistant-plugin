@@ -13,9 +13,11 @@ import java.nio.charset.StandardCharsets
 import java.util.ArrayList
 import java.util.Collections
 import java.util.LinkedHashMap
+import java.util.LinkedHashSet
 import java.util.List
 import java.util.Locale
 import java.util.Map
+import java.util.Set
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -468,7 +470,7 @@ final class AuthoringIntentRecipeCatalog {
         return ''
       }
 
-      Map item = ops.getContent(siteId, BUNDLED_SANDBOX_REPO_PATH) as Map
+      Map item = plugins.org.craftercms.aiassistant.tools.cms.support.CmsGetContent.read(ops, siteId, BUNDLED_SANDBOX_REPO_PATH) as Map
       String raw = item?.contentXml?.toString()?.trim()
       return raw ?: ''
     } catch (Throwable t) {
@@ -1339,7 +1341,10 @@ final class AuthoringIntentRecipeCatalog {
 
   /**
    * Builds the Studio user-message prelude after a recipe match: metadata, binding names, and phase hints
-   * with {@code {{initial.*}}}/{@code {{current.*}}} template expansion.
+   * with {@link StudioRecipeClockTemplates} ({@code {{studio.today}}}, {@code {{studio.today-7D}}}, …) and
+   * {@link AuthoringIntentRecipeBindings#expandHintTemplates} ({@code {{initial.*}}}/{@code {{current.*}}}) expansion.
+   * Web-research recipes also append required round-0 search + {@code FetchHttpUrl} limits when
+   * {@link #recipePhasesImplyWebResearch} and {@code toolsLoopForceTool} are set.
    */
   static String formatMatchedRecipePrelude(
     Map recipe,
@@ -1368,6 +1373,21 @@ final class AuthoringIntentRecipeCatalog {
     appendPhase(sb, 'Context', recipe?.phases, 'context', initialBindings, currentBindings, maxExpand)
     appendPhase(sb, 'Action', recipe?.phases, 'action', initialBindings, currentBindings, maxExpand)
     appendPhase(sb, 'Confirmation', recipe?.phases, 'confirmation', initialBindings, currentBindings, maxExpand)
+    String searchWire = resolveToolsLoopForceTool(recipe)
+    if (recipePhasesImplyWebResearch(recipe) && searchWire) {
+      int fetchCap = resolveFetchHttpUrlWireMaxChars(recipe)
+      sb.append('\n**Tool execution (required):**\n')
+      int maxFetch = resolveToolsLoopMaxFetchHttpUrlCalls(recipe)
+      sb.append('- Round 0: call **').append(searchWire).append('** via API **`tool_calls`** (not emoji-only 🛠️ narration).\n')
+      sb.append('- Use **only** http(s) URLs returned in that search result — **do not invent or guess URLs**.\n')
+      sb.append('- Fetch **at most ').append(maxFetch > 0 ? maxFetch : 3).append('** distinct citation URLs with **FetchHttpUrl** (pass **maxChars: ')
+        .append(fetchCap > 0 ? fetchCap : DEFAULT_WEB_RESEARCH_FETCH_HTTP_WIRE_MAX_CHARS)
+        .append('** on each call). Do **not** re-fetch the same URL.\n')
+      sb.append('- After those reads, **draft in this chat** — do **not** run more **FetchHttpUrl** / **')
+        .append(searchWire).append('** unless a fetch failed.\n')
+      sb.append('- Deliver blog drafts as **markdown in chat** unless the author explicitly asks to save or publish in the CMS.\n')
+      sb.append('- Do **not** call **WriteContent**, **update_content**, or **GetCrafterizingPlaybook** for this workflow unless the author explicitly requests repository saves.\n')
+    }
     sb.append('\n---\n\n')
     sb.toString()
   }
@@ -1399,6 +1419,207 @@ final class AuthoringIntentRecipeCatalog {
   }
 
   /**
+   * All author-facing phase hint lines ({@code phases.context|action|confirmation} lists or {@code hints}).
+   */
+  static List<String> collectPhaseHintTexts(Map recipe) {
+    List<String> out = new ArrayList<>()
+
+    if (!(recipe instanceof Map)) {
+      return Collections.unmodifiableList(out)
+    }
+
+    Object phases = recipe.get('phases')
+
+    if (!(phases instanceof Map)) {
+      return Collections.unmodifiableList(out)
+    }
+
+    for (String phaseKey : ['context', 'action', 'confirmation']) {
+      Object raw = ((Map) phases).get(phaseKey)
+
+      if (raw instanceof List) {
+        for (Object line : (List) raw) {
+          String s = line?.toString()?.trim()
+
+          if (s) {
+            out.add(s)
+          }
+        }
+        continue
+      }
+
+      if (raw instanceof Map) {
+        Object hints = ((Map) raw).get('hints')
+
+        if (!(hints instanceof List)) {
+          hints = ((Map) raw).get('lines')
+        }
+
+        if (hints instanceof List) {
+          for (Object line : (List) hints) {
+            String s = line?.toString()?.trim()
+
+            if (s) {
+              out.add(s)
+            }
+          }
+        }
+      }
+    }
+
+    Collections.unmodifiableList(out)
+  }
+
+  /** Lowercased join of {@link #collectPhaseHintTexts(Map)} for phrase checks. */
+  private static String phaseHintTextBlob(Map recipe) {
+    return collectPhaseHintTexts(recipe).join('\n').toLowerCase(Locale.ROOT)
+  }
+
+  /**
+   * True when recipe phases (or explicit {@code toolsLoopForceTool}) call for public-web research
+   * ({@code WebSearch} / citation fetch), same signals as bundled {@code web_research}.
+   */
+  static boolean recipePhasesImplyWebResearch(Map recipe) {
+    String explicit = recipe?.toolsLoopForceTool?.toString()?.trim() ?: ''
+
+    if (StudioAiAssistantProjectConfig.isWebSearchWireName(explicit)) {
+      return true
+    }
+
+    String blob = phaseHintTextBlob(recipe)
+
+    if (!blob) {
+      return false
+    }
+
+    return blob.contains('search the web') ||
+      blob.contains('websearch') ||
+      blob.contains('web search') ||
+      blob.contains('call websearch') ||
+      blob.contains('serpapi')
+  }
+
+  /** {@code toolsLoopForceTool} from the recipe row only (no site-level substitution). */
+  static String resolveToolsLoopForceTool(Map recipe) {
+    return recipe?.toolsLoopForceTool?.toString()?.trim() ?: ''
+  }
+
+  /** True when {@code toolName} appears in the OpenAI {@code tools[]} wire list for this session. */
+  static boolean isToolRegisteredOnWire(List wireTools, String toolName) {
+    return wireToolsIncludeNamedTool(wireTools, toolName)
+  }
+
+  /**
+   * Author-facing explanation when a recipe's {@code toolsLoopForceTool} is disabled or not registered.
+   */
+  static String explainToolsLoopForceToolUnavailable(String forceTool, Map cfg, StudioToolOperations ops) {
+    String w = (forceTool ?: '').toString().trim()
+    if (!w) {
+      return 'No forced tool was configured.'
+    }
+    Set<String> disabled = StudioAiAssistantProjectConfig.disabledBuiltInSet(cfg)
+    if (StudioAiAssistantProjectConfig.isToolNameDisabled(w, disabled)) {
+      return "The tool **${w}** is disabled for this site (**disabledBuiltInTools** in **tools.json**)."
+    }
+    Set<String> wl = StudioAiAssistantProjectConfig.enabledBuiltInWhitelist(cfg)
+    if (wl != null && !StudioAiAssistantProjectConfig.isBuiltInWireAllowedByWhitelist(w, cfg)) {
+      return "The tool **${w}** is not included in this site's **enabledBuiltInTools** whitelist in **tools.json**."
+    }
+    return "The tool **${w}** is not registered for this chat session (check **tools.json** and agent **enableTools**)."
+  }
+
+  private static boolean wireToolsIncludeNamedTool(List wireTools, String toolName) {
+    if (!(wireTools instanceof List) || wireTools.isEmpty() || !toolName?.trim()) {
+      return false
+    }
+    String want = toolName.trim()
+    for (def t : wireTools) {
+      if (!(t instanceof Map)) {
+        continue
+      }
+      def fn = ((Map) t).get('function')
+      if (fn instanceof Map) {
+        String n = (fn.get('name') ?: '').toString()
+        if (want.equalsIgnoreCase(n)) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  /** Max {@code FetchHttpUrl} calls per chat turn for web-research recipes (0 = no server cap). */
+  static int resolveToolsLoopMaxFetchHttpUrlCalls(Map recipe) {
+    Object raw = recipe?.get('toolsLoopMaxFetchHttpUrlCalls')
+    if (raw instanceof Number) {
+      int n = ((Number) raw).intValue()
+      if (n >= 0) {
+        return Math.min(n, 10)
+      }
+    } else if (raw != null) {
+      try {
+        int n = Integer.parseInt(raw.toString().trim())
+        if (n >= 0) {
+          return Math.min(n, 10)
+        }
+      } catch (Throwable ignored) {
+      }
+    }
+    return recipeToolsLoopIsWebResearchOnly(recipe) || recipePhasesImplyWebResearch(recipe) ? 3 : 0
+  }
+
+  /** Default cap for {@code FetchHttpUrl} HTML on the tools-loop wire for web-research-only recipes. */
+  static final int DEFAULT_WEB_RESEARCH_FETCH_HTTP_WIRE_MAX_CHARS = 10_000
+
+  /**
+   * True when {@code toolsLoopAllowlist} is non-empty and only names open-web search wire(s) and/or {@code FetchHttpUrl}.
+   */
+  static boolean recipeToolsLoopIsWebResearchOnly(Map recipe) {
+    List<String> allow = toolsLoopAllowlistNames(recipe)
+
+    if (allow.isEmpty()) {
+      String force = resolveToolsLoopForceTool(recipe)
+      return recipePhasesImplyWebResearch(recipe) && StudioAiAssistantProjectConfig.isWebSearchWireName(force)
+    }
+
+    Set<String> allowed = new LinkedHashSet<>(['WebSearch', 'SerpApiWebSearch', 'FetchHttpUrl'])
+
+    for (String n : allow) {
+      if (!allowed.contains(n)) {
+        return false
+      }
+    }
+
+    return true
+  }
+
+  /** Per-recipe or default {@code FetchHttpUrl} body cap on the chat wire for web-research workflows. */
+  static int resolveFetchHttpUrlWireMaxChars(Map recipe) {
+    Object raw = recipe?.get('toolsLoopFetchHttpUrlWireMaxChars')
+
+    if (raw instanceof Number) {
+      int n = ((Number) raw).intValue()
+
+      if (n > 256) {
+        return Math.min(n, 24_000)
+      }
+    } else if (raw != null) {
+      try {
+        int n = Integer.parseInt(raw.toString().trim())
+
+        if (n > 256) {
+          return Math.min(n, 24_000)
+        }
+      } catch (Throwable ignored) {
+      }
+    }
+
+    return recipeToolsLoopIsWebResearchOnly(recipe) || recipePhasesImplyWebResearch(recipe) ?
+      DEFAULT_WEB_RESEARCH_FETCH_HTTP_WIRE_MAX_CHARS :
+      0
+  }
+
+  /**
    * Collects per-recipe tools-loop overrides ({@code allowlist}, bypass keywords, disable, force tool, excludes)
    * for orchestration telemetry and runtime enforcement.
    */
@@ -1407,9 +1628,11 @@ final class AuthoringIntentRecipeCatalog {
     List<String> bypass = toolsLoopAllowlistBypassKeywords(recipe)
     List<String> exclude = toolsLoopExcludeToolNames(recipe)
     boolean toolsOff = Boolean.TRUE.equals(recipe?.get('toolsLoopDisable'))
-    String forceTool = recipe?.toolsLoopForceTool?.toString()?.trim() ?: ''
+    String forceTool = resolveToolsLoopForceTool(recipe)
+    boolean webResearchOnly = recipeToolsLoopIsWebResearchOnly(recipe)
+    int fetchWireCap = resolveFetchHttpUrlWireMaxChars(recipe)
 
-    if (allow.isEmpty() && bypass.isEmpty() && exclude.isEmpty() && !toolsOff && !forceTool) {
+    if (allow.isEmpty() && bypass.isEmpty() && exclude.isEmpty() && !toolsOff && !forceTool && fetchWireCap <= 0) {
       return Collections.emptyMap()
     }
 
@@ -1433,6 +1656,19 @@ final class AuthoringIntentRecipeCatalog {
 
     if (forceTool) {
       extra.put('toolsLoopForceTool', forceTool)
+    }
+
+    if (fetchWireCap > 0 && (webResearchOnly || recipePhasesImplyWebResearch(recipe))) {
+      extra.put('toolsLoopFetchHttpUrlWireMaxChars', fetchWireCap)
+    }
+
+    if (webResearchOnly) {
+      extra.put('toolsLoopWebResearchOnly', Boolean.TRUE)
+    }
+
+    int maxFetchCalls = resolveToolsLoopMaxFetchHttpUrlCalls(recipe)
+    if (maxFetchCalls > 0 && (webResearchOnly || recipePhasesImplyWebResearch(recipe))) {
+      extra.put('toolsLoopMaxFetchHttpUrlCalls', maxFetchCalls)
     }
 
     Collections.unmodifiableMap(extra)

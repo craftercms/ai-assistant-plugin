@@ -7,7 +7,7 @@ import org.slf4j.LoggerFactory
  * Expands secret placeholders in configuration strings on the Studio JVM.
  * <ul>
  *   <li>{@code ${env:VAR}} — {@link System#getenv}</li>
- *   <li>{@code ${enc:...}} — Crafter {@code encryptionService.decrypt(siteId, ...)} when available</li>
+ *   <li>{@code ${enc:...}} — Crafter {@code textEncryptor.decrypt(cipher)} (Studio 4.x {@code EncryptionService} is encrypt-only)</li>
  *   <li>{@code ${secret:key}} — resolves another entry from site {@code secrets.json} (no cycles)</li>
  * </ul>
  */
@@ -26,8 +26,28 @@ final class StudioAiSecretMacroResolver {
 
   private StudioAiSecretMacroResolver() {}
 
+  /**
+   * Wraps bare Crafter ciphertext ({@code CCE-V1#…}) saved without a {@code ${enc:…}} wrapper.
+   */
+  static String normalizeStoredExpression(String stored) {
+    String s = (stored ?: '').toString().trim()
+    if (!s) {
+      return ''
+    }
+    if (s.startsWith('CCE-V1#') && !s.contains('${')) {
+      return "\${enc:${s}}"
+    }
+    return s
+  }
+
   static String expand(String siteId, Object applicationContext, String input) {
-    return expandWithStack(siteId, applicationContext, input, new LinkedHashSet<String>(), 0)
+    return expandWithStack(
+      siteId,
+      applicationContext,
+      normalizeStoredExpression(input),
+      new LinkedHashSet<String>(),
+      0
+    )
   }
 
   private static String expandWithStack(
@@ -86,29 +106,35 @@ final class StudioAiSecretMacroResolver {
     if (!s.contains('${enc:')) {
       return s
     }
-    Object encSvc = resolveEncryptionService(applicationContext)
-    if (encSvc == null) {
-      LOG.debug('StudioAiSecretMacroResolver: encryptionService not available; ${enc:…} left unchanged')
+    if (resolveTextEncryptor(applicationContext) == null) {
+      LOG.debug('StudioAiSecretMacroResolver: no textEncryptor; ${enc:…} left unchanged')
       return s
     }
     java.util.regex.Matcher m = ENC_MACRO.matcher(s)
     StringBuffer sb = new StringBuffer()
     while (m.find()) {
       String cipher = m.group(1)?.toString()?.trim() ?: ''
-      String plain = ''
-      if (cipher && siteId?.trim()) {
-        try {
-          if (encSvc.metaClass.respondsTo(encSvc, 'decrypt', String, String)) {
-            plain = encSvc.decrypt(siteId.trim(), cipher)?.toString() ?: ''
-          }
-        } catch (Throwable t) {
-          LOG.warn('StudioAiSecretMacroResolver: decrypt failed siteId={}: {}', siteId, t.message)
-        }
-      }
+      String plain = decryptEncCipher(siteId, applicationContext, cipher)
       m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(plain))
     }
     m.appendTail(sb)
     return sb.toString()
+  }
+
+  /** Decrypts ciphertext from {@code ${enc:…}} (CCE-V1#…) saved via Studio Encrypt Marked / Secrets UI. */
+  private static String decryptEncCipher(String siteId, Object applicationContext, String cipher) {
+    if (!cipher?.trim()) {
+      return ''
+    }
+    Object textEnc = resolveTextEncryptor(applicationContext)
+    if (textEnc != null && textEnc.metaClass.respondsTo(textEnc, 'decrypt', String)) {
+      try {
+        return textEnc.decrypt(cipher.trim())?.toString()?.trim() ?: ''
+      } catch (Throwable t) {
+        LOG.warn('StudioAiSecretMacroResolver: textEncryptor.decrypt failed siteId={}: {}', siteId, t.message)
+      }
+    }
+    return ''
   }
 
   private static String expandSecretMacros(
@@ -142,11 +168,11 @@ final class StudioAiSecretMacroResolver {
     return sb.toString()
   }
 
-  private static Object resolveEncryptionService(Object applicationContext) {
+  private static Object resolveTextEncryptor(Object applicationContext) {
     if (applicationContext == null) {
       return null
     }
-    for (String beanName : ['encryptionService', 'encryptionServiceImpl']) {
+    for (String beanName : ['crafter.textEncryptor', 'textEncryptor']) {
       try {
         Object bean = applicationContext.get(beanName)
         if (bean != null) {
@@ -160,14 +186,14 @@ final class StudioAiSecretMacroResolver {
 
   /** Classifies a stored value for admin UI (never returns decrypted plaintext for literals). */
   static String classifyStoredValue(String stored) {
-    String s = (stored ?: '').toString().trim()
+    String s = normalizeStoredExpression(stored)
     if (!s) {
       return 'empty'
     }
     if (ENV_MACRO.matcher(s).matches()) {
       return 'env'
     }
-    if (s.startsWith('${enc:')) {
+    if (s.startsWith('${enc:') || s.startsWith('CCE-V1#')) {
       return 'enc'
     }
     if (SECRET_MACRO.matcher(s).matches()) {

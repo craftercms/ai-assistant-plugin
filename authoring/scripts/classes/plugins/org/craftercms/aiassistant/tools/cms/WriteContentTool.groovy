@@ -5,6 +5,7 @@ import plugins.org.craftercms.aiassistant.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.tools.spi.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolContext
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSchemas
+import plugins.org.craftercms.aiassistant.tools.cms.support.CmsWriteContent
 import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolSupport
 
 /**
@@ -33,7 +34,7 @@ class WriteContentTool extends AbstractStudioAiTool {
 
   /**
    * Rejects writes to the form-engine protected path (returns client-apply guidance), then calls
-   * {@link plugins.org.craftercms.aiassistant.tools.StudioToolOperations#writeContent} with resolved site and XML body.
+   * {@link plugins.org.craftercms.aiassistant.tools.cms.support.CmsWriteContent#write} with resolved site and XML body.
    */
   @Override
   Map execute(Map input, StudioAiToolContext ctx) {
@@ -57,7 +58,8 @@ class WriteContentTool extends AbstractStudioAiTool {
     if (!contentXml?.trim()) {
       throw new IllegalArgumentException('Missing required field: contentXml')
     }
-    return ctx.ops.writeContent(
+    return CmsWriteContent.write(
+      ctx.ops,
       siteId,
       path,
       contentXml,
