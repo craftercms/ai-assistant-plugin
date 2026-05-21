@@ -24,6 +24,12 @@ export {
   defaultSerpApiWebSearchSettingsFormState,
   serpApiWebSearchSettingsDescriptor
 } from './builtInToolSettings/serpApiWebSearchSettings';
+export { SLACK_POST_MESSAGE_WIRE } from './builtInToolSettings/slackPostMessageSettings';
+export type { SlackPostMessageSettingsFormState } from './builtInToolSettings/slackPostMessageSettings';
+export {
+  defaultSlackPostMessageSettingsFormState,
+  slackPostMessageSettingsDescriptor
+} from './builtInToolSettings/slackPostMessageSettings';
 
 /** Built-in wire names for hide/whitelist pickers (excludes the agent-only `mcp:*` sentinel). */
 export const BUILTIN_TOOL_NAME_OPTIONS: readonly string[] = STUDIO_AI_BUILTIN_TOOL_IDS.filter(

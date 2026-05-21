@@ -72,6 +72,7 @@ Patterns that have bitten us in review or production:
 - **`${enc:…}` on Studio 4.x:** decrypt with **`textEncryptor`**, not `EncryptionService.decrypt` (encrypt-only on 4.x). Bare `CCE-V1#…` rows should normalize to `${enc:…}` before expand.
 - **Integration tools (e.g. Serp):** API keys from **`resolveSecretKey`** only — no parallel `System.getenv('SERPAPI_API_KEY')` bypass when the secret row fails.
 - **Recipe phase hints:** use **`{{studio.today}}`** / **`{{studio.today-7D}}`** (or `now` variants) for rolling date windows — avoid hardcoding calendar strings in site `intent-recipes.json`.
+- **Recipe confirmation (`phases.confirmation`):** JVM steps run via **`AuthoringIntentRecipeEngine.runConfirmationStepsBlock`** after Action chat — **not** via LLM **`tool_calls`**. Keep **`AuthoringIntentRecipeEngine`** tool-agnostic; outbound formatting and arg defaults belong on the tool (**`recipeEngineConfirmationStep()`**, **`applyRecipeConfirmationArgDefaults`**). **`StudioAiToolContext.forRecipeEngine`** must load **`tools.json`** so **`builtInToolSettings`** defaults (e.g. **`defaultChannel`**) apply. Do not hardcode site field ids or branded copy in the engine or shared formatters.
 
 ---
 

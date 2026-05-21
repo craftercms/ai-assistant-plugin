@@ -104,17 +104,19 @@ class StudioAiToolContext {
   }
 
   /**
-   * Minimal context for AuthoringIntentRecipeEngine prefetch steps (read-only SPI tools).
-   * Supplies identity converter plus {@link StudioToolOperations} without optional chat metadata.
-   * Throws early when ops is null so recipe bindings never run headless.
+   * Context for {@link plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeEngine}
+   * prefetch and confirmation {@code engineSteps}. Loads site {@code tools.json} so built-in tools
+   * see {@code builtInToolSettings} defaults (e.g. {@code defaultChannel}) like the main tools loop.
    */
   static StudioAiToolContext forRecipeEngine(StudioToolOperations ops) {
     if (ops == null) {
       throw new IllegalArgumentException('ops is required')
     }
+    Map cfg = StudioAiAssistantProjectConfig.load(ops)
     return builder()
       .converter({ Object result, java.lang.reflect.Type rt -> result })
       .ops(ops)
+      .aiProjectToolCfg(cfg instanceof Map ? cfg : [:])
       .build()
   }
 

@@ -288,7 +288,7 @@ Field reference: [spec.md — Central agent catalog](../internals/spec.md) · [l
 ### 4. Secrets and API Keys (Recommended Order)
 
 1. **Project Tools → Secrets** — Site registry at **`config/studio/scripts/aiassistant/config/secrets.json`**. On first open (or **`scripts/install-plugin.sh`** when the file is missing), the plugin seeds one row per built-in LLM provider **and** optional integration rows (e.g. **`serpapi_api_key`**) with **`${env:VAR_NAME}`** defaults authors can change. Store **`${env:…}`**, Crafter **`${enc:…}`** ciphertext (from Studio **Encrypt Marked**), or plain text (encrypted on save). Resolved values are used **only on the server**; the UI never receives decrypted literals after save.
-2. **Runtime resolution** — Tools and LLM code read **only what is stored** in **`secrets.json`** for that key (no silent catalog default if a row is missing). **`${env:VAR}`** expands via the Studio JVM environment; **`${enc:…}`** decrypts via Crafter **`textEncryptor`** on Studio 4.x. LLM providers may still fall back to host env / JVM properties **after** secrets resolution when the provider stack allows it — see [llm-configuration.md](llm-configuration.md). Integration tools such as **`SerpApiWebSearch`** use **secrets only** (no separate env bypass).
+2. **Runtime resolution** — Tools and LLM code read **only what is stored** in **`secrets.json`** for that key (no silent catalog default if a row is missing). **`${env:VAR}`** expands via the Studio JVM environment; **`${enc:…}`** decrypts via Crafter **`textEncryptor`** on Studio 4.x. LLM providers may still fall back to host env / JVM properties **after** secrets resolution when the provider stack allows it — see [llm-configuration.md](llm-configuration.md). Integration tools such as **`SerpApiWebSearch`** and **`SlackPostMessage`** use **secrets only** (no separate env bypass).
 3. **JVM system properties** — Advanced tuning and key fallbacks only; see **[studio-aiassistant-jvm-parameters.md](studio-aiassistant-jvm-parameters.md)**.
 4. **Per‑agent `llmSecretKey` in `agents.json`** — Optional; references a **custom** key in **`secrets.json`** or the built-in provider row for the agent’s **`llm`** (Project Tools → Agents).
 5. **Per‑agent `llmApiKey` in `agents.json` or POST body** — **testing only**; discouraged in Git‑tracked sites.
@@ -403,7 +403,8 @@ All paths in this section are under the **site** Git sandbox (`config/studio/scr
 
 | Field | Role |
 |-------|------|
-| **`phases.context` / `action` / `confirmation`** | Author-facing bullets in the matched-recipe prelude (Context / Action / Confirmation). |
+| **`phases.context` / `action` / `confirmation`** | Author-facing bullets in the matched-recipe prelude (Context / Action / Confirmation). Each phase may be a **string list** (hints only) or a **map** with **`hints`** (strings) and optional **`engineSteps`** (JVM tools). |
+| **`phases.confirmation.engineSteps`** | Ordered **`{ "tool": "WireName", "args": { … } }`** entries Studio runs **after** Action-phase chat (not prefetch). Args support **`{{initial.*}}` / `{{current.*}}`** binding templates. Confirmation tools must opt in via **`recipeEngineConfirmationStep()`** (e.g. **`SlackPostMessage`**). Hint-only Confirmation may still run inferred steps when hints name an allowlisted confirmation wire. |
 | **`matchedUserPrelude`** | Extra Studio block prepended when the recipe matches. |
 | **`toolsLoopForceTool`**, **`toolsLoopAllowlist`**, **`toolsLoopExcludeTools`** | Tools-loop policy for this recipe (e.g. force **`SerpApiWebSearch`** on round 0). |
 | **`toolsLoopMaxFetchHttpUrlCalls`**, **`toolsLoopFetchHttpUrlWireMaxChars`** | Caps for web-research + fetch workflows. |
@@ -479,7 +480,7 @@ config/studio/scripts/aiassistant/config/tools.json
 |-------|--------|
 | **`disabledBuiltInTools`** | JSON array of **tool names to hide** (compared case‑insensitively). Example: `["GenerateImage", "FetchHttpUrl"]` removes those tools from the catalog. |
 | **`enabledBuiltInTools`** | If this array is **non‑empty**, it is a **whitelist** of **built‑in** tool wire names to **keep**; every other built‑in is removed **except** **`InvokeSiteUserTool`** and any **`mcp_*`** tools (unless those appear in **`disabledBuiltInTools`** / **`disabledMcpTools`**). Names must match the registered tool string **exactly** (case‑sensitive). If **omitted** or **empty**, all built‑ins are available minus **`disabledBuiltInTools`**. |
-| **`builtInToolSettings`** | Per–built-in tool options (not enable/disable). **`SerpApiWebSearch.defaults`** holds Google/SerpAPI params (`engine`, `gl`, `hl`, **`tbs`** for date range such as **`qdr:w`** past week, etc.). Configure **`serpapi_api_key`** on **Secrets** only — missing or unresolved key fails the tool call; Studio does not hide the wire or substitute another search tool. |
+| **`builtInToolSettings`** | Per–built-in tool options (not enable/disable). **`SerpApiWebSearch.defaults`** holds Google/SerpAPI params (`engine`, `gl`, `hl`, **`tbs`** for date range such as **`qdr:w`** past week, etc.). **`SlackPostMessage.defaults`** may set **`defaultChannel`** (used by LLM **`tool_calls`** and recipe-engine confirmation steps via **`StudioAiToolContext.forRecipeEngine`**); optional **`secretKey`** selects a non-default Secrets row. For recipe Confirmation with empty **`args`**, **`SlackPostMessage`** may format Action-phase assistant markdown into Slack mrkdwn (**`SlackConfirmationPostFormatter`**). Configure **`serpapi_api_key`** / **`slack_bot_token`** on **Secrets** only — missing or unresolved keys fail the tool call; Studio does not hide the wire or substitute another tool. |
 | **`disabledUserTools`** | JSON array of site user tool ids (from **`user-tools/registry.json`**) to hide from **`InvokeSiteUserTool`** while keeping registry rows. |
 | **`pluginRag`** | Bundled instruction RAG before the tools loop (**`mode`**: **`off`** default, **`supplement`**, **`replace`**; sliders for kernel size, retrieval **topK**, appendix/chunk limits). |
 | **`agentSkillsRag`** | Limits for per-agent markdown **skills** (**`QueryExpertGuidance`**): max enabled skills per request, embedding model, chunk caps. |
@@ -513,6 +514,8 @@ config/studio/scripts/aiassistant/config/tools.json
 | Wire name (PascalCase) |
 |------------------------|
 | `FetchHttpUrl` |
+| `PostHttpUrl` |
+| `SlackPostMessage` |
 | `GenerateImage` |
 | `GenerateTextNoTools` |
 | `GetContent` |
@@ -569,6 +572,22 @@ Per-request **`omitTools`** / agent **`<enableTools>false</enableTools>`** still
 ```
 
 Enable **`SerpApiWebSearch`** in **tools.json** (not in **`disabledBuiltInTools`**). Set **`serpapi_api_key`** in **Secrets** (`${env:SERPAPI_API_KEY}` or **`${enc:…}`**). Point intent recipes at **`SerpApiWebSearch`** (`toolsLoopForceTool`, **`toolsLoopAllowlist`**, phase hints) — Studio does **not** substitute another search wire if the forced tool is disabled or missing from the wire.
+
+**Example — Slack notifications (`SlackPostMessage`):**
+
+```json
+{
+  "builtInToolSettings": {
+    "SlackPostMessage": {
+      "defaults": {
+        "defaultChannel": "#content-alerts"
+      }
+    }
+  }
+}
+```
+
+Enable **`SlackPostMessage`** for agents that should notify Slack (not in **`disabledBuiltInTools`**). Set **`slack_bot_token`** in **Secrets** to a Bot User OAuth token with **`chat:write`** ([`chat.postMessage`](https://docs.slack.dev/reference/methods/chat.postMessage/)). Each tool call still supplies **channel** and **text** / **blocks** when posting to other channels or workspaces (token must be invited to those channels).
 
 When **`toolsLoopForceTool`** is set but that tool is not registered, the tools loop returns a **Recipe tool unavailable** message instead of guessing. Web-research recipes may set **`toolsLoopMaxFetchHttpUrlCalls`** (default **3** when the allowlist is search + **`FetchHttpUrl` only**) so the server stops extra **`FetchHttpUrl`** calls after the cap and rejects duplicate URLs in the same turn.
 

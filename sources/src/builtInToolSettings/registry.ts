@@ -1,10 +1,12 @@
 import type { ToolsPolicyFormState } from '../aiAssistantToolsMcpUiModel';
 import { serpApiWebSearchSettingsDescriptor } from './serpApiWebSearchSettings';
+import { slackPostMessageSettingsDescriptor } from './slackPostMessageSettings';
 import type { BuiltInToolSettingsDescriptor } from './types';
 
 /** Built-in wires that expose a Project Tools → Integrations configure dialog. */
 export const BUILTIN_TOOL_SETTINGS_DESCRIPTORS: readonly BuiltInToolSettingsDescriptor<unknown>[] = [
-  serpApiWebSearchSettingsDescriptor as BuiltInToolSettingsDescriptor<unknown>
+  serpApiWebSearchSettingsDescriptor as BuiltInToolSettingsDescriptor<unknown>,
+  slackPostMessageSettingsDescriptor as BuiltInToolSettingsDescriptor<unknown>
 ];
 
 const DESCRIPTOR_BY_WIRE = new Map(

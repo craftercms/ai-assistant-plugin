@@ -29,4 +29,24 @@ interface StudioAiOrchestrationTool {
    * may invoke this tool during recipe prefetch (no LLM tool-call).
    */
   boolean recipeEngineReadOnly()
+
+  /**
+   * When {@code true}, {@link plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeEngine}
+   * may invoke this tool on the JVM after Action-phase chat work ({@code phases.confirmation} {@code engineSteps}).
+   */
+  boolean recipeEngineConfirmationStep()
+
+  /**
+   * Merges resolved recipe {@code phases.confirmation} {@code engineSteps} {@code args} with optional
+   * Action-phase assistant prose before JVM confirmation execution.
+   * <p>Default implementation returns {@code resolvedArgs} unchanged. Tools that opt into
+   * {@link #recipeEngineConfirmationStep()} may fill empty args (for example post body text for outbound
+   * notifications). The recipe engine calls this via
+   * {@link plugins.org.craftercms.aiassistant.tools.catalog.StudioAiToolRegistry#mergeRecipeConfirmationArgs}.</p>
+   *
+   * @param resolvedArgs template args after binding expansion
+   * @param lastAssistantMarkdown final assistant markdown from the tools loop (may be empty)
+   * @return args map passed to {@link #execute}
+   */
+  Map applyRecipeConfirmationArgDefaults(Map resolvedArgs, String lastAssistantMarkdown)
 }

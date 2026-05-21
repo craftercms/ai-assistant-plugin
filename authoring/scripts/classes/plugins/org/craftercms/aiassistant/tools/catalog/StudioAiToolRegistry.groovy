@@ -24,6 +24,8 @@ import plugins.org.craftercms.aiassistant.tools.development.AnalyzeTemplateTool
 import plugins.org.craftercms.aiassistant.tools.development.GetCrafterizingPlaybookTool
 import plugins.org.craftercms.aiassistant.tools.development.UpdateTemplateTool
 import plugins.org.craftercms.aiassistant.tools.general.FetchHttpUrlTool
+import plugins.org.craftercms.aiassistant.tools.general.PostHttpUrlTool
+import plugins.org.craftercms.aiassistant.tools.general.SlackPostMessageTool
 import plugins.org.craftercms.aiassistant.tools.general.SerpApiWebSearchTool
 import plugins.org.craftercms.aiassistant.tools.general.WebSearchTool
 import plugins.org.craftercms.aiassistant.tools.spi.AbstractStudioAiTool
@@ -53,8 +55,10 @@ final class StudioAiToolRegistry {
     new GetContentVersionHistoryTool(),
     new GetPreviewHtmlTool(),
     new FetchHttpUrlTool(),
+    new PostHttpUrlTool(),
     new WebSearchTool(),
     new SerpApiWebSearchTool(),
+    new SlackPostMessageTool(),
     new ResearchSiteContentTool(),
     new WriteContentTool(),
     new ListPagesAndComponentsTool(),
@@ -115,6 +119,46 @@ final class StudioAiToolRegistry {
     AbstractStudioAiTool tool = coreToolsByWireName().get(wire)
     if (tool == null || !tool.recipeEngineReadOnly()) {
       throw new IllegalArgumentException('Unsupported tool: ' + toolName)
+    }
+    StudioAiToolContext ctx = StudioAiToolContext.forRecipeEngine(ops)
+    return tool.execute((Map) (input ?: [:]), ctx) as Map
+  }
+
+  /**
+   * Wire names allowed for {@link plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeEngine}
+   * confirmation-phase steps (after Action chat work).
+   */
+  static Set<String> recipeEngineConfirmationWireNames() {
+    Set<String> names = new LinkedHashSet<>()
+    for (AbstractStudioAiTool tool : CORE_TOOLS) {
+      if (tool.recipeEngineConfirmationStep()) {
+        names.add(tool.wireName())
+      }
+    }
+    return Collections.unmodifiableSet(names)
+  }
+
+  /**
+   * Lets the registered confirmation tool fill empty step {@code args} from Action-phase assistant prose.
+   */
+  static Map mergeRecipeConfirmationArgs(String toolName, Map resolvedArgs, String lastAssistantMarkdown) {
+    String wire = toolName?.toString()?.trim()
+    AbstractStudioAiTool tool = coreToolsByWireName().get(wire)
+    if (tool == null || !tool.recipeEngineConfirmationStep()) {
+      return resolvedArgs instanceof Map ? resolvedArgs : [:]
+    }
+    return tool.applyRecipeConfirmationArgDefaults(
+      resolvedArgs instanceof Map ? resolvedArgs : [:],
+      (lastAssistantMarkdown ?: '').toString()
+    )
+  }
+
+  /** Executes a confirmation-phase recipe {@code engineSteps} tool on the Studio JVM. */
+  static Map executeRecipeConfirmationTool(String toolName, Map input, StudioToolOperations ops) {
+    String wire = toolName?.toString()?.trim()
+    AbstractStudioAiTool tool = coreToolsByWireName().get(wire)
+    if (tool == null || !tool.recipeEngineConfirmationStep()) {
+      throw new IllegalArgumentException('Unsupported confirmation tool: ' + toolName)
     }
     StudioAiToolContext ctx = StudioAiToolContext.forRecipeEngine(ops)
     return tool.execute((Map) (input ?: [:]), ctx) as Map

@@ -331,7 +331,9 @@ Then: LLM **intent expansion** → `intentRecipeRematchRouterVisible` → **pass
 
 **Method:** `AuthoringIntentRecipeCatalog.formatMatchedRecipePrelude` — prepended to `userTextForToolsLoop` on **`matched`**.
 
+- **Execution plan (model-authored ## Plan):** `AuthoringIntentRecipePlanCompiler` compiles phases into a JSON plan block: **action** hints → **`llm`** steps (the model mirrors them in **## Plan** + **`CRAFTERRQ_ORCH`**); **confirmation** `engineSteps` → **`serverExecute`** tool steps Studio runs on the JVM **after** Action-phase chat work (not in prefetch).
 - **Phases:** `phases.context`, `phases.action`, `phases.confirmation` (author-facing bullets) plus optional **`matchedUserPrelude`**.
+- **Prefetch vs confirmation engine:** `collectPrefetchEngineSteps` runs at turn start (context + action read-only tools only); `collectConfirmationEngineSteps` runs when the tools loop ends with a final assistant message (no further **`tool_calls`**). When Confirmation is hint-only (string list), `inferConfirmationEngineStepsFromHints` adds JVM steps for wires named in hints that opt into `recipeEngineConfirmationStep()` and appear on the recipe allowlist. Before each confirmation step runs, `StudioAiToolRegistry.mergeRecipeConfirmationArgs` passes Action-phase assistant prose to the tool’s `applyRecipeConfirmationArgDefaults` (per-tool; default no-op).
 - **Clock templates:** `StudioRecipeClockTemplates` expands `{{studio.today}}`, `{{studio.today-7D}}`, `{{studio.now}}`, `{{studio.now-2H}}`, etc. (server time zone; offsets subtract; units `D`/`W`/`M` on dates, `H`/`D`/`W`/`M` on `now`) before binding refs.
 - **Binding templates:** `AuthoringIntentRecipeBindings.expandHintTemplates` expands `{{initial.*}}` / `{{current.*}}` from prefetch artifacts.
 - **Web research:** when phases imply web research and **`toolsLoopForceTool`** is set (e.g. **`SerpApiWebSearch`**), the prelude adds round-0 search requirements and **`FetchHttpUrl`** caps from the recipe row.
@@ -348,11 +350,46 @@ Admin examples: **[configuration-guide.md §9.0](../using-and-extending/configur
 
 Bundled chat-only recipes (`llm_research` with `creative_llm_only` / `chat_artifact_followup` deterministic entries) set `toolsLoopDisable: true` in `authoring-intent-recipes-default.json`.
 
+### Confirmation phase (post-action JVM steps)
+
+After Action-phase chat work (model **## Plan**, **`CRAFTERRQ_ORCH`**, and wired **`tool_calls`** such as **`SerpApiWebSearch`** / **`FetchHttpUrl`**), Studio may run **`phases.confirmation`** tools on the JVM — **not** via LLM **`tool_calls`**.
+
+| Mechanism | When it runs |
+|-----------|----------------|
+| **`collectConfirmationEngineSteps`** | Reads explicit **`engineSteps`** under **`phases.confirmation`** (map with **`tool`** + optional **`args`**). |
+| **`inferConfirmationEngineStepsFromHints`** | When Confirmation is hint-only (string list), infers steps for allowlisted wires named in hints that implement **`recipeEngineConfirmationStep()`** (today: **`SlackPostMessage`**). |
+| **`maybeExecuteMatchedRecipeConfirmationSteps`** | Tools loop hook in **`AiOrchestration`**: runs once per turn when the model finishes without further **`tool_calls`** and **`confirmationServerStepsPending`** is true (**`outcome`** **`matched`**). **`FetchHttpUrl`** caps apply only during tool rounds, not to skipping confirmation at turn end. |
+
+**Arg merge:** Before each step, **`StudioAiToolRegistry.mergeRecipeConfirmationArgs`** calls the tool’s **`applyRecipeConfirmationArgDefaults(resolvedArgs, lastAssistantMarkdown)`** so empty **`text`** can be filled from Action-phase assistant prose (tool-specific; engine stays agnostic).
+
+**Example — explicit confirmation step (site `intent-recipes.json`):**
+
+```json
+"phases": {
+  "confirmation": {
+    "hints": [
+      "Post a concise summary to Slack for review (Studio runs SlackPostMessage after chat work)."
+    ],
+    "engineSteps": [
+      { "tool": "SlackPostMessage", "args": {} }
+    ]
+  }
+}
+```
+
+Set **`builtInToolSettings.SlackPostMessage.defaultChannel`** in **`tools.json`** (or pass **`channel`** in **`args`**). The bot must be invited to private channels; channel names (`random`, `#random`) are resolved to **`C…`** ids via **`conversations.list`**.
+
+**Slack body formatting:** When **`text`** / **`message`** are omitted, **`SlackPostMessageTool`** uses the Action-phase assistant message (plan block stripped) and converts it to Slack mrkdwn via **`SlackConfirmationPostFormatter`** — no workflow-specific parsing; put the exact Slack copy in **`args.text`** when you need a fixed message.
+
+**Wire message after confirmation:** Studio appends a **`role: user`** block with confirmation results; the model must record outcomes in **## Plan Execution** and must **not** call confirmation tools again via **`tool_calls`**.
+
 ---
 
 ## Phase 4 — Native tools loop
 
 Runs when `springAi.useTools` remains true after prelude.
+
+When a matched recipe has Confirmation **`engineSteps`**, the loop runs **`maybeExecuteMatchedRecipeConfirmationSteps`** once when the model finishes without further **`tool_calls`**; see **[Confirmation phase](#confirmation-phase-post-action-jvm-steps)**.
 
 **Method:** `executeNativeToolsViaRestClientReturnText` (multi-round).
 
@@ -379,6 +416,10 @@ Runs when `springAi.useTools` remains true after prelude.
 | Prelude + match pass + tools loop | `AiOrchestration.groovy` |
 | Tools-loop wire policy (progress, truncation, prose JSON) | `tools/loop/ToolsLoopWirePolicyRegistry.groovy`, `ProseDeclaredToolCalls.groovy` |
 | Intent prefetch (read-only context in prompt) | `AuthoringIntentRecipeEngine.groovy` |
+| Execution plan compile + confirmation JVM steps | `AuthoringIntentRecipePlanCompiler.groovy`, `AuthoringIntentRecipeEngine.runConfirmationStepsBlock`, `AiOrchestration.maybeExecuteMatchedRecipeConfirmationSteps` |
+| Confirmation arg merge + tool dispatch | `StudioAiToolRegistry.mergeRecipeConfirmationArgs`, `StudioAiToolRegistry.executeRecipeConfirmationTool` |
+| Recipe-engine tool context (`tools.json` defaults) | `StudioAiToolContext.forRecipeEngine` |
+| Slack confirmation post + channel resolve | `SlackPostMessageTool.groovy`, `SlackConfirmationPostFormatter.groovy` |
 | Phase prelude + `{{studio.*}}` clock templates | `AuthoringIntentRecipeCatalog.groovy`, `StudioRecipeClockTemplates.groovy`, `AuthoringIntentRecipeBindings.groovy` |
 | Site secrets + macro expansion | `StudioAiAssistantSecretsService.groovy`, `StudioAiSecretMacroResolver.groovy` |
 | SerpAPI web search wire | `SerpApiWebSearchTool.groovy`, `SerpApiWebSearchProjectSettings.groovy` |
@@ -398,9 +439,12 @@ Runs when `springAi.useTools` remains true after prelude.
 - **Plan defer catalog (planner wire)** — when `deferToPlanLoop`: `planDeferCatalogSent` (block with `[Studio — plan defer: recipe + tool catalog]` prepended to `userTextForToolsLoop`), `planDeferCatalogChars`, `planDeferWiredToolCount`, `planDeferWiredToolNames` (may be truncated in telemetry), `planDeferSiteUserToolCount`, `planDeferSiteUserToolIds`, `planDeferInvokeSiteUserToolWired`, `planDeferMcpClientEnabled`. Session debug log **TIMELINE** prints these on the `intent-recipe-routing` SSE row.
 - `intentExpansionRematch` — pass 2 ran
 - `prefetchSteps`, `prefetchRan`, `toolsLoopDisable`
+- `confirmationServerStepsPending` — compiled plan has Confirmation **`engineSteps`** (set on **`matched`**)
+- `confirmationServerStepsExecuted`, `confirmationServerStepsOk`, `confirmationServerStepSummaries` — after JVM confirmation runs
+- `executionPlanStepCount` — steps in compiled execution plan
 - `routerReason`, `recipeFoundInCatalog`
 
-Use these fields to see whether a turn failed at **preconditions**, **routing (match)**, optional **eligibility gate**, or **tools loop execution**.
+Use these fields to see whether a turn failed at **preconditions**, **routing (match)**, optional **eligibility gate**, **tools loop execution**, or **confirmation** (pending vs executed vs ok).
 
 ---
 

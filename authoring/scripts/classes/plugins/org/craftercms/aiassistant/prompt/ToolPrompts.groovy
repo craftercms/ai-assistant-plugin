@@ -467,6 +467,20 @@ For **content-only** tasks, use **`aiassistantFormFieldUpdates`** in your final 
     p('GENERAL_DESC_FETCH_HTTP_URL', 'GET a public **http(s)** URL and return the response **body as UTF-8 text** (HTML page, CSS file, JSON, etc.) for redesign or “make my site look like this” workflows. **Not** for Crafter Engine preview tickets — use **GetPreviewHtml** for your site preview. SSRF protections: blocks localhost/private IPs/metadata hosts; follows up to **5** redirects and re-validates each target. Optional **maxChars** caps returned size (JVM **aiassistant.httpFetch.maxChars** still applies, default 400000). Disable entirely with **aiassistant.httpFetch.enabled=false**. Restrict hosts with comma suffix list **aiassistant.httpFetch.allowedHostSuffixes** (e.g. `example.com,cdn.example.net`). No Studio cookies or Authorization are sent. Remind the author about **copyright and terms** of third-party pages.')
   }
 
+  static String getDESC_SLACK_POST_MESSAGE() {
+    p(
+      'GENERAL_DESC_SLACK_POST_MESSAGE',
+      'Post a message to Slack using **chat.postMessage** ([Slack API](https://docs.slack.dev/reference/methods/chat.postMessage/)). **channel** (ID like `C…` or name like `#general`) and **text** and/or **blocks** per call so different channels work on one site. Bot token comes from Project Tools → **Secrets** (`slack_bot_token` by default, `chat:write` scope) — never put the token in tool args. For **another Slack workspace** on the same Crafter site, add a Secrets row (e.g. `slack_bot_token_acme`) and pass **secretKey** on that call. Optional site defaults in **tools.json** → `builtInToolSettings.SlackPostMessage` (**defaultChannel**, default **secretKey**). Supports **threadTs**, **username**, **iconEmoji**, **attachments**, **metadata**. Returns Slack `ok`, `ts`, `channel`, and error details. **Not** for Crafter CMS content changes.'
+    )
+  }
+
+  static String getDESC_POST_HTTP_URL() {
+    p(
+      'GENERAL_DESC_POST_HTTP_URL',
+      'POST to a public **http(s)** URL and return the response **body as UTF-8 text** (typical JSON REST APIs or HTML form endpoints). Required: **url**, **payload**. **postType**: **json** (default, `application/json`) or **form** (`application/x-www-form-urlencoded`). For **json**, pass an object/array or a JSON string. For **form**, pass a flat map of field names to scalar values, or a raw form body string. Optional **headers** (string map); **Host** / **Content-Length** are not overridden. Same SSRF rules as **FetchHttpUrl** (no private IPs; up to **5** redirects re-validated). Controlled by **aiassistant.httpFetch.enabled** and **aiassistant.httpFetch.allowedHostSuffixes**. No Studio cookies are sent — put API keys in **headers** only when the author or site policy allows. **Not** for Crafter repository writes (**WriteContent**, **update_content**).'
+    )
+  }
+
   /**
    * Loads CMS/general markdown describing `WEB_SEARCH` tool invocation contracts.
    * Delegates to `p(...)` so `/scripts/aiassistant/prompts/*.md` can override bundled defaults.

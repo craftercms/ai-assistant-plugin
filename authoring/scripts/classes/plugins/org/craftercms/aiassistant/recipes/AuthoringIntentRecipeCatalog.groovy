@@ -24,6 +24,9 @@ import java.util.concurrent.ConcurrentHashMap
  * Loads bundled + optional site **authoring intent recipes** for the intent-router pass.
  * <p>Default file ships next to this class on the classpath; sites may override via
  * {@link StudioAiAssistantProjectConfig#intentRecipeCustomRecipesPath}.</p>
+ * <p>Phase helpers: {@link #collectPrefetchEngineSteps} (context + action JVM prefetch),
+ * {@link #collectConfirmationEngineSteps} and {@link #inferConfirmationEngineStepsFromHints}
+ * (post-action confirmation), {@link #formatMatchedRecipePrelude} (execution plan wire block).</p>
  */
 final class AuthoringIntentRecipeCatalog {
 
@@ -1254,21 +1257,18 @@ final class AuthoringIntentRecipeCatalog {
   }
 
   /**
-   * Collects deterministic read-only {@code engineSteps} in execution order:
-   * {@code phases.context} → {@code phases.action} → {@code phases.confirmation} (each phase may be a {@link Map}
-   * with an {@code engineSteps} array), then legacy top-level {@code engineSteps}.
+   * Collects all {@code engineSteps} in phase order (context → action → confirmation) plus legacy top-level steps.
+   * Used for binding names and recipe editor parity. Prefetch execution uses {@link #collectPrefetchEngineSteps};
+   * confirmation execution uses {@link #collectConfirmationEngineSteps}.
    */
   static List<Map> collectEngineSteps(Map recipe) {
     List<Map> out = new ArrayList<>()
-
+    out.addAll(collectPrefetchEngineSteps(recipe))
+    out.addAll(collectConfirmationEngineSteps(recipe))
     if (!(recipe instanceof Map)) {
       return Collections.unmodifiableList(out)
     }
-    appendEngineStepsFromPhase(recipe.get('phases'), 'context', out)
-    appendEngineStepsFromPhase(recipe.get('phases'), 'action', out)
-    appendEngineStepsFromPhase(recipe.get('phases'), 'confirmation', out)
     Object legacy = recipe.get('engineSteps')
-
     if (legacy instanceof List) {
       for (Object o : (List) legacy) {
         if (o instanceof Map) {
@@ -1276,7 +1276,97 @@ final class AuthoringIntentRecipeCatalog {
         }
       }
     }
+    Collections.unmodifiableList(out)
+  }
 
+  /** {@code engineSteps} for JVM prefetch only: {@code phases.context} and {@code phases.action}. */
+  static List<Map> collectPrefetchEngineSteps(Map recipe) {
+    List<Map> out = new ArrayList<>()
+    if (!(recipe instanceof Map)) {
+      return Collections.unmodifiableList(out)
+    }
+    appendEngineStepsFromPhase(recipe.get('phases'), 'context', out)
+    appendEngineStepsFromPhase(recipe.get('phases'), 'action', out)
+    Collections.unmodifiableList(out)
+  }
+
+  /** {@code engineSteps} for post-action server execution: {@code phases.confirmation} only. */
+  static List<Map> collectConfirmationEngineSteps(Map recipe) {
+    List<Map> out = new ArrayList<>()
+    if (!(recipe instanceof Map)) {
+      return Collections.unmodifiableList(out)
+    }
+    appendEngineStepsFromPhase(recipe.get('phases'), 'confirmation', out)
+    if (out.isEmpty()) {
+      out.addAll(inferConfirmationEngineStepsFromHints(recipe))
+    }
+    Collections.unmodifiableList(out)
+  }
+
+  /**
+   * When Confirmation is hint-only (string list), infer JVM steps for allowlisted wires named in hints that
+   * opt into {@link plugins.org.craftercms.aiassistant.tools.spi.StudioAiOrchestrationTool#recipeEngineConfirmationStep()}.
+   */
+  static List<Map> inferConfirmationEngineStepsFromHints(Map recipe) {
+    List<Map> out = new ArrayList<>()
+    if (!(recipe instanceof Map)) {
+      return Collections.unmodifiableList(out)
+    }
+    String blob = collectPhaseHintTextsForPhase(recipe, 'confirmation').join('\n').toLowerCase(Locale.ROOT)
+    if (!blob) {
+      return Collections.unmodifiableList(out)
+    }
+    List<String> allow = toolsLoopAllowlistNames(recipe)
+    Set<String> confWires =
+      plugins.org.craftercms.aiassistant.tools.catalog.StudioAiToolRegistry.recipeEngineConfirmationWireNames()
+    for (String wire : confWires) {
+      String w = (wire ?: '').trim()
+      if (!w) {
+        continue
+      }
+      if (allow != null && !allow.isEmpty() && !allow.contains(w)) {
+        continue
+      }
+      if (!blob.contains(w.toLowerCase(Locale.ROOT))) {
+        continue
+      }
+      out.add([tool: w, args: [:]] as Map)
+    }
+    Collections.unmodifiableList(out)
+  }
+
+  /** Hint lines for one phase ({@code context}, {@code action}, or {@code confirmation}). */
+  static List<String> collectPhaseHintTextsForPhase(Map recipe, String phaseKey) {
+    List<String> out = new ArrayList<>()
+    if (!(recipe instanceof Map) || !(phaseKey?.trim())) {
+      return Collections.unmodifiableList(out)
+    }
+    Object phases = recipe.get('phases')
+    if (!(phases instanceof Map)) {
+      return Collections.unmodifiableList(out)
+    }
+    Object raw = ((Map) phases).get(phaseKey.trim())
+    if (raw instanceof List) {
+      for (Object line : (List) raw) {
+        String s = line?.toString()?.trim()
+        if (s) {
+          out.add(s)
+        }
+      }
+    } else if (raw instanceof Map) {
+      Object hints = ((Map) raw).get('hints')
+      if (!(hints instanceof List)) {
+        hints = ((Map) raw).get('lines')
+      }
+      if (hints instanceof List) {
+        for (Object line : (List) hints) {
+          String s = line?.toString()?.trim()
+          if (s) {
+            out.add(s)
+          }
+        }
+      }
+    }
     Collections.unmodifiableList(out)
   }
 
@@ -1369,7 +1459,12 @@ final class AuthoringIntentRecipeCatalog {
       sb.append('bindings: ').append(bindingNames.join(', ')).append('\n')
       sb.append('(Prefetch snapshots: initial.* at turn start; current.* updates after WriteContent on the same path.)\n')
     }
-    sb.append('\n**Align ## Plan and tools with these phases** (visitor-visible outcomes; do not treat this block as a substitute for calling tools when work is required):\n\n')
+    Map executionPlan = AuthoringIntentRecipePlanCompiler.compile(recipe)
+    String planBlock = AuthoringIntentRecipePlanCompiler.formatExecutionPlanWireBlock(executionPlan)
+    if (planBlock?.trim()) {
+      sb.append(planBlock)
+    }
+    sb.append('\n**Phase hints** (visitor-visible outcomes; mirror these in **## Plan** — Action steps are yours to execute in chat/tools):\n\n')
     appendPhase(sb, 'Context', recipe?.phases, 'context', initialBindings, currentBindings, maxExpand)
     appendPhase(sb, 'Action', recipe?.phases, 'action', initialBindings, currentBindings, maxExpand)
     appendPhase(sb, 'Confirmation', recipe?.phases, 'confirmation', initialBindings, currentBindings, maxExpand)

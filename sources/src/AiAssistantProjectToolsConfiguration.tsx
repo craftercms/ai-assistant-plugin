@@ -115,6 +115,7 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
   const [integrationsSub, setIntegrationsSub] = useState<AiAssistantIntegrationsSubTab>(initialTabs.integrationsSub);
   const [agentsCatalogDirty, setAgentsCatalogDirty] = useState(false);
   const [recipesDirty, setRecipesDirty] = useState(false);
+  const [recipesEditMode, setRecipesEditMode] = useState(false);
   const [pendingTabSwitch, setPendingTabSwitch] = useState<{
     from: typeof tab;
     to: typeof tab;
@@ -148,6 +149,14 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
   useEffect(() => {
     joyrideOnPanelReady();
   }, [joyrideOnPanelReady]);
+
+  useEffect(() => {
+    if (tab !== 'recipes') {
+      setRecipesEditMode(false);
+    }
+  }, [tab]);
+
+  const hideProjectToolsTopTabs = tab === 'recipes' && recipesEditMode;
 
   const handleTabsChange = useCallback(
     (_: SyntheticEvent, value: typeof tab) => {
@@ -280,7 +289,11 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
           />
         ) : null}
         {tab === 'recipes' ? (
-          <AiAssistantIntentRecipesConfiguration ref={recipesConfigRef} onDirtyChange={setRecipesDirty} />
+          <AiAssistantIntentRecipesConfiguration
+            ref={recipesConfigRef}
+            onDirtyChange={setRecipesDirty}
+            onRecipeEditModeChange={setRecipesEditMode}
+          />
         ) : null}
         {tab === 'integrations' ? (
           <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>

@@ -68,6 +68,12 @@ final class StudioAiAssistantSecretsCatalog {
       label        : 'SerpAPI (web search)',
       defaultEnvVar: 'SERPAPI_API_KEY',
       optional     : true
+    ],
+    [
+      key          : 'slack_bot_token',
+      label        : 'Slack bot token (chat.postMessage)',
+      defaultEnvVar: 'SLACK_BOT_TOKEN',
+      optional     : true
     ]
   ]
 

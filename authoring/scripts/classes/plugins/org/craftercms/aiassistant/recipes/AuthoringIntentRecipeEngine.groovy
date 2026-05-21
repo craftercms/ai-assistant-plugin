@@ -17,8 +17,14 @@ import java.util.regex.Matcher
 import java.util.regex.Pattern
 
 /**
- * Deterministic **read-only** prefetch: runs {@code engineSteps} from a matched recipe on the Studio JVM
- * (same request as the intent router), then formats a compact block for the main tools-loop user message.
+ * Deterministic recipe-engine steps on the Studio JVM (same request as intent routing).
+ * <ul>
+ *   <li><strong>Prefetch</strong> — read-only {@code engineSteps} from {@code phases.context} and
+ *   {@code phases.action}; results are injected into the tools-loop user message.</li>
+ *   <li><strong>Confirmation</strong> — mutating or outbound tools from {@code phases.confirmation}
+ *   {@code engineSteps} run after Action-phase chat work via
+ *   {@link #runConfirmationStepsBlock}; see {@link AuthoringIntentRecipePlanCompiler}.</li>
+ * </ul>
  */
 final class AuthoringIntentRecipeEngine {
 
@@ -62,7 +68,7 @@ final class AuthoringIntentRecipeEngine {
       return empty
     }
 
-    List<Map> steps = AuthoringIntentRecipeCatalog.collectEngineSteps(recipe)
+    List<Map> steps = AuthoringIntentRecipeCatalog.collectPrefetchEngineSteps(recipe)
     if (steps.isEmpty()) {
       return empty
     }
@@ -282,9 +288,140 @@ final class AuthoringIntentRecipeEngine {
     out
   }
 
+  /**
+   * Runs {@code phases.confirmation} {@code engineSteps} on the JVM after Action-phase chat work.
+   *
+   * @return map keys: {@code markdown}, {@code steps}, {@code ok}
+   */
+  static Map runConfirmationStepsBlock(StudioToolOperations ops, Map recipe, Map projectCfg) {
+    return runConfirmationStepsBlock(ops, recipe, projectCfg, null)
+  }
+
+  /**
+   * @param lastAssistantMarkdown optional Action-phase assistant prose after the tools loop; passed to each
+   *   confirmation tool via {@link plugins.org.craftercms.aiassistant.tools.catalog.StudioAiToolRegistry#mergeRecipeConfirmationArgs}
+   *   so tools may fill empty {@code engineSteps} {@code args} (tool-specific; default is no merge).
+   */
+  static Map runConfirmationStepsBlock(
+    StudioToolOperations ops,
+    Map recipe,
+    Map projectCfg,
+    String lastAssistantMarkdown
+  ) {
+    Map empty = [markdown: '', steps: [], ok: true]
+    if (ops == null || recipe == null || projectCfg == null) {
+      return empty
+    }
+    if (!StudioAiAssistantProjectConfig.intentRecipeEngineEnabled(projectCfg)) {
+      return empty
+    }
+    List<Map> steps = AuthoringIntentRecipeCatalog.collectConfirmationEngineSteps(recipe)
+    if (steps.isEmpty()) {
+      return empty
+    }
+    int maxSteps = StudioAiAssistantProjectConfig.intentRecipeEngineMaxSteps(projectCfg)
+    if (steps.size() > maxSteps) {
+      steps = new ArrayList<>(steps.subList(0, maxSteps))
+    }
+    Set<String> confirmationWires =
+      plugins.org.craftercms.aiassistant.tools.catalog.StudioAiToolRegistry.recipeEngineConfirmationWireNames()
+    Map bindings = ops.recipeEngineAuthoringBindings()
+    List<Map> stepSummaries = new ArrayList<>()
+    List<Map> stepResults = new ArrayList<>()
+    Map<String, Map> namedSoFar = new LinkedHashMap<>()
+    Map<String, Map> initialNamed =
+      AuthoringIntentRecipeBindings.deepCopyBindingMap(
+        AuthoringIntentRecipeBindings.initialBindingsFromRequest(ops)
+      )
+    Map<String, Map> currentNamed =
+      AuthoringIntentRecipeBindings.deepCopyBindingMap(
+        AuthoringIntentRecipeBindings.currentBindingsFromRequest(ops)
+      )
+    boolean allOk = true
+    int index = 0
+    for (Object stepObj : steps) {
+      if (!(stepObj instanceof Map)) {
+        index++
+        continue
+      }
+      Map step = (Map) stepObj
+      String tool = step.get('tool')?.toString()?.trim()
+      if (!tool || !confirmationWires.contains(tool)) {
+        stepSummaries.add([
+          index: index,
+          tool : tool ?: '(missing)',
+          ok   : false,
+          error: 'tool not allowlisted for recipe confirmation engine'
+        ])
+        stepResults.add([:] as Map)
+        allOk = false
+        index++
+        continue
+      }
+      Object argsObj = step.get('args')
+      Map argsTemplate = argsObj instanceof Map ? (Map) argsObj : [:]
+      Map resolvedArgs
+      try {
+        resolvedArgs = resolveArgsMap(argsTemplate, bindings, stepResults, initialNamed, currentNamed)
+      } catch (Throwable te) {
+        stepSummaries.add([index: index, tool: tool, ok: false, error: 'arg resolution: ' + te.message])
+        stepResults.add([:] as Map)
+        allOk = false
+        index++
+        continue
+      }
+      resolvedArgs = plugins.org.craftercms.aiassistant.tools.catalog.StudioAiToolRegistry.mergeRecipeConfirmationArgs(
+        tool,
+        resolvedArgs,
+        lastAssistantMarkdown
+      )
+      Map summary = [index: index, tool: tool, ok: true]
+      Map resultPayload = [:] as Map
+      try {
+        resultPayload = executeConfirmationTool(ops, tool, resolvedArgs)
+        summary.put('ok', Boolean.TRUE.equals(resultPayload?.get('ok')))
+        if (!Boolean.TRUE.equals(summary.get('ok'))) {
+          allOk = false
+        }
+      } catch (Throwable tex) {
+        summary.put('ok', false)
+        summary.put('error', tex.message ?: tex.toString())
+        allOk = false
+        log.warn('AuthoringIntentRecipeEngine confirmation step {} {} failed: {}', index, tool, tex.message)
+      }
+      String asName = AuthoringIntentRecipeBindings.stepOutputName(step)
+      if (asName && Boolean.TRUE.equals(summary.get('ok')) && resultPayload instanceof Map) {
+        namedSoFar.put(asName, (Map) resultPayload)
+        summary.put('as', asName)
+      }
+      stepSummaries.add(summary)
+      stepResults.add(resultPayload instanceof Map ? (Map) resultPayload : [:] as Map)
+      index++
+    }
+    Map envelope = [
+      recipeId: recipe.get('id')?.toString(),
+      phase   : 'confirmation',
+      steps   : stepSummaries
+    ]
+    String markdown =
+      '[Studio — recipe confirmation steps executed]\n\n```json\n' +
+        JsonOutput.prettyPrint(JsonOutput.toJson(envelope)) +
+        '\n```\n\n'
+    return [markdown: markdown, steps: stepSummaries, ok: allOk]
+  }
+
   /** Dispatches one allowlisted read-only core tool through {@link StudioAiToolRegistry#executeRecipePrefetchTool}. */
   private static Map executeReadOnlyTool(StudioToolOperations ops, String tool, Map input) {
     return plugins.org.craftercms.aiassistant.tools.catalog.StudioAiToolRegistry.executeRecipePrefetchTool(
+      tool,
+      (Map) (input ?: [:]),
+      ops
+    )
+  }
+
+  /** Delegates to {@link plugins.org.craftercms.aiassistant.tools.catalog.StudioAiToolRegistry#executeRecipeConfirmationTool}. */
+  private static Map executeConfirmationTool(StudioToolOperations ops, String tool, Map input) {
+    return plugins.org.craftercms.aiassistant.tools.catalog.StudioAiToolRegistry.executeRecipeConfirmationTool(
       tool,
       (Map) (input ?: [:]),
       ops

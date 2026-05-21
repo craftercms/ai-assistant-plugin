@@ -1,6 +1,7 @@
 package plugins.org.craftercms.aiassistant.authoring
 
 import plugins.org.craftercms.aiassistant.config.StudioAiAssistantProjectConfig
+import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
 
 import java.net.URLEncoder
 import java.time.Instant

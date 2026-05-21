@@ -393,7 +393,7 @@ function buildStudioAuthHeaders() {
     return out;
 }
 async function streamChat(args) {
-    const { agentId, prompt, chatId, contentPath, contentTypeId, contentTypeLabel, studioPreviewPageUrl, authoringSurface, formEngineClientJsonApply, formEngineItemPath, llm, llmModel, imageModel, imageGenerator, llmApiKey, siteId, previewToken, enableTools, omitTools, enabledBuiltInTools, skills, translateBatchConcurrency, signal, onMessage, onRawSseDataLine } = args;
+    const { agentId, prompt, chatId, contentPath, contentTypeId, contentTypeLabel, displayTemplate, studioPreviewPageUrl, authoringSurface, formEngineClientJsonApply, formEngineItemPath, llm, llmModel, imageModel, imageGenerator, llmApiKey, siteId, previewToken, enableTools, omitTools, enabledBuiltInTools, skills, translateBatchConcurrency, signal, onMessage, onRawSseDataLine } = args;
     const headers = {
         'Content-Type': 'application/json',
         Accept: 'text/event-stream',
@@ -424,6 +424,8 @@ async function streamChat(args) {
         requestBody.contentTypeId = String(contentTypeId).trim();
     if (contentTypeLabel != null && String(contentTypeLabel).trim() !== '')
         requestBody.contentTypeLabel = String(contentTypeLabel).trim();
+    if (displayTemplate != null && String(displayTemplate).trim() !== '')
+        requestBody.displayTemplate = String(displayTemplate).trim();
     if (studioPreviewPageUrl != null && String(studioPreviewPageUrl).trim() !== '')
         requestBody.studioPreviewPageUrl = String(studioPreviewPageUrl).trim();
     if (authoringSurface != null && String(authoringSurface).trim() !== '')
@@ -29853,8 +29855,10 @@ const STUDIO_AI_BUILTIN_TOOL_IDS = [
     'GetContentVersionHistory',
     'GetPreviewHtml',
     'FetchHttpUrl',
+    'PostHttpUrl',
     'WebSearch',
     'SerpApiWebSearch',
+    'SlackPostMessage',
     'ResearchSiteContent',
     'QueryExpertGuidance',
     'WriteContent',
@@ -35560,9 +35564,70 @@ const serpApiWebSearchSettingsDescriptor = {
     ConfigureDialog: SerpApiWebSearchConfigureDialog
 };
 
+function SlackPostMessageConfigureDialog(props) {
+    const { open, draft, onDraftChange, onClose, onApply } = props;
+    const patch = (partial) => {
+        onDraftChange({ ...draft, ...partial });
+    };
+    return (jsxs(Dialog$1, { open: open, onClose: onClose, maxWidth: "sm", fullWidth: true, children: [jsx$1(DialogTitle$1, { children: "SlackPostMessage \u2014 site defaults" }), jsx$1(DialogContent$1, { children: jsxs(Stack$2, { spacing: 2, sx: { pt: 1 }, children: [jsxs(Typography$1, { variant: "body2", color: "text.secondary", children: ["Configure Slack defaults for this site. The bot token is set on", ' ', jsx$1("strong", { children: "Project Tools \u2192 Secrets" }), " (Slack entry, ", jsx$1("code", { children: "slack_bot_token" }), ",", ' ', jsx$1("code", { children: "chat:write" }), " scope)."] }), jsx$1(TextField$1, { label: "Default channel (optional)", size: "small", fullWidth: true, value: draft.defaultChannel, onChange: (e) => patch({ defaultChannel: e.target.value }), placeholder: "#general or C01234567", helperText: "Used when the agent omits channel on a tool call." }), jsx$1(TextField$1, { label: "Secrets key override (optional)", size: "small", fullWidth: true, value: draft.secretKey, onChange: (e) => patch({ secretKey: e.target.value }), placeholder: "slack_bot_token", helperText: "Leave empty to use the built-in slack_bot_token Secrets slot.", InputProps: { sx: { fontFamily: 'monospace' } } }), jsx$1(Typography$1, { variant: "caption", color: "text.secondary", children: jsx$1(Link, { href: "https://docs.slack.dev/reference/methods/chat.postMessage/", target: "_blank", rel: "noopener noreferrer", children: "Slack chat.postMessage API reference" }) })] }) }), jsxs(DialogActions$1, { children: [jsx$1(Button$1, { onClick: onClose, children: "Cancel" }), jsx$1(Button$1, { variant: "contained", onClick: () => {
+                            onApply(draft);
+                            onClose();
+                        }, children: "Apply" })] })] }));
+}
+
+const SLACK_POST_MESSAGE_WIRE = 'SlackPostMessage';
+function defaultSlackPostMessageSettingsFormState() {
+    return {
+        defaultChannel: '',
+        secretKey: ''
+    };
+}
+function parseSlackSettingsFromUnknown(raw) {
+    const base = defaultSlackPostMessageSettingsFormState();
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        return base;
+    }
+    const o = raw;
+    const defaults = o.defaults && typeof o.defaults === 'object' && !Array.isArray(o.defaults)
+        ? o.defaults
+        : {};
+    return {
+        defaultChannel: defaults.defaultChannel != null ? String(defaults.defaultChannel) : base.defaultChannel,
+        secretKey: o.secretKey != null ? String(o.secretKey) : base.secretKey
+    };
+}
+function slackSettingsToJsonObject(state) {
+    const out = {};
+    const secretKey = state.secretKey.trim();
+    if (secretKey) {
+        out.secretKey = secretKey;
+    }
+    const ch = state.defaultChannel.trim();
+    if (ch) {
+        out.defaults = { defaultChannel: ch };
+    }
+    return out;
+}
+function validateSlackPostMessageSettings(state) {
+    const sk = state.secretKey.trim();
+    if (sk && !/^[a-z][a-z0-9_]*$/i.test(sk)) {
+        return { ok: false, message: 'Slack secretKey must be a simple secrets.json key (letters, numbers, underscores).' };
+    }
+    return { ok: true };
+}
+const slackPostMessageSettingsDescriptor = {
+    wireName: SLACK_POST_MESSAGE_WIRE,
+    defaultState: defaultSlackPostMessageSettingsFormState,
+    parse: parseSlackSettingsFromUnknown,
+    serialize: slackSettingsToJsonObject,
+    validate: validateSlackPostMessageSettings,
+    ConfigureDialog: SlackPostMessageConfigureDialog
+};
+
 /** Built-in wires that expose a Project Tools → Integrations configure dialog. */
 const BUILTIN_TOOL_SETTINGS_DESCRIPTORS = [
-    serpApiWebSearchSettingsDescriptor
+    serpApiWebSearchSettingsDescriptor,
+    slackPostMessageSettingsDescriptor
 ];
 const DESCRIPTOR_BY_WIRE = new Map(BUILTIN_TOOL_SETTINGS_DESCRIPTORS.map((d) => [d.wireName, d]));
 function builtInToolSettingsDescriptorForWire(wireName) {
@@ -35731,7 +35796,15 @@ const AI_ASSISTANT_KNOWN_SECRET_SLOTS = [
     { key: 'gemini_api_key', label: 'Google Gemini API key', llmProvider: 'gemini', defaultEnvVar: 'GEMINI_API_KEY' }
 ];
 /** Integration keys (mirrors optional slots in {@code StudioAiAssistantSecretsCatalog}). */
-const AI_ASSISTANT_INTEGRATION_SECRET_SLOTS = [{ key: 'serpapi_api_key', label: 'SerpAPI (web search)', defaultEnvVar: 'SERPAPI_API_KEY', optional: true }];
+const AI_ASSISTANT_INTEGRATION_SECRET_SLOTS = [
+    { key: 'serpapi_api_key', label: 'SerpAPI (web search)', defaultEnvVar: 'SERPAPI_API_KEY', optional: true },
+    {
+        key: 'slack_bot_token',
+        label: 'Slack bot token (chat.postMessage)',
+        defaultEnvVar: 'SLACK_BOT_TOKEN',
+        optional: true
+    }
+];
 function secretAdminRowFromSlot(slot) {
     const expr = `\${env:${slot.defaultEnvVar}}`;
     return {
@@ -35848,6 +35921,14 @@ function rowDraftFromAdmin(row, known) {
         remove: false
     };
 }
+/** Admin index masks stored {@code ${enc:…}}; never send that placeholder back on save. */
+function isMaskedEncExpression(expr) {
+    const s = (expr ?? '').trim();
+    if (!s.startsWith('${enc:')) {
+        return false;
+    }
+    return s.includes('\u2026') || s.includes('…') || s.endsWith('…}');
+}
 function buildSecretSaveEntries(drafts) {
     const out = [];
     for (const d of drafts) {
@@ -35871,6 +35952,10 @@ function buildSecretSaveEntries(drafts) {
             const expr = d.expressionDraft.trim();
             if (!expr) {
                 out.push({ key, clear: true });
+            }
+            else if (expr.startsWith('${enc:') && isMaskedEncExpression(expr)) {
+                // Omit — server keeps the existing ciphertext for this key.
+                continue;
             }
             else if (expr.startsWith('${enc:')) {
                 out.push({ key, valueExpression: expr });
@@ -73696,7 +73781,7 @@ function pendingNavigateDescription(p) {
     }
 }
 const AiAssistantIntentRecipesConfiguration = forwardRef(function AiAssistantIntentRecipesConfiguration(props, ref) {
-    const { onDirtyChange } = props;
+    const { onDirtyChange, onRecipeEditModeChange } = props;
     const siteId = useActiveSiteId() ?? '';
     const bundledCatalog = useMemo(() => bundledIntentRecipesCatalog(), []);
     const bundled = useMemo(() => bundledCatalog.recipes, [bundledCatalog]);
@@ -73745,6 +73830,9 @@ const AiAssistantIntentRecipesConfiguration = forwardRef(function AiAssistantInt
     useEffect(() => {
         onDirtyChange?.(dirty);
     }, [dirty, onDirtyChange]);
+    useEffect(() => {
+        onRecipeEditModeChange?.(editingRecipe);
+    }, [editingRecipe, onRecipeEditModeChange]);
     useEffect(() => {
         if (!dirty)
             return;
@@ -76110,6 +76198,7 @@ function AiAssistantProjectToolsConfigurationPanel(props) {
     const [integrationsSub, setIntegrationsSub] = useState(initialTabs.integrationsSub);
     const [agentsCatalogDirty, setAgentsCatalogDirty] = useState(false);
     const [recipesDirty, setRecipesDirty] = useState(false);
+    const [recipesEditMode, setRecipesEditMode] = useState(false);
     const [pendingTabSwitch, setPendingTabSwitch] = useState(null);
     const [tabLeaveSaveBusy, setTabLeaveSaveBusy] = useState(false);
     const agentsCatalogRef = useRef(null);
@@ -76127,6 +76216,11 @@ function AiAssistantProjectToolsConfigurationPanel(props) {
     useEffect(() => {
         joyrideOnPanelReady();
     }, [joyrideOnPanelReady]);
+    useEffect(() => {
+        if (tab !== 'recipes') {
+            setRecipesEditMode(false);
+        }
+    }, [tab]);
     const handleTabsChange = useCallback((_, value) => {
         if (joyrideTourActive) {
             return;
@@ -76200,7 +76294,7 @@ function AiAssistantProjectToolsConfigurationPanel(props) {
                     minHeight: 0,
                     overflow: 'auto',
                     ...aiAssistantProjectToolsPanelContentSx
-                }, children: [tab === 'ui' ? (jsx$1(AiAssistantStudioUiSettings, { onReplayConfigurationJoyride: joyrideReplay, configurationJoyrideActive: joyrideBusy })) : null, tab === 'agents' ? (jsx$1(AiAssistantCentralAgentsConfiguration, { ref: agentsCatalogRef, onDirtyChange: setAgentsCatalogDirty })) : null, tab === 'recipes' ? (jsx$1(AiAssistantIntentRecipesConfiguration, { ref: recipesConfigRef, onDirtyChange: setRecipesDirty })) : null, tab === 'integrations' ? (jsxs(Box$1, { sx: { display: 'flex', flexDirection: 'column', minHeight: '100%' }, children: [jsxs(Tabs$1, { value: integrationsSub, onChange: handleIntegrationsSubChange, variant: "scrollable", scrollButtons: "auto", allowScrollButtonsMobile: true, sx: { flexShrink: 0, borderBottom: 1, borderColor: 'divider', px: 1 }, children: [jsx$1(Tab$1, { label: "LLMs", value: "llms" }), jsx$1(Tab$1, { label: "Image Generators", value: "imagegen" }), jsx$1(Tab$1, { label: "Tools", value: "tools" }), jsx$1(Tab$1, { label: "MCP", value: "mcp" })] }), jsx$1(Box$1, { sx: { flex: '1 1 auto', minHeight: 0 }, children: jsx$1(AiAssistantScriptsSandboxConfiguration, { panel: integrationsSandboxPanel(integrationsSub) }, integrationsSub === 'tools' || integrationsSub === 'mcp' ? 'tools-policy' : integrationsSub) })] })) : null, tab === 'secrets' ? jsx$1(AiAssistantSecretsConfiguration, {}) : null, tab === 'prompts' ? jsx$1(AiAssistantScriptsSandboxConfiguration, { panel: "prompts" }) : null] }), joyridePhase === 'welcome' ? (jsx$1(AiAssistantJoyrideWelcomeDialog, { onShowAround: joyrideStartTour, onCancel: joyrideDismiss })) : null, jsx$1(AiAssistantJoyrideTourPopover, { open: joyrideTourActive, step: joyrideActiveStep, activeTab: tab, anchorScopeRef: rootRef, stepIndex: joyrideActiveStepIndex, stepCount: AI_ASSISTANT_JOYRIDE_STEPS.length, onNext: joyrideGoNext, onSkip: joyrideDismiss }), jsxs(Dialog$1, { open: pendingTabSwitch != null, onClose: cancelPendingTabSwitch, maxWidth: "sm", fullWidth: true, children: [jsx$1(DialogTitle$1, { children: "Unsaved changes" }), jsx$1(DialogContent$1, { children: jsxs(Typography$1, { variant: "body2", paragraph: true, children: ["Save, discard, or stay on", ' ', jsx$1("strong", { children: pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.from) : '' }), " before opening", ' ', jsx$1("strong", { children: pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.to) : '' }), "."] }) }), jsxs(DialogActions$1, { children: [jsxs(Button$1, { onClick: cancelPendingTabSwitch, disabled: tabLeaveSaveBusy, children: ["Stay on ", pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.from) : 'this tab'] }), jsx$1(Button$1, { color: "warning", onClick: () => void discardPendingTabSwitch(), disabled: tabLeaveSaveBusy, children: "Discard changes" }), jsx$1(Button$1, { variant: "contained", onClick: () => void saveAndPendingTabSwitch(), disabled: tabLeaveSaveBusy, children: tabLeaveSaveBusy ? 'Saving…' : 'Save and continue' })] })] })] }));
+                }, children: [tab === 'ui' ? (jsx$1(AiAssistantStudioUiSettings, { onReplayConfigurationJoyride: joyrideReplay, configurationJoyrideActive: joyrideBusy })) : null, tab === 'agents' ? (jsx$1(AiAssistantCentralAgentsConfiguration, { ref: agentsCatalogRef, onDirtyChange: setAgentsCatalogDirty })) : null, tab === 'recipes' ? (jsx$1(AiAssistantIntentRecipesConfiguration, { ref: recipesConfigRef, onDirtyChange: setRecipesDirty, onRecipeEditModeChange: setRecipesEditMode })) : null, tab === 'integrations' ? (jsxs(Box$1, { sx: { display: 'flex', flexDirection: 'column', minHeight: '100%' }, children: [jsxs(Tabs$1, { value: integrationsSub, onChange: handleIntegrationsSubChange, variant: "scrollable", scrollButtons: "auto", allowScrollButtonsMobile: true, sx: { flexShrink: 0, borderBottom: 1, borderColor: 'divider', px: 1 }, children: [jsx$1(Tab$1, { label: "LLMs", value: "llms" }), jsx$1(Tab$1, { label: "Image Generators", value: "imagegen" }), jsx$1(Tab$1, { label: "Tools", value: "tools" }), jsx$1(Tab$1, { label: "MCP", value: "mcp" })] }), jsx$1(Box$1, { sx: { flex: '1 1 auto', minHeight: 0 }, children: jsx$1(AiAssistantScriptsSandboxConfiguration, { panel: integrationsSandboxPanel(integrationsSub) }, integrationsSub === 'tools' || integrationsSub === 'mcp' ? 'tools-policy' : integrationsSub) })] })) : null, tab === 'secrets' ? jsx$1(AiAssistantSecretsConfiguration, {}) : null, tab === 'prompts' ? jsx$1(AiAssistantScriptsSandboxConfiguration, { panel: "prompts" }) : null] }), joyridePhase === 'welcome' ? (jsx$1(AiAssistantJoyrideWelcomeDialog, { onShowAround: joyrideStartTour, onCancel: joyrideDismiss })) : null, jsx$1(AiAssistantJoyrideTourPopover, { open: joyrideTourActive, step: joyrideActiveStep, activeTab: tab, anchorScopeRef: rootRef, stepIndex: joyrideActiveStepIndex, stepCount: AI_ASSISTANT_JOYRIDE_STEPS.length, onNext: joyrideGoNext, onSkip: joyrideDismiss }), jsxs(Dialog$1, { open: pendingTabSwitch != null, onClose: cancelPendingTabSwitch, maxWidth: "sm", fullWidth: true, children: [jsx$1(DialogTitle$1, { children: "Unsaved changes" }), jsx$1(DialogContent$1, { children: jsxs(Typography$1, { variant: "body2", paragraph: true, children: ["Save, discard, or stay on", ' ', jsx$1("strong", { children: pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.from) : '' }), " before opening", ' ', jsx$1("strong", { children: pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.to) : '' }), "."] }) }), jsxs(DialogActions$1, { children: [jsxs(Button$1, { onClick: cancelPendingTabSwitch, disabled: tabLeaveSaveBusy, children: ["Stay on ", pendingTabSwitch ? projectToolsTabLabel(pendingTabSwitch.from) : 'this tab'] }), jsx$1(Button$1, { color: "warning", onClick: () => void discardPendingTabSwitch(), disabled: tabLeaveSaveBusy, children: "Discard changes" }), jsx$1(Button$1, { variant: "contained", onClick: () => void saveAndPendingTabSwitch(), disabled: tabLeaveSaveBusy, children: tabLeaveSaveBusy ? 'Saving…' : 'Save and continue' })] })] })] }));
 }
 /**
  * Single Project Tools surface: **UI** (`studio-ui.json` + bulk), **Agents** (`agents.json`), **Recipes** (intent router + site overrides),

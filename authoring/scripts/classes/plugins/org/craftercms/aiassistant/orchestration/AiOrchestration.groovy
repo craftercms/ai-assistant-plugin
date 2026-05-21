@@ -13,6 +13,7 @@ import plugins.org.craftercms.aiassistant.rag.PluginRagVectorRegistry
 import plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeBindings
 import plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeCatalog
 import plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeEngine
+import plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipePlanCompiler
 import plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeRouter
 import plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRoutingEngine
 import plugins.org.craftercms.aiassistant.recipes.AuthoringIntentSiteToolCatalog
@@ -1865,6 +1866,10 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
     Object maxFetchObj = tel.get('toolsLoopMaxFetchHttpUrlCalls')
     if (maxFetchObj instanceof Number && ((Number) maxFetchObj).intValue() > 0) {
       springAi.toolsLoopMaxFetchHttpUrlCalls = Math.min(((Number) maxFetchObj).intValue(), 10)
+    }
+    if (route?.recipeExecutionPlan instanceof Map) {
+      springAi.recipeExecutionPlan = route.recipeExecutionPlan
+      springAi.recipeConfirmationStepsExecuted = Boolean.FALSE
     }
     if (Boolean.TRUE.equals(tel.get('toolsLoopDisable'))) {
       springAi.useTools = false
@@ -4548,8 +4553,12 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       catalogSiteId = ops?.resolveEffectiveSiteId('')?.toString()?.trim() ?: ''
     } catch (Throwable ignoredSite) {
     }
+    Map execPlan = AuthoringIntentRecipePlanCompiler.compile(recipe)
     Map matchedTelExtra = new LinkedHashMap<>()
     matchedTelExtra.putAll(AuthoringIntentRecipeCatalog.orchestrationTelemetryExtras(recipe))
+    matchedTelExtra.executionPlanStepCount = execPlan.steps instanceof List ? ((List) execPlan.steps).size() : 0
+    matchedTelExtra.confirmationServerStepsPending =
+      AuthoringIntentRecipePlanCompiler.hasConfirmationServerSteps(execPlan)
     matchedTelExtra.putAll([
       recipeId                                     : rid,
       recipeTitle                                  : (recipe?.title?.toString()?.trim() ?: rid),
@@ -4569,6 +4578,7 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
     if ('open_page_inquiry'.equals(rid) && prefetchSkipRedundantGetForListedPath && !prefetchEnvTrunc) {
       matchedTelExtra.toolsLoopDisable = Boolean.TRUE
     }
+    result.recipeExecutionPlan = execPlan
     String inquiryHint = ''
     String rr = (routerReason ?: '').toString()
     if ('open_page_inquiry'.equals(rid) || rr.contains('open_page_inquiry')) {
@@ -5679,6 +5689,81 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     return 0
   }
 
+  /**
+   * Runs matched-recipe {@code phases.confirmation} {@code engineSteps} on the JVM after Action-phase chat work
+   * (model-authored **## Plan** — approach B). Returns {@code true} when steps ran and the tools loop should continue.
+   */
+  private static boolean maybeExecuteMatchedRecipeConfirmationSteps(
+    List wireMessages,
+    Map toolsLoopSessionBundle,
+    String agentId,
+    int round,
+    String lastAssistantMarkdown
+  ) {
+    if (!(toolsLoopSessionBundle instanceof Map)) {
+      return false
+    }
+    if (Boolean.TRUE.equals(toolsLoopSessionBundle.recipeConfirmationStepsExecuted)) {
+      return false
+    }
+    Map plan = toolsLoopSessionBundle.recipeExecutionPlan instanceof Map ?
+      (Map) toolsLoopSessionBundle.recipeExecutionPlan :
+      null
+    if (!AuthoringIntentRecipePlanCompiler.hasConfirmationServerSteps(plan)) {
+      return false
+    }
+    Map tel = toolsLoopSessionBundle.intentRecipeRoutingTelemetry instanceof Map ?
+      (Map) toolsLoopSessionBundle.intentRecipeRoutingTelemetry :
+      null
+    if (tel == null || !'matched'.equals(tel.get('outcome')?.toString())) {
+      return false
+    }
+    String recipeId = tel.get('recipeId')?.toString()?.trim()
+    if (!recipeId) {
+      return false
+    }
+    StudioToolOperations ops = toolsLoopSessionBundle.studioOps instanceof StudioToolOperations ?
+      (StudioToolOperations) toolsLoopSessionBundle.studioOps :
+      null
+    if (ops == null) {
+      return false
+    }
+    Map cfg = intentRecipeProjectConfigFromToolsLoopBundle(toolsLoopSessionBundle)
+    if (cfg == null || !StudioAiAssistantProjectConfig.intentRecipeEngineEnabled(cfg)) {
+      return false
+    }
+    List recipes = AuthoringIntentRecipeCatalog.loadRecipes(ops, cfg)
+    Map recipe = AuthoringIntentRecipeCatalog.findRecipeById(recipes, recipeId)
+    if (recipe == null) {
+      return false
+    }
+    Map block = AuthoringIntentRecipeEngine.runConfirmationStepsBlock(ops, recipe, cfg, lastAssistantMarkdown)
+    String md = (block.markdown ?: '').toString().trim()
+    if (!md) {
+      return false
+    }
+    toolsLoopSessionBundle.recipeConfirmationStepsExecuted = Boolean.TRUE
+    wireMessages << [
+      role   : 'user',
+      content:
+        md +
+          '\nIncorporate these confirmation results in **## Plan Execution** (✅/❌/⚠️). Confirmation tools were executed by Studio — do not call them again via **tool_calls**.\n'
+    ]
+    if (tel instanceof Map) {
+      tel.confirmationServerStepsExecuted = Boolean.TRUE
+      tel.confirmationServerStepsOk = Boolean.TRUE.equals(block.ok)
+      tel.confirmationServerStepSummaries = block.steps instanceof List ? block.steps : []
+    }
+    log.info(
+      'Tools-loop: executed recipe confirmation server steps ok={} agentId={} recipeId={} round={}',
+      Boolean.TRUE.equals(block.ok),
+      agentId,
+      recipeId,
+      round
+    )
+    return true
+  }
+
   private static String fetchHttpUrlFromToolArgsJson(String argsStr, JsonSlurper slurper) {
     try {
       Object parsed = slurper.parseText((argsStr ?: '{}').toString())
@@ -6391,6 +6476,16 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
         assistantAccum = assistantTextFromChoiceMessageMap(msgCopy)
         finished = true
         break
+      }
+      if (maybeExecuteMatchedRecipeConfirmationSteps(
+        wireMessages,
+        toolsLoopSessionBundle,
+        agentId,
+        round,
+        assistantTextFromChoiceMessageMap(msgCopy) ?: ''
+      )) {
+        aiAssistantToolWorkerDiagPhase("native_tool_loop_round_${round}_recipe_confirmation_steps_injected")
+        continue
       }
       aiAssistantToolWorkerDiagPhase("native_tool_loop_round_${round}_final_assistant_message_no_more_tools")
       assistantAccum = assistantTextFromChoiceMessageMap(msgCopy)

@@ -35,6 +35,21 @@ abstract class AbstractStudioAiTool implements StudioAiOrchestrationTool {
   }
 
   /**
+   * {@code false} by default. Tools that may run under {@code phases.confirmation} {@code engineSteps}
+   * override with {@code true} (e.g. {@link plugins.org.craftercms.aiassistant.tools.general.SlackPostMessageTool}).
+   */
+  @Override
+  boolean recipeEngineConfirmationStep() {
+    return false
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  Map applyRecipeConfirmationArgDefaults(Map resolvedArgs, String lastAssistantMarkdown) {
+    return resolvedArgs instanceof Map ? resolvedArgs : [:]
+  }
+
+  /**
    * Builds a Spring AI {@link FunctionToolCallback} that wraps {@link #execute} identically to CMS peers.
    * Runs inside {@link AiOrchestrationTools#runWithToolProgress} so SSE listeners observe MCP+CBS timings.
    * Wires Groovy meta {@code toolCallResultConverter} because Builder lacks a public setter.

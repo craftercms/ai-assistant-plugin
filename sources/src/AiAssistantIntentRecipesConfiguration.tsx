@@ -137,13 +137,15 @@ export type AiAssistantIntentRecipesConfigurationHandle = {
 
 export type AiAssistantIntentRecipesConfigurationProps = {
   onDirtyChange?: (dirty: boolean) => void;
+  /** Notifies parent when full-screen recipe edit mode is active (hide outer Project Tools tabs). */
+  onRecipeEditModeChange?: (editing: boolean) => void;
 };
 
 const AiAssistantIntentRecipesConfiguration = forwardRef<
   AiAssistantIntentRecipesConfigurationHandle,
   AiAssistantIntentRecipesConfigurationProps
 >(function AiAssistantIntentRecipesConfiguration(props, ref) {
-  const { onDirtyChange } = props;
+  const { onDirtyChange, onRecipeEditModeChange } = props;
   const siteId = useActiveSiteId() ?? '';
   const bundledCatalog = useMemo(() => bundledIntentRecipesCatalog(), []);
   const bundled = useMemo(() => bundledCatalog.recipes, [bundledCatalog]);
@@ -210,6 +212,10 @@ const AiAssistantIntentRecipesConfiguration = forwardRef<
   useEffect(() => {
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
+
+  useEffect(() => {
+    onRecipeEditModeChange?.(editingRecipe);
+  }, [editingRecipe, onRecipeEditModeChange]);
 
   useEffect(() => {
     if (!dirty) return;

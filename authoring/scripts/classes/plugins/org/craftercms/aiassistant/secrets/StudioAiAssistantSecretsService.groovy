@@ -358,11 +358,23 @@ final class StudioAiAssistantSecretsService {
     return [ok: true, message: 'Secrets saved']
   }
 
+  /** {@link #maskEncExpression} placeholders must not overwrite stored ciphertext on save. */
+  private static boolean isMaskedEncAdminPlaceholder(String expr) {
+    String s = (expr ?: '').toString().trim()
+    if (!s.startsWith('${enc:')) {
+      return false
+    }
+    return s.contains('\u2026') || s.contains('…') || s.endsWith('…}')
+  }
+
   private static String resolveSaveValue(String siteId, Object applicationContext, Map item, String previous) {
     if (item.containsKey('valueExpression')) {
       String expr = item.valueExpression?.toString()?.trim() ?: ''
       if (!expr) {
         return ''
+      }
+      if (isMaskedEncAdminPlaceholder(expr)) {
+        return null
       }
       String kind = StudioAiSecretMacroResolver.classifyStoredValue(expr)
       if ('literal' == kind) {

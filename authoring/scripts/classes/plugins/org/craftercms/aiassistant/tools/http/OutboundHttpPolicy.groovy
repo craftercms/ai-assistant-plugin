@@ -4,7 +4,7 @@ import java.net.InetAddress
 import java.net.URI
 import java.util.Locale
 
-/** SSRF policy for outbound HTTP from built-in tools (FetchHttpUrl, WebSearch, SerpApiWebSearch). */
+/** SSRF policy for outbound HTTP from built-in tools (FetchHttpUrl, PostHttpUrl, WebSearch, SerpApiWebSearch). */
 final class OutboundHttpPolicy {
 
   private OutboundHttpPolicy() {}

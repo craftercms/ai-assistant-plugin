@@ -51,8 +51,8 @@ Historical note: property names use the **`aiassistant.*`** prefix; they apply t
 
 | Property | Default / notes |
 |----------|-----------------|
-| **`aiassistant.httpFetch.enabled`** | **`true`**. Set **`false`** to disable **`FetchHttpUrl`** and MCP HTTP client (SSRF-gated outbound). |
-| **`aiassistant.httpFetch.maxChars`** | Max characters returned by **`FetchHttpUrl`**. |
+| **`aiassistant.httpFetch.enabled`** | **`true`**. Set **`false`** to disable **`FetchHttpUrl`**, **`PostHttpUrl`**, and MCP HTTP client (SSRF-gated outbound). |
+| **`aiassistant.httpFetch.maxChars`** | Max characters returned by **`FetchHttpUrl`** and **`PostHttpUrl`**. |
 | **`aiassistant.httpFetch.allowedHostSuffixes`** | Comma-separated host suffix allowlist for fetch/MCP (see **`StudioToolOperations`**). |
 | **`aiassistant.preview.fetch.maxChars`** | Preview HTML fetch cap. |
 | **`aiassistant.preview.fetch.allowedHosts`** | Extra allowed hosts for preview fetch. |

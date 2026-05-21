@@ -56,7 +56,15 @@ export const AI_ASSISTANT_INTEGRATION_SECRET_SLOTS: ReadonlyArray<{
   label: string;
   defaultEnvVar: string;
   optional?: boolean;
-}> = [{ key: 'serpapi_api_key', label: 'SerpAPI (web search)', defaultEnvVar: 'SERPAPI_API_KEY', optional: true }];
+}> = [
+  { key: 'serpapi_api_key', label: 'SerpAPI (web search)', defaultEnvVar: 'SERPAPI_API_KEY', optional: true },
+  {
+    key: 'slack_bot_token',
+    label: 'Slack bot token (chat.postMessage)',
+    defaultEnvVar: 'SLACK_BOT_TOKEN',
+    optional: true
+  }
+];
 
 function secretAdminRowFromSlot(slot: {
   key: string;
@@ -243,6 +251,15 @@ export function rowDraftFromAdmin(row: AiAssistantSecretAdminRow, known: boolean
   };
 }
 
+/** Admin index masks stored {@code ${enc:…}}; never send that placeholder back on save. */
+export function isMaskedEncExpression(expr: string): boolean {
+  const s = (expr ?? '').trim();
+  if (!s.startsWith('${enc:')) {
+    return false;
+  }
+  return s.includes('\u2026') || s.includes('…') || s.endsWith('…}');
+}
+
 export function buildSecretSaveEntries(drafts: AiAssistantSecretRowDraft[]): AiAssistantSecretSaveEntry[] {
   const out: AiAssistantSecretSaveEntry[] = [];
   for (const d of drafts) {
@@ -264,6 +281,9 @@ export function buildSecretSaveEntries(drafts: AiAssistantSecretRowDraft[]): AiA
       const expr = d.expressionDraft.trim();
       if (!expr) {
         out.push({ key, clear: true });
+      } else if (expr.startsWith('${enc:') && isMaskedEncExpression(expr)) {
+        // Omit — server keeps the existing ciphertext for this key.
+        continue;
       } else if (expr.startsWith('${enc:')) {
         out.push({ key, valueExpression: expr });
       } else {
