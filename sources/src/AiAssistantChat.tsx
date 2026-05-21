@@ -27,6 +27,7 @@ import AssignmentRounded from '@mui/icons-material/AssignmentRounded';
 import useActiveSiteId from '@craftercms/studio-ui/hooks/useActiveSiteId';
 import useActiveUser from '@craftercms/studio-ui/hooks/useActiveUser';
 import useCurrentPreviewItem from '@craftercms/studio-ui/hooks/useCurrentPreviewItem';
+import useContentTypes from '@craftercms/studio-ui/hooks/useContentTypes';
 import usePreviewGuest from '@craftercms/studio-ui/hooks/usePreviewGuest';
 import { fetchContentXML } from '@craftercms/studio-ui/services/content';
 import { fetchConfigurationXML } from '@craftercms/studio-ui/services/configuration';
@@ -98,6 +99,18 @@ function getScrollParent(node: HTMLElement | null): HTMLElement | null {
     el = el.parentElement;
   }
   return null;
+}
+
+/** Display template from Studio content-type catalog (no repository read). */
+function resolvePreviewDisplayTemplate(
+  contentTypeId: string | undefined,
+  contentTypes: Record<string, { displayTemplate?: string }> | undefined
+): string | undefined {
+  const ct = (contentTypeId || '').trim();
+  if (!ct || !contentTypes) return undefined;
+  const row = contentTypes[ct] ?? contentTypes[ct.startsWith('/') ? ct.slice(1) : `/${ct}`];
+  const tpl = row?.displayTemplate?.trim();
+  return tpl || undefined;
 }
 
 /** Best-effort: Studio preview item → human-readable content-type label (shape varies by Studio version). */
@@ -507,24 +520,33 @@ const CONTENT_TYPE_MACRO_PATTERN = /CONTENT_TYPE:([a-zA-Z0-9/_.-]+)/g;
  * CURRENT_CONTENT_TYPE uses the current preview item's content type.
  * CONTENT_TYPE:page/home (etc.) loads the form for that content type path.
  */
+const PREVIEW_MACRO_OMIT_BODY_HINT =
+  '[Studio preview — **form definition / repository bodies omitted from prompt**. Use **GetContent** or **GetContentTypeFormDefinition** when needed.]';
+
 async function expandContentTypeMacros(
   prompt: string,
   siteId: string,
-  currentContentTypeId: string | undefined
+  currentContentTypeId: string | undefined,
+  options?: { omitRepoFileBodies?: boolean }
 ): Promise<string> {
   if (!prompt || (!prompt.includes('CURRENT_CONTENT_TYPE') && !prompt.includes('CONTENT_TYPE:')))
     return prompt;
 
+  const omitBodies = options?.omitRepoFileBodies === true;
   let out = prompt;
 
   if (out.includes('CURRENT_CONTENT_TYPE')) {
-    const ct = (currentContentTypeId || '').trim() ? normalizeContentTypeId(currentContentTypeId!) : '';
-    try {
-      const xml = ct ? await fetchFormDefinitionXml(siteId, ct) : '';
-      out = out.split('CURRENT_CONTENT_TYPE').join(xml || '[No form definition for current item]');
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      out = out.split('CURRENT_CONTENT_TYPE').join(`[Form definition unavailable: ${msg}]`);
+    if (omitBodies) {
+      out = out.split('CURRENT_CONTENT_TYPE').join(PREVIEW_MACRO_OMIT_BODY_HINT);
+    } else {
+      const ct = (currentContentTypeId || '').trim() ? normalizeContentTypeId(currentContentTypeId!) : '';
+      try {
+        const xml = ct ? await fetchFormDefinitionXml(siteId, ct) : '';
+        out = out.split('CURRENT_CONTENT_TYPE').join(xml || '[No form definition for current item]');
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        out = out.split('CURRENT_CONTENT_TYPE').join(`[Form definition unavailable: ${msg}]`);
+      }
     }
   }
 
@@ -532,6 +554,10 @@ async function expandContentTypeMacros(
   for (const m of namedMatches) {
     const full = m[0];
     const contentTypeId = m[1];
+    if (omitBodies) {
+      out = out.replace(full, PREVIEW_MACRO_OMIT_BODY_HINT);
+      continue;
+    }
     try {
       const xml = await fetchFormDefinitionXml(siteId, contentTypeId);
       out = out.replace(full, xml || `[No form definition for ${contentTypeId}]`);
@@ -594,6 +620,14 @@ type LiveAuthoringMacroSource = {
   /** Prefer over JSON — `CStudioForms.Util.serializeModelToXml(form, false)`. */
   serializedContentXml?: string;
 };
+
+function buildPreviewContentMacroSubstitution(contentPath: string | undefined): string {
+  const path = (contentPath || '').trim();
+  return (
+    '[Studio preview — **repository XML omitted from prompt**. Use **GetContent** (or intent recipe prefetch) for file bodies.]\n' +
+    (path ? `Item path: ${path}` : '')
+  );
+}
 
 function buildLiveContentMacroSubstitution(live: LiveAuthoringMacroSource | undefined): string | undefined {
   const path = (live?.contentItemPath || '').trim();
@@ -772,12 +806,15 @@ async function expandContentMacros(
   prompt: string,
   siteId: string,
   currentContentPath: string | undefined,
-  liveAuthoring?: LiveAuthoringMacroSource | null
+  options?: { liveAuthoring?: LiveAuthoringMacroSource | null; omitRepoFileBodies?: boolean }
 ): Promise<string> {
   if (!prompt || (!prompt.includes('CURRENT_CONTENT') && !prompt.includes('CONTENT:/')))
     return prompt;
 
+  const liveAuthoring = options?.liveAuthoring;
+  const omitBodies = options?.omitRepoFileBodies === true;
   const liveBody = buildLiveContentMacroSubstitution(liveAuthoring);
+  const previewBody = omitBodies ? buildPreviewContentMacroSubstitution(currentContentPath) : '';
   const editingPathNorm = cqNormalizeStudioContentPath(liveAuthoring?.contentItemPath);
 
   let out = prompt;
@@ -785,6 +822,8 @@ async function expandContentMacros(
   if (out.includes('CURRENT_CONTENT')) {
     if (liveBody) {
       out = out.split('CURRENT_CONTENT').join(liveBody);
+    } else if (omitBodies) {
+      out = out.split('CURRENT_CONTENT').join(previewBody);
     } else {
       const path = (currentContentPath || '').trim();
       try {
@@ -804,6 +843,14 @@ async function expandContentMacros(
     const itemNorm = cqNormalizeStudioContentPath(itemPath);
     if (liveBody && editingPathNorm && itemNorm === editingPathNorm) {
       out = out.replace(full, liveBody);
+      continue;
+    }
+    if (omitBodies) {
+      const hint =
+        itemNorm === cqNormalizeStudioContentPath(currentContentPath)
+          ? previewBody
+          : buildPreviewContentMacroSubstitution(itemPath);
+      out = out.replace(full, hint);
       continue;
     }
     try {
@@ -1436,6 +1483,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
 
   const siteId = useActiveSiteId() ?? 'default';
   const previewItem = useCurrentPreviewItem();
+  const contentTypesById = useContentTypes();
   const guest = usePreviewGuest();
   const user = useActiveUser();
 
@@ -1454,19 +1502,23 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     (guestMainModel?.craftercms?.contentTypeId && String(guestMainModel.craftercms.contentTypeId).trim()) ||
     '';
 
+  const resolvedDisplayTemplate = resolvePreviewDisplayTemplate(resolvedContentTypeId, contentTypesById);
+
   const macroValuesRef = useRef({
     siteId,
     currentPage: '',
     currentUsername: 'unknown',
     contentTypeId: '',
-    contentPath: ''
+    contentPath: '',
+    displayTemplate: ''
   });
   macroValuesRef.current = {
     siteId,
     currentPage: (previewItem as { previewUrl?: string } | undefined)?.previewUrl ?? (typeof window !== 'undefined' ? window.location.href : '') ?? '',
     currentUsername: (user as { username?: string } | undefined)?.username ?? 'unknown',
     contentTypeId: resolvedContentTypeId,
-    contentPath: resolvedContentPath
+    contentPath: resolvedContentPath,
+    displayTemplate: resolvedDisplayTemplate ?? ''
   };
 
   const [loading, setLoading] = useState(false);
@@ -1839,11 +1891,6 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     };
     let expandedPrompt = expandPromptMacros(trimmed, macroCtx).trim();
     const expandedDisplaySync = expandPromptMacros((displayInChat ?? trimmed).trim(), macroCtx).trim();
-    expandedPrompt = await expandContentTypeMacros(
-      expandedPrompt,
-      macroCtx.siteId,
-      macroValuesRef.current.contentTypeId
-    ).then((s) => s.trim());
 
     let authoringSnap: AuthoringFormContextSnapshot | undefined;
     if (typeof getAuthoringFormContext === 'function') {
@@ -1857,18 +1904,23 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     const formEngine = isFormEngineAuthoringChat(getAuthoringFormContext);
     const wantClientJsonApply = formEngine && formEngineClientJsonApply !== false;
 
-    expandedPrompt = await expandContentMacros(
+    expandedPrompt = await expandContentTypeMacros(
       expandedPrompt,
       macroCtx.siteId,
-      macroValuesRef.current.contentPath,
-      authoringSnap
+      macroValuesRef.current.contentTypeId,
+      { omitRepoFileBodies: !formEngine }
+    ).then((s) => s.trim());
+
+    expandedPrompt = await expandContentMacros(expandedPrompt, macroCtx.siteId, macroValuesRef.current.contentPath, {
+      omitRepoFileBodies: !formEngine,
+      liveAuthoring: authoringSnap
         ? {
             contentItemPath: authoringSnap.contentPath,
             fieldValuesJson: authoringSnap.fieldValuesJson,
             serializedContentXml: authoringSnap.serializedContentXml
           }
         : undefined
-    ).then((s) => s.trim());
+    }).then((s) => s.trim());
     let expandedDisplay = expandContentTypeMacrosForDisplay(
       expandedDisplaySync,
       macroValuesRef.current.contentTypeId
@@ -1880,27 +1932,26 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     if (!expandedPrompt) return;
 
     const omitToolsThisSend = sendOptions?.omitTools === true;
+    const expandedAfterMacrosLen = expandedPrompt.length;
+    let formAppendixLen = 0;
 
     if (authoringSnap) {
       try {
         const appendix = buildAuthoringFormAppendix(authoringSnap, {
           includeClientJsonApplyInstructions: wantClientJsonApply
         });
-        if (appendix) expandedPrompt = expandedPrompt + appendix;
+        if (appendix) {
+          formAppendixLen = appendix.length;
+          expandedPrompt = expandedPrompt + appendix;
+        }
       } catch {
         /* ignore snapshot appendix errors — still send the user prompt */
       }
     }
 
     const priorBlock = buildPriorTurnsContextBlock(messages);
-    const previewPath = macroValuesRef.current.contentPath?.trim();
-    const previewCt = macroValuesRef.current.contentTypeId?.trim();
-    const requestAnchor =
-      !formEngine && (previewPath || previewCt)
-        ? `[Request anchor — default target when the user says "this page", "this article", or similar without another path]\n${previewPath ? `Repository path: ${previewPath}` : ''}${previewPath && previewCt ? '\n' : ''}${previewCt ? `Content-type id: ${previewCt.startsWith('/') ? previewCt : `/${previewCt}`}` : ''}\n\n`
-        : '';
-    const currentRequestBody = requestAnchor ? `${requestAnchor}${expandedPrompt}` : expandedPrompt;
-    const wirePrompt = priorBlock ? `${priorBlock}Current request:\n${currentRequestBody}` : currentRequestBody;
+    const priorTurnsBlockLen = priorBlock.length;
+    const wirePrompt = priorBlock ? `${priorBlock}Current request:\n${expandedPrompt}` : expandedPrompt;
 
     abortRef.current?.abort();
     userStopRequestedRef.current = false;
@@ -1940,6 +1991,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
             chatId: chatId ?? null,
             contentPath: formEngine ? null : macroValuesRef.current.contentPath?.trim() || null,
             contentTypeId: formEngine ? null : macroValuesRef.current.contentTypeId?.trim() || null,
+            displayTemplate: formEngine ? null : macroValuesRef.current.displayTemplate?.trim() || null,
             studioPreviewPageUrl: studioPreviewPageUrl ?? null,
             formEngineClientJsonApply: wantClientJsonApply,
             formEngineItemPath:
@@ -1948,7 +2000,14 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                 : null
           },
           displayText: userBubbleText,
-          wirePrompt: wirePrompt
+          wirePrompt: wirePrompt,
+          promptAssembly: {
+            expandedAfterMacrosLen,
+            formAppendixLen,
+            priorTurnsBlockLen,
+            wirePromptLen: wirePrompt.length,
+            omitRepoFileBodies: !formEngine
+          }
         })
       );
     } catch {
@@ -1973,6 +2032,9 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
         contentPath: formEngine ? undefined : macroValuesRef.current.contentPath?.trim() || undefined,
         contentTypeId: formEngine ? undefined : macroValuesRef.current.contentTypeId?.trim() || undefined,
         ...(previewContentTypeLabel ? { contentTypeLabel: previewContentTypeLabel } : {}),
+        ...(macroValuesRef.current.displayTemplate?.trim()
+          ? { displayTemplate: macroValuesRef.current.displayTemplate.trim() }
+          : {}),
         ...(studioPreviewPageUrl ? { studioPreviewPageUrl } : {}),
         authoringSurface: formEngine ? 'formEngine' : undefined,
         formEngineClientJsonApply: formEngine && wantClientJsonApply ? true : undefined,

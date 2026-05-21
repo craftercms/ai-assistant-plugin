@@ -47,26 +47,28 @@ if (Boolean.TRUE.equals(body.get('__aiassistantInvalidJson'))) {
 def agentId = body.agentId != null ? body.agentId.toString().trim() : ''
 def prompt = body.prompt?.toString()
 def siteIdBody = body.siteId?.toString()?.trim()
-def promptForOrchestration
-if (AuthoringPreviewContext.isFormEngineSurface(body?.authoringSurface)) {
-  promptForOrchestration = AuthoringPreviewContext.appendFormEngineAuthoringNotice(prompt)
-  if (AuthoringPreviewContext.isTruthy(body?.formEngineClientJsonApply)) {
-    promptForOrchestration = AuthoringPreviewContext.appendFormEngineClientJsonApplyInstructions(promptForOrchestration)
-  }
-} else {
-  promptForOrchestration = AuthoringPreviewContext.appendToUserPrompt(prompt, body?.contentPath, body?.contentTypeId, body?.contentTypeLabel)
-  promptForOrchestration = AuthoringPreviewContext.appendEnginePreviewHintIfPossible(
-    promptForOrchestration, request, siteIdBody ?: params?.siteId, body?.contentPath, body?.studioPreviewPageUrl)
-  def siteForPub = siteIdBody ?: params?.siteId?.toString()?.trim()
-  if (siteForPub) {
-    try {
-      def pubOps = new StudioToolOperations(request, applicationContext, params)
-      promptForOrchestration = AuthoringPreviewContext.appendSitePublishingStatus(
-        promptForOrchestration, pubOps.isSiteEverPublished(siteForPub))
-    } catch (Throwable ignoredPub) {}
+StudioToolOperations pubOpsForPrompt = null
+def siteForPub = siteIdBody ?: params?.siteId?.toString()?.trim()
+if (siteForPub && !AuthoringPreviewContext.isFormEngineSurface(body?.authoringSurface)) {
+  try {
+    pubOpsForPrompt = new StudioToolOperations(request, applicationContext, params)
+  } catch (Throwable ignoredPubOps) {
   }
 }
-promptForOrchestration = AuthoringPreviewContext.appendAgentDateTimeContext(promptForOrchestration)
+def assembledPrompt = AuthoringPreviewContext.assembleOrchestrationPrompt(
+  prompt,
+  body?.authoringSurface,
+  body?.formEngineClientJsonApply,
+  siteIdBody ?: params?.siteId,
+  body?.contentPath,
+  body?.contentTypeId,
+  body?.contentTypeLabel,
+  body?.displayTemplate,
+  request,
+  body?.studioPreviewPageUrl,
+  pubOpsForPrompt)
+def promptForOrchestration = assembledPrompt.orchestrationPrompt
+def promptStepDeltas = assembledPrompt.stepDeltas
 def chatId = body.chatId?.toString()
 def llmApiKey = (body?.apiKey ?: body?.llmApiKey ?: body?.openAiApiKey)?.toString()
 def llmSecretKey = body?.llmSecretKey?.toString()?.trim() ?: null
@@ -162,6 +164,27 @@ try {
     def omitTools = AuthoringPreviewContext.isTruthy(body?.omitTools)
     def enableToolsRequested = AuthoringPreviewContext.parseEnableTools(body?.enableTools)
     def enableTools = omitTools ? false : enableToolsRequested
+    def promptAssemblyTelemetry = AuthoringPreviewContext.buildPromptAssemblyTelemetry([
+      clientWirePrompt     : prompt,
+      orchestrationPrompt  : promptForOrchestration?.toString() ?: '',
+      authoringSurface     : body?.authoringSurface,
+      contentPath          : body?.contentPath,
+      displayTemplate      : body?.displayTemplate,
+      stepDeltas           : promptStepDeltas,
+      enableToolsRequested : enableToolsRequested,
+      enableToolsEffective : enableTools,
+      trivialTurn          : false
+    ])
+    log.info(
+      'CHAT endpoint hit: agentId={} llm={} clientWireLen={} orchestrationLen={} authorVisibleLen={} serverInjectedLen={} stepDeltas={}',
+      agentId,
+      llm,
+      promptAssemblyTelemetry.clientWirePromptChars,
+      promptAssemblyTelemetry.orchestrationPromptChars,
+      promptAssemblyTelemetry.authorVisibleChars,
+      promptAssemblyTelemetry.serverInjectedChars,
+      promptAssemblyTelemetry.stepDeltas ?: [:]
+    )
     def authoringIntentExpansion = AuthoringPreviewContext.parseAuthoringIntentExpansion(body?.authoringIntentExpansion)
     try {
       request.setAttribute('aiassistant.authoringIntentExpansion', Boolean.valueOf(authoringIntentExpansion))

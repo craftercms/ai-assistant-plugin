@@ -50,6 +50,8 @@ export interface StreamChatArgs {
   contentTypeId?: string;
   /** Studio UI label for the open item’s content type when the host exposes it (helps label→id matching). */
   contentTypeLabel?: string;
+  /** Display template path for the open preview item’s content type (metadata only; no FTL body inlined). */
+  displayTemplate?: string;
   /**
    * When the author’s browser shows Experience Builder preview (`…/studio/preview#/?page=…&site=…`), pass it so the
    * server-injected “Studio preview URL” matches the address bar (optional; server can synthesize from contentPath).
@@ -166,6 +168,7 @@ export async function streamChat(args: StreamChatArgs): Promise<void> {
     contentPath,
     contentTypeId,
     contentTypeLabel,
+    displayTemplate,
     studioPreviewPageUrl,
     authoringSurface,
     formEngineClientJsonApply,
@@ -212,6 +215,8 @@ export async function streamChat(args: StreamChatArgs): Promise<void> {
     requestBody.contentTypeId = String(contentTypeId).trim();
   if (contentTypeLabel != null && String(contentTypeLabel).trim() !== '')
     requestBody.contentTypeLabel = String(contentTypeLabel).trim();
+  if (displayTemplate != null && String(displayTemplate).trim() !== '')
+    requestBody.displayTemplate = String(displayTemplate).trim();
   if (studioPreviewPageUrl != null && String(studioPreviewPageUrl).trim() !== '')
     requestBody.studioPreviewPageUrl = String(studioPreviewPageUrl).trim();
   if (authoringSurface != null && String(authoringSurface).trim() !== '')

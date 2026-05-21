@@ -20,7 +20,7 @@ import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
  * to serialize a return value (client sends Accept: text/event-stream).
  *
  * Contract:
- *   POST body: { ..., "contentPath", "contentTypeId", "contentTypeLabel" (optional Studio UI label for the open item’s type),
+ *   POST body: { ..., "contentPath", "contentTypeId", "contentTypeLabel" (optional), "displayTemplate" (optional metadata),
  *   "studioPreviewPageUrl" (optional) — `…/studio/preview#/?page=…&site=…` from the browser when available so the prompt matches the author’s address bar,
  *   "authoringSurface": "formEngine" | omit for XB/preview,
  *   "formEngineClientJsonApply": optional boolean — when true **and** formEngine, append client-JSON apply instructions (XB must omit)
@@ -60,26 +60,28 @@ try {
   def authoringSurface = body?.authoringSurface
   def clientJsonApply = body?.formEngineClientJsonApply
   def siteIdBody = body?.siteId?.toString()?.trim()
-  def promptForOrchestration
-  if (AuthoringPreviewContext.isFormEngineSurface(authoringSurface)) {
-    promptForOrchestration = AuthoringPreviewContext.appendFormEngineAuthoringNotice(prompt)
-    if (AuthoringPreviewContext.isTruthy(clientJsonApply)) {
-      promptForOrchestration = AuthoringPreviewContext.appendFormEngineClientJsonApplyInstructions(promptForOrchestration)
-    }
-  } else {
-    promptForOrchestration = AuthoringPreviewContext.appendToUserPrompt(prompt, contentPathBody, contentTypeIdBody, contentTypeLabelBody)
-    promptForOrchestration = AuthoringPreviewContext.appendEnginePreviewHintIfPossible(
-      promptForOrchestration, request, siteIdBody ?: params?.siteId, contentPathBody, body?.studioPreviewPageUrl)
-    def siteForPub = siteIdBody ?: params?.siteId?.toString()?.trim()
-    if (siteForPub) {
-      try {
-        def pubOps = new StudioToolOperations(request, applicationContext, params)
-        promptForOrchestration = AuthoringPreviewContext.appendSitePublishingStatus(
-          promptForOrchestration, pubOps.isSiteEverPublished(siteForPub))
-      } catch (Throwable ignoredPub) {}
+  StudioToolOperations pubOpsForPrompt = null
+  def siteForPub = siteIdBody ?: params?.siteId?.toString()?.trim()
+  if (siteForPub && !AuthoringPreviewContext.isFormEngineSurface(authoringSurface)) {
+    try {
+      pubOpsForPrompt = new StudioToolOperations(request, applicationContext, params)
+    } catch (Throwable ignoredPubOps) {
     }
   }
-  promptForOrchestration = AuthoringPreviewContext.appendAgentDateTimeContext(promptForOrchestration)
+  def assembledPrompt = AuthoringPreviewContext.assembleOrchestrationPrompt(
+    prompt,
+    authoringSurface,
+    clientJsonApply,
+    siteIdBody ?: params?.siteId,
+    contentPathBody,
+    contentTypeIdBody,
+    contentTypeLabelBody,
+    body?.displayTemplate,
+    request,
+    body?.studioPreviewPageUrl,
+    pubOpsForPrompt)
+  def promptForOrchestration = assembledPrompt.orchestrationPrompt
+  def promptStepDeltas = assembledPrompt.stepDeltas
   def chatId = body?.chatId?.toString()
   if (siteIdBody) {
     try {
@@ -209,14 +211,53 @@ try {
   def enableToolsRequested = AuthoringPreviewContext.parseEnableTools(body?.enableTools)
   def enableTools = omitTools ? false : enableToolsRequested
   def enableToolsBeforeTrivial = enableTools
+  def trivialTurn = false
   if (!formEngineForLog && enableTools && AuthoringPreviewContext.isTrivialNonAuthoringTurn(promptForOrchestration?.toString() ?: '')) {
     enableTools = false
+    trivialTurn = true
     log.info(
       'STREAM endpoint: trivial non-authoring turn — forcing enableTools=false (authorVisibleLen={})',
       AuthoringPreviewContext.stripStudioInjectedPromptBlocks(promptForOrchestration?.toString() ?: '').length()
     )
   }
-  log.info("STREAM endpoint hit: agentId={} llm={} promptLen={} chatIdPresent={} siteId={} contentPathPresent={} previewTokenResolvedPresent={} formEngineSurface={} formEngineClientJsonApply={} formEngineItemPath={} fullSuppressWritesFallback={} omitTools={} enableToolsRequested={} enableToolsEffective={} trivialNoToolsOverride={}", agentId, llm, (promptForOrchestration ?: '').length(), (chatId != null && chatId.toString().trim().length() > 0), siteIdBody ?: params?.siteId, (previewPathForLog ? true : false), previewTokenResolvedPresent, formEngineForLog, clientJsonApplyForLog, formEngineItemNorm ?: '(none)', fullSuppressWritesFallback, omitTools, enableToolsRequested, enableTools, (enableToolsBeforeTrivial && !enableTools))
+  def promptAssemblyTelemetry = AuthoringPreviewContext.buildPromptAssemblyTelemetry([
+    clientWirePrompt      : prompt,
+    orchestrationPrompt   : promptForOrchestration?.toString() ?: '',
+    authoringSurface      : authoringSurface,
+    contentPath           : contentPathBody,
+    displayTemplate       : body?.displayTemplate,
+    stepDeltas            : promptStepDeltas,
+    enableToolsRequested  : enableToolsRequested,
+    enableToolsEffective  : enableTools,
+    trivialTurn           : trivialTurn
+  ])
+  try {
+    request.setAttribute('aiassistant.promptAssemblyTelemetry', promptAssemblyTelemetry)
+  } catch (Throwable ignoredPa) {
+  }
+  log.info(
+    'STREAM endpoint hit: agentId={} llm={} clientWireLen={} orchestrationLen={} authorVisibleLen={} serverInjectedLen={} chatIdPresent={} siteId={} contentPathPresent={} displayTemplatePresent={} previewTokenResolvedPresent={} formEngineSurface={} formEngineClientJsonApply={} formEngineItemPath={} fullSuppressWritesFallback={} omitTools={} enableToolsRequested={} enableToolsEffective={} trivialNoToolsOverride={} stepDeltas={}',
+    agentId,
+    llm,
+    promptAssemblyTelemetry.clientWirePromptChars,
+    promptAssemblyTelemetry.orchestrationPromptChars,
+    promptAssemblyTelemetry.authorVisibleChars,
+    promptAssemblyTelemetry.serverInjectedChars,
+    (chatId != null && chatId.toString().trim().length() > 0),
+    siteIdBody ?: params?.siteId,
+    promptAssemblyTelemetry.contentPathPresent,
+    promptAssemblyTelemetry.displayTemplatePresent,
+    previewTokenResolvedPresent,
+    formEngineForLog,
+    clientJsonApplyForLog,
+    formEngineItemNorm ?: '(none)',
+    fullSuppressWritesFallback,
+    omitTools,
+    enableToolsRequested,
+    enableTools,
+    (enableToolsBeforeTrivial && !enableTools),
+    promptAssemblyTelemetry.stepDeltas ?: [:]
+  )
 
   String siteForPrompts = (siteIdBody ?: params?.siteId?.toString()?.trim() ?: '')
   ToolPromptsSiteContext.enter(applicationContext, siteForPrompts)

@@ -2,7 +2,7 @@ const { Fragment, jsx: jsx$1, jsxs } = craftercms.libs?.reactJsxRuntime;
 const require$$2 = craftercms.libs?.reactJsxRuntime && Object.prototype.hasOwnProperty.call(craftercms.libs?.reactJsxRuntime, 'default') ? craftercms.libs?.reactJsxRuntime['default'] : craftercms.libs?.reactJsxRuntime;
 const { useTheme, Box, CircularProgress, Typography, TableContainer, Paper, Table: Table$1, TableHead, TableBody, TableRow, TableCell, Stack: Stack$1, Tooltip, IconButton, Tabs, Tab, Button, Divider, TextField, Chip, FormControlLabel, Switch, Popover, paperClasses, GlobalStyles, Menu, MenuItem, ListItemIcon, ListItemText, Dialog, DialogContent, Alert, FormControl, InputLabel, Select, List, ListItem, Checkbox, ListItemButton, Badge, DialogTitle, DialogActions, Avatar, useMediaQuery, Slider, ListItemSecondaryAction, ListSubheader, FormLabel, FormGroup, Autocomplete, Snackbar, Link: Link$1, RadioGroup, Radio, InputAdornment } = craftercms.libs.MaterialUI;
 const React = craftercms.libs.React;
-const { useRef, useState, useEffect, useCallback, useMemo, useLayoutEffect, useSyncExternalStore, forwardRef, useImperativeHandle, createElement } = craftercms.libs.React;
+const { useEffect, useRef, useState, useCallback, useMemo, useLayoutEffect, useSyncExternalStore, forwardRef, useImperativeHandle, createElement } = craftercms.libs.React;
 const React__default = craftercms.libs.React && Object.prototype.hasOwnProperty.call(craftercms.libs.React, 'default') ? craftercms.libs.React['default'] : craftercms.libs.React;
 const MinimizedBar = craftercms.components.MinimizedBar && Object.prototype.hasOwnProperty.call(craftercms.components.MinimizedBar, 'default') ? craftercms.components.MinimizedBar['default'] : craftercms.components.MinimizedBar;
 const DialogHeader = craftercms.components.DialogHeader && Object.prototype.hasOwnProperty.call(craftercms.components.DialogHeader, 'default') ? craftercms.components.DialogHeader['default'] : craftercms.components.DialogHeader;
@@ -19,9 +19,9 @@ const AddCommentRounded = craftercms.utils.constants.components.get('@mui/icons-
 const MicRounded = craftercms.utils.constants.components.get('@mui/icons-material/MicRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/MicRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/MicRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/MicRounded');
 const AssignmentRounded = craftercms.utils.constants.components.get('@mui/icons-material/AssignmentRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/AssignmentRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/AssignmentRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/AssignmentRounded');
 const { useSelector, useDispatch } = craftercms.libs.ReactRedux;
+const { createAction } = craftercms.libs.ReduxToolkit;
 const { fetchContentXML, fetchItemsByPath, writeContent } = craftercms.services.content;
 const { fetchConfigurationXML, writeConfiguration } = craftercms.services.configuration;
-const { createAction } = craftercms.libs.ReduxToolkit;
 const { getHostToGuestBus, getHostToHostBus, getGuestToHostBus } = craftercms.utils.subjects;
 const { firstValueFrom, of } = craftercms.libs.rxjs;
 const { getGlobalHeaders } = craftercms.utils.ajax;
@@ -230,12 +230,42 @@ const assetDragEnded = /*#__PURE__*/ createAction('ASSET_DRAG_ENDED');
 const contentTypesResponse = /*#__PURE__*/ createAction('CONTENT_TYPES_RESPONSE');
 const reloadRequest = /*#__PURE__*/ createAction('RELOAD_REQUEST');
 const contentTypeDropTargetsResponse = /*#__PURE__*/ createAction('CONTENT_TYPE_DROP_TARGETS_RESPONSE');
+const FETCH_CONTENT_TYPES = 'FETCH_CONTENT_TYPES';
+const fetchContentTypes = /*#__PURE__*/ createAction(FETCH_CONTENT_TYPES);
 /*#__PURE__*/ createAction(contentTypeDropTargetsResponse.type);
 const setPreviewEditMode = /*#__PURE__*/ createAction('EDIT_MODE_CHANGED');
 const initToolbarConfig = /*#__PURE__*/ createAction('INIT_TOOLBAR_CONFIG');
 // endregion
 // region ICE panel stack
 const pushIcePanelPage = /*#__PURE__*/ createAction('PUSH_ICE_PANEL_PAGE');
+
+/*
+ * Copyright (C) 2007-2022 Crafter Software Corporation. All Rights Reserved.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License version 3 as published by
+ * the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+function useContentTypes() {
+  const dispatch = useDispatch();
+  const site = useActiveSiteId();
+  const { byId, isFetching } = useSelection((state) => state.contentTypes);
+  useEffect(() => {
+    if (!byId && site && isFetching === null) {
+      dispatch(fetchContentTypes());
+    }
+  }, [dispatch, site, byId, isFetching]);
+  return byId;
+}
 
 /**
  * Server SSE pipeline timing on the terminal frame only ({@code metadata.completed} or {@code metadata.error}).
@@ -705,6 +735,7 @@ function buildParsedTimeline(lines) {
                         'chatId',
                         'contentPath',
                         'contentTypeId',
+                        'displayTemplate',
                         'studioPreviewPageUrl'
                     ];
                     for (const k of keys) {
@@ -717,8 +748,31 @@ function buildParsedTimeline(lines) {
                 }
                 const disp = typeof o.displayText === 'string' ? o.displayText : '';
                 const wire = typeof o.wirePrompt === 'string' ? o.wirePrompt : '';
+                const pa = o.promptAssembly && typeof o.promptAssembly === 'object'
+                    ? o.promptAssembly
+                    : null;
                 out.push(`  Bubble text (${disp.length} chars): ${previewText(disp)}`);
                 out.push(`  Wire prompt (${wire.length} chars): ${previewText(wire)}`);
+                if (pa) {
+                    const paBits = [];
+                    if (typeof pa.expandedAfterMacrosLen === 'number') {
+                        paBits.push(`afterMacros=${pa.expandedAfterMacrosLen}`);
+                    }
+                    if (typeof pa.formAppendixLen === 'number' && pa.formAppendixLen > 0) {
+                        paBits.push(`formAppendix=${pa.formAppendixLen}`);
+                    }
+                    if (typeof pa.priorTurnsBlockLen === 'number' && pa.priorTurnsBlockLen > 0) {
+                        paBits.push(`priorTurns=${pa.priorTurnsBlockLen}`);
+                    }
+                    if (typeof pa.wirePromptLen === 'number') {
+                        paBits.push(`wire=${pa.wirePromptLen}`);
+                    }
+                    if (pa.omitRepoFileBodies === true) {
+                        paBits.push('omitRepoFileBodies=true');
+                    }
+                    if (paBits.length)
+                        out.push(`  Client prompt assembly: ${paBits.join(' | ')}`);
+                }
                 continue;
             }
             if (kind === 'client.streamOutcome') {
@@ -752,6 +806,7 @@ function buildParsedTimeline(lines) {
             status === 'tool-progress' ||
             status === 'tool-workflow-hint' ||
             status === 'intent-recipe-routing' ||
+            status === 'prompt-assembly' ||
             status === 'pipeline-heartbeat' ||
             phaseInteresting;
         if (!streamIdsLoggedForTurn && (meta.chatId || meta.messageId)) {
@@ -785,6 +840,41 @@ function buildParsedTimeline(lines) {
                 const oneLine = text.replace(/\s+/g, ' ').trim();
                 if (oneLine)
                     bullets.push(`  strip preview: ${previewText(oneLine, 220)}`);
+            }
+            if (status === 'prompt-assembly') {
+                const pa = meta.promptAssembly && typeof meta.promptAssembly === 'object'
+                    ? meta.promptAssembly
+                    : null;
+                bullets.push(`Prompt assembly: surface=${pa?.authoringSurface ?? '—'} clientWire=${pa?.clientWirePromptChars ?? '—'} orchestration=${pa?.orchestrationPromptChars ?? '—'} authorVisible=${pa?.authorVisibleChars ?? '—'} serverInjected=${pa?.serverInjectedChars ?? '—'}`);
+                if (pa?.trivialTurn === true) {
+                    bullets.push('  trivialTurn=true — enableTools forced off for greeting-style turn');
+                }
+                if (pa?.enableToolsEffective != null) {
+                    bullets.push(`  tools: requested=${String(pa.enableToolsRequested ?? '—')} effective=${String(pa.enableToolsEffective)}`);
+                }
+                const deltas = pa?.stepDeltas && typeof pa.stepDeltas === 'object'
+                    ? pa.stepDeltas
+                    : null;
+                if (deltas) {
+                    const deltaBits = Object.entries(deltas)
+                        .map(([k, v]) => `${k}=+${String(v)}`)
+                        .join(' ');
+                    if (deltaBits)
+                        bullets.push(`  server step deltas (chars): ${previewText(deltaBits, 320)}`);
+                }
+                const flags = [];
+                if (pa?.hasPriorConversationBlock === true)
+                    flags.push('priorConversation');
+                if (pa?.hasStudioPreviewContext === true)
+                    flags.push('previewContext');
+                if (pa?.hasEnginePreviewUrls === true)
+                    flags.push('enginePreviewUrl');
+                if (pa?.hasAgentClock === true)
+                    flags.push('agentClock');
+                if (pa?.hasPublishingStatus === true)
+                    flags.push('publishingStatus');
+                if (flags.length)
+                    bullets.push(`  injected blocks: ${flags.join(', ')}`);
             }
             if (status === 'intent-recipe-routing') {
                 const tel = meta.intentRecipeRouting && typeof meta.intentRecipeRouting === 'object'
@@ -29868,6 +29958,15 @@ function getScrollParent$1(node) {
     }
     return null;
 }
+/** Display template from Studio content-type catalog (no repository read). */
+function resolvePreviewDisplayTemplate(contentTypeId, contentTypes) {
+    const ct = (contentTypeId || '').trim();
+    if (!ct || !contentTypes)
+        return undefined;
+    const row = contentTypes[ct] ?? contentTypes[ct.startsWith('/') ? ct.slice(1) : `/${ct}`];
+    const tpl = row?.displayTemplate?.trim();
+    return tpl || undefined;
+}
 /** Best-effort: Studio preview item → human-readable content-type label (shape varies by Studio version). */
 function resolvePreviewContentTypeLabel(item) {
     if (!item || typeof item !== 'object')
@@ -30271,25 +30370,36 @@ const CONTENT_TYPE_MACRO_PATTERN = /CONTENT_TYPE:([a-zA-Z0-9/_.-]+)/g;
  * CURRENT_CONTENT_TYPE uses the current preview item's content type.
  * CONTENT_TYPE:page/home (etc.) loads the form for that content type path.
  */
-async function expandContentTypeMacros(prompt, siteId, currentContentTypeId) {
+const PREVIEW_MACRO_OMIT_BODY_HINT = '[Studio preview — **form definition / repository bodies omitted from prompt**. Use **GetContent** or **GetContentTypeFormDefinition** when needed.]';
+async function expandContentTypeMacros(prompt, siteId, currentContentTypeId, options) {
     if (!prompt || (!prompt.includes('CURRENT_CONTENT_TYPE') && !prompt.includes('CONTENT_TYPE:')))
         return prompt;
+    const omitBodies = options?.omitRepoFileBodies === true;
     let out = prompt;
     if (out.includes('CURRENT_CONTENT_TYPE')) {
-        const ct = (currentContentTypeId || '').trim() ? normalizeContentTypeId$1(currentContentTypeId) : '';
-        try {
-            const xml = ct ? await fetchFormDefinitionXml$1(siteId, ct) : '';
-            out = out.split('CURRENT_CONTENT_TYPE').join(xml || '[No form definition for current item]');
+        if (omitBodies) {
+            out = out.split('CURRENT_CONTENT_TYPE').join(PREVIEW_MACRO_OMIT_BODY_HINT);
         }
-        catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
-            out = out.split('CURRENT_CONTENT_TYPE').join(`[Form definition unavailable: ${msg}]`);
+        else {
+            const ct = (currentContentTypeId || '').trim() ? normalizeContentTypeId$1(currentContentTypeId) : '';
+            try {
+                const xml = ct ? await fetchFormDefinitionXml$1(siteId, ct) : '';
+                out = out.split('CURRENT_CONTENT_TYPE').join(xml || '[No form definition for current item]');
+            }
+            catch (e) {
+                const msg = e instanceof Error ? e.message : String(e);
+                out = out.split('CURRENT_CONTENT_TYPE').join(`[Form definition unavailable: ${msg}]`);
+            }
         }
     }
     const namedMatches = [...out.matchAll(CONTENT_TYPE_MACRO_PATTERN)];
     for (const m of namedMatches) {
         const full = m[0];
         const contentTypeId = m[1];
+        if (omitBodies) {
+            out = out.replace(full, PREVIEW_MACRO_OMIT_BODY_HINT);
+            continue;
+        }
         try {
             const xml = await fetchFormDefinitionXml$1(siteId, contentTypeId);
             out = out.replace(full, xml || `[No form definition for ${contentTypeId}]`);
@@ -30341,6 +30451,11 @@ function cqNormalizeStudioContentPath(p) {
     if (!s.startsWith('/'))
         s = `/${s}`;
     return s.replace(/\/+/g, '/');
+}
+function buildPreviewContentMacroSubstitution(contentPath) {
+    const path = (contentPath || '').trim();
+    return ('[Studio preview — **repository XML omitted from prompt**. Use **GetContent** (or intent recipe prefetch) for file bodies.]\n' +
+        (path ? `Item path: ${path}` : ''));
 }
 function buildLiveContentMacroSubstitution(live) {
     const path = (live?.contentItemPath || '').trim();
@@ -30513,15 +30628,21 @@ function tryExtractAiassistantFormFieldUpdates(assistantText) {
  * instead of loading repository XML (saved file would miss unsaved edits).
  * Otherwise loads raw content XML from the repo (preview / dialog context).
  */
-async function expandContentMacros(prompt, siteId, currentContentPath, liveAuthoring) {
+async function expandContentMacros(prompt, siteId, currentContentPath, options) {
     if (!prompt || (!prompt.includes('CURRENT_CONTENT') && !prompt.includes('CONTENT:/')))
         return prompt;
+    const liveAuthoring = options?.liveAuthoring;
+    const omitBodies = options?.omitRepoFileBodies === true;
     const liveBody = buildLiveContentMacroSubstitution(liveAuthoring);
+    const previewBody = omitBodies ? buildPreviewContentMacroSubstitution(currentContentPath) : '';
     const editingPathNorm = cqNormalizeStudioContentPath(liveAuthoring?.contentItemPath);
     let out = prompt;
     if (out.includes('CURRENT_CONTENT')) {
         if (liveBody) {
             out = out.split('CURRENT_CONTENT').join(liveBody);
+        }
+        else if (omitBodies) {
+            out = out.split('CURRENT_CONTENT').join(previewBody);
         }
         else {
             const path = (currentContentPath || '').trim();
@@ -30542,6 +30663,13 @@ async function expandContentMacros(prompt, siteId, currentContentPath, liveAutho
         const itemNorm = cqNormalizeStudioContentPath(itemPath);
         if (liveBody && editingPathNorm && itemNorm === editingPathNorm) {
             out = out.replace(full, liveBody);
+            continue;
+        }
+        if (omitBodies) {
+            const hint = itemNorm === cqNormalizeStudioContentPath(currentContentPath)
+                ? previewBody
+                : buildPreviewContentMacroSubstitution(itemPath);
+            out = out.replace(full, hint);
             continue;
         }
         try {
@@ -31010,6 +31138,7 @@ function AiAssistantChat(props) {
     const wireImageModel = resolveWireImageModel(llm, imageModel);
     const siteId = useActiveSiteId() ?? 'default';
     const previewItem = useCurrentPreviewItem();
+    const contentTypesById = useContentTypes();
     const guest = usePreviewGuest();
     const user = useActiveUser();
     /** Guest model (XB) — may exist when itemsByPath has not loaded DetailedItem yet. */
@@ -31021,19 +31150,22 @@ function AiAssistantChat(props) {
     const resolvedContentTypeId = previewItem?.contentTypeId?.trim() ||
         (guestMainModel?.craftercms?.contentTypeId && String(guestMainModel.craftercms.contentTypeId).trim()) ||
         '';
+    const resolvedDisplayTemplate = resolvePreviewDisplayTemplate(resolvedContentTypeId, contentTypesById);
     const macroValuesRef = useRef({
         siteId,
         currentPage: '',
         currentUsername: 'unknown',
         contentTypeId: '',
-        contentPath: ''
+        contentPath: '',
+        displayTemplate: ''
     });
     macroValuesRef.current = {
         siteId,
         currentPage: previewItem?.previewUrl ?? (typeof window !== 'undefined' ? window.location.href : '') ?? '',
         currentUsername: user?.username ?? 'unknown',
         contentTypeId: resolvedContentTypeId,
-        contentPath: resolvedContentPath
+        contentPath: resolvedContentPath,
+        displayTemplate: resolvedDisplayTemplate ?? ''
     };
     const [loading, setLoading] = useState(false);
     const [configError, setConfigError] = useState(null);
@@ -31381,7 +31513,6 @@ function AiAssistantChat(props) {
         };
         let expandedPrompt = expandPromptMacros(trimmed, macroCtx).trim();
         const expandedDisplaySync = expandPromptMacros((displayInChat ?? trimmed).trim(), macroCtx).trim();
-        expandedPrompt = await expandContentTypeMacros(expandedPrompt, macroCtx.siteId, macroValuesRef.current.contentTypeId).then((s) => s.trim());
         let authoringSnap;
         if (typeof getAuthoringFormContext === 'function') {
             try {
@@ -31393,38 +31524,41 @@ function AiAssistantChat(props) {
         }
         const formEngine = isFormEngineAuthoringChat(getAuthoringFormContext);
         const wantClientJsonApply = formEngine && formEngineClientJsonApply !== false;
-        expandedPrompt = await expandContentMacros(expandedPrompt, macroCtx.siteId, macroValuesRef.current.contentPath, authoringSnap
-            ? {
-                contentItemPath: authoringSnap.contentPath,
-                fieldValuesJson: authoringSnap.fieldValuesJson,
-                serializedContentXml: authoringSnap.serializedContentXml
-            }
-            : undefined).then((s) => s.trim());
+        expandedPrompt = await expandContentTypeMacros(expandedPrompt, macroCtx.siteId, macroValuesRef.current.contentTypeId, { omitRepoFileBodies: !formEngine }).then((s) => s.trim());
+        expandedPrompt = await expandContentMacros(expandedPrompt, macroCtx.siteId, macroValuesRef.current.contentPath, {
+            omitRepoFileBodies: !formEngine,
+            liveAuthoring: authoringSnap
+                ? {
+                    contentItemPath: authoringSnap.contentPath,
+                    fieldValuesJson: authoringSnap.fieldValuesJson,
+                    serializedContentXml: authoringSnap.serializedContentXml
+                }
+                : undefined
+        }).then((s) => s.trim());
         let expandedDisplay = expandContentTypeMacrosForDisplay(expandedDisplaySync, macroValuesRef.current.contentTypeId);
         expandedDisplay = expandContentMacrosForDisplay(expandedDisplay, macroValuesRef.current.contentPath).trim();
         if (!expandedPrompt)
             return;
         const omitToolsThisSend = sendOptions?.omitTools === true;
+        const expandedAfterMacrosLen = expandedPrompt.length;
+        let formAppendixLen = 0;
         if (authoringSnap) {
             try {
                 const appendix = buildAuthoringFormAppendix(authoringSnap, {
                     includeClientJsonApplyInstructions: wantClientJsonApply
                 });
-                if (appendix)
+                if (appendix) {
+                    formAppendixLen = appendix.length;
                     expandedPrompt = expandedPrompt + appendix;
+                }
             }
             catch {
                 /* ignore snapshot appendix errors — still send the user prompt */
             }
         }
         const priorBlock = buildPriorTurnsContextBlock(messages);
-        const previewPath = macroValuesRef.current.contentPath?.trim();
-        const previewCt = macroValuesRef.current.contentTypeId?.trim();
-        const requestAnchor = !formEngine && (previewPath || previewCt)
-            ? `[Request anchor — default target when the user says "this page", "this article", or similar without another path]\n${previewPath ? `Repository path: ${previewPath}` : ''}${previewPath && previewCt ? '\n' : ''}${previewCt ? `Content-type id: ${previewCt.startsWith('/') ? previewCt : `/${previewCt}`}` : ''}\n\n`
-            : '';
-        const currentRequestBody = requestAnchor ? `${requestAnchor}${expandedPrompt}` : expandedPrompt;
-        const wirePrompt = priorBlock ? `${priorBlock}Current request:\n${currentRequestBody}` : currentRequestBody;
+        const priorTurnsBlockLen = priorBlock.length;
+        const wirePrompt = priorBlock ? `${priorBlock}Current request:\n${expandedPrompt}` : expandedPrompt;
         abortRef.current?.abort();
         userStopRequestedRef.current = false;
         const ac = new AbortController();
@@ -31458,6 +31592,7 @@ function AiAssistantChat(props) {
                     chatId: chatId ?? null,
                     contentPath: formEngine ? null : macroValuesRef.current.contentPath?.trim() || null,
                     contentTypeId: formEngine ? null : macroValuesRef.current.contentTypeId?.trim() || null,
+                    displayTemplate: formEngine ? null : macroValuesRef.current.displayTemplate?.trim() || null,
                     studioPreviewPageUrl: studioPreviewPageUrl ?? null,
                     formEngineClientJsonApply: wantClientJsonApply,
                     formEngineItemPath: formEngine && wantClientJsonApply && authoringSnap?.contentPath?.trim()
@@ -31465,7 +31600,14 @@ function AiAssistantChat(props) {
                         : null
                 },
                 displayText: userBubbleText,
-                wirePrompt: wirePrompt
+                wirePrompt: wirePrompt,
+                promptAssembly: {
+                    expandedAfterMacrosLen,
+                    formAppendixLen,
+                    priorTurnsBlockLen,
+                    wirePromptLen: wirePrompt.length,
+                    omitRepoFileBodies: !formEngine
+                }
             }));
         }
         catch {
@@ -31488,6 +31630,9 @@ function AiAssistantChat(props) {
                 contentPath: formEngine ? undefined : macroValuesRef.current.contentPath?.trim() || undefined,
                 contentTypeId: formEngine ? undefined : macroValuesRef.current.contentTypeId?.trim() || undefined,
                 ...(previewContentTypeLabel ? { contentTypeLabel: previewContentTypeLabel } : {}),
+                ...(macroValuesRef.current.displayTemplate?.trim()
+                    ? { displayTemplate: macroValuesRef.current.displayTemplate.trim() }
+                    : {}),
                 ...(studioPreviewPageUrl ? { studioPreviewPageUrl } : {}),
                 authoringSurface: formEngine ? 'formEngine' : undefined,
                 formEngineClientJsonApply: formEngine && wantClientJsonApply ? true : undefined,

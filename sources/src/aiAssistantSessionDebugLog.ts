@@ -213,6 +213,7 @@ function buildParsedTimeline(lines: string[]): string {
             'chatId',
             'contentPath',
             'contentTypeId',
+            'displayTemplate',
             'studioPreviewPageUrl'
           ];
           for (const k of keys) {
@@ -223,8 +224,31 @@ function buildParsedTimeline(lines: string[]): string {
         }
         const disp = typeof o.displayText === 'string' ? o.displayText : '';
         const wire = typeof o.wirePrompt === 'string' ? o.wirePrompt : '';
+        const pa =
+          o.promptAssembly && typeof o.promptAssembly === 'object'
+            ? (o.promptAssembly as Record<string, unknown>)
+            : null;
         out.push(`  Bubble text (${disp.length} chars): ${previewText(disp)}`);
         out.push(`  Wire prompt (${wire.length} chars): ${previewText(wire)}`);
+        if (pa) {
+          const paBits: string[] = [];
+          if (typeof pa.expandedAfterMacrosLen === 'number') {
+            paBits.push(`afterMacros=${pa.expandedAfterMacrosLen}`);
+          }
+          if (typeof pa.formAppendixLen === 'number' && pa.formAppendixLen > 0) {
+            paBits.push(`formAppendix=${pa.formAppendixLen}`);
+          }
+          if (typeof pa.priorTurnsBlockLen === 'number' && pa.priorTurnsBlockLen > 0) {
+            paBits.push(`priorTurns=${pa.priorTurnsBlockLen}`);
+          }
+          if (typeof pa.wirePromptLen === 'number') {
+            paBits.push(`wire=${pa.wirePromptLen}`);
+          }
+          if (pa.omitRepoFileBodies === true) {
+            paBits.push('omitRepoFileBodies=true');
+          }
+          if (paBits.length) out.push(`  Client prompt assembly: ${paBits.join(' | ')}`);
+        }
         continue;
       }
 
@@ -269,6 +293,7 @@ function buildParsedTimeline(lines: string[]): string {
       status === 'tool-progress' ||
       status === 'tool-workflow-hint' ||
       status === 'intent-recipe-routing' ||
+      status === 'prompt-assembly' ||
       status === 'pipeline-heartbeat' ||
       phaseInteresting;
 
@@ -308,6 +333,40 @@ function buildParsedTimeline(lines: string[]): string {
         bullets.push(`Tool strip: status=${status} phase=${phase || '—'} tool=${meta.tool ?? '—'}`);
         const oneLine = text.replace(/\s+/g, ' ').trim();
         if (oneLine) bullets.push(`  strip preview: ${previewText(oneLine, 220)}`);
+      }
+      if (status === 'prompt-assembly') {
+        const pa =
+          meta.promptAssembly && typeof meta.promptAssembly === 'object'
+            ? (meta.promptAssembly as Record<string, unknown>)
+            : null;
+        bullets.push(
+          `Prompt assembly: surface=${pa?.authoringSurface ?? '—'} clientWire=${pa?.clientWirePromptChars ?? '—'} orchestration=${pa?.orchestrationPromptChars ?? '—'} authorVisible=${pa?.authorVisibleChars ?? '—'} serverInjected=${pa?.serverInjectedChars ?? '—'}`
+        );
+        if (pa?.trivialTurn === true) {
+          bullets.push('  trivialTurn=true — enableTools forced off for greeting-style turn');
+        }
+        if (pa?.enableToolsEffective != null) {
+          bullets.push(
+            `  tools: requested=${String(pa.enableToolsRequested ?? '—')} effective=${String(pa.enableToolsEffective)}`
+          );
+        }
+        const deltas =
+          pa?.stepDeltas && typeof pa.stepDeltas === 'object'
+            ? (pa.stepDeltas as Record<string, unknown>)
+            : null;
+        if (deltas) {
+          const deltaBits = Object.entries(deltas)
+            .map(([k, v]) => `${k}=+${String(v)}`)
+            .join(' ');
+          if (deltaBits) bullets.push(`  server step deltas (chars): ${previewText(deltaBits, 320)}`);
+        }
+        const flags: string[] = [];
+        if (pa?.hasPriorConversationBlock === true) flags.push('priorConversation');
+        if (pa?.hasStudioPreviewContext === true) flags.push('previewContext');
+        if (pa?.hasEnginePreviewUrls === true) flags.push('enginePreviewUrl');
+        if (pa?.hasAgentClock === true) flags.push('agentClock');
+        if (pa?.hasPublishingStatus === true) flags.push('publishingStatus');
+        if (flags.length) bullets.push(`  injected blocks: ${flags.join(', ')}`);
       }
       if (status === 'intent-recipe-routing') {
         const tel =

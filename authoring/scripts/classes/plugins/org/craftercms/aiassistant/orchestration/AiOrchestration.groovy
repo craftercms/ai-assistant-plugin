@@ -7294,6 +7294,30 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
   }
 
   /**
+   * SSE row for server-side prompt assembly (metadata-only preview context, URLs, clock, char deltas).
+   */
+  private void emitPromptAssemblyTelemetrySse(OutputStream o, Map telemetry) {
+    if (o == null || telemetry == null || telemetry.isEmpty()) {
+      return
+    }
+    try {
+      synchronized (o) {
+        def ev = [
+          text    : '',
+          metadata: [
+            status         : 'prompt-assembly',
+            promptAssembly: telemetry
+          ]
+        ]
+        o.write(("data: ${JsonOutput.toJson(ev)}\n\n").getBytes(StandardCharsets.UTF_8))
+        o.flush()
+      }
+    } catch (Throwable ignored) {
+      /* best-effort — never break chat stream */
+    }
+  }
+
+  /**
    * SSE row for intent-router outcome. When a recipe matched, {@code text} carries a short emoji + title line for the chat UI.
    */
   private void emitIntentRecipeRoutingTelemetrySse(OutputStream o, Map telemetry) {
@@ -7746,6 +7770,14 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       out = response?.getOutputStream()
       out.write(': connected\n\n'.getBytes(StandardCharsets.UTF_8))
       out.flush()
+      try {
+        def paTel = request?.getAttribute('aiassistant.promptAssemblyTelemetry')
+        if (paTel instanceof Map && !((Map) paTel).isEmpty()) {
+          emitPromptAssemblyTelemetrySse(out, (Map) paTel)
+        }
+      } catch (Throwable ignoredPa) {
+        /* best-effort */
+      }
       // New prompt / stream: ensure no stale native-tools cancel binding leaked onto this servlet thread.
       aiAssistantPipelineCancelBindingClear()
 

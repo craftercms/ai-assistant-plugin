@@ -19,7 +19,7 @@ Companion to **[`spec.md`](spec.md)** for tools, REST bodies, MCP, and runtime t
 **Native function tool** calls that read/write repository content (`GetContent`, `WriteContent`, etc.) are wired to **CrafterCMS 4.5.x** Studio Java APIs:
 
 - **Writes:** Bean **`cstudioContentService`** only (same as Crafter Studio in-process v1 content service, [studio support/4.x](https://github.com/craftercms/studio/tree/support/4.x)). Default path: **`writeContentAndNotify(site, path, stream)`** (publishes `ContentEvent` for UI refresh). If `unlock` is false: **8-arg `writeContent`** + **`notifyContentEvent`**.
-- **Reads:** v1 `getContent`-style methods when present; otherwise v2 `getContentAsResource` and `getItemDescriptor` (see `StudioToolOperations.groovy`).
+- **Reads:** For **current sandbox** content (omit `commitId` or `HEAD`), **`GetContent`** uses v2 **`getContentAsResource`** when available, then v1 **`getContent`**, then **`getContentByCommitId(HEAD)`**. Historical reads pass an explicit commit id to **`getContentByCommitId`** only.
 - **Content item XML:** Pages and components are stored as `<page>` / `<component>` XML whose child element names come from the **content type** (form-definition field ids). Prompts and tool descriptions tell the model **not** to invent unrelated tags (e.g. generic `<article>` trees). The **`update_content`** tool loads the item’s **`form-definition.xml`** (when `<content-type>` is present in the file) and returns **`contentTypeId`**, **`formFieldIds`**, and the full **`formDefinitionForContentType`** so the model can edit **in place** before **`WriteContent`**. (Typical Studio forms + page XML are small relative to modern LLM context windows.) On **`WriteContent`**, the server may also append **`checkbox-group`** **`item`** rows for **taxonomy-backed** datasources when the form requires selections but the model omitted them (see **[spec.md](spec.md)**).
 - **`ListContentTranslationScope`:** Returns a **nested tree** and **`pathChunks`** of `/site/.../*.xml` paths reachable from a page (or component) via `<key>` references — **metadata only** (no bulk XML). Default **`pathChunks`** use **one path per chunk** so full-page translate/copy uses **`GetContent`** / **`WriteContent`** per item and stays within LLM context.
 - **`GetContentTypeFormDefinition`:** Prefer **`contentPath`** (same repository path as the page/component XML). The server reads **`<content-type>`** from that file so the model must not guess types from filenames (e.g. `/site/website/index.xml` → **`/page/index`** is wrong). If **`contentPath`** and **`contentTypeId`** disagree, **`contentPath`** wins.
@@ -163,11 +163,20 @@ If a tool throws mid-stream (e.g. Spring AI `MessageAggregator` / `UndeclaredThr
 - `llmModel`: optional string
 - `imageModel`: optional string — OpenAI **Images** model id for **GenerateImage**; must be set on the agent and/or this body field when the model should call **GenerateImage** (no server default). Prefer **`gpt-image-1`** or **`gpt-image-1-mini`**.
 - `openAiApiKey`: optional string — **testing only**; per-provider precedence (OpenAI, xAI, DeepSeek, etc.): ignored when the matching server-side key is set (host **env** vars per **[llm-configuration.md](../using-and-extending/llm-configuration.md)**, plus JVM fallbacks in **[studio-aiassistant-jvm-parameters.md](../using-and-extending/studio-aiassistant-jvm-parameters.md)**). For **`claude`**, the same field can carry the Anthropic key when no **`ANTHROPIC_API_KEY`** is configured.
-- `contentPath`: optional repository path of the item open in Studio preview (e.g. `/site/website/about/index.xml`). When set, the server appends **Studio authoring context** to the user prompt so the model treats phrases like “this page”, “my page”, or “update my content” (with no path) as that item.
+- `contentPath`: optional repository path of the item open in Studio preview (e.g. `/site/website/about/index.xml`). When set, the server appends **Studio preview context** (metadata only — path, content type, display template, siteId; no inlined file bodies) so the model can resolve “this page” without preloading XML/FTL.
+- `displayTemplate`: optional display-template path for the open item’s content type (metadata only).
 - `contentTypeId`: optional preview content type (e.g. `/page/home`); included in that context when present.
 - `skills`: optional JSON array of `{ "name", "url", "description", "enabled" }` — enabled rows only; server normalizes URLs and registers **`QueryExpertGuidance`** when tools are on.
 
 The React widget sends `llm` / model / key from the selected agent config and sends `contentPath` / `contentTypeId` from the current preview item when available. When the agent has enabled skills, the widget sends **`skills`** on stream/chat POST.
+
+### Prompt assembly observability
+
+For accuracy and performance debugging (session debug log copy, Studio server logs):
+
+- **Client** (`client.userSend` in the session capture): `promptAssembly` with `expandedAfterMacrosLen`, `formAppendixLen`, `priorTurnsBlockLen`, `wirePromptLen`, and `omitRepoFileBodies` (preview/XB skips inlining repository bodies in macros).
+- **Server** (`stream.post` / `chat.post`): builds `orchestrationPrompt` via `AuthoringPreviewContext.assembleOrchestrationPrompt` and logs `clientWireLen`, `orchestrationLen`, `authorVisibleLen`, `serverInjectedLen`, and `stepDeltas` (chars added per step: `previewContext`, `enginePreviewUrls`, `agentClock`, etc.).
+- **SSE** (stream only, first event after `: connected`): `metadata.status: "prompt-assembly"` with `metadata.promptAssembly` (same fields as the server log map). The debug-log formatter surfaces this in the timeline next to `intent-recipe-routing`.
 
 ---
 

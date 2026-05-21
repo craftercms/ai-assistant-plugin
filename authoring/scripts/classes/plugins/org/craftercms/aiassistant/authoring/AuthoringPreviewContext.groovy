@@ -8,6 +8,7 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Collections
+import java.util.LinkedHashMap
 import java.util.List
 import java.util.Locale
 import java.util.regex.Pattern
@@ -28,38 +29,9 @@ class AuthoringPreviewContext {
     '(?i)\\b(publish\\s+(the\\s+)?(entire|whole)\\s+site|publish\\s+everything|publish\\s+all(\\s+content)?|publish\\s+the\\s+site|first\\s+publish|initial\\s+publish|publish\\s+for\\s+the\\s+first\\s+time|never\\s+been\\s+published|bulk\\s+publish|deploy\\s+(the\\s+)?(entire|whole)\\s+site|go\\s+live\\s+(on|for)\\s+the\\s+(whole|entire)\\s+site)\\b'
   )
 
-  /** Cross-language or “translate this” style work — paired with path injection. */
-  private static final Pattern CROSS_LANGUAGE_TRANSLATE_INTENT = Pattern.compile(
-    '(?i)\\b(translat|localiz|localization|to\\s+(spanish|french|german|arabic|italian|portuguese|dutch|russian|japanese|chinese|korean|hindi|vietnamese|polish|turkish|hebrew|swedish|norwegian|danish|finnish|greek)|in\\s+spanish|in\\s+french|in\\s+german|msa\\b|modern\\s+standard\\s+arabic)\\b'
-  )
-
-  /** Author means whole rendered page / site — do not apply narrow single-item fast path. */
+  /** Author means whole rendered page / site — used by intent routing helpers. */
   private static final Pattern FULL_PAGE_OR_SITE_COPY_INTENT = Pattern.compile(
     '(?i)\\b(this\\s+page|the\\s+page|full\\s+page|whole\\s+page|everything\\s+(on|in)|all\\s+(visible\\s+)?copy|what\\s+i\\s+see|entire\\s+site|sitewide|every\\s+page|whole\\s+site)\\b'
-  )
-
-  /** Same-language copy/tone/structure edits on the open item (not full-page / not translate). */
-  private static final Pattern SINGLE_ITEM_EDIT_INTENT = Pattern.compile(
-    '(?i)\\b(rephrase|proofread|rewrite|fix\\s+typos?|grammar|reading\\s+level|simplif(y|ying)|expand\\s+(the\\s+)?(bullets|body)|shorten|tweak|improve|polish|refine|update\\s+(the\\s+)?(title|headings?|body|copy|excerpt|seo|meta)|edit\\s+(the\\s+)?(copy|text|content|article|post)|change\\s+(the\\s+)?(wording|text|tone)|multicolor|headings?\\s+(in|with|to|like))\\b'
-  )
-
-  /** Author refers to display layer (FTL / template), not field XML only — paired with path injection. */
-  private static final Pattern TEMPLATE_LAYER_MENTION = Pattern.compile(
-    '(?i)\\b(template|templates|ftl|freemarker|\\.ftl|display\\s+template)\\b'
-  )
-
-  /** With {@link #TEMPLATE_LAYER_MENTION}, signals formatting / listing / dates in preview (not schema-only). */
-  private static final Pattern TEMPLATE_DISPLAY_SHAPE_INTENT = Pattern.compile(
-    '(?i)\\b(date|dates?|format|listing|list\\s+view|cards?|grid|markup|render(ing)?|layout|how\\s+it\\s+(shows|looks)|visible\\s+in\\s+preview)\\b'
-  )
-
-  /**
-   * Author wants new repository content — generic; no assumed folder or content-type id.
-   * Matches “create/add/write/draft … page/post/article/item” (including “write a blog article …” — {@code write}
-   * was missing before and skipped the fast-path hint).
-   */
-  private static final Pattern NEW_CONTENT_INTENT = Pattern.compile(
-    '(?i)\\b(create|add|make|build|write|draft)\\s+(?:(a|an|the)\\s+)?(?:(new)\\s+)?((blog|news|press)\\s+)?(page|post|article|item|entry|content\\s+item|url\\s+route|landing\\s+page|section\\s+page)\\b'
   )
 
   /** Client sends {@code authoringSurface: "formEngine"} for the content-type form assistant (not XB / preview). */
@@ -132,8 +104,11 @@ class AuthoringPreviewContext {
         '(?is)\\[Request anchor[^\\]]*\\][^\\n]*\\nRepository path:\\s*[^\\n]+\\n(?:Content-type id:\\s*[^\\n]+\\n)?\\s*',
         ''
       )
-      // --- Studio authoring context … --- (standalone closing line `---` before preview bundle or EOF)
-      def ctxIdx = out.indexOf('--- Studio authoring context')
+      // --- Studio preview context … --- (legacy title: Studio authoring context)
+      def ctxIdx = out.indexOf('--- Studio preview context')
+      if (ctxIdx < 0) {
+        ctxIdx = out.indexOf('--- Studio authoring context')
+      }
       if (ctxIdx >= 0) {
         def lineStart = out.lastIndexOf('\n', ctxIdx)
         def blockStart = lineStart >= 0 ? lineStart : 0
@@ -181,6 +156,106 @@ Use these when the author asks about "today", "now", freshness, or dated content
       return base
     }
     return base + '\n\n' + studioAgentDateTimeContextBlock()
+  }
+
+  /**
+   * Server-side prompt assembly (preview metadata, URLs, clock, form-engine notices).
+   * Returns {@code orchestrationPrompt} and per-step char deltas in {@code stepDeltas}.
+   */
+  static Map assembleOrchestrationPrompt(
+    String clientWire,
+    Object authoringSurface,
+    Object clientJsonApply,
+    Object siteIdRaw,
+    Object contentPathRaw,
+    Object contentTypeIdRaw,
+    Object contentTypeLabelRaw,
+    Object displayTemplateRaw,
+    Object request,
+    Object studioPreviewPageUrlRaw,
+    StudioToolOperations publishingOps = null
+  ) {
+    def stepDeltas = new LinkedHashMap<String, Integer>()
+    def cur = (clientWire ?: '').toString()
+    stepDeltas.clientWire = cur.length()
+    def site = (siteIdRaw ?: '').toString().trim()
+
+    if (isFormEngineSurface(authoringSurface)) {
+      int prev = cur.length()
+      cur = appendFormEngineAuthoringNotice(cur)
+      stepDeltas.formEngineNotice = cur.length() - prev
+      if (isTruthy(clientJsonApply)) {
+        prev = cur.length()
+        cur = appendFormEngineClientJsonApplyInstructions(cur)
+        stepDeltas.formEngineClientJsonApply = cur.length() - prev
+      }
+    } else {
+      int prev = cur.length()
+      cur = appendToUserPrompt(cur, site, contentPathRaw, contentTypeIdRaw, contentTypeLabelRaw, displayTemplateRaw)
+      stepDeltas.previewContext = cur.length() - prev
+      prev = cur.length()
+      cur = appendEnginePreviewHintIfPossible(cur, request, site, contentPathRaw, studioPreviewPageUrlRaw)
+      stepDeltas.enginePreviewUrls = cur.length() - prev
+      if (site && publishingOps != null) {
+        try {
+          prev = cur.length()
+          cur = appendSitePublishingStatus(cur, publishingOps.isSiteEverPublished(site))
+          stepDeltas.publishingStatus = cur.length() - prev
+        } catch (Throwable ignoredPub) {
+          /* best-effort */
+        }
+      }
+    }
+    int prevClock = cur.length()
+    cur = appendAgentDateTimeContext(cur)
+    stepDeltas.agentClock = cur.length() - prevClock
+
+    return Collections.unmodifiableMap([
+      orchestrationPrompt: cur,
+      stepDeltas         : Collections.unmodifiableMap(stepDeltas)
+    ] as Map)
+  }
+
+  /**
+   * Observability map for session debug logs and SSE {@code prompt-assembly} status.
+   */
+  static Map buildPromptAssemblyTelemetry(Map args) {
+    String clientWire = (args?.clientWirePrompt ?: '').toString()
+    String finalPrompt = (args?.orchestrationPrompt ?: '').toString()
+    boolean formEngine = isFormEngineSurface(args?.authoringSurface)
+    int clientChars = clientWire.length()
+    int finalChars = finalPrompt.length()
+    Map stepDeltas = args?.stepDeltas instanceof Map ? new LinkedHashMap((Map) args.stepDeltas) : [:]
+
+    def tel = new LinkedHashMap<String, Object>()
+    tel.authoringSurface = formEngine ? 'formEngine' : 'preview'
+    tel.clientWirePromptChars = clientChars
+    tel.orchestrationPromptChars = finalChars
+    tel.serverInjectedChars = Math.max(0, finalChars - clientChars)
+    tel.authorVisibleChars = stripStudioInjectedPromptBlocks(finalPrompt).length()
+    if (!stepDeltas.isEmpty()) {
+      tel.stepDeltas = Collections.unmodifiableMap(stepDeltas)
+    }
+    tel.hasPriorConversationBlock = clientWire.contains('[Prior conversation')
+    tel.hasStudioPreviewContext = finalPrompt.contains('--- Studio preview context')
+    tel.hasStudioPreviewShellUrl = finalPrompt.contains('--- Studio preview URL')
+    tel.hasEnginePreviewUrls = finalPrompt.contains('--- Engine preview URL')
+    tel.hasAgentClock = finalPrompt.contains('--- Studio agent clock')
+    tel.hasFormEngineNotice = finalPrompt.contains('--- Studio form-engine context')
+    tel.hasFormEngineClientJsonApply = finalPrompt.contains('--- Studio form client-apply instructions')
+    tel.hasPublishingStatus = finalPrompt.contains('--- Studio publishing status')
+    tel.contentPathPresent = normalizeRepoPath(args?.contentPath?.toString()).length() > 0
+    tel.displayTemplatePresent = (args?.displayTemplate ?: '').toString().trim().length() > 0
+    if (args?.enableToolsRequested != null) {
+      tel.enableToolsRequested = args.enableToolsRequested
+    }
+    if (args?.enableToolsEffective != null) {
+      tel.enableToolsEffective = args.enableToolsEffective
+    }
+    if (args?.trivialTurn != null) {
+      tel.trivialTurn = args.trivialTurn
+    }
+    return Collections.unmodifiableMap(tel)
   }
 
   private static final Pattern CMS_TASK_SIGNAL = Pattern.compile(
@@ -237,7 +312,7 @@ Use these when the author asks about "today", "now", freshness, or dated content
   )
 
   private static final Pattern REPOSITORY_PATH_IN_PROMPT = Pattern.compile(
-    '(?im)^Repository path:\\s*(\\S+)\\s*$'
+    '(?im)^(?:Repository path|Current content item repository path):\\s*(\\S+)\\s*$'
   )
 
   private static final Pattern CURRENT_REQUEST_SECTION = Pattern.compile(
@@ -1061,154 +1136,55 @@ This site has **never** been published to the delivery tier. For first go-live o
   }
 
   /**
-   * If {@code contentPath} is non-empty, appends a fixed block the model must honor.
-   * {@code contentTypeId} is optional (e.g. from Studio preview); may be blank.
-   * {@code contentTypeLabelRaw} optional Studio UI label for the open item’s type when the client supplies it.
+   * Appends **metadata only** for the item open in Studio preview (paths and ids — no repository file bodies).
+   * Intent recipes and tools load XML/FTL when needed.
    */
-  static String appendToUserPrompt(String prompt, Object contentPathRaw, Object contentTypeIdRaw, Object contentTypeLabelRaw = null) {
+  static String appendToUserPrompt(
+    String prompt,
+    Object siteIdRaw,
+    Object contentPathRaw,
+    Object contentTypeIdRaw,
+    Object contentTypeLabelRaw = null,
+    Object displayTemplateRaw = null
+  ) {
+    def site = (siteIdRaw ?: '').toString().trim()
     def path = normalizeRepoPath(contentPathRaw?.toString())
-    if (!path) {
+    if (!site && !path) {
       return (prompt ?: '').toString()
     }
 
+    def lines = []
+    if (site) {
+      lines.add("siteId: ${site}")
+    }
+    if (path) {
+      lines.add("Current content item repository path: ${path}")
+    }
+
     def ctRaw = (contentTypeIdRaw ?: '').toString().trim()
-    def ctLine = ''
     if (ctRaw) {
       def ct = ctRaw.startsWith('/') ? ctRaw : '/' + ctRaw
-      ctLine = "\nCurrent item content-type id (from Studio preview): ${ct}"
+      lines.add("Content-type id: ${ct}")
     }
 
     def labelRaw = (contentTypeLabelRaw ?: '').toString().trim()
-    def labelLine = ''
     if (labelRaw) {
-      labelLine = "\nCurrent item content-type **label** (Studio UI; from client when available): ${labelRaw}"
+      lines.add("Content-type label (Studio UI): ${labelRaw}")
+    }
+
+    def tplRaw = (displayTemplateRaw ?: '').toString().trim()
+    if (tplRaw) {
+      lines.add("Display template: ${tplRaw}")
     }
 
     def base = (prompt ?: '').toString()
-    def fastPublish = fastPathPublishHint(base, path)
-    def fastTranslate = fastPathTranslateHint(base, path)
-    def fastTemplate = fastPathTemplateDisplayHint(base, path)
-    def fastEdit = fastPathSingleItemEditHint(base, path)
-    def fastNewContent = fastPathNewContentItemHint(base, path)
-    def fastOpenPageInquiry = fastPathOpenPageInquiryHint(base, path)
     return """${base}
 
---- Studio authoring context (when the user does not name a repository path) ---
-**This block is Studio metadata, not the author’s request.** Quoted example phrases below explain how to **resolve paths** when the author’s **own words** use relative references — **do not** treat those examples as the author having said “this page”, “update my content”, etc., unless the same words appear **above** this block in the author’s message. **Greeting-only turns** (“hello”, “thanks”, tiny chitchat with **no** ask to change the site): **do not** open with **ListContentTranslationScope**, **TranslateContentItem**, **TranslateContentBatch**, or broad **GetContent** “discovery” just because this path exists — answer in prose. **That narrow rule applies only to pure greetings.** When the author **does** ask to change the site — including **CSS**, **SCSS/LESS**, **templates / FTL**, **static-assets**, **themes**, **layout**, **“make it look like”** a **URL**, or **reference-site** styling — that **is** an authoring task: use the normal **GetContent** / **update_template** / **WriteContent** / **FetchHttpUrl** (read-only reference) / **analyze_template** flow per system policy; **do not** refuse because the work is “not content XML.”
-Current content item repository path: ${path}${ctLine}${labelLine}
-**Content-type id vs. Studio label:** Authors often name a type by its **Studio list label** while items use a repository **content-type id** (`/page/...`, `/component/...`). **Resolve** with **siteId** + **ListStudioContentTypes**, then system **Exact catalog match beats guessing** (**string equality** after the same normalization on **`label`**, **`name`**, and **`name`** tail — **no** fuzzy “closest” pick). If **exactly one** row matches, use its **`name`** as **`contentTypeId`**; if **zero** or **many**, ask the author. **Do not** invent a **content-type id** from keywords alone.
-When the author says "this page", "my page", "the current page", "this item", "update my content", or similar without specifying which file, treat that as **this** repository path. Use it as **contentPath** for update_content, GetContent, ListContentTranslationScope, WriteContent, GetContentTypeFormDefinition (when reading **that** item’s form), publish_content, revert_change, and for update_template / analyze_template when resolving the item's display-template. For **ListStudioContentTypes**, **do not** default to passing this path: call with **siteId** only first (full type catalog); pass **contentPath** only when you deliberately need folder-scoped allowed types. **Do not** call ListPagesAndComponents to guess a target when this block is present unless the user clearly refers to a different item or asks to browse or list the site.${fastPublish}${fastTranslate}${fastTemplate}${fastEdit}${fastNewContent}${fastOpenPageInquiry}
+--- Studio preview context (metadata only — not the author's request) ---
+**Repository file bodies are not inlined.** Use **GetContent**, **GetContentTypeFormDefinition**, **update_template**, or a matched **intent recipe** when you need XML/FTL.
+${lines.join('\n')}
+When the author says "this page", "this item", "my page", or similar without naming another path, use **Current content item repository path** as **contentPath** when present.
 ---"""
-  }
-
-  /**
-   * Read / interpret the open page (“what is this about?”) — must load repository XML, not answer from memory alone.
-   */
-  static String fastPathOpenPageInquiryHint(String userPrompt, String repoPath) {
-    def p = (userPrompt ?: '').toString()
-    def path = normalizeRepoPath(repoPath?.toString())
-    if (!path || !authorVisibleSuggestsOpenPageInquiry(p + "\nRepository path: ${path}")) {
-      return ''
-    }
-    if (PUBLISH_NOW_INTENT.matcher(p).find() || CROSS_LANGUAGE_TRANSLATE_INTENT.matcher(p).find()) {
-      return ''
-    }
-    return '''
-
-**Fast path — understand / describe this page:** The author wants an interpretation of **this** open item. Call **GetContent** on **this** **contentPath** in the **first** tool round (plus **GetContentTypeFormDefinition** when field labels help). Optional **GetPreviewHtml** when a preview URL exists. Answer from the XML and preview — **do not** say you lack access to the page. **2–3** 📋 lines; no **WriteContent** unless they ask to change copy.'''
-  }
-
-  /**
-   * When the author wants to publish what is already open in preview — skip discovery reads.
-   */
-  static String fastPathPublishHint(String userPrompt, String repoPath) {
-    def p = (userPrompt ?: '').toString()
-    def path = normalizeRepoPath(repoPath?.toString())
-    if (!path || !PUBLISH_NOW_INTENT.matcher(p).find()) {
-      return ''
-    }
-    if (authorVisibleSuggestsPublishSiteBulk(p)) {
-      return '''
-
-**Fast path — publish site / everything:** The author wants **entire site** or **first-time** go-live — **not** a single open item. Call **publish_content** with **publishScope** `all` (and **siteId**, **publishingTarget**, default **live**) as your **first** tool after a minimal **## Plan** — **do not** pass only **contentPath** from the open preview item. **Do not** call **GetContent**, **ListPagesAndComponents**, or **open_page_inquiry** first. Use **1–2** 📋 lines. Summarize from the tool result (**publishScope**, path counts) — **never** claim the whole site was published if the tool only deployed one path.'''
-    }
-    return '''
-
-**Fast path — publish / go live (this item):** Studio context names **Current content item repository path**. Call **publish_content** with **publishScope** `item` and **contentPath** = that path (plus **siteId**, **publishingTarget**, default **live**) as your **first** tool after a minimal **## Plan** — **do not** call **GetContent**, **ListPagesAndComponents**, or **ListContentTranslationScope** first. For **several named paths**, use **publishScope** `paths` with **paths** / **contentPaths** array (one deploy). For **subtree** bulk, use **publishScope** `bulk` and **bulkRootPath** (default `/site`). Use **1–2** 📋 lines only.'''
-  }
-
-  /**
-   * Cross-language / translate: avoid discovery reads before scoping; never re-list the same page without editing.
-   */
-  static String fastPathTranslateHint(String userPrompt, String repoPath) {
-    def p = (userPrompt ?: '').toString()
-    def path = normalizeRepoPath(repoPath?.toString())
-    if (!path || !CROSS_LANGUAGE_TRANSLATE_INTENT.matcher(p).find()) {
-      return ''
-    }
-    return '''
-
-**Fast path — translate / localize:** You already have **Current content item repository path**. **Do not** open with **ListPagesAndComponents** or unrelated **GetContent** “discovery” reads. For **full page / everything visible** / **this page** copy: call **ListContentTranslationScope** **once** on that **contentPath**, then **TranslateContentBatch** (same instructions for every path) or **TranslateContentItem** per path — **reuse** the first scope result; **never** call **ListContentTranslationScope** twice on the same **contentPath** in one turn without a write in between. For **only this file / this item** when the author clearly narrowed scope to the open item: **TranslateContentItem** on **this path** alone is enough (no tree) unless they expand scope mid-task. Use **GetContentTypeFormDefinition** only when you need unknown field ids. Keep **## Plan** tight (see system policy).'''
-  }
-
-  /**
-   * Display / FTL work tied to the open item: resolve {@code display-template} from XML first; avoid serial update_template discovery.
-   */
-  static String fastPathTemplateDisplayHint(String userPrompt, String repoPath) {
-    def p = (userPrompt ?: '').toString()
-    def path = normalizeRepoPath(repoPath?.toString())
-    if (!path || !TEMPLATE_LAYER_MENTION.matcher(p).find() || !TEMPLATE_DISPLAY_SHAPE_INTENT.matcher(p).find()) {
-      return ''
-    }
-    if (PUBLISH_NOW_INTENT.matcher(p).find() || CROSS_LANGUAGE_TRANSLATE_INTENT.matcher(p).find()) {
-      return ''
-    }
-    return '''
-
-**Fast path — template / how it renders (this preview item):** You have **Current content item repository path**. **Do not** open with **update_template** before reading XML. **Round 1:** **GetContent** on **this** **contentPath** and read **`<display-template>`** for the page shell **`.ftl`**. If the change affects a **listing/cards/grid** fed by **`sections_o`** or other node-selectors, **GetContent** those **referenced `.xml`** paths in the **same** tool round when possible and read **each** `<display-template>` — the real markup is often in a **component** template, not the page **index.xml**. Then **GetContent** or **update_template** on **each distinct `.ftl`**, **WriteContent** each changed template **once**. **Do not** loop **update_template → GetContent** on the same page XML for discovery. **One** **GetPreviewHtml** at the end when a preview URL exists. **2–4** 📋 lines; **do not** re-paste full **## Plan** every tool round.'''
-  }
-
-  /**
-   * Same-language edits on the open XML only — not “this page” sitewide, not translate, not publish.
-   */
-  static String fastPathSingleItemEditHint(String userPrompt, String repoPath) {
-    def p = (userPrompt ?: '').toString()
-    def path = normalizeRepoPath(repoPath?.toString())
-    if (!path) {
-      return ''
-    }
-    if (PUBLISH_NOW_INTENT.matcher(p).find() || CROSS_LANGUAGE_TRANSLATE_INTENT.matcher(p).find()) {
-      return ''
-    }
-    if (FULL_PAGE_OR_SITE_COPY_INTENT.matcher(p).find()) {
-      return ''
-    }
-    if (TEMPLATE_LAYER_MENTION.matcher(p).find()) {
-      return ''
-    }
-    if (!SINGLE_ITEM_EDIT_INTENT.matcher(p).find()) {
-      return ''
-    }
-    return '''
-
-**Fast path — edit open item (same language):** Scope is the **current** repository item. Use **GetContent** on **this** **contentPath**, revise fields in the **main** chat, **WriteContent** — **do not** call **TranslateContentItem** / **TranslateContentBatch**. **Do not** call **ListContentTranslationScope** unless the author asked for **referenced components** or **full-page** copy. **Do not** call **ListPagesAndComponents**. Optional **GetPreviewHtml** when preview URL exists. **2–3** 📋 lines.'''
-  }
-
-  /**
-   * New repository content: avoid hard-coded site shapes; still discourage pointless listing.
-   */
-  static String fastPathNewContentItemHint(String userPrompt, String repoPath) {
-    def p = (userPrompt ?: '').toString()
-    def path = normalizeRepoPath(repoPath?.toString())
-    if (!path || !NEW_CONTENT_INTENT.matcher(p).find()) {
-      return ''
-    }
-    if (PUBLISH_NOW_INTENT.matcher(p).find()) {
-      return ''
-    }
-    return '''
-
-**Fast path — new content:** Do **not** assume a fixed URL folder layout or **content-type** id for this site. **Do not** open with **ListPagesAndComponents** (especially large **size** or whole-site inventory) — authors see empty chat and long waits; **ListPagesAndComponents** lists **items**, not **types**. Resolve **`contentTypeId`** first: call **ListStudioContentTypes** with **siteId** only (omit **contentPath**) for the **full** catalog (`mode` **all**); **`/page/...` rows are listed before** **`/component/...`**. Add **contentPath** only if you must check **allowed** types under a **known** parent folder — **not** as the default because preview is open on a hub or component. Apply **Exact catalog match beats guessing**: **only** when **exactly one** row **equals** the author’s **type phrase** (normalized **`label`**, **`name`**, or **`name`** tail), set **`contentTypeId`** to **that row’s `name`** — **do not** substitute **`/page/page_generic`**, **`/page/generic-page`**, or another type when that single exact match exists; if **zero** or **many** rows match, **ask** the author. Then **exactly one** **GetContentTypeFormDefinition** with that **`contentTypeId`** — **do not** pass **contentPath** of a **section hub** `…/<section>/index.xml` when its `<content-type>` is a **shell** (e.g. catch-all **`/page/…`**) and the **new** item’s resolved type is **different** — see system **Section hub `index.xml` vs child pages**. **Do not** batch **GetContentTypeFormDefinition** for unrelated **`/component/...`** types. Use **one** **GetContent** on a **sibling** item of the **same** type under the same `/site/website/…` tree when you still need XML field order (not the listing index unless it shares that type). In the **same first assistant `content`** as **## Plan** and **`tool_calls`**, include a **readable draft** of the new piece (title, outline, body in Markdown) so the author can **read while tools run** — **never** leave **`content`** empty on that first tool round. Then **WriteContent**. Use **ListPagesAndComponents** only when the author asked to **browse/search existing pages/items** or you truly lack **any** path hint after **ListStudioContentTypes** — keep **size** modest. **Never** use it right after **GetContentTypeFormDefinition** for a **resolved create** type — that sequence adds **no** value vs **one sibling GetContent**. After a successful **create**, if **formDefinitionXml** has **image-picker** fields and the new item’s XML still has no real images, add **one** optional invite in **## Plan Execution** for **GenerateImage** on author opt-in (see system STUDIO POLICY **New item — offer AI art for empty image fields**). **Before first WriteContent** on the new item, **GetContent** one **existing sibling** of the **same** `<content-type>` when any exist (fixes **`publishedDate_dt`** / **`*_dt`** literals and folder conventions). **Do not** ask “which folder?” before **tool_calls** — start tools immediately. **Do not** stream **`## Plan Execution`** in the same assistant message as **`tool_calls`** — one final recap after all tools (see STUDIO POLICY **Recap boundary**).'''
   }
 
   /**

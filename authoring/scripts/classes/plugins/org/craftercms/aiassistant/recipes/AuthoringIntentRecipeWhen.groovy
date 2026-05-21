@@ -1,6 +1,7 @@
 package plugins.org.craftercms.aiassistant.recipes
 
 import plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext
+import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
 
 import java.util.Locale
 import java.util.regex.Pattern
@@ -177,7 +178,7 @@ final class AuthoringIntentRecipeWhen {
 
     switch (id) {
       case 'anchoredSiteXml':
-        return hasAnchoredSiteXml(wire, author)
+        return hasAnchoredSiteXml(wire, author, ctx)
       case 'translateIntent':
         Closure tr = ctx.evaluateTranslateIntent as Closure
         return tr != null ? Boolean.TRUE.equals(tr.call()) : false
@@ -200,9 +201,12 @@ final class AuthoringIntentRecipeWhen {
     }
   }
 
-  /** True when wire or author text contains a {@code /site/.../*.xml} repository anchor path. */
-  private static boolean hasAnchoredSiteXml(String wire, String author) {
-    String anchor = AuthoringPreviewContext.extractAnchoredRepositoryPath(wire)
+  /** True when request bindings or wire/author text contain a {@code /site/.../*.xml} repository anchor path. */
+  private static boolean hasAnchoredSiteXml(String wire, String author, Map ctx) {
+    String anchor = anchoredSiteXmlPathFromBindings(ctx)
+    if (!anchor?.trim()) {
+      anchor = AuthoringPreviewContext.extractAnchoredRepositoryPath(wire)
+    }
     if (!anchor?.trim()) {
       anchor = AuthoringPreviewContext.extractAnchoredRepositoryPath(author)
     }
@@ -213,6 +217,15 @@ final class AuthoringIntentRecipeWhen {
     String low = anchor.toLowerCase(Locale.ROOT)
 
     return low.startsWith('/site/') && low.endsWith('.xml')
+  }
+
+  /** Studio preview/form path from servlet request attributes (authoritative when present). */
+  private static String anchoredSiteXmlPathFromBindings(Map ctx) {
+    if (!(ctx?.ops instanceof StudioToolOperations)) {
+      return ''
+    }
+    Map bind = ((StudioToolOperations) ctx.ops).recipeEngineAuthoringBindings()
+    return (bind?.contentPath ?: '').toString().trim()
   }
 
   /** Prefers {@code ctx.cand} for anchor extraction; falls back to {@code ctx.routerVisible}. */
