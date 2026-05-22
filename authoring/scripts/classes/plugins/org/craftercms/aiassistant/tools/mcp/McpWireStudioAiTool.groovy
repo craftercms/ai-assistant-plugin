@@ -66,6 +66,32 @@ final class McpWireStudioAiTool extends AbstractStudioAiTool {
   @Override
   boolean recipeEngineReadOnly() { false }
 
+  @Override
+  Map maintainerObservability(String phase, Map input, Object toolResult, Throwable err) {
+    Map out = new LinkedHashMap(tool: wire, mcpToolName: mcpToolName)
+    if (connection?.serverId) {
+      out.mcpServerId = connection.serverId?.toString()?.trim()
+    }
+    if ('start'.equals(phase) && input instanceof Map && !input.isEmpty()) {
+      out.inputKeys = input.keySet().collect { it?.toString()?.trim() }.findAll { it }.sort()
+    }
+    if (toolResult instanceof Map) {
+      Map tr = (Map) toolResult
+      if (tr.containsKey('ok')) {
+        out.ok = tr.ok
+      }
+      String msg = tr.message?.toString()?.trim() ?: tr.error?.toString()?.trim()
+      if (msg) {
+        out.message = msg.length() > 300 ? msg.substring(0, 297) + '…' : msg
+      }
+    }
+    if (err != null) {
+      String em = err.message ?: err.toString()
+      out.error = em.length() > 300 ? em.substring(0, 297) + '…' : em
+    }
+    return Collections.unmodifiableMap(out)
+  }
+
   /**
    * Validates the live connection then forwards argument maps to {@code tools/call}.
    * Returns Groovy maps cast from the JSON-RPC payload.

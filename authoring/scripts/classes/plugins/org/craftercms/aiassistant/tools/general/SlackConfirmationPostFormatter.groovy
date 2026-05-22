@@ -1,10 +1,10 @@
 package plugins.org.craftercms.aiassistant.tools.general
 
 /**
- * Converts assistant markdown to Slack mrkdwn for recipe confirmation when {@code text} is omitted.
- * <p>No workflow-specific parsing — sites choose what the model writes in chat; this helper only
- * strips orchestration plan blocks and applies generic markdown → mrkdwn rules. Used from
- * {@link SlackPostMessageTool#applyRecipeConfirmationArgDefaults}.</p>
+ * Generic markdown → Slack mrkdwn helper for recipe confirmation when {@code text} is omitted.
+ * <p>Does not interpret workflow-specific sections or build Block Kit layouts — recipes define message
+ * structure in confirmation {@code engineSteps} ({@code text} / JSON {@code outputKeys}); this class
+ * only removes orchestration plan noise and applies common mrkdwn transforms.</p>
  */
 final class SlackConfirmationPostFormatter {
 
@@ -13,17 +13,22 @@ final class SlackConfirmationPostFormatter {
   private SlackConfirmationPostFormatter() {}
 
   /**
-   * @param raw assistant markdown (caller should already strip {@code CRAFTERRQ_ORCH} / plan blocks when possible)
-   * @return Slack mrkdwn body, or empty when {@code raw} is blank
+   * @param raw assistant markdown (orchestration plan should already be stripped by caller when possible)
+   * @return Slack mrkdwn body
    */
   static String formatAssistantProseForSlack(String raw) {
     String s = (raw ?: '').trim()
     if (!s) {
       return ''
     }
+    s = ensureEmojiLabelLineBreaks(s)
     s = stripPlanBlock(s).trim()
     if (!s) {
       return ''
+    }
+    String outbound = extractOptionalOutboundSection(s)
+    if (outbound) {
+      s = outbound
     }
     String result = markdownToSlackMrkdwn(s)
     if (result.length() > MAX_SLACK_CHARS) {
@@ -32,7 +37,42 @@ final class SlackConfirmationPostFormatter {
     return result
   }
 
-  /** Removes leading {@code ## Plan} / {@code # Plan} sections so confirmation posts focus on outcomes. */
+  /**
+   * When several Slack-style emoji shortcodes introduce labeled fields on one line
+   * ({@code :writing_hand: Author voice: … :hook: Hook: …}), break before each subsequent shortcode
+   * so chat markdown and Slack mrkdwn render one field per line.
+   */
+  static String ensureEmojiLabelLineBreaks(String text) {
+    String s = (text ?: '').trim()
+    if (!s) {
+      return ''
+    }
+    java.util.regex.Pattern label = java.util.regex.Pattern.compile('(?i)(?:^|\\s)(:[a-z0-9_+-]+:)\\s+')
+    java.util.regex.Matcher m = label.matcher(s)
+    int count = 0
+    while (m.find()) {
+      count++
+      if (count >= 2) {
+        break
+      }
+    }
+    if (count < 2) {
+      return s
+    }
+    return s.replaceAll(/(?i)\s+(?=:[a-z0-9_+-]+:\s)/, '\n\n').trim()
+  }
+
+  /**
+   * Generic outbound marker (not recipe-specific): content under {@code ## Slack message} is the post body.
+   */
+  private static String extractOptionalOutboundSection(String s) {
+    def m = (s =~ /(?ism)^##\\s*Slack\\s+message\\s*\r?\n(.*?)(?=^##\\s|\\z)/)
+    if (m.find()) {
+      return (m.group(1) ?: '').trim()
+    }
+    return ''
+  }
+
   private static String stripPlanBlock(String s) {
     String t = s
     t = t.replaceAll('(?ism)^##\\s*Plan\\s*$.*?(?=^##\\s|$)', '')
@@ -41,10 +81,7 @@ final class SlackConfirmationPostFormatter {
   }
 
   /**
-   * Converts common markdown patterns to Slack mrkdwn ({@code *bold*}, {@code <url|label>}, bullets).
-   *
-   * @param md markdown text
-   * @return Slack mrkdwn string
+   * Common markdown → Slack mrkdwn transforms (bold, links, bullets, headings).
    */
   static String markdownToSlackMrkdwn(String md) {
     if (!(md?.trim())) {
@@ -52,17 +89,23 @@ final class SlackConfirmationPostFormatter {
     }
     String s = md.trim()
     s = s.replaceAll('(?m)^#{3,6}\\s+(.+)$') { _, title ->
-      "\n:small_blue_diamond: *${title.trim()}*\n"
+      "\n*${title.trim()}*\n"
     }
     s = s.replaceAll('(?m)^#{1,2}\\s+(.+)$') { _, title ->
-      "\n:bookmark: *${title.trim()}*\n"
+      "\n*${title.trim()}*\n"
     }
     s = s.replaceAll('(?m)^\\*\\*([A-Za-z][^*\\n]{1,60})\\*\\*\\s*$') { _, t ->
-      "\n:small_blue_diamond: *${t.trim()}*\n"
+      "\n*${t.trim()}*\n"
     }
     s = s.replaceAll(/\*\*([^*]+)\*\*/, '*$1*')
     s = s.replaceAll(/__([^_]+)__/, '*$1*')
-    s = s.replaceAll(/\[([^\]]+)\]\(([^)]+)\)/, '<$2|$1>')
+    s = s.replaceAll(/\[([^\]]+)\]\(([^)]+)\)/) { _, label, url ->
+      String u = (url ?: '').trim()
+      if (u.startsWith('http://') || u.startsWith('https://')) {
+        return "<${u}|${label}>"
+      }
+      return label
+    }
     s = s.replaceAll('(?m)^\\s*[-*]\\s+', '• ')
     s = s.replaceAll('(?m)^\\s*\\d+\\.\\s+', '• ')
     s = s.replaceAll('(?m)^---+$', '')

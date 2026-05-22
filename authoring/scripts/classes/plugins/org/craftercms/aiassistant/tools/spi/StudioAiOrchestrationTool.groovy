@@ -49,4 +49,16 @@ interface StudioAiOrchestrationTool {
    * @return args map passed to {@link #execute}
    */
   Map applyRecipeConfirmationArgDefaults(Map resolvedArgs, String lastAssistantMarkdown)
+
+  /**
+   * Optional maintainer debug detail for session log TIMELINE ({@code metadata.maintainerObservability} on
+   * tool-progress SSE). Redact secrets; default is empty. Gated by {@code aiassistant.maintainerToolObservability}
+   * (default on). See {@link StudioAiToolMaintainerObservability}.
+   *
+   * @param phase {@code start}, {@code done}, {@code warn}, or {@code error}
+   * @param input tool arguments from the model
+   * @param toolResult return value from {@link #execute} (terminal phases only)
+   * @param err throwable on {@code error} phase
+   */
+  Map maintainerObservability(String phase, Map input, Object toolResult, Throwable err)
 }

@@ -2018,6 +2018,8 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
 
     let streamingMessageId: string | undefined;
     let assistantTextAccum = '';
+    /** After server recipe confirmation, final SSE replaces (not appends) prior draft prose. */
+    let replaceAssistantBodyActive = false;
     let formUpdatesApplied = false;
     let shouldRefreshPreview = false;
     /** Set when the client stream wait hits the hard cap (try/catch are separate scopes — must be outside `try`). */
@@ -2190,7 +2192,26 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
             triggerStudioPreviewReload();
           }
 
-          if (textChunk) {
+          if (textChunk && (md?.replaceAssistantBody === true || replaceAssistantBodyActive)) {
+            if (md?.replaceAssistantBody === true) {
+              replaceAssistantBodyActive = true;
+              assistantTextAccum = textChunk;
+            } else {
+              assistantTextAccum += textChunk;
+            }
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id !== assistantId) return m;
+                return {
+                  ...m,
+                  text: assistantTextAccum,
+                  reasoningStreamText: '',
+                  summarizingResults: false,
+                  ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls)
+                };
+              })
+            );
+          } else if (textChunk) {
             if (isToolProgressChunk) {
               setMessages((prev) =>
                 prev.map((m) => {

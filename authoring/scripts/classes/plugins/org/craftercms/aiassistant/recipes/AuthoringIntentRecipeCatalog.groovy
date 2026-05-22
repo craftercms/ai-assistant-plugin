@@ -1478,9 +1478,9 @@ final class AuthoringIntentRecipeCatalog {
       sb.append('- Fetch **at most ').append(maxFetch > 0 ? maxFetch : 3).append('** distinct citation URLs with **FetchHttpUrl** (pass **maxChars: ')
         .append(fetchCap > 0 ? fetchCap : DEFAULT_WEB_RESEARCH_FETCH_HTTP_WIRE_MAX_CHARS)
         .append('** on each call). Do **not** re-fetch the same URL.\n')
-      sb.append('- After those reads, **draft in this chat** — do **not** run more **FetchHttpUrl** / **')
+      sb.append('- After those reads, **complete the deliverable in chat** from snippets and successful fetches — do **not** run more **FetchHttpUrl** / **')
         .append(searchWire).append('** unless a fetch failed.\n')
-      sb.append('- Deliver blog drafts as **markdown in chat** unless the author explicitly asks to save or publish in the CMS.\n')
+      sb.append('- Respond as **markdown in chat** unless the author explicitly asks to save or publish in the CMS.\n')
       sb.append('- Do **not** call **WriteContent**, **update_content**, or **GetCrafterizingPlaybook** for this workflow unless the author explicitly requests repository saves.\n')
     }
     sb.append('\n---\n\n')

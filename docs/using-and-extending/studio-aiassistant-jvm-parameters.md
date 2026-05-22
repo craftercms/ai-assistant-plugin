@@ -44,6 +44,9 @@ Historical note: property names use the **`aiassistant.*`** prefix; they apply t
 | **`aiassistant.openai.reviewMaxChars`** | Caps review / analysis payloads in some tool paths. |
 | **`aiassistant.translateContentItemMaxOutTokens`** | Inner completion token cap for **`TranslateContentItem`**-style paths. |
 | **`aiassistant.springAiHttpDebug`** | When **`true`**, raises Log4j2 levels for Spring AI HTTP client logging on first use (Studio uses Log4j2). |
+| **`aiassistant.maintainerToolObservability`** | When **`true`** (default), tool-progress SSE includes **`metadata.maintainerObservability`** for the Studio session debug log (query/redacted Serp params, MCP server id, generic ok/message). Set **`false`** to omit. |
+
+**Site `tools.json` → `intentRecipeRouting` (not JVM):** **`confirmationLlmRefineEnabled`** (default **`true`**), **`confirmationLlmRefineMaxOutTokens`** (default **2800**; JSON multi-post refines use at least **4096–8192** based on **`outputKeys`** count), **`confirmationLlmRefineReadTimeoutMs`** (default **120000**) — govern **`llmRefine`** confirmation steps. Multi-post Slack recipes should use **`outputFormat: "json"`** + **`outputKeys`** and pass **`text: "$binding.key"`** on each **`SlackPostMessage`** step (see [intent-recipe-routing.md](../internals/intent-recipe-routing.md)).
 
 ---
 

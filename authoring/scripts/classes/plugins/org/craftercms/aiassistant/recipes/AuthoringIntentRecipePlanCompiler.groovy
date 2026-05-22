@@ -17,6 +17,7 @@ final class AuthoringIntentRecipePlanCompiler {
 
   static final String KIND_LLM = 'llm'
   static final String KIND_TOOL = 'tool'
+  static final String KIND_LLM_REFINE = 'llmRefine'
 
   private AuthoringIntentRecipePlanCompiler() {}
 
@@ -67,6 +68,19 @@ final class AuthoringIntentRecipePlanCompiler {
       AuthoringIntentRecipeCatalog.collectConfirmationEngineSteps(recipe)
     )
     for (Map es : confirmationEngineSteps) {
+      String llmRefine = es.get('llmRefine')?.toString()?.trim()
+      if (llmRefine) {
+        steps.add([
+          id            : id++,
+          kind          : KIND_LLM_REFINE,
+          phase         : 'confirmation',
+          llmRefine     : llmRefine,
+          summary       : 'Confirmation: LLM refine (' + llmRefine + ')',
+          when          : 'afterAction',
+          serverExecute : true
+        ] as Map)
+        continue
+      }
       String tool = es.get('tool')?.toString()?.trim()
       if (!tool) {
         continue

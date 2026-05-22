@@ -38,13 +38,26 @@ class WebSearchTool extends AbstractStudioAiTool {
   @Override
   Map execute(Map input, StudioAiToolContext ctx) {
     String query = parseQuery(input)
+    Map queryDisambig = OpenWebSearchQueryDisambiguation.disambiguate(query)
+    String queryOriginal = queryDisambig.queryOriginal?.toString()?.trim() ?: query
+    String querySent = queryDisambig.querySent?.toString()?.trim() ?: query
     int maxResults = maxResults(parseMaxResults(input))
-    List<Map> results = duckDuckGoResults(query, maxResults)
+    List<Map> results = duckDuckGoResults(querySent, maxResults)
+    if (Boolean.TRUE.equals(queryDisambig.queryExpanded) && results) {
+      results = results.findAll { Map row ->
+        !WebSearchResultTextUtil.skipHealthcareCmsResult(
+          row?.url?.toString(),
+          row?.title?.toString(),
+          row?.snippet?.toString()
+        )
+      }
+    }
     if (results.isEmpty()) {
       return [
         ok         : false,
         tool       : wireName(),
-        query      : query,
+        query      : queryOriginal,
+        querySent  : querySent,
         message    : 'Web search returned no results (the search service may be unreachable or blocked from Studio).',
         resultCount: 0,
         results    : []
@@ -53,7 +66,8 @@ class WebSearchTool extends AbstractStudioAiTool {
     return [
       ok         : true,
       tool       : wireName(),
-      query      : query,
+      query      : queryOriginal,
+      querySent  : querySent,
       resultCount: results.size(),
       results    : results
     ]

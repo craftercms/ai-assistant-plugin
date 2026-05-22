@@ -204,6 +204,50 @@ Be conservative: if unsure or work was only partial, set accomplished to false a
   }
 
   /**
+   * Default system prompt for confirmation {@code llmRefine} steps. Site-specific audience, thesis, and quality
+   * bars belong in the recipe {@code engineSteps} row ({@code systemPrompt}, {@code userPreamble}, {@code hints}).
+   */
+  static String getLlm_RECIPE_CONFIRMATION_LLM_REFINE_SYSTEM() {
+    p('GENERAL_LLM_RECIPE_CONFIRMATION_LLM_REFINE_SYSTEM', '''You refine a draft markdown block before Studio runs recipe confirmation tools.
+
+You will receive a **draft block** to rewrite (a section of the assistant turn, or the full turn when no section heading is configured).
+
+**Your job:** Improve clarity, structure, and usefulness per **recipe refine hints** in the user message. Tighten vague language; keep the draft’s section shape unless hints say otherwise.
+
+**Hard rules:**
+- Output **only** the refined block body (same sections/headings the draft used).
+- **Do not** invent facts, dates, event names, venues, quotes, or URLs. **Do not** add material that was not in the draft.
+- If the draft cites a **specific fact** (name, date, place, URL), preserve it **exactly** — you may improve framing, not change facts.
+- Follow all **recipe refine hints**; they override generic tone when they conflict.''')
+  }
+
+  /** @deprecated use {@link #getLlm_RECIPE_CONFIRMATION_LLM_REFINE_SYSTEM} */
+  static String getLlm_RECIPE_CONFIRMATION_PITCH_REFINE_SYSTEM() {
+    getLlm_RECIPE_CONFIRMATION_LLM_REFINE_SYSTEM()
+  }
+
+  /**
+   * Default system prompt when confirmation {@code llmRefine} uses {@code outputFormat: "json"} and
+   * {@code outputKeys}. Site recipes may override via {@code systemPrompt} on the step.
+   */
+  static String getLlm_RECIPE_CONFIRMATION_STRUCTURED_JSON_SYSTEM(List<String> outputKeys) {
+    String keys = (outputKeys instanceof List && !outputKeys.isEmpty()) ?
+      outputKeys.join(', ') :
+      '(see recipe outputKeys)'
+    String template = p('GENERAL_LLM_RECIPE_CONFIRMATION_STRUCTURED_JSON_SYSTEM', """You prepare structured outbound messages for Studio recipe confirmation tools.
+
+Return **only** one JSON object (no markdown fences, no commentary). Required string keys: {{outputKeys}}.
+
+**Rules:**
+- Each value is the **complete** message body for that key (Slack mrkdwn where applicable).
+- When a body uses multiple labeled lines introduced by Slack emoji shortcodes (`:writing_hand:`, `:hook:`, etc.), put **one label per line** — newline before each shortcode after the first (do not run labels together on one line).
+- **Do not** invent facts, dates, URLs, or quotes not supported by the source material in the user message.
+- Follow all **recipe refine hints** in the user message; they override generic tone when they conflict.
+- Keep keys **exactly** as listed (case-sensitive). Do not add or omit keys.""")
+    return template.replace('{{outputKeys}}', keys)
+  }
+
+  /**
    * Appended to {@link #getLlm_AUTHORING_INSTRUCTIONS()} when the Studio **form** assistant requests client-side apply
    * ({@code formEngineClientJsonApply}) — authoring tools stay available except repo-mutating ones.
    */
@@ -489,14 +533,14 @@ For **content-only** tasks, use **`aiassistantFormFieldUpdates`** in your final 
   static String getDESC_WEB_SEARCH() {
     p(
       'GENERAL_DESC_WEB_SEARCH',
-      'Search the **public web** for **current** information (news, headlines, recent events). No API keys — Studio queries a public HTML search index. Required: **query**. Optional **maxResults** (1–15, default 8). Returns **title**, **url**, **snippet** — cite those sources; **do not** invent links. **Not** for Crafter repository search (**ResearchSiteContent**). **Not** for a URL the author already gave (**FetchHttpUrl**). If no results, say the search service may be unreachable from Studio.'
+      'Search the **public web** for **current** information (news, headlines, recent events). No API keys — Studio queries a public HTML search index. Required: **query**. Optional **maxResults** (1–15, default 8). Returns **title**, **url**, **snippet** — cite those sources; **do not** invent links. **CMS disambiguation:** Bare **CMS** on the web is usually US healthcare, not a **content management system** — spell out **content management system** / **headless CMS** for digital-experience industry topics (Studio may rewrite bare **CMS**). **Not** for Crafter repository search (**ResearchSiteContent**). **Not** for a URL the author already gave (**FetchHttpUrl**). If no results, say the search service may be unreachable from Studio.'
     )
   }
 
   static String getDESC_SERP_API_WEB_SEARCH() {
     p(
       'GENERAL_DESC_SERP_API_WEB_SEARCH',
-      'Search the **public web** via **SerpAPI** (Google with professional site defaults). Requires the secret named in tools.json (**secretKey**, default **serpapi_api_key**) to be set under Project Tools → **Secrets**, and **SerpApiWebSearch** enabled (not in **disabledBuiltInTools**). Required: **query**. Optional **maxResults** (1–20) and SerpAPI params (**engine**, **googleDomain**, **gl**, **hl**, **location**, **num**, **device**, **safe**, **tbm**, **tbs**, **start**). Returns **title**, **url**, **snippet** — cite sources; **do not** invent links. **Not** for repository search (**ResearchSiteContent**). **Not** for a URL the author already gave (**FetchHttpUrl**).'
+      'Search the **public web** via **SerpAPI** (Google with professional site defaults). Requires the secret named in tools.json (**secretKey**, default **serpapi_api_key**) to be set under Project Tools → **Secrets**, and **SerpApiWebSearch** enabled (not in **disabledBuiltInTools**). Required: **query**. Optional **maxResults** (1–20) and SerpAPI params (**engine**, **googleDomain**, **gl**, **hl**, **location**, **num**, **device**, **safe**, **tbm**, **tbs**, **start**). Returns **title**, **url**, **snippet** — cite sources; **do not** invent links. **CMS disambiguation:** On the open web, bare **CMS** usually means US healthcare (Centers for Medicare & Medicaid Services), **not** a **content management system**. When the author means **content management system** (not US healthcare **CMS**), spell out **content management system**, add **headless CMS** / **digital experience** context, and avoid Medicare/Medicaid hits — Studio may rewrite bare **CMS** automatically. **Not** for repository search (**ResearchSiteContent**). **Not** for a URL the author already gave (**FetchHttpUrl**).'
     )
   }
 

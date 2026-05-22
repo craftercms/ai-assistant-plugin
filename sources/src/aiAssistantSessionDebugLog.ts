@@ -333,6 +333,17 @@ function buildParsedTimeline(lines: string[]): string {
         bullets.push(`Tool strip: status=${status} phase=${phase || '—'} tool=${meta.tool ?? '—'}`);
         const oneLine = text.replace(/\s+/g, ' ').trim();
         if (oneLine) bullets.push(`  strip preview: ${previewText(oneLine, 220)}`);
+        const obs =
+          meta.maintainerObservability != null && typeof meta.maintainerObservability === 'object'
+            ? (meta.maintainerObservability as Record<string, unknown>)
+            : null;
+        if (obs && Object.keys(obs).length > 0) {
+          try {
+            bullets.push(`  maintainerObservability: ${previewText(JSON.stringify(obs), 520)}`);
+          } catch {
+            bullets.push(`  maintainerObservability: (unserializable)`);
+          }
+        }
       }
       if (status === 'prompt-assembly') {
         const pa =

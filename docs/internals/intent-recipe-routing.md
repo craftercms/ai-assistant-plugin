@@ -356,11 +356,22 @@ After Action-phase chat work (model **## Plan**, **`CRAFTERRQ_ORCH`**, and wired
 
 | Mechanism | When it runs |
 |-----------|----------------|
-| **`collectConfirmationEngineSteps`** | Reads explicit **`engineSteps`** under **`phases.confirmation`** (map with **`tool`** + optional **`args`**). |
+| **`collectConfirmationEngineSteps`** | Reads explicit **`engineSteps`** under **`phases.confirmation`**: **`tool`** rows (JVM tools) and optional **`llmRefine`** rows (server-side markdown refine before outbound tools). |
 | **`inferConfirmationEngineStepsFromHints`** | When Confirmation is hint-only (string list), infers steps for allowlisted wires named in hints that implement **`recipeEngineConfirmationStep()`** (today: **`SlackPostMessage`**). |
 | **`maybeExecuteMatchedRecipeConfirmationSteps`** | Tools loop hook in **`AiOrchestration`**: runs once per turn when the model finishes without further **`tool_calls`** and **`confirmationServerStepsPending`** is true (**`outcome`** **`matched`**). **`FetchHttpUrl`** caps apply only during tool rounds, not to skipping confirmation at turn end. |
 
-**Arg merge:** Before each step, **`StudioAiToolRegistry.mergeRecipeConfirmationArgs`** calls the tool’s **`applyRecipeConfirmationArgDefaults(resolvedArgs, lastAssistantMarkdown)`** so empty **`text`** can be filled from Action-phase assistant prose (tool-specific; engine stays agnostic).
+**LLM refine (`llmRefine`):** When an **`engineSteps`** row includes **`llmRefine`** (profile id is telemetry only), **`AuthoringIntentRecipeLlmRefiner`** runs a bounded non-streaming completion before outbound tools:
+
+| `outputFormat` | Behavior |
+|----------------|----------|
+| **`json`** (recommended for multi-post Slack) | Model returns one JSON object with string values for each key in **`outputKeys`**. Result is stored as **`payload`** and exposed for bindings (`$name.key` when the step has **`as`**). Optional **`passthroughFromSource`** (`{ "draft": ["Draft body", "Pitch draft"] }`) copies a `##` section from the assistant turn **without** an LLM rewrite (keys in this map are **excluded** from the main JSON completion). If no section matches, optional **`passthroughFallbackHints`** + **`passthroughFallbackMaxOutTokens`** run a dedicated single-key completion (e.g. full **draft** on its own Slack post). |
+| **`markdown`** (default) | Rewrites assistant prose (optional **`markdownSection`** for one `##` block via **`RecipeMarkdownSections`**). |
+
+Site recipes supply rules via **`userPreamble`**, **`hints`**, and optional **`systemPrompt`**. Disable globally with **`intentRecipeRouting.confirmationLlmRefineEnabled: false`** in **`tools.json`**.
+
+**Arg resolution:** Confirmation tool **`args`** support **`$stepN.field`**, **`$bindingName.field`** (from a prior step’s **`as`**), and studio **`$initial.*` / `$current.*`**. Each outbound tool step should set explicit **`text`** (or **`message`**) — e.g. **`"text": "$slackOutbound.root"`** after a JSON refine step with **`"as": "slackOutbound"`**.
+
+**Arg merge:** **`StudioAiToolRegistry.mergeRecipeConfirmationArgs`** may apply tool-specific formatting (e.g. Slack mrkdwn) when **`text`** is already set; it does **not** scrape assistant markdown for post bodies.
 
 **Example — explicit confirmation step (site `intent-recipes.json`):**
 
@@ -371,6 +382,10 @@ After Action-phase chat work (model **## Plan**, **`CRAFTERRQ_ORCH`**, and wired
       "Post a concise summary to Slack for review (Studio runs SlackPostMessage after chat work)."
     ],
     "engineSteps": [
+      {
+        "llmRefine": "editorialPitch",
+        "hints": ["Optional per-site coach hints appended to the refine user message."]
+      },
       { "tool": "SlackPostMessage", "args": {} }
     ]
   }
@@ -379,7 +394,26 @@ After Action-phase chat work (model **## Plan**, **`CRAFTERRQ_ORCH`**, and wired
 
 Set **`builtInToolSettings.SlackPostMessage.defaultChannel`** in **`tools.json`** (or pass **`channel`** in **`args`**). The bot must be invited to private channels; channel names (`random`, `#random`) are resolved to **`C…`** ids via **`conversations.list`**.
 
-**Slack body formatting:** When **`text`** / **`message`** are omitted, **`SlackPostMessageTool`** uses the Action-phase assistant message (plan block stripped) and converts it to Slack mrkdwn via **`SlackConfirmationPostFormatter`** — no workflow-specific parsing; put the exact Slack copy in **`args.text`** when you need a fixed message.
+**Slack body formatting:** Set **`text`** on each **`SlackPostMessage`** step (usually from **`$refineBinding.key`**). **`SlackPostMessageTool`** applies generic mrkdwn conversion via **`SlackConfirmationPostFormatter`**. Use **`args.threadTs`** with **`$slackRoot.ts`** (or **`$stepN.ts`**) from an earlier post step’s **`as`**.
+
+**Example — threaded Slack (JSON refine + five posts):**
+
+```json
+"engineSteps": [
+  {
+    "llmRefine": "slackOutbound",
+    "as": "slackOutbound",
+    "outputFormat": "json",
+    "outputKeys": ["root", "craftercmsAlignment", "draft", "pitch", "sources"],
+    "passthroughFromSource": { "draft": ["Draft body", "Pitch draft"] },
+    "passthroughFallbackHints": { "draft": ["… full draft when ## section missing …"] },
+    "hints": ["… root / alignment / pitch / sources in main JSON …"]
+  },
+  { "tool": "SlackPostMessage", "as": "slackRoot", "args": { "text": "$slackOutbound.root" } },
+  { "tool": "SlackPostMessage", "args": { "threadTs": "$slackRoot.ts", "text": "$slackOutbound.draft" } },
+  { "tool": "SlackPostMessage", "args": { "threadTs": "$slackRoot.ts", "text": "$slackOutbound.sources" } }
+]
+```
 
 **Wire message after confirmation:** Studio appends a **`role: user`** block with confirmation results; the model must record outcomes in **## Plan Execution** and must **not** call confirmation tools again via **`tool_calls`**.
 

@@ -49,6 +49,12 @@ abstract class AbstractStudioAiTool implements StudioAiOrchestrationTool {
     return resolvedArgs instanceof Map ? resolvedArgs : [:]
   }
 
+  /** {@inheritDoc} */
+  @Override
+  Map maintainerObservability(String phase, Map input, Object toolResult, Throwable err) {
+    return [:]
+  }
+
   /**
    * Builds a Spring AI {@link FunctionToolCallback} that wraps {@link #execute} identically to CMS peers.
    * Runs inside {@link AiOrchestrationTools#runWithToolProgress} so SSE listeners observe MCP+CBS timings.

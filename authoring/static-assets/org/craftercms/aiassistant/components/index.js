@@ -842,6 +842,17 @@ function buildParsedTimeline(lines) {
                 const oneLine = text.replace(/\s+/g, ' ').trim();
                 if (oneLine)
                     bullets.push(`  strip preview: ${previewText(oneLine, 220)}`);
+                const obs = meta.maintainerObservability != null && typeof meta.maintainerObservability === 'object'
+                    ? meta.maintainerObservability
+                    : null;
+                if (obs && Object.keys(obs).length > 0) {
+                    try {
+                        bullets.push(`  maintainerObservability: ${previewText(JSON.stringify(obs), 520)}`);
+                    }
+                    catch {
+                        bullets.push(`  maintainerObservability: (unserializable)`);
+                    }
+                }
             }
             if (status === 'prompt-assembly') {
                 const pa = meta.promptAssembly && typeof meta.promptAssembly === 'object'
@@ -31621,6 +31632,8 @@ function AiAssistantChat(props) {
         setSending(true);
         let streamingMessageId;
         let assistantTextAccum = '';
+        /** After server recipe confirmation, final SSE replaces (not appends) prior draft prose. */
+        let replaceAssistantBodyActive = false;
         let formUpdatesApplied = false;
         let shouldRefreshPreview = false;
         /** Set when the client stream wait hits the hard cap (try/catch are separate scopes — must be outside `try`). */
@@ -31758,7 +31771,27 @@ function AiAssistantChat(props) {
                         }
                         triggerStudioPreviewReload();
                     }
-                    if (textChunk) {
+                    if (textChunk && (md?.replaceAssistantBody === true || replaceAssistantBodyActive)) {
+                        if (md?.replaceAssistantBody === true) {
+                            replaceAssistantBodyActive = true;
+                            assistantTextAccum = textChunk;
+                        }
+                        else {
+                            assistantTextAccum += textChunk;
+                        }
+                        setMessages((prev) => prev.map((m) => {
+                            if (m.id !== assistantId)
+                                return m;
+                            return {
+                                ...m,
+                                text: assistantTextAccum,
+                                reasoningStreamText: '',
+                                summarizingResults: false,
+                                ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls)
+                            };
+                        }));
+                    }
+                    else if (textChunk) {
                         if (isToolProgressChunk) {
                             setMessages((prev) => prev.map((m) => {
                                 if (m.id !== assistantId)
@@ -38336,6 +38369,8 @@ const INTENT_RECIPE_READ_ONLY_TOOLS = [
     'GetContentVersionHistory',
     'GetPreviewHtml'
 ];
+/** Confirmation-phase server steps (not prefetch); used by recipe preview swimlane only. */
+const INTENT_RECIPE_CONFIRMATION_STEP_TOOLS = ['llmRefine', 'SlackPostMessage'];
 function defaultIntentRecipesFile() {
     return { version: 1, recipes: [] };
 }
@@ -38494,23 +38529,7 @@ function normalizePhaseValue(raw) {
         }
         if (Array.isArray(o.engineSteps)) {
             block.engineSteps = o.engineSteps
-                .map((step) => {
-                if (!step || typeof step !== 'object')
-                    return null;
-                const s = step;
-                const tool = String(s.tool ?? '').trim();
-                if (!tool)
-                    return null;
-                const args = s.args && typeof s.args === 'object'
-                    ? Object.fromEntries(Object.entries(s.args).map(([k, v]) => [k, String(v ?? '')]))
-                    : undefined;
-                const asName = String(s.as ?? '').trim();
-                return {
-                    ...(asName ? { as: asName } : {}),
-                    tool,
-                    args
-                };
-            })
+                .map((step) => parseEngineStepFromJson(step))
                 .filter((x) => x != null);
         }
         if ((block.hints?.length ?? 0) === 0 && (block.engineSteps?.length ?? 0) === 0)
@@ -38529,6 +38548,165 @@ function declaredBindingNames(recipe) {
     }
     return [...names];
 }
+function parsePassthroughFromSource(raw) {
+    if (!raw || typeof raw !== 'object')
+        return undefined;
+    const out = {};
+    for (const [k, v] of Object.entries(raw)) {
+        const key = String(k ?? '').trim();
+        if (!key)
+            continue;
+        if (Array.isArray(v)) {
+            const headings = v.map((x) => String(x ?? '').trim()).filter(Boolean);
+            if (headings.length)
+                out[key] = headings;
+        }
+        else {
+            const heading = String(v ?? '').trim();
+            if (heading)
+                out[key] = heading;
+        }
+    }
+    return Object.keys(out).length ? out : undefined;
+}
+function parseStringListMap(raw) {
+    if (!raw || typeof raw !== 'object')
+        return undefined;
+    const out = {};
+    for (const [k, v] of Object.entries(raw)) {
+        const key = String(k ?? '').trim();
+        if (!key || !Array.isArray(v))
+            continue;
+        const lines = v.map((x) => String(x ?? '').trim()).filter(Boolean);
+        if (lines.length)
+            out[key] = lines;
+    }
+    return Object.keys(out).length ? out : undefined;
+}
+function parseNumberMap(raw) {
+    if (!raw || typeof raw !== 'object')
+        return undefined;
+    const out = {};
+    for (const [k, v] of Object.entries(raw)) {
+        const key = String(k ?? '').trim();
+        if (!key || v == null)
+            continue;
+        const n = typeof v === 'number' ? v : Number(String(v).trim());
+        if (Number.isFinite(n) && n > 0)
+            out[key] = n;
+    }
+    return Object.keys(out).length ? out : undefined;
+}
+function parseEngineStepFromJson(step) {
+    if (!step || typeof step !== 'object')
+        return null;
+    const s = step;
+    const llmRefine = String(s.llmRefine ?? '').trim();
+    if (llmRefine) {
+        const refineHints = Array.isArray(s.hints)
+            ? s.hints.map((x) => String(x ?? '')).filter(Boolean)
+            : undefined;
+        const userPreamble = String(s.userPreamble ?? '').trim();
+        const systemPrompt = String(s.systemPrompt ?? '').trim();
+        const asName = String(s.as ?? '').trim();
+        const outputFormat = s.outputFormat === 'json' || s.outputFormat === 'markdown' ? s.outputFormat : undefined;
+        const outputKeys = Array.isArray(s.outputKeys)
+            ? s.outputKeys.map((x) => String(x ?? '')).filter(Boolean)
+            : undefined;
+        const markdownSection = String(s.markdownSection ?? '').trim();
+        const passthroughFromSource = parsePassthroughFromSource(s.passthroughFromSource);
+        const passthroughFallbackHints = parseStringListMap(s.passthroughFallbackHints);
+        const passthroughFallbackMaxOutTokens = parseNumberMap(s.passthroughFallbackMaxOutTokens);
+        return {
+            llmRefine,
+            ...(asName ? { as: asName } : {}),
+            ...(outputFormat ? { outputFormat } : {}),
+            ...(outputKeys?.length ? { outputKeys } : {}),
+            ...(refineHints?.length ? { hints: refineHints } : {}),
+            ...(userPreamble ? { userPreamble } : {}),
+            ...(systemPrompt ? { systemPrompt } : {}),
+            ...(markdownSection ? { markdownSection } : {}),
+            ...(passthroughFromSource ? { passthroughFromSource } : {}),
+            ...(passthroughFallbackHints ? { passthroughFallbackHints } : {}),
+            ...(passthroughFallbackMaxOutTokens ? { passthroughFallbackMaxOutTokens } : {})
+        };
+    }
+    const tool = String(s.tool ?? '').trim();
+    if (!tool)
+        return null;
+    const args = s.args && typeof s.args === 'object'
+        ? Object.fromEntries(Object.entries(s.args).map(([k, v]) => [k, String(v ?? '')]))
+        : undefined;
+    const asName = String(s.as ?? '').trim();
+    return {
+        ...(asName ? { as: asName } : {}),
+        tool,
+        args
+    };
+}
+/** UI/editor normalized step (includes synthetic {@code tool: llmRefine}). */
+function normalizeEngineStepForUi(step) {
+    const withTool = step;
+    if (withTool.tool?.trim()) {
+        return withTool;
+    }
+    const r = step;
+    return {
+        tool: 'llmRefine',
+        llmRefine: r.llmRefine,
+        ...(r.as?.trim() ? { as: r.as.trim() } : {}),
+        ...(r.outputFormat ? { outputFormat: r.outputFormat } : {}),
+        ...(r.outputKeys?.length ? { outputKeys: [...r.outputKeys] } : {}),
+        ...(r.hints?.length ? { refineHints: [...r.hints] } : {}),
+        ...(r.userPreamble ? { userPreamble: r.userPreamble } : {}),
+        ...(r.systemPrompt ? { systemPrompt: r.systemPrompt } : {}),
+        ...(r.markdownSection ? { markdownSection: r.markdownSection } : {}),
+        ...(r.passthroughFromSource ? { passthroughFromSource: { ...r.passthroughFromSource } } : {}),
+        ...(r.passthroughFallbackHints
+            ? { passthroughFallbackHints: { ...r.passthroughFallbackHints } }
+            : {}),
+        ...(r.passthroughFallbackMaxOutTokens
+            ? { passthroughFallbackMaxOutTokens: { ...r.passthroughFallbackMaxOutTokens } }
+            : {})
+    };
+}
+function engineStepToJson(step) {
+    const llm = String(step.llmRefine ?? '').trim();
+    if (step.tool === 'llmRefine' || llm) {
+        const out = { llmRefine: llm || 'default' };
+        if (step.as?.trim())
+            out.as = step.as.trim();
+        if (step.outputFormat)
+            out.outputFormat = step.outputFormat;
+        if (step.outputKeys?.length)
+            out.outputKeys = [...step.outputKeys];
+        if (step.refineHints?.length)
+            out.hints = [...step.refineHints];
+        if (step.userPreamble?.trim())
+            out.userPreamble = step.userPreamble.trim();
+        if (step.systemPrompt?.trim())
+            out.systemPrompt = step.systemPrompt.trim();
+        if (step.markdownSection?.trim())
+            out.markdownSection = step.markdownSection.trim();
+        if (step.passthroughFromSource && Object.keys(step.passthroughFromSource).length > 0) {
+            out.passthroughFromSource = { ...step.passthroughFromSource };
+        }
+        if (step.passthroughFallbackHints && Object.keys(step.passthroughFallbackHints).length > 0) {
+            out.passthroughFallbackHints = Object.fromEntries(Object.entries(step.passthroughFallbackHints).map(([k, v]) => [k, [...v]]));
+        }
+        if (step.passthroughFallbackMaxOutTokens &&
+            Object.keys(step.passthroughFallbackMaxOutTokens).length > 0) {
+            out.passthroughFallbackMaxOutTokens = { ...step.passthroughFallbackMaxOutTokens };
+        }
+        return out;
+    }
+    const out = { tool: step.tool.trim() };
+    if (step.as?.trim())
+        out.as = step.as.trim();
+    if (step.args && Object.keys(step.args).length > 0)
+        out.args = { ...step.args };
+    return out;
+}
 function collectEngineStepsFromRecipe(recipe) {
     const out = [];
     const phases = recipe.phases;
@@ -38537,7 +38715,9 @@ function collectEngineStepsFromRecipe(recipe) {
     for (const key of INTENT_RECIPE_PHASE_KEYS) {
         const phase = normalizePhaseValue(phases[key]);
         if (phase && !Array.isArray(phase) && phase.engineSteps?.length) {
-            out.push(...phase.engineSteps);
+            for (const step of phase.engineSteps) {
+                out.push(normalizeEngineStepForUi(step));
+            }
         }
     }
     return out;
@@ -38554,7 +38734,7 @@ function phaseEngineSteps(recipe, key) {
     const phase = normalizePhaseValue(recipe.phases?.[key]);
     if (!phase || Array.isArray(phase))
         return [];
-    return phase.engineSteps ?? [];
+    return (phase.engineSteps ?? []).map((s) => normalizeEngineStepForUi(s));
 }
 function cloneRecipe(recipe) {
     return JSON.parse(JSON.stringify(recipe));
@@ -38600,11 +38780,21 @@ function phaseToEditState(phase) {
     }
     return {
         hintsLines: (normalized.hints ?? []).join('\n'),
-        engineSteps: (normalized.engineSteps ?? []).map((s) => ({
-            ...(String(s.as ?? '').trim() ? { as: String(s.as).trim() } : {}),
-            tool: s.tool,
-            args: s.args ? { ...s.args } : undefined
-        }))
+        engineSteps: (normalized.engineSteps ?? []).map((s) => {
+            const ui = normalizeEngineStepForUi(s);
+            return {
+                ...(String(ui.as ?? '').trim() ? { as: String(ui.as).trim() } : {}),
+                tool: ui.tool,
+                args: ui.args ? { ...ui.args } : undefined,
+                ...(ui.llmRefine ? { llmRefine: ui.llmRefine } : {}),
+                ...(ui.refineHints?.length ? { refineHints: [...ui.refineHints] } : {}),
+                ...(ui.userPreamble ? { userPreamble: ui.userPreamble } : {}),
+                ...(ui.systemPrompt ? { systemPrompt: ui.systemPrompt } : {}),
+                ...(ui.outputFormat ? { outputFormat: ui.outputFormat } : {}),
+                ...(ui.outputKeys?.length ? { outputKeys: [...ui.outputKeys] } : {}),
+                ...(ui.markdownSection ? { markdownSection: ui.markdownSection } : {})
+            };
+        })
     };
 }
 function editStateToPhase(state) {
@@ -38620,11 +38810,7 @@ function editStateToPhase(state) {
     }
     return {
         hints,
-        engineSteps: steps.map((s) => ({
-            ...(String(s.as ?? '').trim() ? { as: String(s.as).trim() } : {}),
-            tool: s.tool.trim(),
-            ...(s.args && Object.keys(s.args).length > 0 ? { args: { ...s.args } } : {})
-        }))
+        engineSteps: steps.map((s) => engineStepToJson(s))
     };
 }
 function recipeFromPhaseEdits(base, phaseEdits) {
@@ -39148,42 +39334,112 @@ function AiAssistantIntentRecipePhaseHintsField(props) {
                                                     }, sx: { alignSelf: 'flex-start' }, children: "Generate action hint from tools" }), flowTools.length > 0 ? (jsxs(Typography, { variant: "body2", sx: { fontSize: 12, color: 'text.secondary' }, children: ["Preview: ", buildActionFlowHint(flowTools, flowMiddle, flowSuffix)] })) : null] })] })) : null] })] }) })] }));
 }
 
+const LONG_HINT_CHARS = 220;
+function classifyIntentRecipeHint(hint) {
+    const t = hint.trim();
+    if (!t)
+        return 'compact';
+    if (t.length >= LONG_HINT_CHARS)
+        return 'long';
+    return 'compact';
+}
+function IntentRecipeHintLine(props) {
+    const { hint, index } = props;
+    const kind = classifyIntentRecipeHint(hint);
+    if (kind === 'long') {
+        return (jsx$1(Box, { sx: {
+                maxHeight: 96,
+                overflow: 'auto',
+                px: 1,
+                py: 0.75,
+                borderRadius: 1,
+                bgcolor: 'action.hover',
+                border: '1px solid',
+                borderColor: 'divider'
+            }, children: jsx$1(Typography, { variant: "caption", component: "div", sx: { fontSize: 12, lineHeight: 1.45, whiteSpace: 'pre-wrap' }, children: hint }) }, `hint-${index}`));
+    }
+    return (jsx$1(Typography, { variant: "body2", sx: { fontSize: 13, lineHeight: 1.4 }, children: hint }, `hint-${index}`));
+}
+
 const PHASE_LABELS = {
     context: 'Context',
     action: 'Action',
     confirmation: 'Confirmation'
 };
+function confirmationStepArgSummary(args) {
+    if (!args)
+        return [];
+    const chips = [];
+    const text = String(args.text ?? args.message ?? '').trim();
+    const icon = String(args.iconEmoji ?? '').trim();
+    const thread = String(args.threadTs ?? '').trim();
+    if (text) {
+        const short = text.length > 48 ? `${text.slice(0, 45)}…` : text;
+        chips.push(short);
+    }
+    if (icon)
+        chips.push(icon);
+    if (thread)
+        chips.push(`thread: ${thread}`);
+    return chips;
+}
 function EngineStepCard(props) {
-    const { step, index } = props;
-    const allowlisted = INTENT_RECIPE_READ_ONLY_TOOLS.includes(step.tool);
-    return (jsxs(Paper, { variant: "outlined", sx: {
-            p: 1.25,
-            bgcolor: allowlisted ? 'action.hover' : 'warning.light',
-            borderColor: allowlisted ? 'divider' : 'warning.main'
-        }, children: [jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", children: ["Step ", index + 1] }), jsxs(Stack$1, { direction: "row", spacing: 0.5, alignItems: "center", flexWrap: "wrap", useFlexGap: true, children: [jsx$1(Typography, { variant: "subtitle2", children: step.tool }), step.as?.trim() ? (jsx$1(Chip, { size: "small", label: `as: ${step.as.trim()}`, color: "primary", variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } })) : null] }), !allowlisted ? (jsx$1(Typography, { variant: "caption", color: "warning.dark", children: "Not in read-only prefetch allowlist \u2014 server will skip at runtime." })) : null, step.args && Object.keys(step.args).length > 0 ? (jsx$1(Box, { component: "pre", sx: { mt: 0.75, mb: 0, fontSize: 11, whiteSpace: 'pre-wrap', fontFamily: 'monospace' }, children: JSON.stringify(step.args, null, 2) })) : null] }));
+    const { step, index, phaseKey } = props;
+    const isConfirmation = phaseKey === 'confirmation';
+    const isLlmRefine = step.tool === 'llmRefine' || Boolean(step.llmRefine?.trim());
+    const isSlack = step.tool === 'SlackPostMessage';
+    const prefetchAllowlisted = INTENT_RECIPE_READ_ONLY_TOOLS.includes(step.tool);
+    const confirmationKnown = INTENT_RECIPE_CONFIRMATION_STEP_TOOLS.includes(isLlmRefine ? 'llmRefine' : step.tool);
+    let bgcolor = 'action.hover';
+    let borderColor = 'divider';
+    let caption = null;
+    if (isConfirmation) {
+        bgcolor = 'background.paper';
+        borderColor = 'primary.light';
+        if (!confirmationKnown) {
+            bgcolor = 'warning.light';
+            borderColor = 'warning.main';
+            caption = 'Unknown confirmation step — verify server allowlist.';
+        }
+    }
+    else if (!prefetchAllowlisted) {
+        bgcolor = 'warning.light';
+        borderColor = 'warning.main';
+        caption = 'Not in read-only prefetch allowlist — server will skip at runtime.';
+    }
+    const title = isLlmRefine ? `llmRefine` : step.tool;
+    const profile = step.llmRefine?.trim();
+    return (jsxs(Paper, { variant: "outlined", sx: { p: 1.25, bgcolor, borderColor }, children: [jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", children: ["Step ", index + 1] }), jsxs(Stack$1, { direction: "row", spacing: 0.5, alignItems: "center", flexWrap: "wrap", useFlexGap: true, children: [jsx$1(Typography, { variant: "subtitle2", children: title }), profile ? (jsx$1(Chip, { size: "small", label: profile, variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } })) : null, isLlmRefine && step.outputFormat ? (jsx$1(Chip, { size: "small", label: step.outputFormat, variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } })) : null, step.as?.trim() ? (jsx$1(Chip, { size: "small", label: `as: ${step.as.trim()}`, color: "primary", variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } })) : null] }), caption ? (jsx$1(Typography, { variant: "caption", color: isConfirmation && confirmationKnown ? 'text.secondary' : 'warning.dark', children: caption })) : null, isLlmRefine && (step.refineHints?.length ?? 0) > 0 ? (jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mt: 0.5 }, children: [step.refineHints.length, " refine hint", step.refineHints.length === 1 ? '' : 's'] })) : null, isLlmRefine && (step.outputKeys?.length ?? 0) > 0 ? (jsx$1(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, sx: { mt: 0.75 }, children: step.outputKeys.map((key) => (jsx$1(Chip, { size: "small", label: key, variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } }, key))) })) : null, isSlack && confirmationStepArgSummary(step.args).length > 0 ? (jsx$1(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, sx: { mt: 0.75 }, children: confirmationStepArgSummary(step.args).map((label) => (jsx$1(Chip, { size: "small", label: label, variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } }, label))) })) : null, !isSlack && !isLlmRefine && step.args && Object.keys(step.args).length > 0 ? (jsx$1(Box, { component: "pre", sx: { mt: 0.75, mb: 0, fontSize: 11, whiteSpace: 'pre-wrap', fontFamily: 'monospace' }, children: JSON.stringify(step.args, null, 2) })) : null] }));
 }
 function PhaseColumn(props) {
     const { phaseKey, recipe } = props;
     const hints = phaseHints(recipe, phaseKey);
     const steps = phaseEngineSteps(recipe, phaseKey);
+    const otherHints = hints;
+    const stepsLabel = phaseKey === 'confirmation' ? 'Confirmation steps (server)' : 'Prefetch steps (read-only tools)';
     return (jsxs(Paper, { variant: "outlined", sx: {
             flex: '1 1 0',
             minWidth: 200,
+            maxHeight: { md: 420 },
             p: 1.5,
             display: 'flex',
             flexDirection: 'column',
             gap: 1,
             minHeight: 160,
-            bgcolor: 'background.paper'
-        }, children: [jsx$1(Typography, { variant: "overline", color: "text.secondary", sx: { lineHeight: 1.2 }, children: PHASE_LABELS[phaseKey] }), hints.length > 0 ? (jsx$1(Stack$1, { spacing: 0.5, children: hints.map((h, i) => (jsx$1(Typography, { variant: "body2", sx: { fontSize: 13 }, children: h }, `${phaseKey}-hint-${i}`))) })) : (jsx$1(Typography, { variant: "body2", color: "text.disabled", sx: { fontSize: 13 }, children: "No phase hints" })), steps.length > 0 ? (jsxs(Stack$1, { spacing: 1, sx: { mt: 0.5 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Prefetch wiring" }), steps.map((step, i) => (jsx$1(EngineStepCard, { step: step, index: i }, `${phaseKey}-step-${i}`)))] })) : null] }));
+            bgcolor: 'background.paper',
+            overflow: 'hidden'
+        }, children: [jsx$1(Typography, { variant: "overline", color: "text.secondary", sx: { lineHeight: 1.2, flexShrink: 0 }, children: PHASE_LABELS[phaseKey] }), jsxs(Box, { sx: { flex: 1, minHeight: 0, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 1 }, children: [otherHints.length > 0 ? (jsxs(Stack$1, { spacing: 0.75, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Phase hints" }), otherHints.map((h, i) => (jsx$1(IntentRecipeHintLine, { hint: h, index: i }, `${phaseKey}-hint-${i}`)))] })) : null, hints.length === 0 ? (jsx$1(Typography, { variant: "body2", color: "text.disabled", sx: { fontSize: 13 }, children: "No phase hints" })) : null, steps.length > 0 ? (jsxs(Stack$1, { spacing: 1, sx: { mt: 0.5 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: stepsLabel }), steps.map((step, i) => (jsx$1(EngineStepCard, { step: step, index: i, phaseKey: phaseKey }, `${phaseKey}-step-${i}`)))] })) : null] })] }));
 }
 /**
  * Phased swimlane (Context → Action → Confirmation) aligned with server {@code AuthoringIntentRecipeCatalog}.
- * Tool steps render as wired cards inside the phase that owns {@code engineSteps}.
  */
 function AiAssistantIntentRecipeSwimlane(props) {
     const { recipe } = props;
-    const prefetchOrder = INTENT_RECIPE_PHASE_KEYS.flatMap((k) => phaseEngineSteps(recipe, k));
+    const prefetchSteps = [
+        ...phaseEngineSteps(recipe, 'context'),
+        ...phaseEngineSteps(recipe, 'action')
+    ];
+    const confirmationSteps = phaseEngineSteps(recipe, 'confirmation');
     return (jsxs(Stack$1, { spacing: 2, children: [jsx$1(Box, { sx: {
                     display: 'flex',
                     flexDirection: { xs: 'column', md: 'row' },
@@ -39195,7 +39451,7 @@ function AiAssistantIntentRecipeSwimlane(props) {
                                 flexShrink: 0,
                                 color: 'text.disabled',
                                 pt: 4
-                            }, children: jsx$1(ArrowForwardRounded, { fontSize: "small" }) })) : null] }, key))) }), prefetchOrder.length > 1 ? (jsxs(Paper, { variant: "outlined", sx: { p: 1.5, bgcolor: 'action.hover' }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", gutterBottom: true, children: "Server prefetch execution order (context \u2192 action \u2192 confirmation)" }), jsx$1(Stack$1, { direction: "row", flexWrap: "wrap", useFlexGap: true, spacing: 0.5, alignItems: "center", children: prefetchOrder.map((step, i) => (jsxs(Box, { sx: { display: 'flex', alignItems: 'center', gap: 0.5 }, children: [i > 0 ? jsx$1(ArrowForwardRounded, { sx: { fontSize: 14, color: 'text.disabled' } }) : null, jsx$1(Chip, { size: "small", label: step.tool, variant: "outlined" })] }, `flow-${i}`))) })] })) : null] }));
+                            }, children: jsx$1(ArrowForwardRounded, { fontSize: "small" }) })) : null] }, key))) }), confirmationSteps.length > 0 ? (jsxs(Paper, { variant: "outlined", sx: { p: 1.5, bgcolor: 'action.hover' }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", gutterBottom: true, children: "Confirmation execution order (after tools loop)" }), jsx$1(Stack$1, { direction: "row", flexWrap: "wrap", useFlexGap: true, spacing: 0.5, alignItems: "center", children: confirmationSteps.map((step, i) => (jsxs(Box, { sx: { display: 'flex', alignItems: 'center', gap: 0.5 }, children: [i > 0 ? jsx$1(ArrowForwardRounded, { sx: { fontSize: 14, color: 'text.disabled' } }) : null, jsx$1(Chip, { size: "small", label: step.tool === 'llmRefine' ? `llmRefine (${step.llmRefine || '…'})` : step.tool, variant: "outlined", color: "primary" })] }, `conf-${i}`))) })] })) : null, prefetchSteps.length > 0 ? (jsxs(Paper, { variant: "outlined", sx: { p: 1.5, bgcolor: 'background.default' }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", gutterBottom: true, children: "Prefetch steps (context \u2192 action, when configured)" }), jsx$1(Stack$1, { direction: "row", flexWrap: "wrap", useFlexGap: true, spacing: 0.5, alignItems: "center", children: prefetchSteps.map((step, i) => (jsxs(Box, { sx: { display: 'flex', alignItems: 'center', gap: 0.5 }, children: [i > 0 ? jsx$1(ArrowForwardRounded, { sx: { fontSize: 14, color: 'text.disabled' } }) : null, jsx$1(Chip, { size: "small", label: step.tool, variant: "outlined" })] }, `prefetch-${i}`))) })] })) : null] }));
 }
 
 const PHASE_TAB_LABELS = {

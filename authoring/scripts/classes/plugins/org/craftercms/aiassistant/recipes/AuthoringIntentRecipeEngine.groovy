@@ -294,7 +294,7 @@ final class AuthoringIntentRecipeEngine {
    * @return map keys: {@code markdown}, {@code steps}, {@code ok}
    */
   static Map runConfirmationStepsBlock(StudioToolOperations ops, Map recipe, Map projectCfg) {
-    return runConfirmationStepsBlock(ops, recipe, projectCfg, null)
+    return runConfirmationStepsBlock(ops, recipe, projectCfg, null, null)
   }
 
   /**
@@ -306,7 +306,8 @@ final class AuthoringIntentRecipeEngine {
     StudioToolOperations ops,
     Map recipe,
     Map projectCfg,
-    String lastAssistantMarkdown
+    String lastAssistantMarkdown,
+    Map confirmationLlmContext = null
   ) {
     Map empty = [markdown: '', steps: [], ok: true]
     if (ops == null || recipe == null || projectCfg == null) {
@@ -339,12 +340,69 @@ final class AuthoringIntentRecipeEngine {
       )
     boolean allOk = true
     int index = 0
+    String sourceMarkdown = (lastAssistantMarkdown ?: '').toString().trim()
+    Map<String, String> confirmationPayload = [:]
+    String authorPreviewMarkdown = ''
     for (Object stepObj : steps) {
       if (!(stepObj instanceof Map)) {
         index++
         continue
       }
       Map step = (Map) stepObj
+      String llmRefineProfile = step.get('llmRefine')?.toString()?.trim()
+      if (llmRefineProfile) {
+        Map refineSummary = [index: index, step: 'llmRefine', profile: llmRefineProfile, ok: true]
+        Map refineStepResult = [:] as Map
+        if (StudioAiAssistantProjectConfig.intentRecipeConfirmationLlmRefineEnabled(projectCfg)) {
+          Map refineOut = AuthoringIntentRecipeLlmRefiner.refine(
+            (authorPreviewMarkdown ?: sourceMarkdown),
+            step,
+            projectCfg,
+            confirmationLlmContext instanceof Map ? (Map) confirmationLlmContext : [:]
+          )
+          refineSummary.put('ok', Boolean.TRUE.equals(refineOut?.ok))
+          refineSummary.put('skipped', Boolean.TRUE.equals(refineOut?.skipped))
+          if (refineOut?.message) {
+            refineSummary.put('message', refineOut.message.toString())
+          }
+          if (refineOut?.outputFormat) {
+            refineSummary.put('outputFormat', refineOut.outputFormat.toString())
+          }
+          if (refineOut?.payload instanceof Map && !((Map) refineOut.payload).isEmpty()) {
+            confirmationPayload = new LinkedHashMap<>((Map) refineOut.payload)
+            refineStepResult.putAll(confirmationPayload)
+            refineSummary.put('outputKeys', new ArrayList<>(confirmationPayload.keySet()))
+          }
+          if (refineOut?.refinedMarkdown) {
+            authorPreviewMarkdown = refineOut.refinedMarkdown.toString().trim()
+            refineStepResult.put('refinedMarkdown', authorPreviewMarkdown)
+          }
+          if (!Boolean.TRUE.equals(refineSummary.get('ok'))) {
+            allOk = false
+            log.error(
+              'AuthoringIntentRecipeEngine: confirmation llmRefine failed profile={} message={}',
+              llmRefineProfile,
+              refineOut?.message ?: '(none)'
+            )
+          }
+        } else {
+          refineSummary.put('skipped', true)
+          refineSummary.put('message', 'confirmationLlmRefineEnabled=false')
+        }
+        String refineAs = AuthoringIntentRecipeBindings.stepOutputName(step)
+        if (refineAs && refineStepResult instanceof Map && !refineStepResult.isEmpty()) {
+          Map refineBinding = new LinkedHashMap<>(refineStepResult)
+          namedSoFar.put(refineAs, refineBinding)
+          if (currentNamed instanceof Map) {
+            currentNamed.put(refineAs, new LinkedHashMap<>(refineBinding))
+          }
+          refineSummary.put('as', refineAs)
+        }
+        stepSummaries.add(refineSummary)
+        stepResults.add(refineStepResult)
+        index++
+        continue
+      }
       String tool = step.get('tool')?.toString()?.trim()
       if (!tool || !confirmationWires.contains(tool)) {
         stepSummaries.add([
@@ -361,8 +419,19 @@ final class AuthoringIntentRecipeEngine {
       Object argsObj = step.get('args')
       Map argsTemplate = argsObj instanceof Map ? (Map) argsObj : [:]
       Map resolvedArgs
+      Map namedBindings = new LinkedHashMap()
+      if (initialNamed instanceof Map) {
+        namedBindings.putAll(initialNamed)
+      }
+      if (namedSoFar instanceof Map) {
+        namedBindings.putAll(namedSoFar)
+      }
+      Map mergedCurrentNamed = new LinkedHashMap(currentNamed instanceof Map ? currentNamed : [:])
+      if (namedSoFar instanceof Map) {
+        mergedCurrentNamed.putAll(namedSoFar)
+      }
       try {
-        resolvedArgs = resolveArgsMap(argsTemplate, bindings, stepResults, initialNamed, currentNamed)
+        resolvedArgs = resolveArgsMap(argsTemplate, bindings, stepResults, namedBindings, mergedCurrentNamed)
       } catch (Throwable te) {
         stepSummaries.add([index: index, tool: tool, ok: false, error: 'arg resolution: ' + te.message])
         stepResults.add([:] as Map)
@@ -370,28 +439,43 @@ final class AuthoringIntentRecipeEngine {
         index++
         continue
       }
-      resolvedArgs = plugins.org.craftercms.aiassistant.tools.catalog.StudioAiToolRegistry.mergeRecipeConfirmationArgs(
-        tool,
-        resolvedArgs,
-        lastAssistantMarkdown
+      resolvedArgs = coerceConfirmationArgStrings(
+        plugins.org.craftercms.aiassistant.tools.catalog.StudioAiToolRegistry.mergeRecipeConfirmationArgs(
+          tool,
+          resolvedArgs,
+          authorPreviewMarkdown ?: sourceMarkdown
+        )
       )
       Map summary = [index: index, tool: tool, ok: true]
       Map resultPayload = [:] as Map
       try {
         resultPayload = executeConfirmationTool(ops, tool, resolvedArgs)
         summary.put('ok', Boolean.TRUE.equals(resultPayload?.get('ok')))
+        String toolMsg = resultPayload?.get('message')?.toString()?.trim()
+        if (toolMsg) {
+          summary.put('message', toolMsg)
+        }
         if (!Boolean.TRUE.equals(summary.get('ok'))) {
           allOk = false
+          log.error(
+            'AuthoringIntentRecipeEngine: confirmation step {} {} failed: {}',
+            index,
+            tool,
+            (summary.get('error') ?: toolMsg ?: 'ok=false')
+          )
         }
       } catch (Throwable tex) {
         summary.put('ok', false)
         summary.put('error', tex.message ?: tex.toString())
         allOk = false
-        log.warn('AuthoringIntentRecipeEngine confirmation step {} {} failed: {}', index, tool, tex.message)
+        log.error('AuthoringIntentRecipeEngine confirmation step {} {} failed: {}', index, tool, tex.message)
       }
       String asName = AuthoringIntentRecipeBindings.stepOutputName(step)
       if (asName && Boolean.TRUE.equals(summary.get('ok')) && resultPayload instanceof Map) {
         namedSoFar.put(asName, (Map) resultPayload)
+        if (currentNamed instanceof Map) {
+          currentNamed.put(asName, (Map) resultPayload)
+        }
         summary.put('as', asName)
       }
       stepSummaries.add(summary)
@@ -407,7 +491,25 @@ final class AuthoringIntentRecipeEngine {
       '[Studio — recipe confirmation steps executed]\n\n```json\n' +
         JsonOutput.prettyPrint(JsonOutput.toJson(envelope)) +
         '\n```\n\n'
-    return [markdown: markdown, steps: stepSummaries, ok: allOk]
+    return [
+      markdown                 : markdown,
+      steps                    : stepSummaries,
+      ok                       : allOk,
+      confirmationPayload      : confirmationPayload,
+      refinedAssistantMarkdown : authorPreviewMarkdown ?: sourceMarkdown
+    ]
+  }
+
+  /** Ensures resolved confirmation tool args are strings (binding refs may return non-strings). */
+  private static Map coerceConfirmationArgStrings(Map args) {
+    Map out = args instanceof Map ? new LinkedHashMap<>(args) : [:]
+    for (Map.Entry e : out.entrySet()) {
+      Object v = e.value
+      if (v != null && !(v instanceof String) && !(v instanceof Map) && !(v instanceof List)) {
+        out.put(e.key, v.toString())
+      }
+    }
+    return out
   }
 
   /** Dispatches one allowlisted read-only core tool through {@link StudioAiToolRegistry#executeRecipePrefetchTool}. */

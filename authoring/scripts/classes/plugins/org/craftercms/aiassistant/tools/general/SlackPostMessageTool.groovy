@@ -4,7 +4,6 @@ import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import plugins.org.craftercms.aiassistant.plan.PlanOrchestration
 import plugins.org.craftercms.aiassistant.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.secrets.StudioAiAssistantSecretsService
 import plugins.org.craftercms.aiassistant.tools.http.OutboundHttpPolicy
@@ -28,8 +27,9 @@ import java.util.regex.Pattern
  * <p>Bot token from site {@code secrets.json} ({@link SlackPostMessageProjectSettings#SECRET_KEY}).
  * Site {@code tools.json} may set {@code defaultChannel} and optional {@code secretKey}.</p>
  * <p>Supports recipe-engine <strong>confirmation</strong> steps ({@link #recipeEngineConfirmationStep()}):
- * when {@code engineSteps} omit {@code text}, {@link #applyRecipeConfirmationArgDefaults} uses the last
- * assistant message (plan block stripped) converted to Slack mrkdwn via {@link SlackConfirmationPostFormatter}.</p>
+ * recipes must pass {@code text} (or {@code message}) on each step, usually via {@code $refineBinding.key}
+ * after an {@code llmRefine} step with {@code outputFormat: "json"}. {@link #applyRecipeConfirmationArgDefaults}
+ * applies generic mrkdwn conversion ({@link SlackConfirmationPostFormatter}) when {@code mrkdwn} is not false.</p>
  */
 class SlackPostMessageTool extends AbstractStudioAiTool {
 
@@ -51,22 +51,16 @@ class SlackPostMessageTool extends AbstractStudioAiTool {
 
   /**
    * {@inheritDoc}
-   * <p>When {@code text} / {@code message} are absent, strips the orchestration plan from
-   * {@code lastAssistantMarkdown}, converts the remainder to Slack mrkdwn, and sets {@code mrkdwn=true}.</p>
+   * <p>When {@code text} / {@code message} are set, applies generic mrkdwn conversion and defaults {@code mrkdwn=true}.</p>
    */
   @Override
   Map applyRecipeConfirmationArgDefaults(Map resolvedArgs, String lastAssistantMarkdown) {
     Map args = resolvedArgs instanceof Map ? new LinkedHashMap<>(resolvedArgs) : [:]
     String existing = (args.get('text') ?: args.get('message') ?: '').toString().trim()
-    if (existing) {
+    if (!existing) {
       return args
     }
-    String raw = (lastAssistantMarkdown ?: '').toString().trim()
-    if (!raw) {
-      return args
-    }
-    String stripped = PlanOrchestration.stripOrchestrationPlanBlock(raw).trim()
-    String text = SlackConfirmationPostFormatter.formatAssistantProseForSlack(stripped)
+    String text = SlackConfirmationPostFormatter.formatAssistantProseForSlack(existing)
     if (text) {
       args.put('text', text)
       if (!args.containsKey('mrkdwn')) {
@@ -102,9 +96,23 @@ class SlackPostMessageTool extends AbstractStudioAiTool {
     String apiChannel = resolveChannelForPost(token, channel)
     Map body = buildSlackBody(input, siteDefaults, apiChannel)
     if (!body.text && !body.blocks) {
-      throw new IllegalArgumentException('Provide text and/or blocks for the Slack message')
+      log.error('SlackPostMessage: missing text/blocks — confirmation steps must set text (e.g. $slackOutbound.root)')
+      return [
+        ok     : false,
+        tool   : wireName(),
+        message: 'Provide text and/or blocks for the Slack message (recipe confirmation args)',
+        skipped: true
+      ]
     }
-    return postToSlack(token, body)
+    Map postResult = postToSlack(token, body)
+    if (!Boolean.TRUE.equals(postResult?.ok)) {
+      log.error(
+        'SlackPostMessage: post failed channel={} message={}',
+        body.channel,
+        postResult?.message ?: '(none)'
+      )
+    }
+    return postResult
   }
 
   /** Resolves Slack bot token from call args, tool settings, or {@link SlackPostMessageProjectSettings#SECRET_KEY}. */
@@ -390,6 +398,13 @@ class SlackPostMessageTool extends AbstractStudioAiTool {
       }
       boolean slackOk = Boolean.TRUE.equals(slack.ok)
       String err = slack.error?.toString()?.trim()
+      if (!slackOk || status < 200 || status >= 300) {
+        log.error(
+          'SlackPostMessage: Slack API error status={} error={}',
+          status,
+          err ?: '(none)'
+        )
+      }
       return [
         ok        : slackOk && status >= 200 && status < 300,
         tool      : wireName(),
@@ -402,7 +417,7 @@ class SlackPostMessageTool extends AbstractStudioAiTool {
         slack     : slack
       ]
     } catch (Throwable t) {
-      log.warn('SlackPostMessage failed: {}', t.toString())
+      log.error('SlackPostMessage failed: {}', t.toString())
       return [
         ok     : false,
         tool   : wireName(),

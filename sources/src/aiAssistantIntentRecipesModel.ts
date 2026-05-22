@@ -20,11 +20,40 @@ export type IntentRecipeEngineStep = {
   as?: string;
   tool: string;
   args?: Record<string, string>;
+  /** Confirmation {@code llmRefine} profile (JSON has {@code llmRefine} without {@code tool}). */
+  llmRefine?: string;
+  refineHints?: string[];
+  userPreamble?: string;
+  systemPrompt?: string;
+  outputFormat?: 'json' | 'markdown';
+  outputKeys?: string[];
+  markdownSection?: string;
+  passthroughFromSource?: Record<string, string | string[]>;
+  passthroughFallbackHints?: Record<string, string[]>;
+  passthroughFallbackMaxOutTokens?: Record<string, number>;
+};
+
+/** Server JSON shape for confirmation {@code llmRefine} engine steps. */
+export type IntentRecipeLlmRefineStep = {
+  llmRefine: string;
+  /** Named binding for {@code $name.key} in later confirmation tool args. */
+  as?: string;
+  /** {@code json} returns {@code outputKeys} payload; default {@code markdown} rewrites prose. */
+  outputFormat?: 'json' | 'markdown';
+  outputKeys?: string[];
+  hints?: string[];
+  userPreamble?: string;
+  systemPrompt?: string;
+  markdownSection?: string;
+  /** Payload key → {@code ##} heading(s) copied from the assistant turn without LLM rewrite. */
+  passthroughFromSource?: Record<string, string | string[]>;
+  passthroughFallbackHints?: Record<string, string[]>;
+  passthroughFallbackMaxOutTokens?: Record<string, number>;
 };
 
 export type IntentRecipePhaseBlock = {
   hints?: string[];
-  engineSteps?: IntentRecipeEngineStep[];
+  engineSteps?: Array<IntentRecipeEngineStep | IntentRecipeLlmRefineStep>;
 };
 
 /** Phase may be hint strings only, or a block with hints + deterministic prefetch steps. */
@@ -157,6 +186,9 @@ export const INTENT_RECIPE_READ_ONLY_TOOLS = [
   'GetContentVersionHistory',
   'GetPreviewHtml'
 ] as const;
+
+/** Confirmation-phase server steps (not prefetch); used by recipe preview swimlane only. */
+export const INTENT_RECIPE_CONFIRMATION_STEP_TOOLS = ['llmRefine', 'SlackPostMessage'] as const;
 
 export function defaultIntentRecipesFile(): IntentRecipesFile {
   return { version: 1, recipes: [] };
@@ -320,25 +352,8 @@ export function normalizePhaseValue(raw: unknown): IntentRecipePhaseValue | null
     }
     if (Array.isArray(o.engineSteps)) {
       block.engineSteps = o.engineSteps
-        .map((step) => {
-          if (!step || typeof step !== 'object') return null;
-          const s = step as Record<string, unknown>;
-          const tool = String(s.tool ?? '').trim();
-          if (!tool) return null;
-          const args =
-            s.args && typeof s.args === 'object'
-              ? Object.fromEntries(
-                  Object.entries(s.args as Record<string, unknown>).map(([k, v]) => [k, String(v ?? '')])
-                )
-              : undefined;
-          const asName = String(s.as ?? '').trim();
-          return {
-            ...(asName ? { as: asName } : {}),
-            tool,
-            args
-          } satisfies IntentRecipeEngineStep;
-        })
-        .filter((x): x is IntentRecipeEngineStep => x != null);
+        .map((step) => parseEngineStepFromJson(step))
+        .filter((x): x is IntentRecipeEngineStep | IntentRecipeLlmRefineStep => x != null);
     }
     if ((block.hints?.length ?? 0) === 0 && (block.engineSteps?.length ?? 0) === 0) return null;
     return block;
@@ -356,6 +371,161 @@ export function declaredBindingNames(recipe: IntentRecipe): string[] {
   return [...names];
 }
 
+function parsePassthroughFromSource(
+  raw: unknown
+): Record<string, string | string[]> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const out: Record<string, string | string[]> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const key = String(k ?? '').trim();
+    if (!key) continue;
+    if (Array.isArray(v)) {
+      const headings = v.map((x) => String(x ?? '').trim()).filter(Boolean);
+      if (headings.length) out[key] = headings;
+    } else {
+      const heading = String(v ?? '').trim();
+      if (heading) out[key] = heading;
+    }
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+function parseStringListMap(raw: unknown): Record<string, string[]> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const out: Record<string, string[]> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const key = String(k ?? '').trim();
+    if (!key || !Array.isArray(v)) continue;
+    const lines = v.map((x) => String(x ?? '').trim()).filter(Boolean);
+    if (lines.length) out[key] = lines;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+function parseNumberMap(raw: unknown): Record<string, number> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const key = String(k ?? '').trim();
+    if (!key || v == null) continue;
+    const n = typeof v === 'number' ? v : Number(String(v).trim());
+    if (Number.isFinite(n) && n > 0) out[key] = n;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+function parseEngineStepFromJson(step: unknown): IntentRecipeEngineStep | IntentRecipeLlmRefineStep | null {
+  if (!step || typeof step !== 'object') return null;
+  const s = step as Record<string, unknown>;
+  const llmRefine = String(s.llmRefine ?? '').trim();
+  if (llmRefine) {
+    const refineHints = Array.isArray(s.hints)
+      ? s.hints.map((x) => String(x ?? '')).filter(Boolean)
+      : undefined;
+    const userPreamble = String(s.userPreamble ?? '').trim();
+    const systemPrompt = String(s.systemPrompt ?? '').trim();
+    const asName = String(s.as ?? '').trim();
+    const outputFormat =
+      s.outputFormat === 'json' || s.outputFormat === 'markdown' ? s.outputFormat : undefined;
+    const outputKeys = Array.isArray(s.outputKeys)
+      ? s.outputKeys.map((x) => String(x ?? '')).filter(Boolean)
+      : undefined;
+    const markdownSection = String(s.markdownSection ?? '').trim();
+    const passthroughFromSource = parsePassthroughFromSource(s.passthroughFromSource);
+    const passthroughFallbackHints = parseStringListMap(s.passthroughFallbackHints);
+    const passthroughFallbackMaxOutTokens = parseNumberMap(s.passthroughFallbackMaxOutTokens);
+    return {
+      llmRefine,
+      ...(asName ? { as: asName } : {}),
+      ...(outputFormat ? { outputFormat } : {}),
+      ...(outputKeys?.length ? { outputKeys } : {}),
+      ...(refineHints?.length ? { hints: refineHints } : {}),
+      ...(userPreamble ? { userPreamble } : {}),
+      ...(systemPrompt ? { systemPrompt } : {}),
+      ...(markdownSection ? { markdownSection } : {}),
+      ...(passthroughFromSource ? { passthroughFromSource } : {}),
+      ...(passthroughFallbackHints ? { passthroughFallbackHints } : {}),
+      ...(passthroughFallbackMaxOutTokens ? { passthroughFallbackMaxOutTokens } : {})
+    } satisfies IntentRecipeLlmRefineStep;
+  }
+  const tool = String(s.tool ?? '').trim();
+  if (!tool) return null;
+  const args =
+    s.args && typeof s.args === 'object'
+      ? Object.fromEntries(
+          Object.entries(s.args as Record<string, unknown>).map(([k, v]) => [k, String(v ?? '')])
+        )
+      : undefined;
+  const asName = String(s.as ?? '').trim();
+  return {
+    ...(asName ? { as: asName } : {}),
+    tool,
+    args
+  } satisfies IntentRecipeEngineStep;
+}
+
+/** UI/editor normalized step (includes synthetic {@code tool: llmRefine}). */
+export function normalizeEngineStepForUi(
+  step: IntentRecipeEngineStep | IntentRecipeLlmRefineStep
+): IntentRecipeEngineStep {
+  const withTool = step as IntentRecipeEngineStep;
+  if (withTool.tool?.trim()) {
+    return withTool;
+  }
+  const r = step as IntentRecipeLlmRefineStep;
+  return {
+    tool: 'llmRefine',
+    llmRefine: r.llmRefine,
+    ...(r.as?.trim() ? { as: r.as.trim() } : {}),
+    ...(r.outputFormat ? { outputFormat: r.outputFormat } : {}),
+    ...(r.outputKeys?.length ? { outputKeys: [...r.outputKeys] } : {}),
+    ...(r.hints?.length ? { refineHints: [...r.hints] } : {}),
+    ...(r.userPreamble ? { userPreamble: r.userPreamble } : {}),
+    ...(r.systemPrompt ? { systemPrompt: r.systemPrompt } : {}),
+    ...(r.markdownSection ? { markdownSection: r.markdownSection } : {}),
+    ...(r.passthroughFromSource ? { passthroughFromSource: { ...r.passthroughFromSource } } : {}),
+    ...(r.passthroughFallbackHints
+      ? { passthroughFallbackHints: { ...r.passthroughFallbackHints } }
+      : {}),
+    ...(r.passthroughFallbackMaxOutTokens
+      ? { passthroughFallbackMaxOutTokens: { ...r.passthroughFallbackMaxOutTokens } }
+      : {})
+  };
+}
+
+export function engineStepToJson(step: IntentRecipeEngineStep): IntentRecipeEngineStep | IntentRecipeLlmRefineStep {
+  const llm = String(step.llmRefine ?? '').trim();
+  if (step.tool === 'llmRefine' || llm) {
+    const out: IntentRecipeLlmRefineStep = { llmRefine: llm || 'default' };
+    if (step.as?.trim()) out.as = step.as.trim();
+    if (step.outputFormat) out.outputFormat = step.outputFormat;
+    if (step.outputKeys?.length) out.outputKeys = [...step.outputKeys];
+    if (step.refineHints?.length) out.hints = [...step.refineHints];
+    if (step.userPreamble?.trim()) out.userPreamble = step.userPreamble.trim();
+    if (step.systemPrompt?.trim()) out.systemPrompt = step.systemPrompt.trim();
+    if (step.markdownSection?.trim()) out.markdownSection = step.markdownSection.trim();
+    if (step.passthroughFromSource && Object.keys(step.passthroughFromSource).length > 0) {
+      out.passthroughFromSource = { ...step.passthroughFromSource };
+    }
+    if (step.passthroughFallbackHints && Object.keys(step.passthroughFallbackHints).length > 0) {
+      out.passthroughFallbackHints = Object.fromEntries(
+        Object.entries(step.passthroughFallbackHints).map(([k, v]) => [k, [...v]])
+      );
+    }
+    if (
+      step.passthroughFallbackMaxOutTokens &&
+      Object.keys(step.passthroughFallbackMaxOutTokens).length > 0
+    ) {
+      out.passthroughFallbackMaxOutTokens = { ...step.passthroughFallbackMaxOutTokens };
+    }
+    return out;
+  }
+  const out: IntentRecipeEngineStep = { tool: step.tool.trim() };
+  if (step.as?.trim()) out.as = step.as.trim();
+  if (step.args && Object.keys(step.args).length > 0) out.args = { ...step.args };
+  return out;
+}
+
 export function collectEngineStepsFromRecipe(recipe: IntentRecipe): IntentRecipeEngineStep[] {
   const out: IntentRecipeEngineStep[] = [];
   const phases = recipe.phases;
@@ -363,7 +533,9 @@ export function collectEngineStepsFromRecipe(recipe: IntentRecipe): IntentRecipe
   for (const key of INTENT_RECIPE_PHASE_KEYS) {
     const phase = normalizePhaseValue(phases[key]);
     if (phase && !Array.isArray(phase) && phase.engineSteps?.length) {
-      out.push(...phase.engineSteps);
+      for (const step of phase.engineSteps) {
+        out.push(normalizeEngineStepForUi(step));
+      }
     }
   }
   return out;
@@ -379,7 +551,7 @@ export function phaseHints(recipe: IntentRecipe, key: IntentRecipePhaseKey): str
 export function phaseEngineSteps(recipe: IntentRecipe, key: IntentRecipePhaseKey): IntentRecipeEngineStep[] {
   const phase = normalizePhaseValue(recipe.phases?.[key]);
   if (!phase || Array.isArray(phase)) return [];
-  return phase.engineSteps ?? [];
+  return (phase.engineSteps ?? []).map((s) => normalizeEngineStepForUi(s));
 }
 
 export function cloneRecipeForCustom(recipe: IntentRecipe, newId?: string): IntentRecipe {
@@ -438,11 +610,21 @@ export function phaseToEditState(phase: IntentRecipePhaseValue | undefined): Int
   }
   return {
     hintsLines: (normalized.hints ?? []).join('\n'),
-    engineSteps: (normalized.engineSteps ?? []).map((s) => ({
-      ...(String(s.as ?? '').trim() ? { as: String(s.as).trim() } : {}),
-      tool: s.tool,
-      args: s.args ? { ...s.args } : undefined
-    }))
+    engineSteps: (normalized.engineSteps ?? []).map((s) => {
+      const ui = normalizeEngineStepForUi(s);
+      return {
+        ...(String(ui.as ?? '').trim() ? { as: String(ui.as).trim() } : {}),
+        tool: ui.tool,
+        args: ui.args ? { ...ui.args } : undefined,
+        ...(ui.llmRefine ? { llmRefine: ui.llmRefine } : {}),
+        ...(ui.refineHints?.length ? { refineHints: [...ui.refineHints] } : {}),
+        ...(ui.userPreamble ? { userPreamble: ui.userPreamble } : {}),
+        ...(ui.systemPrompt ? { systemPrompt: ui.systemPrompt } : {}),
+        ...(ui.outputFormat ? { outputFormat: ui.outputFormat } : {}),
+        ...(ui.outputKeys?.length ? { outputKeys: [...ui.outputKeys] } : {}),
+        ...(ui.markdownSection ? { markdownSection: ui.markdownSection } : {})
+      };
+    })
   };
 }
 
@@ -458,11 +640,7 @@ export function editStateToPhase(state: IntentRecipePhaseEditState): IntentRecip
   }
   return {
     hints,
-    engineSteps: steps.map((s) => ({
-      ...(String(s.as ?? '').trim() ? { as: String(s.as).trim() } : {}),
-      tool: s.tool.trim(),
-      ...(s.args && Object.keys(s.args).length > 0 ? { args: { ...s.args } } : {})
-    }))
+    engineSteps: steps.map((s) => engineStepToJson(s))
   };
 }
 

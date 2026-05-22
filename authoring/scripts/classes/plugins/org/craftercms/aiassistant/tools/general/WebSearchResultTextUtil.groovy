@@ -38,4 +38,24 @@ final class WebSearchResultTextUtil {
     }
     return u.contains('duckduckgo.com/') || u.contains('duck.com/')
   }
+
+  /**
+   * When the query was expanded for content-management industry research, drop US healthcare CMS hits.
+   */
+  static boolean skipHealthcareCmsResult(String url, String title, String snippet) {
+    String u = (url ?: '').toString().trim().toLowerCase(Locale.ROOT)
+    if (u.contains('medicare.gov') || u.contains('medicaid.gov') || u.contains('cms.gov')) {
+      return true
+    }
+    String text = ((title ?: '') + ' ' + (snippet ?: '')).toString().toLowerCase(Locale.ROOT)
+    if (!text.contains('medicare') && !text.contains('medicaid')) {
+      return false
+    }
+    return text.contains('enrollment') ||
+      text.contains('moratorium') ||
+      text.contains('hospice') ||
+      text.contains('home health') ||
+      text.contains('medicare & medicaid') ||
+      text.contains('centers for medicare')
+  }
 }

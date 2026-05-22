@@ -20,6 +20,7 @@ import plugins.org.craftercms.aiassistant.recipes.AuthoringIntentSiteToolCatalog
 import plugins.org.craftercms.aiassistant.orchestration.chatcompletions.ChatCompletionsToolWire
 import plugins.org.craftercms.aiassistant.tools.AiOrchestrationTools
 import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
+import plugins.org.craftercms.aiassistant.tools.spi.StudioAiToolMaintainerObservability
 
 @Grab(group='org.springframework.ai', module='spring-ai-core', version='1.0.0-M6', initClass=false)
 @Grab(group='org.springframework.ai', module='spring-ai-openai', version='1.0.0-M6', initClass=false)
@@ -5689,78 +5690,313 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     return 0
   }
 
+  /** API key / model / wire URL for confirmation {@code llmRefine} steps (from the active tools-loop session bundle). */
+  private static Map buildRecipeConfirmationLlmContext(Map toolsLoopSessionBundle) {
+    if (!(toolsLoopSessionBundle instanceof Map)) {
+      return [:]
+    }
+    String apiKey = StudioAiLlmKind.toolsLoopChatApiKeyFromBundle(toolsLoopSessionBundle)
+    String model = toolsLoopSessionBundle.resolvedChatModel?.toString()?.trim() ?:
+      toolsLoopSessionBundle.chatModel?.toString()?.trim() ?: ''
+    return [
+      apiKey                  : apiKey,
+      model                   : model,
+      wireBaseUrl             : StudioAiLlmKind.toolsLoopChatBaseUrlFromBundle(toolsLoopSessionBundle),
+      toolsLoopSessionBundle  : toolsLoopSessionBundle
+    ] as Map
+  }
+
+  /** When confirmation includes {@code llmRefine} + outbound tools, end the tools loop with server-authored markdown. */
+  private static boolean recipeConfirmationShouldFinalizeAuthorVisible(Map plan) {
+    if (!(plan instanceof Map)) {
+      return false
+    }
+    List<Map> ces = plan.confirmationEngineSteps instanceof List ? (List<Map>) plan.confirmationEngineSteps : []
+    boolean hasRefine = ces.any { Map es -> es?.get('llmRefine')?.toString()?.trim() }
+    boolean hasTool = ces.any { Map es -> es?.get('tool')?.toString()?.trim() }
+    return hasRefine && hasTool
+  }
+
   /**
-   * Runs matched-recipe {@code phases.confirmation} {@code engineSteps} on the JVM after Action-phase chat work
-   * (model-authored **## Plan** — approach B). Returns {@code true} when steps ran and the tools loop should continue.
+   * When confirmation will {@linkplain #recipeConfirmationShouldFinalizeAuthorVisible finalize} author-visible
+   * markdown, do not stream intermediate outbound prose before tools finish — only short ## Plan / 📋 lines.
+   */
+  private static boolean shouldStreamPreToolAssistantSseForToolsLoop(
+    String cleanedPreTool,
+    Map toolsLoopSessionBundle,
+    int round
+  ) {
+    if (!(cleanedPreTool?.trim())) {
+      return false
+    }
+    Map plan = toolsLoopSessionBundle?.recipeExecutionPlan instanceof Map ?
+      (Map) toolsLoopSessionBundle.recipeExecutionPlan :
+      null
+    if (!recipeConfirmationShouldFinalizeAuthorVisible(plan)) {
+      return true
+    }
+    String t = cleanedPreTool.trim()
+    if (t.contains('## Plan') || t.contains('📋')) {
+      return round <= 2
+    }
+    return false
+  }
+
+  private static String lastNonEmptyAssistantWireText(List wireMessages) {
+    if (!(wireMessages instanceof List)) {
+      return ''
+    }
+    for (int i = wireMessages.size() - 1; i >= 0; i--) {
+      Object row = wireMessages.get(i)
+      if (!(row instanceof Map)) {
+        continue
+      }
+      Map msg = (Map) row
+      if (!'assistant'.equals(msg.get('role')?.toString())) {
+        continue
+      }
+      String t = assistantTextFromChoiceMessageMap(msg)?.trim()
+      if (t) {
+        return t
+      }
+    }
+    return ''
+  }
+
+  /**
+   * Assistant markdown passed to confirmation {@code llmRefine}: prefer this round’s prose, else the last
+   * non-empty assistant message on the wire (avoids confirming on an empty final turn after tool rounds).
+   */
+  private static String resolveMarkdownForRecipeConfirmation(List wireMessages, String roundAssistantText) {
+    String round = (roundAssistantText ?: '').toString().trim()
+    if (round) {
+      return round
+    }
+    return lastNonEmptyAssistantWireText(wireMessages)
+  }
+
+  /** Author-visible markdown after JVM confirmation (structured payload preview + per-tool status). */
+  private static String buildRecipeConfirmationAuthorMarkdown(Map block, Map plan) {
+    if (!(block instanceof Map)) {
+      return ''
+    }
+    Map payload = block.confirmationPayload instanceof Map ? (Map) block.confirmationPayload : [:]
+    String preview = (block.refinedAssistantMarkdown ?: '').toString().trim()
+    StringBuilder sb = new StringBuilder()
+    if (payload instanceof Map && !payload.isEmpty()) {
+      List<String> keyOrder = []
+      Map refineStep = (block.steps instanceof List) ?
+        ((List) block.steps).find { it instanceof Map && 'llmRefine'.equals(((Map) it).get('step')?.toString()) } :
+        null
+      if (refineStep instanceof Map && refineStep.outputKeys instanceof List) {
+        keyOrder = (List<String>) refineStep.outputKeys
+      } else {
+        keyOrder = new ArrayList<>(payload.keySet())
+      }
+      sb.append(
+        plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeLlmRefiner
+          .buildAuthorPreviewMarkdown(payload, keyOrder)
+      )
+    } else if (preview) {
+      sb.append(preview)
+    }
+    List steps = block.steps instanceof List ? (List) block.steps : []
+    for (Object stepObj : steps) {
+      if (!(stepObj instanceof Map)) {
+        continue
+      }
+      Map step = (Map) stepObj
+      String tool = step.get('tool')?.toString()?.trim()
+      if (!tool) {
+        continue
+      }
+      sb.append('\n\n---\n\n')
+      if (Boolean.TRUE.equals(step.get('ok'))) {
+        sb.append('✅ **').append(tool).append('** completed.')
+        String ch = step.get('channel')?.toString()?.trim()
+        if (ch) {
+          sb.append(' (`').append(ch).append('`)')
+        }
+      } else {
+        sb.append('❌ **').append(tool).append('** did not succeed')
+        String err = (step.get('error') ?: step.get('message'))?.toString()?.trim()
+        if (err) {
+          sb.append(': ').append(err)
+        }
+        sb.append('.')
+      }
+    }
+    if (sb.length() == 0 && Boolean.FALSE.equals(block.ok)) {
+      sb.append('⚠️ **Confirmation steps finished with errors** — check Studio logs.\n')
+    }
+    return sb.toString().trim()
+  }
+
+  private static void applyRecipeConfirmationTelemetry(Map toolsLoopSessionBundle, Map block) {
+    Map tel = toolsLoopSessionBundle?.intentRecipeRoutingTelemetry instanceof Map ?
+      (Map) toolsLoopSessionBundle.intentRecipeRoutingTelemetry :
+      null
+    if (!(tel instanceof Map)) {
+      return
+    }
+    tel.confirmationServerStepsExecuted = Boolean.TRUE
+    tel.confirmationServerStepsOk = Boolean.TRUE.equals(block?.ok)
+    tel.confirmationServerStepSummaries = block?.steps instanceof List ? block.steps : []
+    Map refineStep = (block?.steps instanceof List) ?
+      ((List) block.steps).find { it instanceof Map && 'llmRefine'.equals(((Map) it).get('step')?.toString()) } :
+      null
+    if (refineStep instanceof Map && !Boolean.TRUE.equals(refineStep.skipped)) {
+      tel.confirmationLlmRefined = Boolean.TRUE
+      tel.confirmationPitchRefined = Boolean.TRUE
+    }
+  }
+
+  /**
+   * Runs matched-recipe {@code phases.confirmation} {@code engineSteps} on the JVM after Action-phase chat work.
+   *
+   * @return map {@code ran}, optional {@code finalizeAuthorText} (end tools loop without another LLM round),
+   *         optional {@code wireInjectMarkdown} when the loop should continue
+   */
+  private static Map runMatchedRecipeConfirmationIfNeeded(
+    List wireMessages,
+    Map toolsLoopSessionBundle,
+    String agentId,
+    int round,
+    String lastAssistantMarkdown,
+    OutputStream sseOut = null
+  ) {
+    Map none = [ran: false, finalizeAuthorText: null, wireInjectMarkdown: null]
+    if (!(toolsLoopSessionBundle instanceof Map)) {
+      return none
+    }
+    if (Boolean.TRUE.equals(toolsLoopSessionBundle.recipeConfirmationStepsExecuted)) {
+      return none
+    }
+    Map plan = toolsLoopSessionBundle.recipeExecutionPlan instanceof Map ?
+      (Map) toolsLoopSessionBundle.recipeExecutionPlan :
+      null
+    if (!AuthoringIntentRecipePlanCompiler.hasConfirmationServerSteps(plan)) {
+      return none
+    }
+    Map tel = toolsLoopSessionBundle.intentRecipeRoutingTelemetry instanceof Map ?
+      (Map) toolsLoopSessionBundle.intentRecipeRoutingTelemetry :
+      null
+    if (tel == null || !'matched'.equals(tel.get('outcome')?.toString())) {
+      return none
+    }
+    String recipeId = tel.get('recipeId')?.toString()?.trim()
+    if (!recipeId) {
+      return none
+    }
+    StudioToolOperations ops = toolsLoopSessionBundle.studioOps instanceof StudioToolOperations ?
+      (StudioToolOperations) toolsLoopSessionBundle.studioOps :
+      null
+    if (ops == null) {
+      return none
+    }
+    Map cfg = intentRecipeProjectConfigFromToolsLoopBundle(toolsLoopSessionBundle)
+    if (cfg == null || !StudioAiAssistantProjectConfig.intentRecipeEngineEnabled(cfg)) {
+      return none
+    }
+    List recipes = AuthoringIntentRecipeCatalog.loadRecipes(ops, cfg)
+    Map recipe = AuthoringIntentRecipeCatalog.findRecipeById(recipes, recipeId)
+    if (recipe == null) {
+      return none
+    }
+    long t0 = System.currentTimeMillis()
+    writeToolProgressSse(
+      sseOut,
+      'Recipe confirmation',
+      'start',
+      [progressMessage: ' **Running confirmation** (server refine + tools)…\n'] as Map,
+      null,
+      null,
+      null
+    )
+    Map confirmationLlmContext = buildRecipeConfirmationLlmContext(toolsLoopSessionBundle)
+    Map block = AuthoringIntentRecipeEngine.runConfirmationStepsBlock(
+      ops,
+      recipe,
+      cfg,
+      lastAssistantMarkdown,
+      confirmationLlmContext
+    )
+    if (block instanceof Map) {
+      block.confirmationSourceMarkdown = (lastAssistantMarkdown ?: '').toString()
+    }
+    long elapsed = System.currentTimeMillis() - t0
+    writeToolProgressSse(sseOut, 'Recipe confirmation', 'done', [:], null, block, elapsed)
+    toolsLoopSessionBundle.recipeConfirmationStepsExecuted = Boolean.TRUE
+    applyRecipeConfirmationTelemetry(toolsLoopSessionBundle, block)
+    String md = (block.markdown ?: '').toString().trim()
+    boolean confOk = Boolean.TRUE.equals(block.ok)
+    if (confOk) {
+      log.info(
+        'Tools-loop: executed recipe confirmation server steps ok=true agentId={} recipeId={} round={}',
+        agentId,
+        recipeId,
+        round
+      )
+    } else {
+      log.error(
+        'Tools-loop: executed recipe confirmation server steps ok=false agentId={} recipeId={} round={} steps={}',
+        agentId,
+        recipeId,
+        round,
+        block.steps
+      )
+    }
+    String finalizeAuthorText = buildRecipeConfirmationAuthorMarkdown(block, plan)
+    Map out = [
+      ran                : true,
+      finalizeAuthorText : finalizeAuthorText,
+      wireInjectMarkdown : md
+    ]
+    if (recipeConfirmationShouldFinalizeAuthorVisible(plan) && finalizeAuthorText?.trim()) {
+      out.finalizeWithoutLlmRound = Boolean.TRUE
+    }
+    if (!md?.trim() && !finalizeAuthorText?.trim()) {
+      return none
+    }
+    return out
+  }
+
+  /**
+   * Runs matched-recipe confirmation when the model finishes without further {@code tool_calls}.
+   * Returns {@code true} when the tools loop should continue (legacy wire-inject path).
    */
   private static boolean maybeExecuteMatchedRecipeConfirmationSteps(
     List wireMessages,
     Map toolsLoopSessionBundle,
     String agentId,
     int round,
-    String lastAssistantMarkdown
+    String lastAssistantMarkdown,
+    OutputStream sseOut = null
   ) {
-    if (!(toolsLoopSessionBundle instanceof Map)) {
+    Map conf = runMatchedRecipeConfirmationIfNeeded(
+      wireMessages,
+      toolsLoopSessionBundle,
+      agentId,
+      round,
+      lastAssistantMarkdown,
+      sseOut
+    )
+    if (!Boolean.TRUE.equals(conf.ran)) {
       return false
     }
-    if (Boolean.TRUE.equals(toolsLoopSessionBundle.recipeConfirmationStepsExecuted)) {
+    if (Boolean.TRUE.equals(conf.finalizeWithoutLlmRound) && conf.finalizeAuthorText?.toString()?.trim()) {
       return false
     }
-    Map plan = toolsLoopSessionBundle.recipeExecutionPlan instanceof Map ?
-      (Map) toolsLoopSessionBundle.recipeExecutionPlan :
-      null
-    if (!AuthoringIntentRecipePlanCompiler.hasConfirmationServerSteps(plan)) {
-      return false
-    }
-    Map tel = toolsLoopSessionBundle.intentRecipeRoutingTelemetry instanceof Map ?
-      (Map) toolsLoopSessionBundle.intentRecipeRoutingTelemetry :
-      null
-    if (tel == null || !'matched'.equals(tel.get('outcome')?.toString())) {
-      return false
-    }
-    String recipeId = tel.get('recipeId')?.toString()?.trim()
-    if (!recipeId) {
-      return false
-    }
-    StudioToolOperations ops = toolsLoopSessionBundle.studioOps instanceof StudioToolOperations ?
-      (StudioToolOperations) toolsLoopSessionBundle.studioOps :
-      null
-    if (ops == null) {
-      return false
-    }
-    Map cfg = intentRecipeProjectConfigFromToolsLoopBundle(toolsLoopSessionBundle)
-    if (cfg == null || !StudioAiAssistantProjectConfig.intentRecipeEngineEnabled(cfg)) {
-      return false
-    }
-    List recipes = AuthoringIntentRecipeCatalog.loadRecipes(ops, cfg)
-    Map recipe = AuthoringIntentRecipeCatalog.findRecipeById(recipes, recipeId)
-    if (recipe == null) {
-      return false
-    }
-    Map block = AuthoringIntentRecipeEngine.runConfirmationStepsBlock(ops, recipe, cfg, lastAssistantMarkdown)
-    String md = (block.markdown ?: '').toString().trim()
+    String md = (conf.wireInjectMarkdown ?: '').toString().trim()
     if (!md) {
       return false
     }
-    toolsLoopSessionBundle.recipeConfirmationStepsExecuted = Boolean.TRUE
     wireMessages << [
       role   : 'user',
       content:
         md +
           '\nIncorporate these confirmation results in **## Plan Execution** (✅/❌/⚠️). Confirmation tools were executed by Studio — do not call them again via **tool_calls**.\n'
     ]
-    if (tel instanceof Map) {
-      tel.confirmationServerStepsExecuted = Boolean.TRUE
-      tel.confirmationServerStepsOk = Boolean.TRUE.equals(block.ok)
-      tel.confirmationServerStepSummaries = block.steps instanceof List ? block.steps : []
-    }
-    log.info(
-      'Tools-loop: executed recipe confirmation server steps ok={} agentId={} recipeId={} round={}',
-      Boolean.TRUE.equals(block.ok),
-      agentId,
-      recipeId,
-      round
-    )
     return true
   }
 
@@ -5939,6 +6175,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
         throw new InterruptedException(AIASSISTANT_PIPELINE_CANCELLED)
       }
       aiAssistantToolWorkerDiagPhase("native_tool_loop_round_${round}_build_request wireMsgCount=${wireMessages.size()}")
+      List effectiveWireTools = wireTools
       Object toolChoice = 'auto'
       if (round == 0) {
         Map intentTelForce =
@@ -5946,7 +6183,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
             (Map) toolsLoopSessionBundle.get('intentRecipeRoutingTelemetry') :
             null
         String forceTool = intentTelForce?.get('toolsLoopForceTool')?.toString()?.trim() ?: ''
-        if (forceTool && wireToolsIncludeNamedTool(wireTools, forceTool)) {
+        if (forceTool && wireToolsIncludeNamedTool(effectiveWireTools, forceTool)) {
           toolChoice = [type: 'function', function: [name: forceTool]]
           log.info(
             'Tools-loop tools-on: tool_choice forced to {} (intent recipe catalog, round 0) agentId={} recipeId={}',
@@ -5959,10 +6196,12 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       def reqMap = [
         model: model,
         messages: wireMessages,
-        tools: wireTools,
-        tool_choice: toolChoice,
         stream: false
       ]
+      if (effectiveWireTools) {
+        reqMap.tools = effectiveWireTools
+        reqMap.tool_choice = toolChoice
+      }
       int toolsLoopMaxOut = 16000
       if (toolsLoopSessionBundle instanceof Map && toolsLoopSessionBundle.intentRefineMaxOutTokens instanceof Number) {
         int refineOut = ((Number) toolsLoopSessionBundle.intentRefineMaxOutTokens).intValue()
@@ -6103,7 +6342,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           if (willRunTools) {
             String cleanedPreTool = assistantPreTool?.trim() ? stripForbiddenMetaPlanFromAssistantText(assistantPreTool.trim()) : ''
             String trimmedPlan = (cleanedPreTool ?: '').trim()
-            if (trimmedPlan) {
+            if (trimmedPlan && shouldStreamPreToolAssistantSseForToolsLoop(trimmedPlan, toolsLoopSessionBundle, round)) {
               def chunk = trimmedPlan + '\n\n'
               synchronized (ssePreToolAssistantText) {
                 ssePreToolAssistantText.write(
@@ -6111,6 +6350,13 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
                 )
                 ssePreToolAssistantText.flush()
               }
+            } else if (trimmedPlan) {
+              log.debug(
+                'Tools-loop tools-on: suppressed pre-tool assistant SSE (confirmation-finalize recipe) agentId={} round={} chars={}',
+                agentId,
+                round,
+                trimmedPlan.length()
+              )
             } else {
               String fallbackPlan = minimalPlanWhenToolsWithoutProse(round)
               if (fallbackPlan?.trim()) {
@@ -6242,7 +6488,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
                 maxFetchHttpUrlCalls    : maxFetchHttpUrlCallsThisTurn,
                 message                 :
                   'FetchHttpUrl limit reached for this turn (' + maxFetchHttpUrlCallsThisTurn +
-                    '). Finish blog drafts from search snippets and successful fetches — do not call FetchHttpUrl again.'
+                    '). Use prior fetch results and search snippets — do not call FetchHttpUrl again.'
               ])
               wireMessages << [role: 'tool', tool_call_id: id, content: limitOut]
               log.info(
@@ -6477,15 +6723,37 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
         finished = true
         break
       }
-      if (maybeExecuteMatchedRecipeConfirmationSteps(
+      String markdownForConf = resolveMarkdownForRecipeConfirmation(
+        wireMessages,
+        assistantTextFromChoiceMessageMap(msgCopy) ?: ''
+      )
+      Map recipeConf = runMatchedRecipeConfirmationIfNeeded(
         wireMessages,
         toolsLoopSessionBundle,
         agentId,
         round,
-        assistantTextFromChoiceMessageMap(msgCopy) ?: ''
-      )) {
-        aiAssistantToolWorkerDiagPhase("native_tool_loop_round_${round}_recipe_confirmation_steps_injected")
-        continue
+        markdownForConf,
+        ssePreToolAssistantText
+      )
+      if (Boolean.TRUE.equals(recipeConf.ran)) {
+        if (Boolean.TRUE.equals(recipeConf.finalizeWithoutLlmRound) &&
+          recipeConf.finalizeAuthorText?.toString()?.trim()) {
+          assistantAccum = recipeConf.finalizeAuthorText.toString()
+          aiAssistantToolWorkerDiagPhase("native_tool_loop_round_${round}_recipe_confirmation_finalized")
+          finished = true
+          break
+        }
+        String injectMd = (recipeConf.wireInjectMarkdown ?: '').toString().trim()
+        if (injectMd) {
+          wireMessages << [
+            role   : 'user',
+            content:
+              injectMd +
+                '\nIncorporate these confirmation results in **## Plan Execution** (✅/❌/⚠️). Confirmation tools were executed by Studio — do not call them again via **tool_calls**.\n'
+          ]
+          aiAssistantToolWorkerDiagPhase("native_tool_loop_round_${round}_recipe_confirmation_steps_injected")
+          continue
+        }
       }
       aiAssistantToolWorkerDiagPhase("native_tool_loop_round_${round}_final_assistant_message_no_more_tools")
       assistantAccum = assistantTextFromChoiceMessageMap(msgCopy)
@@ -6494,6 +6762,27 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     }
     if (!finished) {
       throw new IllegalStateException("Tools-loop tools-on: exceeded ${maxRounds} tool rounds without a final assistant message")
+    }
+    if (!(Boolean.TRUE.equals(toolsLoopSessionBundle?.recipeConfirmationStepsExecuted))) {
+      String lateMarkdown = resolveMarkdownForRecipeConfirmation(
+        wireMessages,
+        (assistantAccum ?: '').toString()
+      )
+      Map lateConf = runMatchedRecipeConfirmationIfNeeded(
+        wireMessages,
+        toolsLoopSessionBundle,
+        agentId,
+        maxRounds,
+        lateMarkdown,
+        ssePreToolAssistantText
+      )
+      if (Boolean.TRUE.equals(lateConf.ran) && lateConf.finalizeAuthorText?.toString()?.trim()) {
+        assistantAccum = lateConf.finalizeAuthorText.toString()
+        log.info(
+          'Tools-loop: recipe confirmation flushed at loop end (author markdown) agentId={}',
+          agentId
+        )
+      }
     }
     return [
       text              : (assistantAccum ?: ''),
@@ -6751,15 +7040,20 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
    * Writes the final assistant markdown to Studio SSE. Large {@code data:image/...} expansions can exceed single-line
    * JSON limits in browsers; split into multiple {@code text} frames (the client concatenates).
    */
-  private static void writeSseFinalAssistantTextChunks(OutputStream out, String finalText) throws IOException {
+  private static void writeSseFinalAssistantTextChunks(
+    OutputStream out,
+    String finalText,
+    Map sseMetadata = null
+  ) throws IOException {
     String t = finalText != null ? finalText.toString() : ''
+    Map meta = sseMetadata instanceof Map ? new LinkedHashMap(sseMetadata) : [:]
     int step = NATIVE_TOOLS_FINAL_SSE_TEXT_CHUNK_CHARS
     if (!t) {
-      out.write(("data: ${JsonOutput.toJson([text: '', metadata: [:]])}\n\n").getBytes(StandardCharsets.UTF_8))
+      out.write(("data: ${JsonOutput.toJson([text: '', metadata: meta])}\n\n").getBytes(StandardCharsets.UTF_8))
       return
     }
     if (t.length() <= step) {
-      out.write(("data: ${JsonOutput.toJson([text: t, metadata: [:]])}\n\n").getBytes(StandardCharsets.UTF_8))
+      out.write(("data: ${JsonOutput.toJson([text: t, metadata: meta])}\n\n").getBytes(StandardCharsets.UTF_8))
       return
     }
     log.info(
@@ -6768,10 +7062,13 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       t.length(),
       step
     )
+    boolean first = true
     for (int i = 0; i < t.length();) {
       int end = toolsLoopSseTextChunkEndExclusive(t, i, step)
       String part = t.substring(i, end)
-      out.write(("data: ${JsonOutput.toJson([text: part, metadata: [:]])}\n\n").getBytes(StandardCharsets.UTF_8))
+      Map chunkMeta = first ? meta : [:]
+      first = false
+      out.write(("data: ${JsonOutput.toJson([text: part, metadata: chunkMeta])}\n\n").getBytes(StandardCharsets.UTF_8))
       i = end
     }
   }
@@ -6842,7 +7139,14 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
             // Import/metadata unavailable: keep execute path expanded data: URLs for the client image strip.
             authorMarkdown = finalChunk
           }
-          writeSseFinalAssistantTextChunks(out, authorMarkdown)
+          Map plan = toolsLoopSessionBundle?.recipeExecutionPlan instanceof Map ?
+            (Map) toolsLoopSessionBundle.recipeExecutionPlan :
+            null
+          Map finalSseMeta = [:]
+          if (recipeConfirmationShouldFinalizeAuthorVisible(plan)) {
+            finalSseMeta.replaceAssistantBody = Boolean.TRUE
+          }
+          writeSseFinalAssistantTextChunks(out, authorMarkdown, finalSseMeta)
         }
         if (tryClaimToolsTerminalEmit(terminalEmitted)) {
           def doneMeta = new LinkedHashMap()
@@ -7466,6 +7770,15 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     try {
       def pfx = toolProgressLinePrefix(toolName)
       def pathFull = (input?.path ?: input?.contentPath ?: input?.templatePath ?: input?.contentType ?: input?.url ?: input?.previewUrl ?: '')?.toString()?.trim() ?: ''
+      if ('SerpApiWebSearch'.equalsIgnoreCase(toolName ?: '')) {
+        String serpQ = (input?.query ?: input?.q ?: '')?.toString()?.trim() ?: ''
+        if (!serpQ && toolResult instanceof Map) {
+          serpQ = ((Map) toolResult).query?.toString()?.trim() ?: ((Map) toolResult).querySent?.toString()?.trim() ?: ''
+        }
+        if (serpQ) {
+          pathFull = 'search: ' + serpQ
+        }
+      }
       def path = pathFull
       if (path.length() > 96) {
         path = path.substring(0, 93) + '…'
@@ -7493,6 +7806,13 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
         }
         if (hint.length() > 140) {
           hint = hint.substring(0, 137) + '…'
+        }
+        if ('SerpApiWebSearch'.equalsIgnoreCase(toolName ?: '') && toolResult instanceof Map) {
+          String sent = ((Map) toolResult).querySent?.toString()?.trim() ?: ''
+          String orig = ((Map) toolResult).query?.toString()?.trim() ?: ''
+          if (sent && orig && !sent.equalsIgnoreCase(orig)) {
+            hint = (hint ? hint + ' ' : '') + '(sent: `' + (sent.length() > 80 ? sent.substring(0, 77) + '…' : sent) + '`)'
+          }
         }
         if ('TranslateContentItem'.equalsIgnoreCase(toolName ?: '') && path) {
           line =
@@ -7605,6 +7925,19 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
             event.metadata.repoPath = rp
           }
         }
+      }
+      try {
+        Map maintainerObs = StudioAiToolMaintainerObservability.collect(
+          toolName,
+          phase,
+          input instanceof Map ? (Map) input : [:],
+          toolResult,
+          err
+        )
+        if (maintainerObs && !maintainerObs.isEmpty()) {
+          event.metadata.maintainerObservability = maintainerObs
+        }
+      } catch (Throwable ignoredMaintainerObs) {
       }
       synchronized (o) {
         o.write(("data: ${JsonOutput.toJson(event)}\n\n").getBytes(StandardCharsets.UTF_8))

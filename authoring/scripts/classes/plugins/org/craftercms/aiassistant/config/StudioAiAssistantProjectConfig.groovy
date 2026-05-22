@@ -363,6 +363,60 @@ final class StudioAiAssistantProjectConfig {
     return intentRecipeRoutingInt(cfg, 'engineMaxFieldChars', 120_000, 4096, 500_000)
   }
 
+  /** When {@code false}, skips {@code llmRefine} confirmation steps (default {@code true}). */
+  static boolean intentRecipeConfirmationLlmRefineEnabled(Map cfg) {
+    Map m = intentRecipeRoutingSection(cfg)
+    if (m.containsKey('confirmationLlmRefineEnabled')) {
+      return Boolean.TRUE.equals(m.get('confirmationLlmRefineEnabled'))
+    }
+    if (m.containsKey('confirmationPitchRefineEnabled')) {
+      return Boolean.TRUE.equals(m.get('confirmationPitchRefineEnabled'))
+    }
+    return true
+  }
+
+  /**
+   * @deprecated use {@link #intentRecipeConfirmationLlmRefineEnabled}
+   */
+  @Deprecated
+  static boolean intentRecipeConfirmationPitchRefineEnabled(Map cfg) {
+    return intentRecipeConfirmationLlmRefineEnabled(cfg)
+  }
+
+  /** Max output tokens for {@link plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeLlmRefiner}. */
+  static int intentRecipeConfirmationLlmRefineMaxOutTokens(Map cfg) {
+    Map m = intentRecipeRoutingSection(cfg)
+    String key = m.containsKey('confirmationLlmRefineMaxOutTokens') ?
+      'confirmationLlmRefineMaxOutTokens' :
+      'confirmationPitchRefineMaxOutTokens'
+    return intentRecipeRoutingInt(cfg, key, 2800, 512, 8192)
+  }
+
+  /**
+   * @deprecated use {@link #intentRecipeConfirmationLlmRefineMaxOutTokens}
+   */
+  @Deprecated
+  static int intentRecipeConfirmationPitchRefineMaxOutTokens(Map cfg) {
+    return intentRecipeConfirmationLlmRefineMaxOutTokens(cfg)
+  }
+
+  /** Read timeout (ms) for confirmation {@code llmRefine} completion. */
+  static int intentRecipeConfirmationLlmRefineReadTimeoutMs(Map cfg) {
+    Map m = intentRecipeRoutingSection(cfg)
+    String key = m.containsKey('confirmationLlmRefineReadTimeoutMs') ?
+      'confirmationLlmRefineReadTimeoutMs' :
+      'confirmationPitchRefineReadTimeoutMs'
+    return intentRecipeRoutingInt(cfg, key, 120_000, 30_000, 600_000)
+  }
+
+  /**
+   * @deprecated use {@link #intentRecipeConfirmationLlmRefineReadTimeoutMs}
+   */
+  @Deprecated
+  static int intentRecipeConfirmationPitchRefineReadTimeoutMs(Map cfg) {
+    return intentRecipeConfirmationLlmRefineReadTimeoutMs(cfg)
+  }
+
   /** @see plugins.org.craftercms.aiassistant.tools.general.SerpApiWebSearchProjectSettings#WIRE */
   static final String SERP_API_WEB_SEARCH_WIRE =
     plugins.org.craftercms.aiassistant.tools.general.SerpApiWebSearchProjectSettings.WIRE
