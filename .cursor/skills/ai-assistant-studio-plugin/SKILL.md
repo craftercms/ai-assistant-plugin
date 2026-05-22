@@ -19,6 +19,7 @@ Use this skill when editing **this repo**: `ai-assistant-plugin` — Studio plug
    - **`no-unauthorized-ui-changes.mdc`** — Do not change visible UI or UX or interaction unless the user explicitly requests it in the same task; feature work defaults to wiring, API, server, types, and build only.
 
 2. **`.cursor/skills/`** — Other Cursor skills for this repo. Prefer extending **this** skill when guidance applies repo-wide.
+   - **`building-intent-recipes/`** — Site `intent-recipes.json` authoring (not plugin Groovy); use when the task is custom recipes, Confirmation refine, or Slack threading.
 
 ## Documentation map
 

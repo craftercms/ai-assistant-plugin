@@ -423,6 +423,8 @@ Example Context line: *Today's date: **{{studio.today}}**. Only sources on or af
 
 **Maintainer reference:** [intent-recipe-routing.md](../internals/intent-recipe-routing.md) (pipeline, telemetry, bundled `authoring-intent-recipes-default.json`).
 
+**How to build custom recipes:** Cursor skill [`.cursor/skills/building-intent-recipes/`](../../.cursor/skills/building-intent-recipes/) (`SKILL.md`, `examples.md`) — stub: [building-intent-recipes.md](building-intent-recipes.md).
+
 ---
 
 <a id="cg-9-1"></a>

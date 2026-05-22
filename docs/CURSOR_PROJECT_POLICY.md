@@ -16,8 +16,9 @@ Rules are the **strictest** layer: follow them even if generic advice conflicts.
 | Directory | Purpose |
 |-----------|---------|
 | `ai-assistant-studio-plugin/` | `SKILL.md` — AI Assistant plugin workflows, pointers to rules + docs, mechanical checklist (`ai-assistant/main.js` sync, `yarn package`). |
+| `building-intent-recipes/` | `SKILL.md` + `examples.md` — Author site `intent-recipes.json` (match, tools loop, JSON refine, passthrough, threaded Slack). |
 
-**Skill discovery:** Ensure the **ai-assistant-studio-plugin** skill (folder name is legacy) is enabled for this project in Cursor if you rely on it for agent behavior (project skills are optional per workspace settings).
+**Skill discovery:** Enable **ai-assistant-studio-plugin** for plugin repo work and **building-intent-recipes** when editing custom intent recipes (project skills are optional per workspace settings).
 
 ## Related Documentation (Keep Aligned With Policy)
 
