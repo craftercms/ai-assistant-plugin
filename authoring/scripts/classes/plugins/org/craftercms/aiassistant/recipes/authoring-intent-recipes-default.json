@@ -32,7 +32,7 @@
     "researchWeb": ["web_research"],
     "researchSite": ["site_content_research"],
     "researchLlm": ["llm_research"],
-    "researchAny": ["web_research", "site_content_research", "llm_research"]
+    "researchAny": ["web_research", "site_content_research", "llm_research", "draft_content_from_source"]
   },
   "multiGoalDefer": {
     "minDistinctGroups": 2,
@@ -68,6 +68,92 @@
     "translate_content_item"
   ],
   "recipes": [
+    {
+      "id": "draft_content_from_source",
+      "title": "Draft content from author URL",
+      "chatEmoji": "📝",
+      "toolsLoopAuthorUrlExclusive": true,
+      "toolsLoopAllowlist": ["FetchHttpUrl", "ResearchSiteContent"],
+      "toolsLoopExcludeTools": [
+        "WriteContent",
+        "update_content",
+        "publish_content",
+        "TranslateContentItem",
+        "TranslateContentBatch",
+        "SerpApiWebSearch",
+        "WebSearch",
+        "SlackPostMessage",
+        "GetCrafterzingPlaybook"
+      ],
+      "toolsLoopFetchHttpUrlWireMaxChars": 8000,
+      "toolsLoopMaxFetchHttpUrlCalls": 1,
+      "deterministicMatch": {
+        "priority": 92,
+        "routerReason": "deterministic_draft_content_from_author_url",
+        "respectDontMatchHints": true,
+        "when": {
+          "allOf": [
+            { "authorMatchesRegex": "(?i)https?://[^\\s<>\"\\)\\]\\u00a0]+" },
+            {
+              "anyOf": [
+                { "authorMatchesRegex": "(?i)\\bdraft\\b[^\\n]{0,120}\\b(?:blog|article|post)\\b" },
+                { "authorMatchesRegex": "(?i)\\b(?:blog|article|post)\\b[^\\n]{0,80}\\bdraft\\b" },
+                { "authorMatchesRegex": "(?i)\\bsummariz(?:e|ing)\\b[^\\n]{0,120}\\b(?:blog|article|post|topics)\\b" },
+                { "authorMatchesRegex": "(?i)\\bfrom\\s+this\\s*:\\s*https?://" }
+              ]
+            },
+            {
+              "authorContainsNone": [
+                "create a new",
+                "save to repository",
+                "make a post with",
+                "create a post",
+                "save the draft",
+                "WriteContent"
+              ]
+            }
+          ]
+        }
+      },
+      "description": "Author pasted http(s) source link(s) and wants a **chat draft** (blog/article/post prose) — fetch only those URLs, optional site overlap check. **No** repository save on this turn (use **new_content_item** when they ask to create/save the draft).",
+      "matchHints": [
+        "draft a blog",
+        "draft blog",
+        "draft an article",
+        "draft post",
+        "summarize from",
+        "summarizing from",
+        "from this:",
+        "from this url"
+      ],
+      "dontMatchHints": [
+        "create a new",
+        "new page",
+        "new article",
+        "save to repository",
+        "WriteContent",
+        "publish",
+        "make a post with",
+        "create a post",
+        "latest news",
+        "search the web",
+        "headlines"
+      ],
+      "matchedUserPrelude": "[Studio — draft from author URL] **FetchHttpUrl** only the http(s) link(s) in **Current request** (recipe **toolsLoopAuthorUrlExclusive**). Then **ResearchSiteContent** for overlap with existing site content (set **pathPrefix** / query from project context when present). Deliver the draft in chat (**## Draft body** or your site’s draft section headings). **Do not** call **WriteContent**, **SerpApiWebSearch**, or **WebSearch** on this turn unless the author adds a new URL or asks to save to the repository.",
+      "phases": {
+        "context": [
+          "Author URL-only: **FetchHttpUrl** on each distinct author-pasted URL only (max one fetch per turn when configured). No Serp, no other URLs.",
+          "After fetch, **ResearchSiteContent** with a focused query from the author’s topics and a sensible **pathPrefix** from project context (e.g. existing posts/components tree)."
+        ],
+        "action": [
+          "Summarize or draft from the fetched source plus site research. Use clear markdown sections; include **## Draft body** (or site-configured draft headings) with full prose the author can approve.",
+          "Cite only URLs you actually fetched. Do not invent repository paths or save CMS items unless the author explicitly asks to create/save."
+        ],
+        "confirmation": [
+          "Offer to save as a repository item only if the author asks in a follow-up (routes to **new_content_item** / **createFromChatDraft** supplement)."
+        ]
+      }
+    },
     {
       "id": "web_research",
       "title": "Web search (news & current events)",
@@ -531,33 +617,56 @@
       "id": "new_content_item",
       "title": "Create new page or component",
       "chatEmoji": "📄",
-      "deterministicMatch": {
-        "priority": 45,
-        "routerReason": "deterministic_new_content_item",
-        "respectDontMatchHints": true,
-        "when": {
-          "allOf": [
-            "currentTurnCmsTooling",
-            "anchoredSiteXml",
-            {
-              "anyOf": [
-                {
-                  "authorMatchesRegex": "(?i)\\b(new\\s+page|new\\s+article|new\\s+post|add\\s+a\\s+(?:new\\s+)?page)\\b"
-                },
-                {
-                  "allOf": [
-                    { "authorMatchesRegex": "(?i)\\b(create|add)\\b" },
-                    { "authorMatchesRegex": "(?i)\\b(new\\s+)?(page|article|component|item)s?\\b" }
-                  ]
-                },
-                {
-                  "authorMatchesRegex": "(?i)\\bwrite\\s+(?:a\\s+)?new\\s+(page|post|article|component|item)\\b"
-                }
-              ]
-            }
-          ]
+      "deterministicMatch": [
+        {
+          "priority": 72,
+          "routerReason": "deterministic_create_post_from_chat_draft",
+          "toolsLoopPrefetchSupplement": "createFromChatDraft",
+          "toolsLoopRequireSuccessfulTools": ["WriteContent"],
+          "when": {
+            "allOf": [
+              "currentTurnCmsTooling",
+              "anchoredSiteXml",
+              "priorConversationContainsDraftBody",
+              {
+                "anyOf": [
+                  { "authorMatchesRegex": "(?i)\\b(?:create|save|add)\\s+(?:a\\s+)?(?:blog\\s+)?post\\b" },
+                  { "authorMatchesRegex": "(?i)\\bpost\\s+from\\s+(?:this|the)\\s+draft\\b" },
+                  { "authorMatchesRegex": "(?i)\\b(?:from|using)\\s+(?:this|the)\\s+draft\\b" },
+                  { "authorMatchesRegex": "(?i)\\bi\\s+like\\s+this\\b" }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "priority": 45,
+          "routerReason": "deterministic_new_content_item",
+          "respectDontMatchHints": true,
+          "when": {
+            "allOf": [
+              "currentTurnCmsTooling",
+              "anchoredSiteXml",
+              {
+                "anyOf": [
+                  {
+                    "authorMatchesRegex": "(?i)\\b(new\\s+page|new\\s+article|new\\s+post|add\\s+a\\s+(?:new\\s+)?page)\\b"
+                  },
+                  {
+                    "allOf": [
+                      { "authorMatchesRegex": "(?i)\\b(create|add)\\b" },
+                      { "authorMatchesRegex": "(?i)\\b(new\\s+)?(page|article|component|item|post)s?\\b" }
+                    ]
+                  },
+                  {
+                    "authorMatchesRegex": "(?i)\\bwrite\\s+(?:a\\s+)?new\\s+(page|post|article|component|item)\\b"
+                  }
+                ]
+              }
+            ]
+          }
         }
-      },
+      ],
       "description": "Author asks to **create** a new repository item (new URL or new component in Studio). **Not** chat-only “draft a post” prose after research — that is **llm_research** (tools off).",
       "dontMatchHints": [
         "research",
@@ -569,6 +678,7 @@
         "pros and cons"
       ],
       "matchHints": ["create", "new page", "new article", "new post", "add a page", "write a new"],
+      "matchedUserPrelude": "[Studio — create new repository item] Resolve **contentTypeId** with **ListStudioContentTypes** (exact catalog match on the author’s type phrase). **GetContentTypeFormDefinition** for that id. **Mandatory:** **GetContent** on one existing item whose `<content-type>` equals that id **before** **WriteContent**. Mirror sibling XML structure; map draft prose into real form fields — never invent element names or generic wrappers not in the form definition or sibling XML.",
       "phases": {
         "context": {
           "hints": [
@@ -582,7 +692,10 @@
           ]
         },
         "action": [
-          "WriteContent the new item with correct conventions (objectId, dates, file-name, sections)."
+          "When **[Prior conversation]** includes **## Draft body** (or *Draft blog:*), **this draft** is that chat prose — **not** the repository file open in Studio preview. Resolve **contentTypeId** via **ListStudioContentTypes** (exact catalog match on **post** / **blog** from prior + current turn). Read **quickCreatePath** from **GetContentTypeFormDefinition** for the new file path; **WriteContent** only under that tree (never the preview anchor unless the author named that path for editing).",
+          "Before **WriteContent**, **GetContent** one existing item with the same `<content-type>`. Clone its document shape (field ids, node-selector / inline component layout, date formats, objectId/objectGroupId style). Map draft title/body into fields from **GetContentTypeFormDefinition** and the sibling XML — not invented schemas.",
+          "Populate **every required field** from **GetContentTypeFormDefinition** (SEO, taxonomy/checkbox groups, nav, etc.). **Do not** call **GenerateImage** unless the author explicitly asked for generated art. For **required** image-picker fields, **omit or leave empty** in **WriteContent** — Studio fills them with the XB-style **`data:image/png;base64,…`** placeholder in-process (do not invent `/static-assets/…` paths).",
+          "**WriteContent** the full `<page>` or `<component>` at a new path under `/site/` consistent with **quickCreatePath** or sibling folder layout; optional **GetPreviewHtml** in confirmation."
         ],
         "confirmation": ["Tell the author how to preview the new route; optional GetPreviewHtml."]
       }

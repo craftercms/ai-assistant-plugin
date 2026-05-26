@@ -82,7 +82,7 @@ function projectToolsTabLabel(t: AiAssistantProjectToolsTab): string {
     case 'secrets':
       return 'Secrets';
     case 'prompts':
-      return 'Prompts and Context';
+      return 'Context and Prompts';
     case 'llms':
       return 'LLMs';
     case 'imagegen':
@@ -254,7 +254,7 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
           <Tab label="Recipes" value="recipes" data-aiassistant-project-tools-tab="recipes" />
           <Tab label="Integrations" value="integrations" data-aiassistant-project-tools-tab="integrations" />
           <Tab label="Secrets" value="secrets" data-aiassistant-project-tools-tab="secrets" />
-          <Tab label="Prompts and Context" value="prompts" data-aiassistant-project-tools-tab="prompts" />
+          <Tab label="Context and Prompts" value="prompts" data-aiassistant-project-tools-tab="prompts" />
         </Tabs>
         <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0, borderLeft: 1, borderColor: 'divider', px: 0.5 }}>
           <Tooltip title={toolFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
@@ -363,7 +363,7 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
 
 /**
  * Single Project Tools surface: **UI** (`studio-ui.json` + bulk), **Agents** (`agents.json`), **Recipes** (intent router + site overrides),
- * **Integrations** (sub-tabs: **LLMs**, **Image Generators**, **Tools**, **MCP**), **Secrets** (site API keys), **Prompts and Context** (tool markdown overrides).
+ * **Integrations** (sub-tabs: **LLMs**, **Image Generators**, **Tools**, **MCP**), **Secrets** (site API keys), **Context and Prompts** (project context markdown + tool prompt overrides).
  * Opens in a **large dialog** when the Project Tools entry mounts so authors stay focused and get more space than the default tool pane.
  * Primary widget id: {@link projectToolsAiAssistantConfigWidgetId}. Legacy ids still mount this component with a fixed default tab.
  */

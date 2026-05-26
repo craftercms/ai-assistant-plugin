@@ -194,8 +194,12 @@ final class AuthoringIntentRecipeWhen {
         return AuthoringPreviewContext.authorCurrentRequestLooksLikeCreativeLlmOnly(wire)
       case 'currentTurnCmsTooling':
         return AuthoringPreviewContext.authorCurrentRequestSuggestsCmsTooling(wire)
+      case 'priorConversationContainsDraftBody':
+        return AuthoringPreviewContext.priorConversationContainsDraftBody(wire)
       case 'imageOnlyGenerate':
         return AuthoringPreviewContext.authorVisibleSuggestsIntentRecipeGenerateImage(author)
+      case 'authorProvidedHttpUrl':
+        return !AuthoringIntentRecipeCatalog.extractAuthorHttpUrls(author).isEmpty()
       default:
         return false
     }

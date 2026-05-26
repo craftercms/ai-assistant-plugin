@@ -80,6 +80,11 @@ class StudioToolOperations {
     return StudioToolOperationsSupport.readCrafterPreviewTokenFromServletRequest(request)
   }
 
+  /** @deprecated use {@link StudioToolOperationsSupport#readCrafterQChatUserFromServletRequest} */
+  static String readCrafterQChatUserFromServletRequest(def request) {
+    return StudioToolOperationsSupport.readCrafterQChatUserFromServletRequest(request)
+  }
+
   final def request
   final def applicationContext
   /** Plugin script params (may include siteId from query string). */

@@ -115,6 +115,44 @@ final class StudioToolOperationsSupport {
   }
 
   /**
+   * CrafterQ anonymous chat JWT ({@code X-CrafterQ-Chat-User}).
+   * Checks {@code aiassistant.crafterQChatUser} servlet attribute first, then {@code X-CrafterQ-Chat-User} header.
+   *
+   * @param request servlet request (may be null)
+   * @return chat JWT or empty string when not provided
+   */
+  static String readCrafterQChatUserFromServletRequest(def request) {
+    if (!request) {
+      return ''
+    }
+    try {
+      def a = request.getAttribute('aiassistant.crafterQChatUser')
+      if (a != null) {
+        def s = a.toString()?.trim()
+        if (s) {
+          return s
+        }
+      }
+    } catch (Throwable ignored) {
+    }
+    try {
+      String h = request.getHeader('X-CrafterQ-Chat-User')?.toString()?.trim()
+      if (h) {
+        return h
+      }
+    } catch (Throwable ignored2) {
+    }
+    try {
+      String h2 = request.getHeader('x-crafterq-chat-user')?.toString()?.trim()
+      if (h2) {
+        return h2
+      }
+    } catch (Throwable ignored3) {
+    }
+    return ''
+  }
+
+  /**
    * Quotes RFC6265-ish cookie attribute values when separators or CTL characters appear.
    * Escapes embedded quotes/backslashes when quoting is required.
    * Leaves simple tokens untouched for compact headers.

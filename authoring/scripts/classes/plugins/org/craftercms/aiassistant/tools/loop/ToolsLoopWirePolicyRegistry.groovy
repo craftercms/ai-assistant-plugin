@@ -46,6 +46,7 @@ final class ToolsLoopWirePolicyRegistry {
 
     m.put('QueryExpertGuidance', ToolsLoopWirePolicy.expertReadPolicy())
     m.put('GetCrafterizingPlaybook', ToolsLoopWirePolicy.expertReadPolicy())
+    m.put('ConsultCrafterQ', ToolsLoopWirePolicy.expertReadPolicy())
     m.put('GetPreviewHtml', ToolsLoopWirePolicy.verificationReadPolicy())
     m.put('analyze_template', ToolsLoopWirePolicy.analysisPolicy())
 

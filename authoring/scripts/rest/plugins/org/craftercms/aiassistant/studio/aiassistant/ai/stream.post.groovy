@@ -34,6 +34,7 @@ import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
  *   "skills": optional JSON array of { name, url, description, enabled } — enabled per-agent markdown URLs for {@code QueryExpertGuidance}; normalized server-side.
  *   "translateBatchConcurrency": optional integer 1–64 — parallel {@code TranslateContentBatch} workers when the model omits {@code maxConcurrency}; from agent ui.xml; server default 25 when omitted.
  *   "previewToken": optional string — Studio {@code crafterPreview} cookie value; enables {@code GetPreviewHtml} without passing the token on every tool call. When omitted, the server still uses {@code crafterPreview} from the **incoming request cookies** (HttpOnly-safe).
+ *   "crafterQChatUser": optional string — CrafterQ anonymous chat JWT ({@code X-CrafterQ-Chat-User}) for {@code ConsultCrafterQ}; otherwise use {@code builtInToolSettings.ConsultCrafterQ.chatUser} in site tools.json.
  *   Response:  text/event-stream (SSE) on success, or application/json on error
  */
 def log = LoggerFactory.getLogger('plugins.org.craftercms.aiassistant.stream')
@@ -79,7 +80,8 @@ try {
     body?.displayTemplate,
     request,
     body?.studioPreviewPageUrl,
-    pubOpsForPrompt)
+    pubOpsForPrompt,
+    applicationContext)
   def promptForOrchestration = assembledPrompt.orchestrationPrompt
   def promptStepDeltas = assembledPrompt.stepDeltas
   def chatId = body?.chatId?.toString()
@@ -113,6 +115,12 @@ try {
     try {
       request.setAttribute('aiassistant.previewToken', previewTokenBody)
     } catch (Throwable ignored) {}
+  }
+  def crafterQChatUserBody = (body?.crafterQChatUser ?: body?.crafterqChatUser)?.toString()?.trim()
+  if (crafterQChatUserBody) {
+    try {
+      request.setAttribute('aiassistant.crafterQChatUser', crafterQChatUserBody)
+    } catch (Throwable ignoredCq) {}
   }
   Map projectToolCfg = [:]
   try {

@@ -48,6 +48,12 @@ export type AiAssistantScriptsToolPromptOverrideRow = {
   byteLength: number;
 };
 
+export type AiAssistantScriptsProjectContextRow = {
+  studioPath: string;
+  hasContent: boolean;
+  byteLength: number;
+};
+
 export type AiAssistantPromptDetailResponse = {
   ok?: boolean;
   message?: string;
@@ -69,6 +75,7 @@ export type AiAssistantScriptsIndexResponse = {
   tools?: AiAssistantScriptsIndexTool[];
   imageGenerators?: AiAssistantScriptsIndexItem[];
   llmScripts?: AiAssistantScriptsIndexItem[];
+  projectContext?: AiAssistantScriptsProjectContextRow;
   toolPromptOverrides?: AiAssistantScriptsToolPromptOverrideRow[];
   /** Present when secrets service loaded; see {@link fetchAiAssistantSecretsIndex}. */
   secretsStudioPath?: string;

@@ -105,6 +105,8 @@ fi
 
 SECRETS_EXAMPLE="${PLUGIN_PATH}/docs/examples/aiassistant-config/secrets.json"
 SECRETS_DEST="${SITE_REPO_PATH}/config/studio/scripts/aiassistant/config/secrets.json"
+PROJECT_CONTEXT_EXAMPLE="${PLUGIN_PATH}/docs/examples/aiassistant-config/context/site-authoring.md"
+PROJECT_CONTEXT_DEST="${SITE_REPO_PATH}/config/studio/scripts/aiassistant/context/site-authoring.md"
 if [[ -f "${SECRETS_EXAMPLE}" ]]; then
   if [[ ! -d "${SITE_REPO_PATH}" ]]; then
     echo "${AI_WARN} Warning: site sandbox not found; skipping secrets.json seed." >&2
@@ -116,6 +118,21 @@ if [[ -f "${SECRETS_EXAMPLE}" ]]; then
     echo "${AI_INFO} Seeded default LLM secrets at ${SECRETS_DEST}"
     if git -C "${SITE_REPO_PATH}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
       git -C "${SITE_REPO_PATH}" add config/studio/scripts/aiassistant/config/secrets.json
+    fi
+  fi
+fi
+
+if [[ -f "${PROJECT_CONTEXT_EXAMPLE}" ]]; then
+  if [[ ! -d "${SITE_REPO_PATH}" ]]; then
+    echo "${AI_WARN} Warning: site sandbox not found; skipping site-authoring.md seed." >&2
+  elif [[ -f "${PROJECT_CONTEXT_DEST}" ]]; then
+    echo "${AI_OK} site-authoring.md already present at ${PROJECT_CONTEXT_DEST}"
+  else
+    mkdir -p "$(dirname "${PROJECT_CONTEXT_DEST}")"
+    cp "${PROJECT_CONTEXT_EXAMPLE}" "${PROJECT_CONTEXT_DEST}"
+    echo "${AI_INFO} Seeded project context at ${PROJECT_CONTEXT_DEST}"
+    if git -C "${SITE_REPO_PATH}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      git -C "${SITE_REPO_PATH}" add config/studio/scripts/aiassistant/context/site-authoring.md
     fi
   fi
 fi

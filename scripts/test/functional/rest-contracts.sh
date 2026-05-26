@@ -166,6 +166,15 @@ for (const k of ["tools", "imageGenerators", "llmScripts", "toolPromptOverrides"
 if (typeof d.registryStudioPath !== "string") errs.push("registryStudioPath is not a string");
 if (typeof d.registryText !== "string") errs.push("registryText is not a string");
 if (typeof d.registryTextTruncated !== "boolean") errs.push("registryTextTruncated is not a boolean");
+const pc = d.projectContext;
+if (pc != null) {
+  if (!pc || typeof pc !== "object" || Array.isArray(pc)) errs.push("projectContext is not an object");
+  else {
+    if (typeof pc.studioPath !== "string") errs.push("projectContext.studioPath is not a string");
+    if (typeof pc.hasContent !== "boolean") errs.push("projectContext.hasContent is not a boolean");
+    if (typeof pc.byteLength !== "number") errs.push("projectContext.byteLength is not a number");
+  }
+}
 if (errs.length) {
   console.error(errs.join("; "));
   process.exit(1);
@@ -241,6 +250,17 @@ if not isinstance(d.get("registryText"), str):
     errs.append("registryText is not a string")
 if not isinstance(d.get("registryTextTruncated"), bool):
     errs.append("registryTextTruncated is not a boolean")
+pc = d.get("projectContext")
+if pc is not None:
+    if not isinstance(pc, dict):
+        errs.append("projectContext is not an object")
+    else:
+        if not isinstance(pc.get("studioPath"), str):
+            errs.append("projectContext.studioPath is not a string")
+        if not isinstance(pc.get("hasContent"), bool):
+            errs.append("projectContext.hasContent is not a boolean")
+        if not isinstance(pc.get("byteLength"), (int, float)):
+            errs.append("projectContext.byteLength is not a number")
 if errs:
     print("; ".join(errs))
     sys.exit(1)
@@ -252,7 +272,7 @@ if [[ "${REST_CONTRACTS_SELFTEST:-}" == "1" ]]; then
   echo "======== ${AI_TEST} REST_CONTRACTS_SELFTEST (wrapped .result + bare body) ========"
   contract_content_types_list_node '{"result":{"siteId":"aiat-2","contentTypes":[],"ok":true}}' "aiat-2" \
     && echo "${AI_OK} content-types (Studio-wrapped)"
-  contract_scripts_index_node '{"result":{"ok":true,"siteId":"aiat-2","tools":[],"imageGenerators":[],"llmScripts":[],"toolPromptOverrides":[],"registryStudioPath":"/scripts/aiassistant/user-tools/registry.yaml","registryText":"","registryTextTruncated":false}}' "aiat-2" \
+  contract_scripts_index_node '{"result":{"ok":true,"siteId":"aiat-2","tools":[],"imageGenerators":[],"llmScripts":[],"projectContext":{"studioPath":"/scripts/aiassistant/context/site-authoring.md","hasContent":false,"byteLength":0},"toolPromptOverrides":[],"registryStudioPath":"/scripts/aiassistant/user-tools/registry.yaml","registryText":"","registryTextTruncated":false}}' "aiat-2" \
     && echo "${AI_OK} scripts/index (Studio-wrapped)"
   contract_content_types_list_node '{"siteId":"aiat-2","contentTypes":[],"ok":true}' "aiat-2" \
     && echo "${AI_OK} content-types (bare plugin map)"

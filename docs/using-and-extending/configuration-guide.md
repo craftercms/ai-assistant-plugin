@@ -59,7 +59,7 @@ Visual guides for administrators and authors (Mermaid). Full set: **[Architectur
 
 These screenshots show **Project Tools** (where you install the plugin and open **AI Assistant**) and the tabbed **AI Assistant Configuration** dialog. Paths below are relative to this file (`docs/using-and-extending/`).
 
-**Note:** PNG files under `docs/images/ai-assistant-studio/` may not be checked into this repository; capture them locally after install if links 404. Current tabs are **UI**, **Agents**, **Recipes**, **Integrations** (LLMs / Image generators / Tools / MCP), **Secrets**, and **Prompts and Context** (older docs called some of these **Tools and MCP** / **Scripts**).
+**Note:** PNG files under `docs/images/ai-assistant-studio/` may not be checked into this repository; capture them locally after install if links 404. Current tabs are **UI**, **Agents**, **Recipes**, **Integrations** (LLMs / Image generators / Tools / MCP), **Secrets**, and **Context and Prompts** (project context markdown + per-key tool prompt overrides; older docs called some of these **Tools and MCP** / **Scripts**).
 
 ### Project Tools (Sidebar)
 
@@ -424,6 +424,26 @@ Example Context line: *Today's date: **{{studio.today}}**. Only sources on or af
 **Maintainer reference:** [intent-recipe-routing.md](../internals/intent-recipe-routing.md) (pipeline, telemetry, bundled `authoring-intent-recipes-default.json`).
 
 **How to build custom recipes:** Cursor skill [`.cursor/skills/building-intent-recipes/`](../../.cursor/skills/building-intent-recipes/) (`SKILL.md`, `examples.md`) — stub: [building-intent-recipes.md](building-intent-recipes.md).
+
+---
+
+<a id="cg-9-0"></a>
+
+### 9.0 Project context (site authoring facts)
+
+**Put Markdown here:**
+
+```text
+config/studio/scripts/aiassistant/context/site-authoring.md
+```
+
+| Rule | Detail |
+|------|--------|
+| **Purpose** | Stable **site** facts (content-type paths, folder conventions, workflows) appended to **every** chat/tools orchestration turn when non-empty. |
+| **Not** | Per-key tool prompt overrides (`prompts/<KEY>.md`); not the author's message. |
+| **Injection** | Labeled `--- Studio project context (metadata; not the author's request) ---` via `SiteProjectContext` in `AuthoringPreviewContext.assembleOrchestrationPrompt`. |
+| **UI** | **Project Tools → Context and Prompts** — **Project context** section is first; then tool prompt overrides. |
+| **Example** | `docs/examples/aiassistant-config/context/site-authoring.md` (seeded by `scripts/install-plugin.sh` when missing). |
 
 ---
 

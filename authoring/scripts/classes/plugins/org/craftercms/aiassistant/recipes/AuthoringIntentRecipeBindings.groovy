@@ -30,6 +30,7 @@ final class AuthoringIntentRecipeBindings {
   private static final Pattern STEP_REF = Pattern.compile('^\\$step(\\d+)\\.(.+)$')
   private static final Pattern LIFECYCLE_REF = Pattern.compile('^\\$(initial|current)\\.([a-zA-Z][a-zA-Z0-9_]*)(?:\\.(.+))?$')
   private static final Pattern NAMED_STEP_REF = Pattern.compile('^\\$([a-zA-Z][a-zA-Z0-9_]+)\\.(.+)$')
+  private static final Pattern INLINE_NAMED_REF = Pattern.compile('\\$([a-zA-Z][a-zA-Z0-9_]+)\\.([a-zA-Z0-9_][a-zA-Z0-9_.]*)')
   private static final Pattern TEMPLATE_REF = Pattern.compile(
     '\\{\\{\\s*(initial|current)\\.([a-zA-Z][a-zA-Z0-9_]*)(?:\\.([a-zA-Z0-9_.]+))?\\s*\\}\\}'
   )
@@ -174,6 +175,73 @@ final class AuthoringIntentRecipeBindings {
     }
 
     updateCurrentArtifact(ops, 'lastWrite', [path: path, contentPath: path, contentXml: xml.trim(), source: 'WriteContent'])
+  }
+
+  /**
+   * Replaces inline {@code $bindingName.field} tokens in recipe text (e.g. {@code llmRefine} {@code userPreamble}).
+   */
+  static String expandInlineBindingRefs(
+    String text,
+    Map studioBindings,
+    List<Map> stepResults,
+    Map<String, Map> initialNamed,
+    Map<String, Map> currentNamed
+  ) {
+    String s = (text ?: '').toString()
+    if (!s.contains('$')) {
+      return s
+    }
+    Matcher m = INLINE_NAMED_REF.matcher(s)
+    StringBuffer sb = new StringBuffer()
+    while (m.find()) {
+      String name = m.group(1)
+      String path = m.group(2)
+      Object val = navigateBinding(initialNamed, name, path)
+      if (val == null || (val instanceof String && !((String) val).trim())) {
+        val = navigateBinding(currentNamed, name, path)
+      }
+      String rep = val == null ? '' : (val instanceof String ? val.toString() : formatExpandedValue(val, 0))
+      m.appendReplacement(sb, Matcher.quoteReplacement(rep))
+    }
+    m.appendTail(sb)
+    return sb.toString()
+  }
+
+  /**
+   * Copies an {@code llmRefine} step map with {@code userPreamble} and {@code hints} binding refs expanded.
+   */
+  static Map resolveLlmRefineStepBindingRefs(
+    Map step,
+    Map studioBindings,
+    List<Map> stepResults,
+    Map<String, Map> initialNamed,
+    Map<String, Map> currentNamed
+  ) {
+    if (!(step instanceof Map)) {
+      return [:]
+    }
+    Map out = new LinkedHashMap<>(step)
+    String preamble = step.get('userPreamble')?.toString()
+    if (preamble) {
+      out.put(
+        'userPreamble',
+        expandInlineBindingRefs(preamble, studioBindings, stepResults, initialNamed, currentNamed)
+      )
+    }
+    Object hintsObj = step.get('hints')
+    if (hintsObj instanceof List) {
+      List resolved = []
+      for (Object h : (List) hintsObj) {
+        if (h == null) {
+          continue
+        }
+        resolved.add(
+          expandInlineBindingRefs(h.toString(), studioBindings, stepResults, initialNamed, currentNamed)
+        )
+      }
+      out.put('hints', resolved)
+    }
+    return out
   }
 
   /**

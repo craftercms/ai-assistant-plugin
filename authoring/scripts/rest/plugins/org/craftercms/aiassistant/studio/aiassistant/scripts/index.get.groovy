@@ -1,4 +1,5 @@
 import org.slf4j.LoggerFactory
+import plugins.org.craftercms.aiassistant.context.SiteProjectContext
 import plugins.org.craftercms.aiassistant.imagegen.StudioAiScriptImageGenLoader
 import plugins.org.craftercms.aiassistant.prompt.ToolPromptsOverrideCatalog
 import plugins.org.craftercms.aiassistant.secrets.StudioAiAssistantSecretsService
@@ -120,6 +121,23 @@ for (String lid : llmIds) {
   }
 }
 
+Map projectContextRow = [
+  studioPath : SiteProjectContext.STUDIO_MODULE_REL,
+  hasContent : false,
+  byteLength : 0
+] as Map
+try {
+  String pcSrc = ops.readStudioConfigurationUtf8(siteId, SiteProjectContext.STUDIO_MODULE_REL) ?: ''
+  boolean pcPresent = SiteProjectContext.meaningfulBodyOrNull(pcSrc) != null
+  projectContextRow = [
+    studioPath : SiteProjectContext.STUDIO_MODULE_REL,
+    hasContent : pcPresent,
+    byteLength : pcPresent ? safeUtf8ByteLength(pcSrc.toString()) : 0
+  ] as Map
+} catch (Throwable t) {
+  idxLog.warn('scripts index: project context siteId={}: {}', siteId, t.message)
+}
+
 List<Map> promptRows = []
 for (String pk : ToolPromptsOverrideCatalog.KEYS) {
   if (!pk) {
@@ -167,6 +185,7 @@ return [
   tools                : toolsOut,
   imageGenerators      : imageOut,
   llmScripts           : llmOut,
+  projectContext       : projectContextRow,
   toolPromptOverrides  : promptRows,
   secretsStudioPath    : secretsStudioPath,
   knownSecrets         : knownSecrets,

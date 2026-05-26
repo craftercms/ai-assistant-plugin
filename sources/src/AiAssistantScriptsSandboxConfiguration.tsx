@@ -40,6 +40,8 @@ import {
   AI_ASSISTANT_LLM_RUNTIME_GROOVY_STUB,
   AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB,
   AI_ASSISTANT_USER_TOOL_GROOVY_STUB,
+  AI_ASSISTANT_PROJECT_CONTEXT_MARKDOWN_STUB,
+  AI_ASSISTANT_PROJECT_CONTEXT_STUDIO_PATH,
   aiAssistantToolPromptMarkdownStub
 } from './aiAssistantScriptStubs';
 import AiAssistantToolsMcpForm from './AiAssistantToolsMcpForm';
@@ -70,6 +72,7 @@ import {
   TOOLS_JSON_SANDBOX_PATH,
   type AiAssistantScriptsIndexResponse,
   type AiAssistantScriptsIndexItem,
+  type AiAssistantScriptsProjectContextRow,
   type AiAssistantScriptsIndexTool,
   type AiAssistantScriptsToolPromptOverrideRow,
   type AiAssistantMcpPreviewServer
@@ -241,6 +244,10 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
   const tools = useMemo(() => (index?.tools ?? []) as AiAssistantScriptsIndexTool[], [index]);
   const imageGens = useMemo(() => (index?.imageGenerators ?? []) as AiAssistantScriptsIndexItem[], [index]);
   const llms = useMemo(() => (index?.llmScripts ?? []) as AiAssistantScriptsIndexItem[], [index]);
+  const projectContext = useMemo(
+    () => index?.projectContext as AiAssistantScriptsProjectContextRow | undefined,
+    [index]
+  );
   const toolPromptOverrides = useMemo(
     () => (index?.toolPromptOverrides ?? []) as AiAssistantScriptsToolPromptOverrideRow[],
     [index]
@@ -467,6 +474,17 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
     );
   };
 
+  const openProjectContextEditor = () => {
+    void loadFileForEditor('Project context', AI_ASSISTANT_PROJECT_CONTEXT_STUDIO_PATH, AI_ASSISTANT_PROJECT_CONTEXT_MARKDOWN_STUB);
+  };
+
+  const removeProjectContext = () => {
+    void deleteRepoFile(
+      `/config/studio${AI_ASSISTANT_PROJECT_CONTEXT_STUDIO_PATH}`,
+      'Remove project context for this site? AI Assistant will stop injecting site-authoring facts until you add the file again.'
+    );
+  };
+
   const openToolPromptOverride = (key: string) => {
     const sp = `/scripts/aiassistant/prompts/${key}.md`;
     void loadFileForEditor(`Tool prompt: ${key}`, sp, aiAssistantToolPromptMarkdownStub(key));
@@ -644,7 +662,7 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
 
   const pageTitle =
     panel === 'prompts'
-      ? 'Tool prompt overrides'
+      ? 'Context and prompts'
       : panel === 'tools'
         ? 'Tools'
         : panel === 'mcp'
@@ -660,8 +678,8 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
   const pageIntro =
     panel === 'prompts' ? (
       <Typography variant="body2" color="text.secondary" paragraph>
-        Markdown under <code>scripts/aiassistant/prompts/&lt;KEY&gt;.md</code> overrides built-in tool prompt text (see
-        ToolPromptsLoader). Empty files open with a working stub.
+        <strong>Project context</strong> is appended to every chat turn when non-empty. Per-key markdown under{' '}
+        <code>scripts/aiassistant/prompts/&lt;KEY&gt;.md</code> overrides built-in tool prompt text (see ToolPromptsLoader).
       </Typography>
     ) : null;
 
@@ -917,7 +935,34 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
           {showPrompts ? (
             <>
           <Typography variant="subtitle1" gutterBottom>
-            Tool Prompt Overrides (<code>scripts/aiassistant/prompts/</code>):
+            Project context (<code>scripts/aiassistant/context/site-authoring.md</code>):
+          </Typography>
+          <Typography variant="body2" color="text.secondary" paragraph>
+            Non-empty markdown is injected on every orchestration turn (labeled Studio project context). Use it for
+            content-type paths, folder conventions, and site-specific workflows — not for one-off author requests.
+          </Typography>
+          <Stack direction="row" spacing={1} sx={{ mb: 3 }} flexWrap="wrap" alignItems="center">
+            <Typography variant="body2" color="text.secondary">
+              {projectContext?.hasContent
+                ? `Configured (${projectContext.byteLength} bytes)`
+                : 'Not configured — built-in tool prompts only'}
+            </Typography>
+            <Button size="small" startIcon={<EditRounded />} onClick={() => openProjectContextEditor()}>
+              Edit
+            </Button>
+            <Button
+              size="small"
+              color="error"
+              startIcon={<DeleteOutlineRounded />}
+              disabled={!projectContext?.hasContent}
+              onClick={() => removeProjectContext()}
+            >
+              Remove
+            </Button>
+          </Stack>
+
+          <Typography variant="subtitle1" gutterBottom>
+            Tool prompt overrides (<code>scripts/aiassistant/prompts/</code>):
           </Typography>
           <Typography variant="body2" color="text.secondary" paragraph>
             Non-empty markdown for a key replaces the plugin default (see ToolPromptsLoader). Remove the file to use the

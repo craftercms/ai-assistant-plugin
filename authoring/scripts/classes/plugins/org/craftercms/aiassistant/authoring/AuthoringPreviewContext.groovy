@@ -1,6 +1,7 @@
 package plugins.org.craftercms.aiassistant.authoring
 
 import plugins.org.craftercms.aiassistant.config.StudioAiAssistantProjectConfig
+import plugins.org.craftercms.aiassistant.context.SiteProjectContext
 import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
 
 import java.net.URLEncoder
@@ -129,6 +130,7 @@ class AuthoringPreviewContext {
       out = out.replaceAll('(?ms)\\n\\n--- Studio preview URL[\\s\\S]*', '')
       out = out.replaceAll('(?ms)\\n\\n--- Engine preview URL[\\s\\S]*', '')
       out = out.replaceAll('(?ms)\\n\\n--- Studio agent clock[\\s\\S]*?\\n---\\s*', '')
+      out = out.replaceAll('(?ms)\\n\\n--- Studio project context[\\s\\S]*?\\n---\\s*', '')
     } catch (Throwable ignored) {
     }
     return out.trim()
@@ -174,7 +176,8 @@ Use these when the author asks about "today", "now", freshness, or dated content
     Object displayTemplateRaw,
     Object request,
     Object studioPreviewPageUrlRaw,
-    StudioToolOperations publishingOps = null
+    StudioToolOperations publishingOps = null,
+    Object applicationContext = null
   ) {
     def stepDeltas = new LinkedHashMap<String, Integer>()
     def cur = (clientWire ?: '').toString()
@@ -207,6 +210,10 @@ Use these when the author asks about "today", "now", freshness, or dated content
         }
       }
     }
+    int prevProject = cur.length()
+    cur = SiteProjectContext.appendToOrchestrationPrompt(cur, site, applicationContext)
+    stepDeltas.projectContext = cur.length() - prevProject
+
     int prevClock = cur.length()
     cur = appendAgentDateTimeContext(cur)
     stepDeltas.agentClock = cur.length() - prevClock
@@ -245,6 +252,7 @@ Use these when the author asks about "today", "now", freshness, or dated content
     tel.hasFormEngineNotice = finalPrompt.contains('--- Studio form-engine context')
     tel.hasFormEngineClientJsonApply = finalPrompt.contains('--- Studio form client-apply instructions')
     tel.hasPublishingStatus = finalPrompt.contains('--- Studio publishing status')
+    tel.hasProjectContext = finalPrompt.contains('--- Studio project context')
     tel.contentPathPresent = normalizeRepoPath(args?.contentPath?.toString()).length() > 0
     tel.displayTemplatePresent = (args?.displayTemplate ?: '').toString().trim().length() > 0
     if (args?.enableToolsRequested != null) {
@@ -285,9 +293,10 @@ Use these when the author asks about "today", "now", freshness, or dated content
   )
 
   private static final Pattern PRIOR_TURN_CONTENT_REFERENCE = Pattern.compile(
-    '(?i)\\b(these|those|generated|previous|prior|earlier)\\s+(tips?|list|text|copy|content|results?)\\b|' +
-      '\\buse\\s+(these|those|the)\\s+(tips?|list|text|copy)\\b|' +
-      '\\bno[,\\s]+use\\s+these\\b'
+    '(?i)\\b(these|those|generated|previous|prior|earlier)\\s+(tips?|list|text|copy|content|results?|draft)\\b|' +
+      '\\buse\\s+(these|those|the)\\s+(tips?|list|text|copy|draft)\\b|' +
+      '\\bno[,\\s]+use\\s+these\\b|' +
+      '\\b(?:this|the)\\s+draft\\b|\\bfrom\\s+(?:this|the)\\s+draft\\b|\\b(?:this|the)\\s+blog\\s+draft\\b'
   )
 
   /** Ask the model to compose fiction or chat prose — not repository field work. */
@@ -354,6 +363,25 @@ Use these when the author asks about "today", "now", freshness, or dated content
       return (tail ?: '').trim()
     }
     return stripStudioInjectedPromptBlocks(s)?.trim() ?: ''
+  }
+
+  /**
+   * Author bubble text before the first Studio metadata block appended during {@link #assembleOrchestrationPrompt}.
+   * Prefer this for intent-recipe deterministic matching so injected preview/project context cannot break {@code when} rules.
+   */
+  static String extractOrchestrationClientAuthorBlock(String orchestrationPrompt) {
+    def s = (orchestrationPrompt ?: '').toString()
+    if (!s.trim()) {
+      return ''
+    }
+    int idx = s.indexOf('\n\n--- Studio preview context')
+    if (idx < 0) {
+      idx = s.indexOf('\n\n--- Studio authoring context')
+    }
+    if (idx >= 0) {
+      return s.substring(0, idx).trim()
+    }
+    return extractAuthorCurrentRequestVisible(s) ?: stripStudioInjectedPromptBlocks(s)?.trim() ?: ''
   }
 
   /** Body between {@code [Prior conversation …]} header and the {@code ---} separator before {@code Current request:}. */
@@ -441,8 +469,28 @@ Use these when the author asks about "today", "now", freshness, or dated content
     if ((current =~ /(?i)\b(make it|shorter|longer|brief|condense|trim it|expand it|rewrite it)\b/).find()) {
       return true
     }
+    if ((current =~ /(?i)\b(?:this|that|the)\s+draft\b/).find()) {
+      return true
+    }
+    if ((current =~ /(?i)\b(?:create|save|add)\s+(?:a\s+)?(?:blog\s+)?post\b/).find()) {
+      return true
+    }
     return current.tokenize().size() <= 8 &&
       (current =~ /(?i)\b(it|that|this|your|the story)\b/).find()
+  }
+
+  /**
+   * Prior abbreviated conversation still carries a draft section from an earlier assistant turn.
+   */
+  static boolean priorConversationContainsDraftBody(String fullPrompt) {
+    def prior = extractPriorConversationBody(fullPrompt)?.trim()
+    if (!prior) {
+      return false
+    }
+    if (prior.contains('## Draft body')) {
+      return true
+    }
+    return (prior =~ /(?i)✏️\s*Draft\s*·/).find() || (prior =~ /(?i)\*Draft blog:\*/).find()
   }
 
   /**

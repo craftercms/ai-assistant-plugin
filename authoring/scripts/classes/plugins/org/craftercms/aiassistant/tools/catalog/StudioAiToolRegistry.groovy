@@ -26,6 +26,7 @@ import plugins.org.craftercms.aiassistant.tools.development.UpdateTemplateTool
 import plugins.org.craftercms.aiassistant.tools.general.FetchHttpUrlTool
 import plugins.org.craftercms.aiassistant.tools.general.PostHttpUrlTool
 import plugins.org.craftercms.aiassistant.tools.general.SlackPostMessageTool
+import plugins.org.craftercms.aiassistant.tools.general.ConsultCrafterQTool
 import plugins.org.craftercms.aiassistant.tools.general.SerpApiWebSearchTool
 import plugins.org.craftercms.aiassistant.tools.general.WebSearchTool
 import plugins.org.craftercms.aiassistant.tools.spi.AbstractStudioAiTool
@@ -58,6 +59,7 @@ final class StudioAiToolRegistry {
     new PostHttpUrlTool(),
     new WebSearchTool(),
     new SerpApiWebSearchTool(),
+    new ConsultCrafterQTool(),
     new SlackPostMessageTool(),
     new ResearchSiteContentTool(),
     new WriteContentTool(),

@@ -30,6 +30,10 @@ final class ProseDeclaredToolCalls {
   private static final Pattern FENCED_JSON =
     Pattern.compile('(?s)```(?:json)?\\s*([\\s\\S]*?)```')
 
+  /** e.g. {@code functions.WriteContent({ "siteId": "x", ... })} on one line (common when models skip API tool_calls). */
+  private static final Pattern FUNCTIONS_DOT_ONE_LINE =
+    Pattern.compile('(?m)(?:^\\s*\\d+\\.\\s*)?functions\\.(\\w+)\\s*\\(\\s*(\\{[^}]+(?:\\{[^}]*\\}[^}]*)*\\})\\s*\\)')
+
   /**
    * @param prose assistant message text (no API {@code tool_calls})
    * @param byName wired tools for this session
@@ -51,22 +55,46 @@ final class ProseDeclaredToolCalls {
         continue
       }
       Map inv = resolveInvocationFromJsonBlock(block, prose, matcher.start(), byName, slurper)
-      if (inv == null) {
-        continue
-      }
-      String wireName = inv.wireName?.toString()?.trim() ?: ''
-      String args = inv.arguments?.toString() ?: '{}'
+      appendProseInvocation(out, dedupe, inv, byName)
+    }
+
+    Matcher fnMatcher = FUNCTIONS_DOT_ONE_LINE.matcher(prose)
+    while (fnMatcher.find()) {
+      String wireName = fnMatcher.group(1)?.toString()?.trim() ?: ''
+      String argsJson = fnMatcher.group(2)?.toString()?.trim() ?: '{}'
       if (!wireName || !byName.containsKey(wireName)) {
         continue
       }
-      String key = wireName + '\0' + args
-      if (!dedupe.add(key)) {
+      try {
+        slurper.parseText(argsJson)
+      } catch (Throwable ignored) {
         continue
       }
-      out.add(buildToolCallMap(wireName, args))
+      appendProseInvocation(out, dedupe, [wireName: wireName, arguments: argsJson], byName)
     }
 
     return out
+  }
+
+  private static void appendProseInvocation(
+    List<Map> out,
+    Set<String> dedupe,
+    Map inv,
+    Map<String, FunctionToolCallback> byName
+  ) {
+    if (inv == null) {
+      return
+    }
+    String wireName = inv.wireName?.toString()?.trim() ?: ''
+    String args = inv.arguments?.toString() ?: '{}'
+    if (!wireName || !byName.containsKey(wireName)) {
+      return
+    }
+    String key = wireName + '\0' + args
+    if (!dedupe.add(key)) {
+      return
+    }
+    out.add(buildToolCallMap(wireName, args))
   }
 
   /**

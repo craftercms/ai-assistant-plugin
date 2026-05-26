@@ -1367,9 +1367,30 @@ function clipContextChunk(s: string, max: number): string {
  * Prior turns: assistant replies often repeat **## Plan** then **## Plan Execution** — keep execution/recap only to
  * shrink the wire prompt and reduce redundant reasoning.
  */
+/** Extracts one `## <heading>` section for prior-turn memory (follow-up “create post from this draft”). */
+function extractMarkdownH2Section(markdown: string, heading: string): string {
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`^##\\s*${escaped}\\s*\\r?\\n([\\s\\S]*?)(?=^##\\s|$)`, 'im');
+  const m = re.exec(markdown.trim());
+  return m?.[1]?.trim() ?? '';
+}
+
 function abbreviateAssistantTurnForPriorContext(body: string): string {
   let t = stripOrchestrationDebugComment(body).trim();
   if (!t) return '';
+  const draftBody = extractMarkdownH2Section(t, 'Draft body');
+  if (draftBody) {
+    const authorIdea = extractMarkdownH2Section(t, 'Author idea');
+    const workNotes = extractMarkdownH2Section(t, 'Work notes');
+    const parts = [`## Draft body\n\n${clipContextChunk(draftBody, 4000)}`];
+    if (authorIdea) {
+      parts.push(`## Author idea\n\n${clipContextChunk(authorIdea, 800)}`);
+    }
+    if (workNotes) {
+      parts.push(`## Work notes\n\n${clipContextChunk(workNotes, 600)}`);
+    }
+    return parts.join('\n\n');
+  }
   const planExec = /^##\s+Plan Execution\b/im;
   const match = planExec.exec(t);
   if (match?.index != null) {

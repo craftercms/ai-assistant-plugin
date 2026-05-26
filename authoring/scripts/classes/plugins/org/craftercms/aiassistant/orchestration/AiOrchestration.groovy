@@ -46,6 +46,7 @@ import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.http.client.SimpleClientHttpRequestFactory
+import org.springframework.web.client.ResourceAccessException
 import org.springframework.web.client.RestClient
 import org.springframework.web.client.RestClientResponseException
 import org.springframework.web.reactive.function.client.WebClientResponseException
@@ -57,6 +58,7 @@ import java.io.InputStream
 import java.io.InputStreamReader
 import java.io.OutputStream
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.text.Normalizer
@@ -123,6 +125,12 @@ class AiOrchestration {
    */
   /** Cap for tools-loop {@code /v1/chat/completions} JSON body size (any tools-loop vendor). */
   private static final int NATIVE_TOOLS_WIRE_JSON_MAX_CHARS = 36_000
+
+  /** Consecutive tool-only LLM rounds before injecting a stall-guard user message. */
+  private static final int TOOLS_LOOP_STALL_GUARD_FIRST_ROUND = 10
+
+  /** Consecutive tool-only rounds before forcing a final author-visible message (below maxRounds). */
+  private static final int TOOLS_LOOP_STALL_FORCE_FINISH_ROUND = 18
 
   /**
    * Max characters per {@code text} field for the **final** assistant SSE payload after native tools.
@@ -437,6 +445,23 @@ class AiOrchestration {
   }
 
   /**
+   * TCP connect timeout for {@link RestClient} {@code /v1/chat/completions} (ms). Default 30s; override
+   * {@code aiassistant.openai.restConnectTimeoutMs} (5_000–120_000).
+   */
+  private static int resolveChatCompletionsRestConnectTimeoutMs() {
+    try {
+      def p = System.getProperty('aiassistant.openai.restConnectTimeoutMs')
+      if (p != null && p.toString().trim()) {
+        int n = Integer.parseInt(p.toString().trim())
+        if (n >= 5_000 && n <= 120_000) {
+          return n
+        }
+      }
+    } catch (Throwable ignored) {}
+    return 30_000
+  }
+
+  /**
    * Builds SimpleClientHttpRequestFactory honoring aiassistant.openai.restReadTimeoutMs defaults.
    * Adds sane connect timeouts so hung upstream chats surface quickly.
    * Shared by RestClient native-tools transports.
@@ -444,7 +469,7 @@ class AiOrchestration {
   private static SimpleClientHttpRequestFactory chatCompletionsRestRequestFactory(Map toolsLoopSessionBundle = null) {
     def rf = new SimpleClientHttpRequestFactory()
     rf.setReadTimeout(resolveChatCompletionsRestReadTimeoutMs(toolsLoopSessionBundle))
-    rf.setConnectTimeout(30_000)
+    rf.setConnectTimeout(resolveChatCompletionsRestConnectTimeoutMs())
     return rf
   }
 
@@ -3197,7 +3222,7 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
   /**
    * POST {@code /v1/chat/completions} with {@code stream:false} and return the raw JSON body (UTF-8).
    * Bypasses {@link org.springframework.ai.openai.api.OpenAiApi#chatCompletionEntity} / Jackson binding.
-   * On HTTP 429, sleeps with backoff and retries up to two additional attempts (helps Groq on_demand TPM bursts).
+   * On HTTP 429 or TCP connect timeout, sleeps with backoff and retries up to two additional attempts.
    */
   private static String httpPostChatCompletionsReadBody(
     String apiKey,
@@ -3222,15 +3247,46 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
           attempt + 1,
           maxTries
         )
-        try {
-          Thread.sleep(ms)
-        } catch (InterruptedException ie) {
-          Thread.currentThread().interrupt()
-          throw ie
+        toolsLoopChatBackoffSleep(ms)
+      } catch (ResourceAccessException rae) {
+        if (!isChatCompletionsConnectTimeout(rae) || attempt >= maxTries) {
+          throw rae
         }
+        long ms = 2_000L * attempt
+        log.warn(
+          'Tools-loop chat connect timed out to {}; backing off {} ms then retry {}/{} (check outbound HTTPS / JVM proxy)',
+          resolveSyncChatCompletionsUrl(wireBaseUrl),
+          ms,
+          attempt + 1,
+          maxTries
+        )
+        toolsLoopChatBackoffSleep(ms)
       }
     }
-    throw new IllegalStateException('Tools-loop chat: 429 retries exhausted')
+    throw new IllegalStateException('Tools-loop chat: retries exhausted')
+  }
+
+  private static void toolsLoopChatBackoffSleep(long ms) {
+    try {
+      Thread.sleep(Math.max(0L, ms))
+    } catch (InterruptedException ie) {
+      Thread.currentThread().interrupt()
+      throw ie
+    }
+  }
+
+  /** True when {@link ResourceAccessException} wraps a connect-phase {@link SocketTimeoutException}. */
+  private static boolean isChatCompletionsConnectTimeout(Throwable t) {
+    Throwable cur = t
+    int walk = 0
+    while (cur != null && walk++ < 12) {
+      if (cur instanceof SocketTimeoutException) {
+        String m = (cur.message ?: '').toString().toLowerCase(Locale.ROOT)
+        return m.contains('connect')
+      }
+      cur = cur.cause
+    }
+    return false
   }
 
   private static String httpPostChatCompletionsReadBodyOnce(
@@ -4215,12 +4271,15 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       out.confidence = 1.0d
       out.routerReason = detMatch.routerReason?.toString()
       out.skipRecipePrefetch = Boolean.TRUE.equals(detMatch.skipPrefetch)
+      out.toolsLoopPrefetchSupplement = AuthoringIntentRecipeCatalog.toolsLoopPrefetchSupplementFromMatch(detMatch)
+      out.toolsLoopRequireSuccessfulTools = AuthoringIntentRecipeCatalog.toolsLoopRequireSuccessfulToolsFromMatch(detMatch)
       out.matchPass = 'deterministic'
       out.deterministicMatchCount = 1
       out.siteToolMatchCount = 0
       return out
     }
     boolean intentClarified = false
+    String routerVisibleBeforeClarify = visible
     if (detMatches.size() != 1) {
       List ambiguousCandidates =
         AuthoringIntentRecipeCatalog.findAmbiguousRecipeCandidates(recipes, routeCtx, visible)
@@ -4228,6 +4287,12 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
         detMatches :
         (ambiguousCandidates.size() > 1 ? ambiguousCandidates : [])
       boolean enrichMode = detMatches.isEmpty() && clarifyRows.isEmpty()
+      if (enrichMode &&
+        AuthoringIntentRecipeCatalog.authorVisibleSuggestsDraftContentFromAuthorUrl(routerVisibleBeforeClarify)) {
+        log.warn(
+          'Intent recipe routing: draft-from-author-url signals on current turn but zero deterministic matches before enrich — check site intent-recipes.json override of draft_content_from_source and plugin deploy'
+        )
+      }
       if (enrichMode || clarifyRows.size() > 1) {
         log.info(
           'Intent recipe routing: clarify/enrich before retest (detMatches={}, enrichMode={})',
@@ -4249,7 +4314,10 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
         )
         if (clarified?.trim()) {
           intentClarified = true
-          visible = clarified.trim()
+          visible = AuthoringIntentRecipeCatalog.mergeAuthorHttpUrlsIntoRouterVisible(
+            routerVisibleBeforeClarify,
+            clarified.trim()
+          )
           routeCtx.routerVisible = visible
           routerRecipes = AuthoringIntentRecipeCatalog.filterRecipesEligibleForRouter(recipes, visible)
           catalogMd = AuthoringIntentRecipeCatalog.toRouterCatalogMarkdown(routerRecipes)
@@ -4301,6 +4369,8 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       out.confidence = 1.0d
       out.routerReason = detMatch.routerReason?.toString()
       out.skipRecipePrefetch = Boolean.TRUE.equals(detMatch.skipPrefetch)
+      out.toolsLoopPrefetchSupplement = AuthoringIntentRecipeCatalog.toolsLoopPrefetchSupplementFromMatch(detMatch)
+      out.toolsLoopRequireSuccessfulTools = AuthoringIntentRecipeCatalog.toolsLoopRequireSuccessfulToolsFromMatch(detMatch)
       out.matchPass = intentClarified ? 'deterministic_after_clarify' : 'deterministic'
       return out
     }
@@ -4424,6 +4494,8 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       out.minConfidence = minC
       out.routerReason = fbDet.routerReason?.toString()
       out.skipRecipePrefetch = Boolean.TRUE.equals(fbDet.skipPrefetch)
+      out.toolsLoopPrefetchSupplement = AuthoringIntentRecipeCatalog.toolsLoopPrefetchSupplementFromMatch(fbDet)
+      out.toolsLoopRequireSuccessfulTools = AuthoringIntentRecipeCatalog.toolsLoopRequireSuccessfulToolsFromMatch(fbDet)
       out.matchPass = 'deterministic_after_router'
       out.catalogMd = catalogMd
       out.routerDecision = decision
@@ -4499,7 +4571,9 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
     String visible,
     String authorFieldLabelOverride = null,
     boolean skipRecipePrefetch = false,
-    String expansionWirePrefix = ''
+    String expansionWirePrefix = '',
+    String toolsLoopPrefetchSupplement = '',
+    List toolsLoopRequireSuccessfulTools = null
   ) {
     Map pfb = skipRecipePrefetch ?
       [
@@ -4530,6 +4604,38 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
         hotpathDirective = ''
       }
     }
+    String prefetchSupplementId = (toolsLoopPrefetchSupplement ?: '').toString().trim()
+    List<String> requireSuccessfulTools = []
+    if (toolsLoopRequireSuccessfulTools instanceof List) {
+      for (Object o : (List) toolsLoopRequireSuccessfulTools) {
+        String n = o?.toString()?.trim()
+        if (n) {
+          requireSuccessfulTools.add(n)
+        }
+      }
+    }
+    Map supplementResult = [:]
+    if (prefetchSupplementId) {
+      supplementResult = AuthoringIntentRecipeEngine.runPrefetchSupplement(prefetchSupplementId, ops, cfg, visible ?: '')
+      String supplementMarkdown = (supplementResult?.markdown ?: '').toString()
+      if (supplementMarkdown.trim()) {
+        prefetch = prefetch + supplementMarkdown
+        prefetchRan = true
+      }
+      if (supplementResult?.prefetchSteps instanceof List) {
+        List mergedSteps = new ArrayList<>(pfbSteps)
+        mergedSteps.addAll((List) supplementResult.prefetchSteps)
+        pfbSteps = mergedSteps
+      }
+      hotpathDirective = hotpathDirective +
+        AuthoringIntentRecipeEngine.buildPrefetchSupplementHotpath(prefetchSupplementId, visible ?: '', supplementResult)
+    }
+    Map newContentItemSiblingHot = 'new_content_item'.equals(rid) ?
+      AuthoringIntentRecipeEngine.buildNewContentItemSiblingReadDirective(prefetch) :
+      [directive: '', siblingGetContentPresent: Boolean.TRUE]
+    if ('new_content_item'.equals(rid)) {
+      hotpathDirective = hotpathDirective + (newContentItemSiblingHot?.directive ?: '').toString()
+    }
     String prefetchResolvedFieldId = (fieldHot?.resolvedFieldId ?: '').toString().trim()
     String prefetchResolvedFieldLabel = (fieldHot?.resolvedFieldLabel ?: '').toString().trim()
     Map<String, Map> recipeInitialBindings = pfb.initialBindings instanceof Map ?
@@ -4543,7 +4649,8 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
         conf,
         routerReason,
         recipeInitialBindings,
-        recipeCurrentBindings
+        recipeCurrentBindings,
+        visible
       )
     String orchPrelude = AuthoringIntentRecipeCatalog.matchedUserPrelude(recipe)
     if (orchPrelude) {
@@ -4557,6 +4664,14 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
     Map execPlan = AuthoringIntentRecipePlanCompiler.compile(recipe)
     Map matchedTelExtra = new LinkedHashMap<>()
     matchedTelExtra.putAll(AuthoringIntentRecipeCatalog.orchestrationTelemetryExtras(recipe))
+    matchedTelExtra.putAll(AuthoringIntentRecipeCatalog.authorUrlExclusiveTelemetryOverlay(recipe, visible ?: ''))
+    matchedTelExtra.putAll(
+      AuthoringIntentRecipeCatalog.prefetchSupplementTelemetryOverlay(
+        prefetchSupplementId,
+        supplementResult,
+        requireSuccessfulTools
+      )
+    )
     matchedTelExtra.executionPlanStepCount = execPlan.steps instanceof List ? ((List) execPlan.steps).size() : 0
     matchedTelExtra.confirmationServerStepsPending =
       AuthoringIntentRecipePlanCompiler.hasConfirmationServerSteps(execPlan)
@@ -4578,6 +4693,11 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
     ])
     if ('open_page_inquiry'.equals(rid) && prefetchSkipRedundantGetForListedPath && !prefetchEnvTrunc) {
       matchedTelExtra.toolsLoopDisable = Boolean.TRUE
+    }
+    if ('new_content_item'.equals(rid) &&
+      !Boolean.TRUE.equals(newContentItemSiblingHot?.siblingGetContentPresent) &&
+      !Boolean.TRUE.equals(matchedTelExtra.toolsLoopSiblingGetContentRequired)) {
+      matchedTelExtra.newContentItemSiblingGetContentRequired = Boolean.TRUE
     }
     result.recipeExecutionPlan = execPlan
     String inquiryHint = ''
@@ -4716,11 +4836,12 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
         log.warn('Intent recipe routing skipped: author-visible text empty after strip (unexpected after eligibility pass).')
         return intentRecipeAttachTelemetry(ops, cfg, result, 'skipped_visible_empty')
       }
+      String clientAuthorBlock = AuthoringPreviewContext.extractOrchestrationClientAuthorBlock(cand)?.trim()
       String currentAuthorVisible = AuthoringPreviewContext.extractAuthorCurrentRequestVisible(cand)?.trim()
       if (!currentAuthorVisible) {
         currentAuthorVisible = visible
       }
-      String routerVisible = currentAuthorVisible
+      String routerVisible = clientAuthorBlock ?: currentAuthorVisible
       String authorFieldLabelEarly = extractAuthorFieldLabelPhrase(cand)
       if (!authorFieldLabelEarly) {
         authorFieldLabelEarly = extractAuthorFieldLabelPhrase(routerVisible)
@@ -4859,7 +4980,11 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
           routerVisible,
           authorFieldLabelEarly,
           Boolean.TRUE.equals(activePass.skipRecipePrefetch),
-          expansionWirePrefix
+          expansionWirePrefix,
+          activePass.toolsLoopPrefetchSupplement?.toString(),
+          activePass.toolsLoopRequireSuccessfulTools instanceof List ?
+            (List) activePass.toolsLoopRequireSuccessfulTools :
+            null
         )
         if (matchedRoute.intentRecipeRoutingTelemetry instanceof Map) {
           Map matchedTel = (Map) matchedRoute.intentRecipeRoutingTelemetry
@@ -5616,6 +5741,101 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       '**Fix in Studio:** open **Git** / history for this file and **revert** to the last good version, then retry your edit.\n'
   }
 
+  private static List<String> stringListFromRecipeTelemetry(Map tel, String key) {
+    if (!(tel instanceof Map) || !(key?.trim())) {
+      return Collections.emptyList()
+    }
+    Object raw = tel.get(key)
+    if (!(raw instanceof List)) {
+      return Collections.emptyList()
+    }
+    List<String> out = []
+    for (Object o : (List) raw) {
+      String s = o?.toString()?.trim()
+      if (s) {
+        out.add(s)
+      }
+    }
+    return out
+  }
+
+  private static Map<String, Boolean> freshRequiredToolSuccessMap(List<String> requiredWireNames) {
+    Map<String, Boolean> out = new LinkedHashMap<>()
+    if (!(requiredWireNames instanceof List)) {
+      return out
+    }
+    for (String n : requiredWireNames) {
+      if (n?.trim()) {
+        out.put(n.trim(), Boolean.FALSE)
+      }
+    }
+    return out
+  }
+
+  private static boolean toolsLoopRequiredToolsStillPending(Map<String, Boolean> requiredToolSuccess) {
+    if (!(requiredToolSuccess instanceof Map) || requiredToolSuccess.isEmpty()) {
+      return false
+    }
+    for (Boolean ok : requiredToolSuccess.values()) {
+      if (!Boolean.TRUE.equals(ok)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  private static boolean repoPathOnToolsLoopBannedList(String path, List<String> bannedPaths) {
+    String p = (path ?: '').toString().trim()
+    if (!p || !(bannedPaths instanceof List)) {
+      return false
+    }
+    for (String banned : bannedPaths) {
+      if (p.equalsIgnoreCase((banned ?: '').toString().trim())) {
+        return true
+      }
+    }
+    return false
+  }
+
+  private static String buildToolsLoopStallGuardUserMessage(Map toolsLoopSessionBundle, int consecutiveToolOnlyRounds) {
+    Map tel = (toolsLoopSessionBundle instanceof Map && toolsLoopSessionBundle.intentRecipeRoutingTelemetry instanceof Map) ?
+      (Map) toolsLoopSessionBundle.intentRecipeRoutingTelemetry :
+      null
+    StringBuilder sb = new StringBuilder()
+    sb.append('[aiassistant: tools-loop stall guard — internal]\n')
+    sb.append('You have completed **').append(consecutiveToolOnlyRounds).append('** tool rounds without a **final** author-visible answer (no closing prose / **## Plan Execution**).\n')
+    sb.append('**Stop** open-ended discovery. Either finish the author’s outcome in **this** turn (no more **tool_calls**), or call **only** the minimum tools still required.\n')
+    String requiredHint = AuthoringIntentRecipeCatalog.formatToolsLoopRequiredToolsStallHint(tel)
+    if (requiredHint?.trim()) {
+      sb.append(requiredHint)
+    }
+    sb.append('Respond with **## Plan Execution** when repository work is done or explain the blocker in plain language.\n')
+    sb.toString()
+  }
+
+  private static String synthesizeToolsLoopStallExceededMessage(
+    int lastRound,
+    int maxRounds,
+    Map toolsLoopSessionBundle,
+    int consecutiveToolOnlyRounds
+  ) {
+    Map tel = (toolsLoopSessionBundle instanceof Map && toolsLoopSessionBundle.intentRecipeRoutingTelemetry instanceof Map) ?
+      (Map) toolsLoopSessionBundle.intentRecipeRoutingTelemetry :
+      null
+    List<String> required = stringListFromRecipeTelemetry(tel, 'toolsLoopRequireSuccessfulTools')
+    if (!required.isEmpty()) {
+      return AuthoringIntentRecipeCatalog.formatToolsLoopRequiredToolsMissedMessage(tel) +
+        '\n_Round ' + (lastRound + 1) + ' of ' + maxRounds + ' (stall limit)._ \n'
+    }
+    StringBuilder sb = new StringBuilder()
+    sb.append('## Plan Execution\n\n')
+    sb.append('⚠️ **Stopped:** the assistant used **').append(consecutiveToolOnlyRounds)
+      .append('** consecutive tool rounds without finishing (limit **').append(maxRounds).append('**).\n\n')
+    sb.append('The model kept calling tools without producing a final answer. Retry with a narrower request, or check server logs for repeated blocked/skipped tool results.\n\n')
+    sb.append('_Round ').append(lastRound + 1).append(' of ').append(maxRounds).append('._\n')
+    sb.toString()
+  }
+
   private static boolean toolWireIndicatesInvalidSiteItemDocument(String toolWireJson) {
     String s = (toolWireJson ?: '').toString()
     return s.contains('field fragment') ||
@@ -5805,6 +6025,26 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       if (!(stepObj instanceof Map)) {
         continue
       }
+      Map cq = (Map) stepObj
+      if (!'ConsultCrafterQ'.equals(cq.get('tool')?.toString()) || !Boolean.TRUE.equals(cq.get('ok'))) {
+        continue
+      }
+      String fb = (cq.get('feedbackMarkdown') ?: cq.get('answer'))?.toString()?.trim()
+      if (!fb) {
+        continue
+      }
+      if (!fb.startsWith('##')) {
+        fb = plugins.org.craftercms.aiassistant.tools.general.CrafterQConsultFeedbackFormatter
+          .chatSectionMarkdown(fb)
+      }
+      if (fb) {
+        sb.append('\n\n---\n\n').append(fb)
+      }
+    }
+    for (Object stepObj : steps) {
+      if (!(stepObj instanceof Map)) {
+        continue
+      }
       Map step = (Map) stepObj
       String tool = step.get('tool')?.toString()?.trim()
       if (!tool) {
@@ -5829,7 +6069,32 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     if (sb.length() == 0 && Boolean.FALSE.equals(block.ok)) {
       sb.append('⚠️ **Confirmation steps finished with errors** — check Studio logs.\n')
     }
+    String sourceMd = (block.confirmationSourceMarkdown ?: '').toString().trim()
+    if (sourceMd) {
+      appendRecipeTurnSectionsForFollowUpChat(sb, sourceMd)
+    }
     return sb.toString().trim()
+  }
+
+  /**
+   * Keeps {@code ## Draft body} (and related action-turn sections) in the author-visible message after
+   * recipe confirmation replaces the bubble — follow-up turns like “create a post from this draft” need it.
+   */
+  private static void appendRecipeTurnSectionsForFollowUpChat(StringBuilder sb, String sourceMd) {
+    List<String> headings = ['Draft body', 'Author idea', 'Work notes']
+    boolean any = false
+    for (String heading : headings) {
+      String body = plugins.org.craftercms.aiassistant.recipes.RecipeMarkdownSections
+        .extractSection(sourceMd, heading)?.trim()
+      if (!body) {
+        continue
+      }
+      if (!any) {
+        sb.append('\n\n---\n\n')
+        any = true
+      }
+      sb.append('## ').append(heading).append('\n\n').append(body).append('\n')
+    }
   }
 
   private static void applyRecipeConfirmationTelemetry(Map toolsLoopSessionBundle, Map block) {
@@ -6166,6 +6431,17 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     int maxFetchHttpUrlCallsThisTurn = toolsLoopMaxFetchHttpUrlCallsFromBundle(toolsLoopSessionBundle)
     int fetchHttpUrlCallsThisTurn = 0
     Set<String> fetchedHttpUrlsThisTurn = new LinkedHashSet<>()
+    int consecutiveToolOnlyRounds = 0
+    int toolsLoopStallGuardInjectCount = 0
+    int toolsLoopBannedRepoPathGuardHits = 0
+    int toolsLoopRequiredToolsNoFinishBlocks = 0
+    Map intentTelLoop =
+      (toolsLoopSessionBundle instanceof Map && toolsLoopSessionBundle.intentRecipeRoutingTelemetry instanceof Map) ?
+        (Map) toolsLoopSessionBundle.intentRecipeRoutingTelemetry :
+        null
+    List<String> toolsLoopBannedRepoPaths = stringListFromRecipeTelemetry(intentTelLoop, 'toolsLoopBannedRepoPaths')
+    List<String> toolsLoopRequiredWireNames = stringListFromRecipeTelemetry(intentTelLoop, 'toolsLoopRequireSuccessfulTools')
+    Map<String, Boolean> requiredToolSuccess = freshRequiredToolSuccessMap(toolsLoopRequiredWireNames)
     StudioToolOperations ops = (toolsLoopSessionBundle?.studioOps instanceof StudioToolOperations) ?
       (StudioToolOperations) toolsLoopSessionBundle.studioOps :
       null
@@ -6426,6 +6702,31 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
               fn.put('arguments', argsStr)
             }
           }
+          if (toolsLoopBannedRepoPaths && !toolsLoopBannedRepoPaths.isEmpty() &&
+            ('WriteContent'.equals(fnName) || 'GetContent'.equals(fnName) || 'update_content'.equals(fnName))) {
+            try {
+              Object argsParsedGuard = slurper.parseText(argsStr ?: '{}')
+              if (argsParsedGuard instanceof Map) {
+                String guardPath = repoPathFromToolArgsMap((Map) argsParsedGuard)
+                if (guardPath && repoPathOnToolsLoopBannedList(guardPath, toolsLoopBannedRepoPaths)) {
+                  String suggested = (intentTelLoop?.toolsLoopSuggestedNewItemPath ?: '').toString().trim()
+                  String guardOut = JsonOutput.toJson([
+                    ok                    : false,
+                    skippedBannedRepoPath : true,
+                    path                  : guardPath,
+                    message               :
+                      "${fnName} blocked: path is on the recipe **toolsLoopBannedRepoPaths** list for this turn. " +
+                        (suggested ? "Use **toolsLoopSuggestedNewItemPath** `${suggested}` from prefetch. " : '') +
+                        'Mirror **toolsLoopSiblingTemplatePath** / **quickCreatePath** from prefetch — not the open preview anchor.'
+                  ])
+                  wireMessages << [role: 'tool', tool_call_id: id, content: guardOut]
+                  toolsLoopBannedRepoPathGuardHits++
+                  continue
+                }
+              }
+            } catch (Throwable ignoredBannedPathGuard) {
+            }
+          }
           if (toolPol.duplicateWritePathGuard) {
             try {
               Object argsParsed = slurper.parseText(argsStr ?: '{}')
@@ -6467,39 +6768,70 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
               continue
             }
           }
-          if ('FetchHttpUrl'.equals(fnName) && maxFetchHttpUrlCallsThisTurn > 0) {
+          if ('FetchHttpUrl'.equals(fnName)) {
             String fetchUrl = fetchHttpUrlFromToolArgsJson(argsStr, slurper)
             fetchHttpUrlThisCall = fetchUrl ? fetchUrl.trim() : ''
-            if (fetchHttpUrlThisCall && fetchedHttpUrlsThisTurn.contains(fetchHttpUrlThisCall)) {
-              String dupOut = JsonOutput.toJson([
-                ok                       : false,
-                skippedDuplicateFetchThisTurn: true,
-                url                      : fetchUrl,
-                message                  :
-                  'FetchHttpUrl skipped: this URL was already fetched in this chat turn. Use the prior tool result or pick a different citation from WebSearch.'
-              ])
-              wireMessages << [role: 'tool', tool_call_id: id, content: dupOut]
-              continue
+            Map intentTelFetch =
+              (toolsLoopSessionBundle instanceof Map) ?
+                (Map) toolsLoopSessionBundle.get('intentRecipeRoutingTelemetry') :
+                null
+            if (intentTelFetch instanceof Map &&
+              Boolean.TRUE.equals(intentTelFetch.get('toolsLoopAuthorUrlExclusiveActive'))) {
+              List<String> authorOnly = []
+              Object au = intentTelFetch.get('toolsLoopAuthorProvidedUrls')
+              if (au instanceof List) {
+                for (Object o : (List) au) {
+                  String s = o?.toString()?.trim()
+                  if (s) {
+                    authorOnly.add(s)
+                  }
+                }
+              }
+              if (fetchHttpUrlThisCall &&
+                !AuthoringIntentRecipeCatalog.authorProvidedHttpUrlMatches(fetchHttpUrlThisCall, authorOnly)) {
+                String blockedOut = JsonOutput.toJson([
+                  ok      : false,
+                  skipped : true,
+                  url     : fetchUrl,
+                  message :
+                    'FetchHttpUrl blocked: this recipe turn is author-URL-only. Fetch only the http(s) link(s) the author pasted in Current request — do not fetch Serp results or other URLs.'
+                ])
+                wireMessages << [role: 'tool', tool_call_id: id, content: blockedOut]
+                continue
+              }
             }
-            if (fetchHttpUrlCallsThisTurn >= maxFetchHttpUrlCallsThisTurn) {
-              String limitOut = JsonOutput.toJson([
-                ok                      : false,
-                skippedFetchLimit       : true,
-                maxFetchHttpUrlCalls    : maxFetchHttpUrlCallsThisTurn,
-                message                 :
-                  'FetchHttpUrl limit reached for this turn (' + maxFetchHttpUrlCallsThisTurn +
-                    '). Use prior fetch results and search snippets — do not call FetchHttpUrl again.'
-              ])
-              wireMessages << [role: 'tool', tool_call_id: id, content: limitOut]
-              log.info(
-                'Tools-loop: FetchHttpUrl capped at {} for web-research recipe agentId={} round={}',
-                maxFetchHttpUrlCallsThisTurn,
-                agentId,
-                round
-              )
-              continue
+            if (maxFetchHttpUrlCallsThisTurn > 0) {
+              if (fetchHttpUrlThisCall && fetchedHttpUrlsThisTurn.contains(fetchHttpUrlThisCall)) {
+                String dupOut = JsonOutput.toJson([
+                  ok                       : false,
+                  skippedDuplicateFetchThisTurn: true,
+                  url                      : fetchUrl,
+                  message                  :
+                    'FetchHttpUrl skipped: this URL was already fetched in this chat turn. Use the prior tool result or pick a different citation from WebSearch.'
+                ])
+                wireMessages << [role: 'tool', tool_call_id: id, content: dupOut]
+                continue
+              }
+              if (fetchHttpUrlCallsThisTurn >= maxFetchHttpUrlCallsThisTurn) {
+                String limitOut = JsonOutput.toJson([
+                  ok                      : false,
+                  skippedFetchLimit       : true,
+                  maxFetchHttpUrlCalls    : maxFetchHttpUrlCallsThisTurn,
+                  message                 :
+                    'FetchHttpUrl limit reached for this turn (' + maxFetchHttpUrlCallsThisTurn +
+                      '). Use prior fetch results and search snippets — do not call FetchHttpUrl again.'
+                ])
+                wireMessages << [role: 'tool', tool_call_id: id, content: limitOut]
+                log.info(
+                  'Tools-loop: FetchHttpUrl capped at {} for web-research recipe agentId={} round={}',
+                  maxFetchHttpUrlCallsThisTurn,
+                  agentId,
+                  round
+                )
+                continue
+              }
+              fetchHttpUrlCallsThisTurn++
             }
-            fetchHttpUrlCallsThisTurn++
           }
           FunctionToolCallback tcb = fnName ? byName.get(fnName) : null
           String toolOut
@@ -6628,6 +6960,32 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
             )
           }
           wireMessages << [role: 'tool', tool_call_id: id, content: toolWire]
+          if (requiredToolSuccess.containsKey(fnName)) {
+            try {
+              def parsedReq = slurper.parseText(toolOut.toString())
+              boolean reqOk = parsedReq instanceof Map &&
+                (Boolean.TRUE.equals(((Map) parsedReq).get('ok')) ||
+                  'written'.equalsIgnoreCase(((Map) parsedReq).get('result')?.toString()?.trim()))
+              if (reqOk && !Boolean.TRUE.equals(((Map) parsedReq).get('skippedBannedRepoPath')) &&
+                !Boolean.TRUE.equals(((Map) parsedReq).get('skippedDuplicateWriteThisTurn'))) {
+                requiredToolSuccess.put(fnName, Boolean.TRUE)
+              }
+            } catch (Throwable ignoredReqTrack) {
+            }
+          }
+        }
+        if (toolsLoopBannedRepoPathGuardHits >= 4 && toolsLoopStallGuardInjectCount < 3) {
+          String guardMsg = AuthoringIntentRecipeCatalog.formatToolsLoopRequiredToolsGuardMessage(intentTelLoop)
+          if (guardMsg?.trim()) {
+            wireMessages << [role: 'user', content: guardMsg]
+            toolsLoopStallGuardInjectCount++
+            log.warn(
+              'Tools-loop: injected banned-repo-path guard after {} blocked tool calls agentId={} round={}',
+              toolsLoopBannedRepoPathGuardHits,
+              agentId,
+              round
+            )
+          }
         }
         if (previewState.lastPreviewContentGoalFound instanceof Boolean) {
           lastPreviewContentGoalFound = previewState.lastPreviewContentGoalFound
@@ -6706,7 +7064,58 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           break
         }
         previousRoundHadRepoMutation = repoMutationThisRound
+        consecutiveToolOnlyRounds++
+        if (consecutiveToolOnlyRounds >= TOOLS_LOOP_STALL_FORCE_FINISH_ROUND) {
+          log.warn(
+            'Tools-loop: force finish after {} consecutive tool-only rounds (maxRounds={}) agentId={}',
+            consecutiveToolOnlyRounds,
+            maxRounds,
+            agentId
+          )
+          assistantAccum = synthesizeToolsLoopStallExceededMessage(
+            round,
+            maxRounds,
+            toolsLoopSessionBundle,
+            consecutiveToolOnlyRounds
+          )
+          finished = true
+          break
+        }
+        if (consecutiveToolOnlyRounds >= TOOLS_LOOP_STALL_GUARD_FIRST_ROUND && toolsLoopStallGuardInjectCount < 3) {
+          wireMessages << [
+            role   : 'user',
+            content: buildToolsLoopStallGuardUserMessage(toolsLoopSessionBundle, consecutiveToolOnlyRounds)
+          ]
+          toolsLoopStallGuardInjectCount++
+          log.info(
+            'Tools-loop: injected stall guard after {} consecutive tool-only rounds agentId={} round={}',
+            consecutiveToolOnlyRounds,
+            agentId,
+            round
+          )
+        }
         continue
+      }
+      consecutiveToolOnlyRounds = 0
+      if (toolsLoopRequiredToolsStillPending(requiredToolSuccess)) {
+        if (toolsLoopRequiredToolsNoFinishBlocks < 2 && round < maxRounds - 1) {
+          toolsLoopRequiredToolsNoFinishBlocks++
+          String guardMsg = AuthoringIntentRecipeCatalog.formatToolsLoopRequiredToolsGuardMessage(intentTelLoop)
+          if (guardMsg?.trim()) {
+            wireMessages << [role: 'user', content: guardMsg]
+          }
+          log.warn(
+            'Tools-loop: blocked prose-only finish (required tools pending) agentId={} round={} blocks={} required={}',
+            agentId,
+            round,
+            toolsLoopRequiredToolsNoFinishBlocks,
+            toolsLoopRequiredWireNames
+          )
+          continue
+        }
+        assistantAccum = AuthoringIntentRecipeCatalog.formatToolsLoopRequiredToolsMissedMessage(intentTelLoop)
+        finished = true
+        break
       }
       boolean assistClaimsTurnComplete =
         assistantProseClaimsTurnCompleteDespitePlanBullets(assistantTextFromChoiceMessageMap(msgCopy) ?: '')
@@ -6761,7 +7170,18 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       break
     }
     if (!finished) {
-      throw new IllegalStateException("Tools-loop tools-on: exceeded ${maxRounds} tool rounds without a final assistant message")
+      log.warn(
+        'Tools-loop: exceeded {} tool rounds without a final assistant message ({} consecutive tool-only); synthesizing author-visible stop agentId={}',
+        maxRounds,
+        consecutiveToolOnlyRounds,
+        agentId
+      )
+      assistantAccum = synthesizeToolsLoopStallExceededMessage(
+        maxRounds - 1,
+        maxRounds,
+        toolsLoopSessionBundle,
+        consecutiveToolOnlyRounds > 0 ? consecutiveToolOnlyRounds : maxRounds
+      )
     }
     if (!(Boolean.TRUE.equals(toolsLoopSessionBundle?.recipeConfirmationStepsExecuted))) {
       String lateMarkdown = resolveMarkdownForRecipeConfirmation(
@@ -8069,6 +8489,18 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
    * Author-facing text for terminal SSE errors. {@link RestClientResponseException#getMessage()} is often only
    * {@code RestClientResponseException#getMessage()} is often only the short ctor label (first ctor arg) — authors need HTTP status and the upstream JSON {@code error} body.
    */
+  private static String formatChatCompletionsResourceAccessMessage(ResourceAccessException rae) {
+    if (isChatCompletionsConnectTimeout(rae)) {
+      return """Could not open a TCP connection to the chat API (connect timed out after ${resolveChatCompletionsRestConnectTimeoutMs() / 1000}s).
+
+The tools loop failed on the LLM round after earlier tools (e.g. web search) may have succeeded. From the Studio JVM host, verify outbound HTTPS to your configured chat base URL. If logs show SocksSocketImpl, check JVM proxy settings. Optional: -Daiassistant.openai.restConnectTimeoutMs=60000"""
+    }
+    String detail = (rae.message ?: '').toString().trim()
+    return detail ?
+      "Chat API I/O error: ${detail}" :
+      'Chat API I/O error (ResourceAccessException)'
+  }
+
   private static String formatSseStreamErrorMessage(Throwable t) {
     if (t == null) {
       return 'Stream error'
@@ -8103,6 +8535,17 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
         def st = (w.getStatusText() ?: '').toString()
         def elided = AiHttpProxy.elideForLog(body, 1500)
         return "Tools-loop chat HTTP ${code} ${st}: ${elided ?: '(empty body)'}".trim()
+      }
+      if (cur instanceof ResourceAccessException) {
+        return formatChatCompletionsResourceAccessMessage((ResourceAccessException) cur)
+      }
+      if (cur instanceof SocketTimeoutException) {
+        String m = (cur.message ?: '').toString()
+        if (m.toLowerCase(Locale.ROOT).contains('connect')) {
+          return """Could not open a TCP connection to the chat API (connect timed out after ${resolveChatCompletionsRestConnectTimeoutMs() / 1000}s).
+
+SerpApi and other tools may still work when only the chat host is blocked. From the Studio JVM host, verify outbound HTTPS to your configured chat base URL (often https://api.openai.com). If the stack trace shows SocksSocketImpl, check JVM proxy settings (-DsocksProxyHost / HTTP_PROXY). Optional: -Daiassistant.openai.restConnectTimeoutMs=60000"""
+        }
       }
       cur = cur.cause
     }
@@ -8747,6 +9190,13 @@ If this is unexpected: verify outbound HTTPS from Studio to your configured chat
                 }
                 if (c instanceof IllegalStateException) {
                   log.error('chatStreamWithSpringAi: Tools-loop tool worker failed', c)
+                  if (tryClaimToolsTerminalEmit(toolsLoopTerminalEmitted)) {
+                    writeSseErrorFrame(out, c)
+                  }
+                  return null
+                }
+                if (c instanceof ResourceAccessException || isChatCompletionsConnectTimeout(c)) {
+                  log.error('chatStreamWithSpringAi: Tools-loop chat upstream I/O failed', c)
                   if (tryClaimToolsTerminalEmit(toolsLoopTerminalEmitted)) {
                     writeSseErrorFrame(out, c)
                   }

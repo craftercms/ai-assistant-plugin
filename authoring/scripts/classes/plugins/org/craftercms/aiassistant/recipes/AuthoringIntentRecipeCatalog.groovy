@@ -19,6 +19,7 @@ import java.util.Locale
 import java.util.Map
 import java.util.Set
 import java.util.concurrent.ConcurrentHashMap
+import java.util.regex.Pattern
 
 /**
  * Loads bundled + optional site **authoring intent recipes** for the intent-router pass.
@@ -642,6 +643,21 @@ final class AuthoringIntentRecipeCatalog {
     Map<String, Map> byId = new LinkedHashMap<>()
     String visible = deterministicRoutingPrompt(ctx)
     for (Map recipe : recipes) {
+      if (!(recipe instanceof Map) || !recipeToolsLoopAuthorUrlExclusive(recipe)) {
+        continue
+      }
+      Map draftFast = buildAuthorUrlExclusiveDraftDeterministicMatch(recipe, ctx)
+      if (draftFast != null) {
+        String fastId = draftFast.recipeId?.toString()
+        Map existingFast = byId.get(fastId)
+        int fastPri = draftFast.priority instanceof Number ? ((Number) draftFast.priority).intValue() : 0
+        int existPri = existingFast?.priority instanceof Number ? ((Number) existingFast.priority).intValue() : 0
+        if (existingFast == null || fastPri > existPri) {
+          byId.put(fastId, draftFast)
+        }
+      }
+    }
+    for (Map recipe : recipes) {
       if (!(recipe instanceof Map)) {
         continue
       }
@@ -667,6 +683,17 @@ final class AuthoringIntentRecipeCatalog {
           visible     : visible,
           priority    : priority
         ]
+        String prefetchSupplement = entry?.get('toolsLoopPrefetchSupplement')?.toString()?.trim() ?: ''
+        if (!prefetchSupplement) {
+          prefetchSupplement = recipe?.get('toolsLoopPrefetchSupplement')?.toString()?.trim() ?: ''
+        }
+        if (prefetchSupplement) {
+          match.toolsLoopPrefetchSupplement = prefetchSupplement
+        }
+        List<String> requireTools = mergeToolsLoopRequireSuccessfulTools(recipe, entry)
+        if (!requireTools.isEmpty()) {
+          match.toolsLoopRequireSuccessfulTools = requireTools
+        }
 
         Map existing = byId.get(rid)
 
@@ -1426,7 +1453,383 @@ final class AuthoringIntentRecipeCatalog {
 
   /** Builds the matched-recipe prelude without binding expansion (empty initial/current maps). */
   static String formatMatchedRecipePrelude(Map recipe, String recipeId, double confidence, String reason) {
-    return formatMatchedRecipePrelude(recipe, recipeId, confidence, reason, [:], [:])
+    return formatMatchedRecipePrelude(recipe, recipeId, confidence, reason, [:], [:], null)
+  }
+
+  private static final Pattern AUTHOR_HTTP_URL_PATTERN = Pattern.compile(
+    'https?://[^\\s<>"\\)\\]\\u00a0]+',
+    Pattern.CASE_INSENSITIVE
+  )
+
+  /**
+   * Distinct http(s) URLs from author-visible text (studio blocks stripped). Trailing punctuation trimmed.
+   */
+  static List<String> extractAuthorHttpUrls(String authorVisible) {
+    String stripped = AuthoringPreviewContext.stripStudioInjectedPromptBlocks((authorVisible ?: '').trim()) ?: ''
+    if (!stripped) {
+      return Collections.emptyList()
+    }
+
+    LinkedHashSet<String> urls = new LinkedHashSet<>()
+    def m = AUTHOR_HTTP_URL_PATTERN.matcher(stripped)
+    while (m.find()) {
+      String u = m.group().replaceAll(/[.,;:!?]+$/, '').trim()
+      if (u.startsWith('http://') || u.startsWith('https://')) {
+        urls.add(u)
+      }
+    }
+    return new ArrayList<>(urls)
+  }
+
+  private static final Pattern DRAFT_BLOG_FROM_URL_SIGNAL = Pattern.compile(
+    '(?is)(\\bdraft\\b.{0,120}\\b(?:blog|article|post)\\b|\\b(?:blog|article|post)\\b.{0,80}\\bdraft\\b|\\bsummariz(?:e|ing)\\b.{0,120}\\b(?:blog|article|post|topics)\\b|\\bfrom\\s+this\\s*:\\s*https?://)'
+  )
+
+  private static final List<String> DRAFT_FROM_URL_NONE_PHRASES = Collections.unmodifiableList([
+    'create a new',
+    'save to repository',
+    'make a post with',
+    'create a post',
+    'save the draft',
+    'WriteContent'
+  ])
+
+  /**
+   * True when the author pasted http(s) URL(s) and wants a chat draft/summary from that source (not create/save in repo).
+   */
+  static boolean authorVisibleSuggestsDraftContentFromAuthorUrl(String authorVisible) {
+    String author = AuthoringPreviewContext.stripStudioInjectedPromptBlocks((authorVisible ?: '').trim())?.trim()
+    if (!author || extractAuthorHttpUrls(author).isEmpty()) {
+      return false
+    }
+    if (!DRAFT_BLOG_FROM_URL_SIGNAL.matcher(author).find()) {
+      return false
+    }
+    return !authorVisibleMatchesKeywordList(author, DRAFT_FROM_URL_NONE_PHRASES)
+  }
+
+  /**
+   * Safety-net match for author-URL draft turns when JSON {@code when} fails (older sandboxes or broken site overrides).
+   * Applies to any recipe with {@code toolsLoopAuthorUrlExclusive} (bundled {@code draft_content_from_source} or site alias).
+   */
+  static Map buildAuthorUrlExclusiveDraftDeterministicMatch(Map recipe, Map ctx) {
+    if (!(recipe instanceof Map) || !(ctx instanceof Map)) {
+      return null
+    }
+    String author = deterministicRoutingPrompt(ctx)
+    if (!authorVisibleSuggestsDraftContentFromAuthorUrl(author)) {
+      return null
+    }
+    if (recipeExcludedByDontMatchHints(recipe, author)) {
+      return null
+    }
+    String rid = recipe.id?.toString()?.trim() ?: 'draft_content_from_source'
+    List<Map> dmEntries = deterministicMatchEntries(recipe)
+    Map entry = dmEntries.isEmpty() ? [:] : dmEntries[0]
+    int priority = entry.priority instanceof Number ? ((Number) entry.priority).intValue() : 92
+    String reason = (entry.routerReason ?: 'deterministic_draft_content_from_author_url').toString()
+    Map match = [
+      recipe      : recipe,
+      recipeId    : rid,
+      routerReason: reason,
+      skipPrefetch: Boolean.TRUE.equals(entry.skipPrefetch),
+      visible     : author,
+      priority    : priority
+    ]
+    String prefetchSupplement = entry?.get('toolsLoopPrefetchSupplement')?.toString()?.trim() ?: ''
+    if (!prefetchSupplement) {
+      prefetchSupplement = recipe?.get('toolsLoopPrefetchSupplement')?.toString()?.trim() ?: ''
+    }
+    if (prefetchSupplement) {
+      match.toolsLoopPrefetchSupplement = prefetchSupplement
+    }
+    List<String> requireTools = mergeToolsLoopRequireSuccessfulTools(recipe, entry)
+    if (!requireTools.isEmpty()) {
+      match.toolsLoopRequireSuccessfulTools = requireTools
+    }
+    return match
+  }
+
+  /**
+   * When clarify/enrich returns a one-line intent without the author's URL(s), keep URLs on the routing prompt for rematch.
+   */
+  static String mergeAuthorHttpUrlsIntoRouterVisible(String originalRouterVisible, String clarifiedRouterVisible) {
+    String orig = (originalRouterVisible ?: '').trim()
+    String clar = (clarifiedRouterVisible ?: '').trim()
+    if (!orig || !clar) {
+      return clar ?: orig
+    }
+    List<String> urls = extractAuthorHttpUrls(orig)
+    if (urls.isEmpty()) {
+      return clar
+    }
+    boolean clarHasUrl = !extractAuthorHttpUrls(clar).isEmpty()
+    if (clarHasUrl) {
+      return clar
+    }
+    return clar + '\n\n' + urls.join('\n')
+  }
+
+  /** When true and the author message includes http(s) URL(s), tools-loop skips open-web search and FetchHttpUrl is limited to those URLs only. */
+  static boolean recipeToolsLoopAuthorUrlExclusive(Map recipe) {
+    return Boolean.TRUE.equals(recipe?.get('toolsLoopAuthorUrlExclusive'))
+  }
+
+  /**
+   * Normalizes a URL for author-url-exclusive FetchHttpUrl matching (trim, strip trailing punctuation/slash).
+   */
+  static String normalizeHttpUrlForAuthorExclusiveMatch(String url) {
+    String u = (url ?: '').trim().replaceAll(/[.,;:!?]+$/, '').trim()
+    if (!u) {
+      return ''
+    }
+    while (u.endsWith('/')) {
+      u = u.substring(0, u.length() - 1)
+    }
+    return u
+  }
+
+  static boolean authorProvidedHttpUrlMatches(String fetchUrl, List<String> authorProvidedUrls) {
+    String want = normalizeHttpUrlForAuthorExclusiveMatch(fetchUrl)
+    if (!want || !authorProvidedUrls) {
+      return false
+    }
+    for (String a : authorProvidedUrls) {
+      if (want.equalsIgnoreCase(normalizeHttpUrlForAuthorExclusiveMatch(a))) {
+        return true
+      }
+    }
+    false
+  }
+
+  /**
+   * When {@link #recipeToolsLoopAuthorUrlExclusive} is set and {@code authorVisible} contains URL(s),
+   * returns telemetry overrides: no forced web search, Serp/WebSearch excluded, FetchHttpUrl capped to author URLs only.
+   */
+  static Map authorUrlExclusiveTelemetryOverlay(Map recipe, String authorVisible) {
+    if (!recipeToolsLoopAuthorUrlExclusive(recipe)) {
+      return Collections.emptyMap()
+    }
+    List<String> authorUrls = extractAuthorHttpUrls(authorVisible)
+    if (authorUrls.isEmpty()) {
+      return Collections.emptyMap()
+    }
+
+    Map overlay = new LinkedHashMap<>()
+    overlay.put('toolsLoopAuthorUrlExclusiveActive', Boolean.TRUE)
+    overlay.put('toolsLoopAuthorProvidedUrls', Collections.unmodifiableList(new ArrayList<>(authorUrls)))
+
+    LinkedHashSet<String> exclude = new LinkedHashSet<>(toolsLoopExcludeToolNames(recipe))
+    exclude.add('SerpApiWebSearch')
+    exclude.add('WebSearch')
+    overlay.put('toolsLoopExcludeTools', new ArrayList<>(exclude))
+
+    LinkedHashSet<String> allow = new LinkedHashSet<>()
+    for (String n : toolsLoopAllowlistNames(recipe)) {
+      if ('FetchHttpUrl'.equals(n) || 'ResearchSiteContent'.equals(n)) {
+        allow.add(n)
+      }
+    }
+    if (allow.isEmpty()) {
+      allow.add('FetchHttpUrl')
+      allow.add('ResearchSiteContent')
+    }
+    overlay.put('toolsLoopAllowlist', new ArrayList<>(allow))
+    overlay.put('toolsLoopForceTool', '')
+    int recipeMax = resolveToolsLoopMaxFetchHttpUrlCalls(recipe)
+    int cap = authorUrls.size()
+    if (recipeMax > 0) {
+      cap = Math.min(recipeMax, cap)
+    }
+    overlay.put('toolsLoopMaxFetchHttpUrlCalls', Math.max(1, cap))
+    Collections.unmodifiableMap(overlay)
+  }
+
+  /**
+   * Optional JVM prefetch supplement id from a deterministic match entry or recipe root
+   * (e.g. {@code createFromChatDraft} — implemented in {@link AuthoringIntentRecipeEngine}).
+   */
+  static String toolsLoopPrefetchSupplementFromMatch(Map detMatch) {
+    if (!(detMatch instanceof Map)) {
+      return ''
+    }
+    String fromEntry = detMatch.get('toolsLoopPrefetchSupplement')?.toString()?.trim() ?: ''
+    if (fromEntry) {
+      return fromEntry
+    }
+    Map recipe = detMatch.recipe instanceof Map ? (Map) detMatch.recipe : null
+    return recipe?.get('toolsLoopPrefetchSupplement')?.toString()?.trim() ?: ''
+  }
+
+  /**
+   * Wire names that must succeed at least once before the tools loop may finish (from match entry or recipe).
+   */
+  static List<String> toolsLoopRequireSuccessfulToolsFromMatch(Map detMatch) {
+    if (!(detMatch instanceof Map)) {
+      return Collections.emptyList()
+    }
+    Map recipe = detMatch.recipe instanceof Map ? (Map) detMatch.recipe : null
+    return mergeToolsLoopRequireSuccessfulTools(recipe, detMatch)
+  }
+
+  private static List<String> mergeToolsLoopRequireSuccessfulTools(Map recipe, Map entry) {
+    LinkedHashSet<String> names = new LinkedHashSet<>()
+    addWireNamesFromConfigList(names, entry?.get('toolsLoopRequireSuccessfulTools'))
+    addWireNamesFromConfigList(names, recipe?.get('toolsLoopRequireSuccessfulTools'))
+    return names.isEmpty() ? Collections.emptyList() : Collections.unmodifiableList(new ArrayList<>(names))
+  }
+
+  private static void addWireNamesFromConfigList(LinkedHashSet<String> names, Object raw) {
+    if (!(raw instanceof List)) {
+      return
+    }
+    for (Object o : (List) raw) {
+      String n = o?.toString()?.trim()
+      if (n) {
+        names.add(n)
+      }
+    }
+  }
+
+  /**
+   * Telemetry + loop policy from a prefetch supplement result (site-agnostic keys — no per-use-case flags in orchestration).
+   */
+  static Map prefetchSupplementTelemetryOverlay(String supplementId, Map supplementResult, List<String> requireSuccessfulTools) {
+    if (!(supplementId?.trim()) && (requireSuccessfulTools == null || requireSuccessfulTools.isEmpty())) {
+      return Collections.emptyMap()
+    }
+    Map sup = supplementResult instanceof Map ? supplementResult : [:]
+    Map overlay = new LinkedHashMap<>()
+    String sid = (supplementId ?: '').toString().trim()
+    if (sid) {
+      overlay.put('toolsLoopPrefetchSupplement', sid)
+    }
+    if (requireSuccessfulTools != null && !requireSuccessfulTools.isEmpty()) {
+      overlay.put('toolsLoopRequireSuccessfulTools', new ArrayList<>(requireSuccessfulTools))
+    }
+    String suggested = (sup.suggestedNewItemPath ?: '').toString().trim()
+    String sibling = (sup.siblingPath ?: '').toString().trim()
+    String banned = (sup.bannedAnchorPath ?: '').toString().trim()
+    String resolvedType = (sup.resolvedContentTypeId ?: '').toString().trim()
+    if (suggested) {
+      overlay.put('toolsLoopSuggestedNewItemPath', suggested)
+    }
+    if (sibling) {
+      overlay.put('toolsLoopSiblingTemplatePath', sibling)
+    }
+    if (banned) {
+      overlay.put('toolsLoopBannedRepoPaths', Collections.singletonList(banned))
+    }
+    if (resolvedType) {
+      overlay.put('toolsLoopPrefetchResolvedContentTypeId', resolvedType)
+    }
+    if (Boolean.FALSE.equals(sup.siblingGetContentPresent)) {
+      overlay.put('toolsLoopSiblingGetContentRequired', Boolean.TRUE)
+    }
+    Collections.unmodifiableMap(overlay)
+  }
+
+  /** Internal user-message when the loop must run repository tools but the model returned prose-only. */
+  static String formatToolsLoopRequiredToolsGuardMessage(Map telemetry) {
+    Map tel = telemetry instanceof Map ? telemetry : [:]
+    List<String> required = []
+    Object reqObj = tel.get('toolsLoopRequireSuccessfulTools')
+    if (reqObj instanceof List) {
+      for (Object o : (List) reqObj) {
+        String n = o?.toString()?.trim()
+        if (n) {
+          required.add(n)
+        }
+      }
+    }
+    if (required.isEmpty()) {
+      return ''
+    }
+    String suggested = (tel.toolsLoopSuggestedNewItemPath ?: '').toString().trim()
+    String sibling = (tel.toolsLoopSiblingTemplatePath ?: '').toString().trim()
+    List<String> banned = []
+    Object banObj = tel.get('toolsLoopBannedRepoPaths')
+    if (banObj instanceof List) {
+      for (Object o : (List) banObj) {
+        String p = o?.toString()?.trim()
+        if (p) {
+          banned.add(p)
+        }
+      }
+    }
+    StringBuilder sb = new StringBuilder()
+    sb.append('[aiassistant: tools-loop required tools — internal]\n')
+    sb.append('This recipe requires successful **').append(required.join('**, **')).append('** before you finish.\n')
+    sb.append('Emit **real API tool_calls** — do not print `functions.WriteContent(...)` or numbered fake tool lists in prose.\n')
+    if (sibling) {
+      sb.append('**GetContent** sibling template: `').append(sibling).append('`.\n')
+    }
+    if (suggested) {
+      sb.append('**Target path:** `').append(suggested).append('`.\n')
+    }
+    if (!banned.isEmpty()) {
+      sb.append('**Banned paths:** ')
+      banned.eachWithIndex { String p, int i ->
+        if (i > 0) {
+          sb.append(', ')
+        }
+        sb.append('`').append(p).append('`')
+      }
+      sb.append('.\n')
+    }
+    return sb.toString()
+  }
+
+  /** Author-visible message when required tools never succeeded. */
+  static String formatToolsLoopRequiredToolsMissedMessage(Map telemetry) {
+    Map tel = telemetry instanceof Map ? telemetry : [:]
+    List<String> required = []
+    Object reqObj = tel.get('toolsLoopRequireSuccessfulTools')
+    if (reqObj instanceof List) {
+      for (Object o : (List) reqObj) {
+        String n = o?.toString()?.trim()
+        if (n) {
+          required.add(n)
+        }
+      }
+    }
+    String suggested = (tel.toolsLoopSuggestedNewItemPath ?: '').toString().trim()
+    String supplement = (tel.toolsLoopPrefetchSupplement ?: '').toString().trim()
+    StringBuilder sb = new StringBuilder()
+    sb.append('## Plan Execution\n\n')
+    sb.append('❌ **Repository work did not complete.** Required tool(s): **')
+      .append(required.isEmpty() ? 'WriteContent' : required.join('**, **'))
+      .append('** did not succeed.\n\n')
+    if (suggested) {
+      sb.append('**Expected path:** `').append(suggested).append('`.\n\n')
+    }
+    if (supplement) {
+      sb.append('_Prefetch supplement: `').append(supplement).append('`._\n\n')
+    }
+    sb.append('Retry with a shorter request, or complete the step manually in Studio.\n')
+    sb.toString()
+  }
+
+  /** Stall-guard hint when required tools are still pending. */
+  static String formatToolsLoopRequiredToolsStallHint(Map telemetry) {
+    Map tel = telemetry instanceof Map ? telemetry : [:]
+    if (!(tel.toolsLoopRequireSuccessfulTools instanceof List) || ((List) tel.toolsLoopRequireSuccessfulTools).isEmpty()) {
+      return ''
+    }
+    String suggested = (tel.toolsLoopSuggestedNewItemPath ?: '').toString().trim()
+    StringBuilder sb = new StringBuilder()
+    sb.append('\n**Required tools:** ')
+    sb.append(((List) tel.toolsLoopRequireSuccessfulTools).join(', '))
+    sb.append('. ')
+    if (suggested) {
+      sb.append('Target **`').append(suggested).append('`**. ')
+    }
+    Object banObj = tel.get('toolsLoopBannedRepoPaths')
+    if (banObj instanceof List && !((List) banObj).isEmpty()) {
+      sb.append('Do **not** read/write banned preview anchor path(s) again. ')
+    }
+    sb.append('\n')
+    return sb.toString()
   }
 
   /**
@@ -1443,6 +1846,22 @@ final class AuthoringIntentRecipeCatalog {
     String reason,
     Map<String, Map> initialBindings,
     Map<String, Map> currentBindings
+  ) {
+    return formatMatchedRecipePrelude(recipe, recipeId, confidence, reason, initialBindings, currentBindings, null)
+  }
+
+  /**
+   * @param authorVisible author-visible turn text; when it contains http(s) URLs, web-research preludes
+   *   instruct {@code FetchHttpUrl} on those links before Serp-only fetches
+   */
+  static String formatMatchedRecipePrelude(
+    Map recipe,
+    String recipeId,
+    double confidence,
+    String reason,
+    Map<String, Map> initialBindings,
+    Map<String, Map> currentBindings,
+    String authorVisible
   ) {
     int maxExpand = 12_000
     StringBuilder sb = new StringBuilder()
@@ -1473,11 +1892,47 @@ final class AuthoringIntentRecipeCatalog {
       int fetchCap = resolveFetchHttpUrlWireMaxChars(recipe)
       sb.append('\n**Tool execution (required):**\n')
       int maxFetch = resolveToolsLoopMaxFetchHttpUrlCalls(recipe)
-      sb.append('- Round 0: call **').append(searchWire).append('** via API **`tool_calls`** (not emoji-only 🛠️ narration).\n')
-      sb.append('- Use **only** http(s) URLs returned in that search result — **do not invent or guess URLs**.\n')
-      sb.append('- Fetch **at most ').append(maxFetch > 0 ? maxFetch : 3).append('** distinct citation URLs with **FetchHttpUrl** (pass **maxChars: ')
-        .append(fetchCap > 0 ? fetchCap : DEFAULT_WEB_RESEARCH_FETCH_HTTP_WIRE_MAX_CHARS)
-        .append('** on each call). Do **not** re-fetch the same URL.\n')
+      List<String> authorUrls = extractAuthorHttpUrls(authorVisible)
+      boolean authorUrlExclusive = recipeToolsLoopAuthorUrlExclusive(recipe) && !authorUrls.isEmpty()
+      if (authorUrlExclusive) {
+        sb.append('- **Author URL-only mode:** **Current request** includes http(s) link(s) — use **FetchHttpUrl** on **only** those author URL(s). **Do not** call **SerpApiWebSearch**, **WebSearch**, or **FetchHttpUrl** on any other URL.\n')
+        sb.append('- **Author-provided URL(s):** ')
+        for (int i = 0; i < authorUrls.size(); i++) {
+          if (i > 0) {
+            sb.append('; ')
+          }
+          sb.append(authorUrls.get(i))
+        }
+        sb.append('\n')
+        sb.append('- Call **FetchHttpUrl** on each distinct author URL above (pass **maxChars: ')
+          .append(fetchCap > 0 ? fetchCap : DEFAULT_WEB_RESEARCH_FETCH_HTTP_WIRE_MAX_CHARS)
+          .append('**; **at most ')
+          .append(maxFetch > 0 ? Math.min(maxFetch, authorUrls.size()) : authorUrls.size())
+          .append('** fetches total). The draft must reflect what you read from the author’s link(s).\n')
+        sb.append('- After those reads, call **ResearchSiteContent** when the recipe requires site overlap, then **complete the deliverable in chat** — no more **FetchHttpUrl**.\n')
+      } else if (!authorUrls.isEmpty()) {
+        sb.append('- **Author-provided URL(s) in Current request (fetch first):** ')
+        for (int i = 0; i < authorUrls.size(); i++) {
+          if (i > 0) {
+            sb.append('; ')
+          }
+          sb.append(authorUrls.get(i))
+        }
+        sb.append('\n')
+        sb.append('- Call **FetchHttpUrl** on each distinct author URL above **before** treating Serp hits as primary sources (counts toward the per-turn fetch limit; pass **maxChars: ')
+          .append(fetchCap > 0 ? fetchCap : DEFAULT_WEB_RESEARCH_FETCH_HTTP_WIRE_MAX_CHARS)
+          .append('**). The draft must reflect what you read from the author’s link.\n')
+        sb.append('- **SerpApiWebSearch** supplements the author link (at most **two** attempts) — **do not** skip the author URL when they gave one.\n')
+        sb.append('- Additional **FetchHttpUrl** calls may use http(s) URLs from Serp results (still **at most ')
+          .append(maxFetch > 0 ? maxFetch : 3)
+          .append('** distinct fetches total). **Do not invent URLs**.\n')
+      } else {
+        sb.append('- Round 0: call **').append(searchWire).append('** via API **`tool_calls`** (not emoji-only 🛠️ narration).\n')
+        sb.append('- Use **only** http(s) URLs returned in that search result — **do not invent or guess URLs**.\n')
+        sb.append('- Fetch **at most ').append(maxFetch > 0 ? maxFetch : 3).append('** distinct citation URLs with **FetchHttpUrl** (pass **maxChars: ')
+          .append(fetchCap > 0 ? fetchCap : DEFAULT_WEB_RESEARCH_FETCH_HTTP_WIRE_MAX_CHARS)
+          .append('** on each call). Do **not** re-fetch the same URL.\n')
+      }
       sb.append('- After those reads, **complete the deliverable in chat** from snippets and successful fetches — do **not** run more **FetchHttpUrl** / **')
         .append(searchWire).append('** unless a fetch failed.\n')
       sb.append('- Respond as **markdown in chat** unless the author explicitly asks to save or publish in the CMS.\n')

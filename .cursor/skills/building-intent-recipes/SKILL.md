@@ -58,6 +58,10 @@ Recipes do **not** replace `agents.json` or global `tools.json`; they layer on t
 | `toolsLoopForceTool` | Round 0 must call this wire (e.g. `SerpApiWebSearch`) |
 | `toolsLoopAllowlist` / `toolsLoopExcludeTools` | Loop tool policy |
 | `toolsLoopMaxFetchHttpUrlCalls` / `toolsLoopFetchHttpUrlWireMaxChars` | Fetch caps |
+| `toolsLoopAuthorUrlExclusive` | When the author pastes http(s) URL(s): **FetchHttpUrl** only those links (no Serp/WebSearch, no other fetches); when no URL, normal `toolsLoopForceTool` applies |
+| `toolsLoopPrefetchSupplement` | JVM prefetch id on a **deterministicMatch** entry (e.g. `createFromChatDraft` — see `AuthoringIntentRecipeEngine`); not hardcoded in orchestration |
+| `when` leaf `authorProvidedHttpUrl` | Author-visible text includes at least one `http(s)` URL (pairs with `toolsLoopAuthorUrlExclusive`) |
+| `toolsLoopRequireSuccessfulTools` | Wire names that must succeed before the tools loop may finish (e.g. `["WriteContent"]`); prose-only “fake” tool lists are rejected |
 | `toolsLoopDisable` | Chat-only (no `tool_calls`) |
 
 **Routing:** `config/studio/scripts/aiassistant/config/tools.json` → `intentRecipeRouting` (`enabled`, `customRecipesPath`, `confirmationLlmRefineEnabled`).
@@ -117,7 +121,21 @@ Use `dontMatchHints` for adjacent intents (“publish site”, “create a page�
 
 Secrets: `secrets.json` (`serpapi_api_key`, `slack_bot_token`). Defaults: `tools.json` → `builtInToolSettings`.
 
-### 3. JSON refine + passthrough (long draft + short Slack fields)
+### 3. ConsultCrafterQ
+
+Plugin built-in **`ConsultCrafterQ`**: public **`agentId`** + **`prompt`**, optional **`draft`**. The plugin mints **`X-CrafterQ-Chat-User`** via **`GET /v1/agents/{agentId}/chat_config`** (same flow as [embed.js](https://chat.crafterq.ai/embed.js)).
+
+**Bindings on the step `as` name** (e.g. **`devContentOpsConsult`**):
+
+| Key | Use |
+|-----|-----|
+| **`answer`** | Raw CrafterQ reply (for **`userPreamble`** in a follow-up **`llmRefine`**) |
+| **`feedbackMarkdown`** | **`## CrafterQ feedback`** section (also shown in Studio chat after confirmation) |
+| **`feedbackSlack`** | Mrkdwn thread body — post with **`SlackPostMessage`** (`text`: **`$yourAs.feedbackSlack`**, **`threadTs`**: **`$slackRoot.ts`**) |
+
+Later **`llmRefine`** may embed **`$yourAs.answer`** in **`userPreamble`** when revising outbound JSON.
+
+### 4. JSON refine + passthrough (long draft + short Slack fields)
 
 ```json
 {
@@ -140,11 +158,11 @@ Secrets: `secrets.json` (`serpapi_api_key`, `slack_bot_token`). Defaults: `tools
 - Thread replies: `"threadTs": "$slackRoot.ts"` after root `{ "tool": "SlackPostMessage", "as": "slackRoot", ... }`.
 - Each Slack step needs explicit **`text`** (e.g. `"$slackOutbound.pitch"`).
 
-### 4. Chat-only
+### 5. Chat-only
 
 `toolsLoopDisable: true` — hints only, no tools.
 
-### 5. Markdown refine (single block)
+### 6. Markdown refine (single block)
 
 `outputFormat: "markdown"` + optional `markdownSection: "Slack message"`.
 

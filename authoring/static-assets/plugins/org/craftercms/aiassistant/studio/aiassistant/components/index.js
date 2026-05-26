@@ -31097,10 +31097,30 @@ function clipContextChunk(s, max) {
  * Prior turns: assistant replies often repeat **## Plan** then **## Plan Execution** — keep execution/recap only to
  * shrink the wire prompt and reduce redundant reasoning.
  */
+/** Extracts one `## <heading>` section for prior-turn memory (follow-up “create post from this draft”). */
+function extractMarkdownH2Section(markdown, heading) {
+    const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`^##\\s*${escaped}\\s*\\r?\\n([\\s\\S]*?)(?=^##\\s|$)`, 'im');
+    const m = re.exec(markdown.trim());
+    return m?.[1]?.trim() ?? '';
+}
 function abbreviateAssistantTurnForPriorContext(body) {
     let t = stripOrchestrationDebugComment(body).trim();
     if (!t)
         return '';
+    const draftBody = extractMarkdownH2Section(t, 'Draft body');
+    if (draftBody) {
+        const authorIdea = extractMarkdownH2Section(t, 'Author idea');
+        const workNotes = extractMarkdownH2Section(t, 'Work notes');
+        const parts = [`## Draft body\n\n${clipContextChunk(draftBody, 4000)}`];
+        if (authorIdea) {
+            parts.push(`## Author idea\n\n${clipContextChunk(authorIdea, 800)}`);
+        }
+        if (workNotes) {
+            parts.push(`## Work notes\n\n${clipContextChunk(workNotes, 600)}`);
+        }
+        return parts.join('\n\n');
+    }
     const planExec = /^##\s+Plan Execution\b/im;
     const match = planExec.exec(t);
     if (match?.index != null) {
@@ -37605,7 +37625,8 @@ var routingRecipeFamilies = {
 	researchAny: [
 		"web_research",
 		"site_content_research",
-		"llm_research"
+		"llm_research",
+		"draft_content_from_source"
 	]
 };
 var multiGoalDefer = {
@@ -37648,6 +37669,103 @@ var recipeOrder = [
 	"translate_content_item"
 ];
 var recipes = [
+	{
+		id: "draft_content_from_source",
+		title: "Draft content from author URL",
+		chatEmoji: "📝",
+		toolsLoopAuthorUrlExclusive: true,
+		toolsLoopAllowlist: [
+			"FetchHttpUrl",
+			"ResearchSiteContent"
+		],
+		toolsLoopExcludeTools: [
+			"WriteContent",
+			"update_content",
+			"publish_content",
+			"TranslateContentItem",
+			"TranslateContentBatch",
+			"SerpApiWebSearch",
+			"WebSearch",
+			"SlackPostMessage",
+			"GetCrafterzingPlaybook"
+		],
+		toolsLoopFetchHttpUrlWireMaxChars: 8000,
+		toolsLoopMaxFetchHttpUrlCalls: 1,
+		deterministicMatch: {
+			priority: 92,
+			routerReason: "deterministic_draft_content_from_author_url",
+			respectDontMatchHints: true,
+			when: {
+				allOf: [
+					"authorProvidedHttpUrl",
+					{
+						anyOf: [
+							{
+								authorMatchesRegex: "(?i)\\bdraft\\b[^\\n]{0,120}\\b(?:blog|article|post)\\b"
+							},
+							{
+								authorMatchesRegex: "(?i)\\b(?:blog|article|post)\\b[^\\n]{0,80}\\bdraft\\b"
+							},
+							{
+								authorMatchesRegex: "(?i)\\bsummariz(?:e|ing)\\b[^\\n]{0,120}\\b(?:blog|article|post|topics)\\b"
+							},
+							{
+								authorMatchesRegex: "(?i)\\bfrom\\s+this\\s*:\\s*https?://"
+							}
+						]
+					},
+					{
+						authorContainsNone: [
+							"create a new",
+							"save to repository",
+							"make a post with",
+							"create a post",
+							"save the draft",
+							"WriteContent"
+						]
+					}
+				]
+			}
+		},
+		description: "Author pasted http(s) source link(s) and wants a **chat draft** (blog/article/post prose) — fetch only those URLs, optional site overlap check. **No** repository save on this turn (use **new_content_item** when they ask to create/save the draft).",
+		matchHints: [
+			"draft a blog",
+			"draft blog",
+			"draft an article",
+			"draft post",
+			"summarize from",
+			"summarizing from",
+			"from this:",
+			"from this url"
+		],
+		dontMatchHints: [
+			"create a new",
+			"new page",
+			"new article",
+			"save to repository",
+			"WriteContent",
+			"publish",
+			"make a post with",
+			"create a post",
+			"latest news",
+			"search the web",
+			"headlines"
+		],
+		matchedUserPrelude: "[Studio — draft from author URL] **FetchHttpUrl** only the http(s) link(s) in **Current request** (recipe **toolsLoopAuthorUrlExclusive**). Then **ResearchSiteContent** for overlap with existing site content (set **pathPrefix** / query from project context when present). Deliver the draft in chat (**## Draft body** or your site’s draft section headings). **Do not** call **WriteContent**, **SerpApiWebSearch**, or **WebSearch** on this turn unless the author adds a new URL or asks to save to the repository.",
+		phases: {
+			context: [
+				"Author URL-only: **FetchHttpUrl** on each distinct author-pasted URL only (max one fetch per turn when configured). No Serp, no other URLs.",
+				"After fetch, **ResearchSiteContent** with a focused query from the author’s topics and a sensible **pathPrefix** from project context (e.g. existing posts/components tree)."
+			],
+			action: [
+				"Summarize or draft from the fetched source plus site research. Use clear markdown sections; include **## Draft body** (or site-configured draft headings) with full prose the author can approve.",
+				"Cite only URLs you actually fetched. Do not invent repository paths or save CMS items unless the author explicitly asks to create/save."
+			],
+			confirmation: [
+				"Offer to save as a repository item only if the author asks in a follow-up (routes to **new_content_item** / **createFromChatDraft** supplement)."
+			]
+		}
+	},
 	{
 		id: "web_research",
 		title: "Web search (news & current events)",
@@ -38168,37 +38286,70 @@ var recipes = [
 		id: "new_content_item",
 		title: "Create new page or component",
 		chatEmoji: "📄",
-		deterministicMatch: {
-			priority: 45,
-			routerReason: "deterministic_new_content_item",
-			respectDontMatchHints: true,
-			when: {
-				allOf: [
-					"currentTurnCmsTooling",
-					"anchoredSiteXml",
-					{
-						anyOf: [
-							{
-								authorMatchesRegex: "(?i)\\b(new\\s+page|new\\s+article|new\\s+post|add\\s+a\\s+(?:new\\s+)?page)\\b"
-							},
-							{
-								allOf: [
-									{
-										authorMatchesRegex: "(?i)\\b(create|add)\\b"
-									},
-									{
-										authorMatchesRegex: "(?i)\\b(new\\s+)?(page|article|component|item)s?\\b"
-									}
-								]
-							},
-							{
-								authorMatchesRegex: "(?i)\\bwrite\\s+(?:a\\s+)?new\\s+(page|post|article|component|item)\\b"
-							}
-						]
-					}
-				]
+		deterministicMatch: [
+			{
+				priority: 72,
+				routerReason: "deterministic_create_post_from_chat_draft",
+				toolsLoopPrefetchSupplement: "createFromChatDraft",
+				toolsLoopRequireSuccessfulTools: [
+					"WriteContent"
+				],
+				when: {
+					allOf: [
+						"currentTurnCmsTooling",
+						"anchoredSiteXml",
+						"priorConversationContainsDraftBody",
+						{
+							anyOf: [
+								{
+									authorMatchesRegex: "(?i)\\b(?:create|save|add)\\s+(?:a\\s+)?(?:blog\\s+)?post\\b"
+								},
+								{
+									authorMatchesRegex: "(?i)\\bpost\\s+from\\s+(?:this|the)\\s+draft\\b"
+								},
+								{
+									authorMatchesRegex: "(?i)\\b(?:from|using)\\s+(?:this|the)\\s+draft\\b"
+								},
+								{
+									authorMatchesRegex: "(?i)\\bi\\s+like\\s+this\\b"
+								}
+							]
+						}
+					]
+				}
+			},
+			{
+				priority: 45,
+				routerReason: "deterministic_new_content_item",
+				respectDontMatchHints: true,
+				when: {
+					allOf: [
+						"currentTurnCmsTooling",
+						"anchoredSiteXml",
+						{
+							anyOf: [
+								{
+									authorMatchesRegex: "(?i)\\b(new\\s+page|new\\s+article|new\\s+post|add\\s+a\\s+(?:new\\s+)?page)\\b"
+								},
+								{
+									allOf: [
+										{
+											authorMatchesRegex: "(?i)\\b(create|add)\\b"
+										},
+										{
+											authorMatchesRegex: "(?i)\\b(new\\s+)?(page|article|component|item|post)s?\\b"
+										}
+									]
+								},
+								{
+									authorMatchesRegex: "(?i)\\bwrite\\s+(?:a\\s+)?new\\s+(page|post|article|component|item)\\b"
+								}
+							]
+						}
+					]
+				}
 			}
-		},
+		],
 		description: "Author asks to **create** a new repository item (new URL or new component in Studio). **Not** chat-only “draft a post” prose after research — that is **llm_research** (tools off).",
 		dontMatchHints: [
 			"research",
@@ -38217,6 +38368,7 @@ var recipes = [
 			"add a page",
 			"write a new"
 		],
+		matchedUserPrelude: "[Studio — create new repository item] Resolve **contentTypeId** with **ListStudioContentTypes** (exact catalog match on the author’s type phrase). **GetContentTypeFormDefinition** for that id. **Mandatory:** **GetContent** on one existing item whose `<content-type>` equals that id **before** **WriteContent**. Mirror sibling XML structure; map draft prose into real form fields — never invent element names or generic wrappers not in the form definition or sibling XML.",
 		phases: {
 			context: {
 				hints: [
@@ -38233,7 +38385,10 @@ var recipes = [
 				]
 			},
 			action: [
-				"WriteContent the new item with correct conventions (objectId, dates, file-name, sections)."
+				"When **[Prior conversation]** includes **## Draft body** (or *Draft blog:*), **this draft** is that chat prose — **not** the repository file open in Studio preview. Resolve **contentTypeId** via **ListStudioContentTypes** (exact catalog match on **post** / **blog** from prior + current turn). Read **quickCreatePath** from **GetContentTypeFormDefinition** for the new file path; **WriteContent** only under that tree (never the preview anchor unless the author named that path for editing).",
+				"Before **WriteContent**, **GetContent** one existing item with the same `<content-type>`. Clone its document shape (field ids, node-selector / inline component layout, date formats, objectId/objectGroupId style). Map draft title/body into fields from **GetContentTypeFormDefinition** and the sibling XML — not invented schemas.",
+				"Populate **every required field** from **GetContentTypeFormDefinition** (SEO, taxonomy/checkbox groups, nav, etc.). **Do not** call **GenerateImage** unless the author explicitly asked for generated art. For **required** image-picker fields, **omit or leave empty** in **WriteContent** — Studio fills them with the XB-style **`data:image/png;base64,…`** placeholder in-process (do not invent `/static-assets/…` paths).",
+				"**WriteContent** the full `<page>` or `<component>` at a new path under `/site/` consistent with **quickCreatePath** or sibling folder layout; optional **GetPreviewHtml** in confirmation."
 			],
 			confirmation: [
 				"Tell the author how to preview the new route; optional GetPreviewHtml."
@@ -74587,6 +74742,14 @@ const AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB = `{
   ]
 }
 `;
+/** Studio module path for per-site project context (appended to every chat turn when non-empty). */
+const AI_ASSISTANT_PROJECT_CONTEXT_STUDIO_PATH = '/scripts/aiassistant/context/site-authoring.md';
+/** Starter markdown for {@link AI_ASSISTANT_PROJECT_CONTEXT_STUDIO_PATH}. */
+const AI_ASSISTANT_PROJECT_CONTEXT_MARKDOWN_STUB = `# Project authoring context
+
+Markdown here is appended to every AI Assistant chat turn for this site when non-empty. It is not the author's request — use it for stable site facts: content-type paths, folder conventions, naming rules, and workflows.
+
+`;
 /** Starter markdown when creating a site override for {@code config/studio/scripts/aiassistant/prompts/&lt;KEY&gt;.md}. */
 function aiAssistantToolPromptMarkdownStub(key) {
     return `# ${key}
@@ -74950,6 +75113,7 @@ function AiAssistantScriptsSandboxConfiguration(props) {
     const tools = useMemo(() => (index?.tools ?? []), [index]);
     const imageGens = useMemo(() => (index?.imageGenerators ?? []), [index]);
     const llms = useMemo(() => (index?.llmScripts ?? []), [index]);
+    const projectContext = useMemo(() => index?.projectContext, [index]);
     const toolPromptOverrides = useMemo(() => (index?.toolPromptOverrides ?? []), [index]);
     const saveRegistry = async () => {
         if (!siteId)
@@ -75181,6 +75345,12 @@ function AiAssistantScriptsSandboxConfiguration(props) {
     const removeToolPromptOverride = (key) => {
         void deleteRepoFile(`/config/studio/scripts/aiassistant/prompts/${key}.md`, `Remove site override for tool prompt "${key}"? The built-in default will apply again.`);
     };
+    const openProjectContextEditor = () => {
+        void loadFileForEditor('Project context', AI_ASSISTANT_PROJECT_CONTEXT_STUDIO_PATH, AI_ASSISTANT_PROJECT_CONTEXT_MARKDOWN_STUB);
+    };
+    const removeProjectContext = () => {
+        void deleteRepoFile(`/config/studio${AI_ASSISTANT_PROJECT_CONTEXT_STUDIO_PATH}`, 'Remove project context for this site? AI Assistant will stop injecting site-authoring facts until you add the file again.');
+    };
     const openToolPromptOverride = (key) => {
         const sp = `/scripts/aiassistant/prompts/${key}.md`;
         void loadFileForEditor(`Tool prompt: ${key}`, sp, aiAssistantToolPromptMarkdownStub(key));
@@ -75360,7 +75530,7 @@ function AiAssistantScriptsSandboxConfiguration(props) {
             void submitAddImagegenOrLlm();
     };
     const pageTitle = panel === 'prompts'
-        ? 'Tool prompt overrides'
+        ? 'Context and prompts'
         : panel === 'tools'
             ? 'Tools'
             : panel === 'mcp'
@@ -75372,7 +75542,7 @@ function AiAssistantScriptsSandboxConfiguration(props) {
                         : panel === 'scripts'
                             ? 'Script backends'
                             : 'AI Assistant Scripts';
-    const pageIntro = panel === 'prompts' ? (jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Markdown under ", jsx$1("code", { children: "scripts/aiassistant/prompts/<KEY>.md" }), " overrides built-in tool prompt text (see ToolPromptsLoader). Empty files open with a working stub."] })) : null;
+    const pageIntro = panel === 'prompts' ? (jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: [jsx$1("strong", { children: "Project context" }), " is appended to every chat turn when non-empty. Per-key markdown under", ' ', jsx$1("code", { children: "scripts/aiassistant/prompts/<KEY>.md" }), " overrides built-in tool prompt text (see ToolPromptsLoader)."] })) : null;
     return (jsxs(Box, { sx: { p: 2, maxWidth: 1100, mx: 'auto' }, children: [jsx$1(Typography, { variant: "h5", component: "h1", gutterBottom: true, children: pageTitle }), pageIntro, !siteId ? (jsx$1(Alert, { severity: "info", children: "Select a site to edit scripts." })) : (jsxs(Fragment, { children: [loadError ? (jsx$1(Alert, { severity: "error", sx: { mb: 2 }, onClose: () => setLoadError(null), children: loadError })) : null, jsx$1(Stack$1, { direction: "row", spacing: 1, sx: { mb: 2 }, flexWrap: "wrap", alignItems: "center", children: jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(RefreshRounded, {}), disabled: loading, onClick: () => {
                                 setRegistryDirty(false);
                                 setToolsPolicyDirty(false);
@@ -75389,7 +75559,9 @@ function AiAssistantScriptsSandboxConfiguration(props) {
                                 }, minHeightPx: 260 })) : null, showRegistryJsonEditor ? (jsx$1(Button, { sx: { mt: 1 }, size: "small", variant: "contained", startIcon: jsx$1(SaveRounded, {}), disabled: savingRegistry || !registryDirty, onClick: () => void saveRegistry(), children: "Save registry" })) : null, jsx$1(Button, { sx: { mt: 1, ...(showRegistryJsonEditor ? { ml: 1 } : {}) }, size: "small", onClick: () => loadFileForEditor('Registry', `/${REGISTRY_REL}`, AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB), children: "Open in editor" }), jsx$1(Divider, { sx: { my: 3 } }), jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "subtitle1", children: "User tools (Groovy):" }), jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: () => { setAddDialogFullscreen(false); setAddOpen('tool'); }, children: "Add tool" })] }), jsxs(Table$1, { size: "small", sx: { border: 1, borderColor: 'divider', borderRadius: 1 }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Id" }), jsx$1(TableCell, { children: "Script" }), jsx$1(TableCell, { children: "Description" }), jsx$1(TableCell, { children: "Routing hints" }), jsx$1(TableCell, { width: 100, align: "center", children: "Enabled" }), jsx$1(TableCell, { align: "right", children: "Actions" })] }) }), jsx$1(TableBody, { children: tools.length === 0 ? (jsx$1(TableRow, { children: jsx$1(TableCell, { colSpan: 6, children: jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No tools in registry (or registry missing)." }) }) })) : (tools.map((t) => (jsxs(TableRow, { children: [jsx$1(TableCell, { children: t.id }), jsx$1(TableCell, { children: jsx$1("code", { children: t.script }) }), jsx$1(TableCell, { sx: { maxWidth: 280 }, children: t.description || '—' }), jsx$1(TableCell, { children: (t.matchHints?.length ?? 0) > 0 || (t.dontMatchHints?.length ?? 0) > 0 ? (jsxs(Typography, { variant: "body2", component: "span", children: [t.matchHints?.length ?? 0, " match", (t.dontMatchHints?.length ?? 0) > 0 ? ` · ${t.dontMatchHints?.length} don’t` : ''] })) : (jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "\u2014" })) }), jsx$1(TableCell, { align: "center", children: jsx$1(Switch, { size: "small", checked: isUserToolEnabled(toolsPolicy, t.id), onChange: (_, checked) => {
                                                             setToolsPolicy((prev) => setUserToolEnabled(prev, t.id, checked));
                                                             setToolsPolicyDirty(true);
-                                                        }, inputProps: { 'aria-label': `Enable user tool ${t.id}` } }) }), jsxs(TableCell, { align: "right", sx: { whiteSpace: 'nowrap' }, children: [jsx$1(Button, { size: "small", onClick: () => openToolMetadataEditor(t), children: "Registry" }), jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: () => void loadFileForEditor(`Tool ${t.id}`, t.studioPath, AI_ASSISTANT_USER_TOOL_GROOVY_STUB), children: "Script" }), jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), onClick: () => void removeUserTool(t.id), children: "Remove" })] })] }, t.id)))) })] }), jsx$1(Stack$1, { direction: "row", spacing: 1, sx: { mt: 2 }, flexWrap: "wrap", alignItems: "center", children: jsx$1(Button, { size: "small", variant: "contained", startIcon: savingToolsPolicy ? jsx$1(CircularProgress, { size: 16, color: "inherit" }) : jsx$1(SaveRounded, {}), disabled: savingToolsPolicy || !toolsPolicyDirty, onClick: () => void saveToolsPolicy(), children: "Save tools policy" }) })] })) : null, (showToolsBuiltIn || showToolsUser) && showPrompts ? jsx$1(Divider, { sx: { my: 4 } }) : null, showPrompts ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["Tool Prompt Overrides (", jsx$1("code", { children: "scripts/aiassistant/prompts/" }), "):"] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Non-empty markdown for a key replaces the plugin default (see ToolPromptsLoader). Remove the file to use the built-in text again. Click a row to read the default and the site file side by side." }), jsx$1(TableContainer, { sx: { maxHeight: 420, border: 1, borderColor: 'divider', borderRadius: 1 }, children: jsxs(Table$1, { size: "small", stickyHeader: true, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Key" }), jsx$1(TableCell, { children: "Status" }), jsx$1(TableCell, { align: "right", children: "Actions" })] }) }), jsx$1(TableBody, { children: toolPromptOverrides.length === 0 ? (jsx$1(TableRow, { children: jsx$1(TableCell, { colSpan: 3, children: jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No prompt keys returned from the server." }) }) })) : (toolPromptOverrides.map((row) => (jsxs(TableRow, { hover: true, selected: promptReadOpen && promptReadKey === row.key, sx: { cursor: 'pointer' }, onClick: () => openPromptRead(row.key), children: [jsx$1(TableCell, { children: jsx$1("code", { children: row.key }) }), jsx$1(TableCell, { children: row.hasOverride ? `Site override (${row.byteLength} bytes)` : 'Built-in default' }), jsxs(TableCell, { align: "right", children: [jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: (ev) => {
+                                                        }, inputProps: { 'aria-label': `Enable user tool ${t.id}` } }) }), jsxs(TableCell, { align: "right", sx: { whiteSpace: 'nowrap' }, children: [jsx$1(Button, { size: "small", onClick: () => openToolMetadataEditor(t), children: "Registry" }), jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: () => void loadFileForEditor(`Tool ${t.id}`, t.studioPath, AI_ASSISTANT_USER_TOOL_GROOVY_STUB), children: "Script" }), jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), onClick: () => void removeUserTool(t.id), children: "Remove" })] })] }, t.id)))) })] }), jsx$1(Stack$1, { direction: "row", spacing: 1, sx: { mt: 2 }, flexWrap: "wrap", alignItems: "center", children: jsx$1(Button, { size: "small", variant: "contained", startIcon: savingToolsPolicy ? jsx$1(CircularProgress, { size: 16, color: "inherit" }) : jsx$1(SaveRounded, {}), disabled: savingToolsPolicy || !toolsPolicyDirty, onClick: () => void saveToolsPolicy(), children: "Save tools policy" }) })] })) : null, (showToolsBuiltIn || showToolsUser) && showPrompts ? jsx$1(Divider, { sx: { my: 4 } }) : null, showPrompts ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["Project context (", jsx$1("code", { children: "scripts/aiassistant/context/site-authoring.md" }), "):"] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Non-empty markdown is injected on every orchestration turn (labeled Studio project context). Use it for content-type paths, folder conventions, and site-specific workflows \u2014 not for one-off author requests." }), jsxs(Stack$1, { direction: "row", spacing: 1, sx: { mb: 3 }, flexWrap: "wrap", alignItems: "center", children: [jsx$1(Typography, { variant: "body2", color: "text.secondary", children: projectContext?.hasContent
+                                            ? `Configured (${projectContext.byteLength} bytes)`
+                                            : 'Not configured — built-in tool prompts only' }), jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: () => openProjectContextEditor(), children: "Edit" }), jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), disabled: !projectContext?.hasContent, onClick: () => removeProjectContext(), children: "Remove" })] }), jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["Tool prompt overrides (", jsx$1("code", { children: "scripts/aiassistant/prompts/" }), "):"] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Non-empty markdown for a key replaces the plugin default (see ToolPromptsLoader). Remove the file to use the built-in text again. Click a row to read the default and the site file side by side." }), jsx$1(TableContainer, { sx: { maxHeight: 420, border: 1, borderColor: 'divider', borderRadius: 1 }, children: jsxs(Table$1, { size: "small", stickyHeader: true, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Key" }), jsx$1(TableCell, { children: "Status" }), jsx$1(TableCell, { align: "right", children: "Actions" })] }) }), jsx$1(TableBody, { children: toolPromptOverrides.length === 0 ? (jsx$1(TableRow, { children: jsx$1(TableCell, { colSpan: 3, children: jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No prompt keys returned from the server." }) }) })) : (toolPromptOverrides.map((row) => (jsxs(TableRow, { hover: true, selected: promptReadOpen && promptReadKey === row.key, sx: { cursor: 'pointer' }, onClick: () => openPromptRead(row.key), children: [jsx$1(TableCell, { children: jsx$1("code", { children: row.key }) }), jsx$1(TableCell, { children: row.hasOverride ? `Site override (${row.byteLength} bytes)` : 'Built-in default' }), jsxs(TableCell, { align: "right", children: [jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: (ev) => {
                                                                     ev.stopPropagation();
                                                                     void openToolPromptOverride(row.key);
                                                                 }, children: "Override" }), jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), disabled: !row.hasOverride, onClick: (ev) => {
@@ -76428,7 +76600,7 @@ function projectToolsTabLabel(t) {
         case 'secrets':
             return 'Secrets';
         case 'prompts':
-            return 'Prompts and Context';
+            return 'Context and Prompts';
         case 'llms':
             return 'LLMs';
         case 'imagegen':
@@ -76545,7 +76717,7 @@ function AiAssistantProjectToolsConfigurationPanel(props) {
             minHeight: 0,
             alignSelf: 'stretch',
             ...(toolFullscreen ? { bgcolor: 'background.default' } : {})
-        }, children: [jsxs(Stack$2, { direction: "row", alignItems: "stretch", sx: { flexShrink: 0, borderBottom: 1, borderColor: 'divider' }, children: [jsxs(Tabs$1, { value: tab, onChange: handleTabsChange, variant: "scrollable", scrollButtons: "auto", allowScrollButtonsMobile: true, sx: { flex: '1 1 auto', minWidth: 0 }, children: [jsx$1(Tab$1, { label: "UI", value: "ui", "data-aiassistant-project-tools-tab": "ui" }), jsx$1(Tab$1, { label: "Agents", value: "agents", "data-aiassistant-project-tools-tab": "agents" }), jsx$1(Tab$1, { label: "Recipes", value: "recipes", "data-aiassistant-project-tools-tab": "recipes" }), jsx$1(Tab$1, { label: "Integrations", value: "integrations", "data-aiassistant-project-tools-tab": "integrations" }), jsx$1(Tab$1, { label: "Secrets", value: "secrets", "data-aiassistant-project-tools-tab": "secrets" }), jsx$1(Tab$1, { label: "Prompts and Context", value: "prompts", "data-aiassistant-project-tools-tab": "prompts" })] }), jsx$1(Box$1, { sx: { display: 'flex', alignItems: 'center', flexShrink: 0, borderLeft: 1, borderColor: 'divider', px: 0.5 }, children: jsx$1(Tooltip$1, { title: toolFullscreen ? 'Exit fullscreen' : 'Fullscreen', children: jsx$1(IconButton$1, { size: "small", "aria-label": toolFullscreen ? 'Exit fullscreen' : 'Enter fullscreen', onClick: () => toggleToolFullscreen(), children: toolFullscreen ? jsx$1(FullscreenExitRounded, {}) : jsx$1(FullscreenRounded, {}) }) }) })] }), jsxs(Box$1, { sx: {
+        }, children: [jsxs(Stack$2, { direction: "row", alignItems: "stretch", sx: { flexShrink: 0, borderBottom: 1, borderColor: 'divider' }, children: [jsxs(Tabs$1, { value: tab, onChange: handleTabsChange, variant: "scrollable", scrollButtons: "auto", allowScrollButtonsMobile: true, sx: { flex: '1 1 auto', minWidth: 0 }, children: [jsx$1(Tab$1, { label: "UI", value: "ui", "data-aiassistant-project-tools-tab": "ui" }), jsx$1(Tab$1, { label: "Agents", value: "agents", "data-aiassistant-project-tools-tab": "agents" }), jsx$1(Tab$1, { label: "Recipes", value: "recipes", "data-aiassistant-project-tools-tab": "recipes" }), jsx$1(Tab$1, { label: "Integrations", value: "integrations", "data-aiassistant-project-tools-tab": "integrations" }), jsx$1(Tab$1, { label: "Secrets", value: "secrets", "data-aiassistant-project-tools-tab": "secrets" }), jsx$1(Tab$1, { label: "Context and Prompts", value: "prompts", "data-aiassistant-project-tools-tab": "prompts" })] }), jsx$1(Box$1, { sx: { display: 'flex', alignItems: 'center', flexShrink: 0, borderLeft: 1, borderColor: 'divider', px: 0.5 }, children: jsx$1(Tooltip$1, { title: toolFullscreen ? 'Exit fullscreen' : 'Fullscreen', children: jsx$1(IconButton$1, { size: "small", "aria-label": toolFullscreen ? 'Exit fullscreen' : 'Enter fullscreen', onClick: () => toggleToolFullscreen(), children: toolFullscreen ? jsx$1(FullscreenExitRounded, {}) : jsx$1(FullscreenRounded, {}) }) }) })] }), jsxs(Box$1, { sx: {
                     flex: '1 1 auto',
                     minHeight: 0,
                     overflow: 'auto',
@@ -76554,7 +76726,7 @@ function AiAssistantProjectToolsConfigurationPanel(props) {
 }
 /**
  * Single Project Tools surface: **UI** (`studio-ui.json` + bulk), **Agents** (`agents.json`), **Recipes** (intent router + site overrides),
- * **Integrations** (sub-tabs: **LLMs**, **Image Generators**, **Tools**, **MCP**), **Secrets** (site API keys), **Prompts and Context** (tool markdown overrides).
+ * **Integrations** (sub-tabs: **LLMs**, **Image Generators**, **Tools**, **MCP**), **Secrets** (site API keys), **Context and Prompts** (project context markdown + tool prompt overrides).
  * Opens in a **large dialog** when the Project Tools entry mounts so authors stay focused and get more space than the default tool pane.
  * Primary widget id: {@link projectToolsAiAssistantConfigWidgetId}. Legacy ids still mount this component with a fixed default tab.
  */

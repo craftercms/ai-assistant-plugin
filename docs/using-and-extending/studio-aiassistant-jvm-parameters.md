@@ -40,6 +40,7 @@ Historical note: property names use the **`aiassistant.*`** prefix; they apply t
 |----------|-----------------|
 | **`aiassistant.chatFluxAwaitMs`** | Max wait for Spring AI chat flux / tool **Future** (ms). Default **300000**; allowed range **120000–600000** in implementation. |
 | **`aiassistant.openai.restReadTimeoutMs`** | Per-request read timeout for sync OpenAI **RestClient** `chat/completions` (ms). Tied to orchestration budget + margin. |
+| **`aiassistant.openai.restConnectTimeoutMs`** | TCP **connect** timeout for tools-loop **RestClient** `chat/completions` (ms). Default **30000**; range **5000–120000**. Raise when Studio uses a slow SOCKS/HTTP proxy. |
 | **`aiassistant.openai.sseWaitHeartbeatMs`** | SSE / wait tuning inside **`AiOrchestration`**. |
 | **`aiassistant.openai.reviewMaxChars`** | Caps review / analysis payloads in some tool paths. |
 | **`aiassistant.translateContentItemMaxOutTokens`** | Inner completion token cap for **`TranslateContentItem`**-style paths. |

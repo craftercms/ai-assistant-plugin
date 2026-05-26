@@ -30,6 +30,7 @@ import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
  *   "enableTools": "optional — false omits OpenAI function tools; absent defaults true",
  *   "omitTools": "optional — true omits tools for this request only (focused copy/generation); overrides enableTools; same for XB/ICE, dialog, form-engine",
  *   "previewToken": "optional — Studio crafterPreview cookie value for GetPreviewHtml",
+ *   "crafterQChatUser": "optional — CrafterQ anonymous chat JWT (X-CrafterQ-Chat-User) for ConsultCrafterQ",
  *   "skills": "optional array of { name, url, description, enabled } — enabled per-agent markdown for QueryExpertGuidance",
  *   "llmModel": "optional — model id for the selected LLM",
  *   "imageModel": "optional — default image model for GenerateImage on the built-in images wire",
@@ -66,7 +67,8 @@ def assembledPrompt = AuthoringPreviewContext.assembleOrchestrationPrompt(
   body?.displayTemplate,
   request,
   body?.studioPreviewPageUrl,
-  pubOpsForPrompt)
+  pubOpsForPrompt,
+  applicationContext)
 def promptForOrchestration = assembledPrompt.orchestrationPrompt
 def promptStepDeltas = assembledPrompt.stepDeltas
 def chatId = body.chatId?.toString()
@@ -100,6 +102,12 @@ if (previewTokenBody) {
   try {
     request.setAttribute('aiassistant.previewToken', previewTokenBody)
   } catch (Throwable ignored) {}
+}
+def crafterQChatUserBody = (body?.crafterQChatUser ?: body?.crafterqChatUser)?.toString()?.trim()
+if (crafterQChatUserBody) {
+  try {
+    request.setAttribute('aiassistant.crafterQChatUser', crafterQChatUserBody)
+  } catch (Throwable ignoredCq) {}
 }
 Map projectToolCfg = [:]
 try {

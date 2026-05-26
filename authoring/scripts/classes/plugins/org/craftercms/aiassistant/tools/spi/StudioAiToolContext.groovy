@@ -25,6 +25,8 @@ class StudioAiToolContext {
   final String llmNormalized
   final String imageGeneratorParam
   final Collection agentEnabledBuiltInTools
+  /** True for {@link #forRecipeEngine} JVM confirmation/prefetch steps (no browser CrafterQ session). */
+  final boolean recipeEngineRun
 
   /**
    * Copies immutable fields from {@link Builder} after validation so orchestration sees stable snapshots.
@@ -45,6 +47,7 @@ class StudioAiToolContext {
     this.llmNormalized = b.llmNormalized
     this.imageGeneratorParam = b.imageGeneratorParam
     this.agentEnabledBuiltInTools = b.agentEnabledBuiltInTools
+    this.recipeEngineRun = b.recipeEngineRun
   }
 
   /**
@@ -117,6 +120,7 @@ class StudioAiToolContext {
       .converter({ Object result, java.lang.reflect.Type rt -> result })
       .ops(ops)
       .aiProjectToolCfg(cfg instanceof Map ? cfg : [:])
+      .recipeEngineRun(true)
       .build()
   }
 
@@ -135,6 +139,7 @@ class StudioAiToolContext {
     String llmNormalized
     String imageGeneratorParam
     Collection agentEnabledBuiltInTools
+    boolean recipeEngineRun
 
     /** Assigns Spring AI {@code toolCallResultConverter} callback; returns {@code this}. */
     Builder converter(Object v) { this.converter = v; return this }
@@ -164,6 +169,8 @@ class StudioAiToolContext {
     Builder imageGeneratorParam(String v) { this.imageGeneratorParam = v; return this }
     /** Tracks filtered built-in tools for this agent/session; returns {@code this}. */
     Builder agentEnabledBuiltInTools(Collection v) { this.agentEnabledBuiltInTools = v; return this }
+    /** Marks recipe-engine prefetch/confirmation execution; returns {@code this}. */
+    Builder recipeEngineRun(boolean v) { this.recipeEngineRun = v; return this }
 
     /**
      * Validates mandatory {@link #ops} then freezes immutable {@link StudioAiToolContext}.

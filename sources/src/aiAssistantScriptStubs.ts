@@ -83,6 +83,16 @@ export const AI_ASSISTANT_TOOLS_JSON_STUB = `{
 }
 `;
 
+/** Studio module path for per-site project context (appended to every chat turn when non-empty). */
+export const AI_ASSISTANT_PROJECT_CONTEXT_STUDIO_PATH = '/scripts/aiassistant/context/site-authoring.md';
+
+/** Starter markdown for {@link AI_ASSISTANT_PROJECT_CONTEXT_STUDIO_PATH}. */
+export const AI_ASSISTANT_PROJECT_CONTEXT_MARKDOWN_STUB = `# Project authoring context
+
+Markdown here is appended to every AI Assistant chat turn for this site when non-empty. It is not the author's request — use it for stable site facts: content-type paths, folder conventions, naming rules, and workflows.
+
+`;
+
 /** Starter markdown when creating a site override for {@code config/studio/scripts/aiassistant/prompts/&lt;KEY&gt;.md}. */
 export function aiAssistantToolPromptMarkdownStub(key: string): string {
   return `# ${key}
