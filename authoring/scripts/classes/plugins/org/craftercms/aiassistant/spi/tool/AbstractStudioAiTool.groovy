@@ -56,6 +56,14 @@ abstract class AbstractStudioAiTool implements StudioAiOrchestrationTool {
   }
 
   /**
+   * Tool description for a specific orchestration context (default: {@link #description()}).
+   * Override when the wire description depends on per-request site config (e.g. {@code InvokeSiteUserTool} registry entries).
+   */
+  String description(StudioAiToolContext ctx) {
+    return description()
+  }
+
+  /**
    * Builds a Spring AI {@link FunctionToolCallback} that wraps {@link #execute} identically to CMS peers.
    * Runs inside {@link AiOrchestrationTools#runWithToolProgress} so SSE listeners observe MCP+CBS timings.
    * Wires Groovy meta {@code toolCallResultConverter} because Builder lacks a public setter.
@@ -72,7 +80,7 @@ abstract class AbstractStudioAiTool implements StudioAiOrchestrationTool {
         })
       }
     })
-      .description(description())
+      .description(description(buildCtx))
       .inputSchema(inputSchemaJson())
       .inputType(Map.class)
       // Spring AI FunctionToolCallback.Builder has no public toolCallResultConverter(…) step; Groovy invokeMethod wires it.

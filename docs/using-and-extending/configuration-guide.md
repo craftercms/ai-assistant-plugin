@@ -567,7 +567,7 @@ Other **`pluginRag`** fields control retrieval (**`topK`**, **`maxAppendChars`**
 }
 ```
 
-**Registered built-in wire names** — use these strings verbatim in **`disabledBuiltInTools`**, **`enabledBuiltInTools`**, and **`omitTools`**. Canonical UI list: **`sources/src/studioAiOrchestrationToolIds.ts`** (`STUDIO_AI_BUILTIN_TOOL_IDS`); server registration in **`AiOrchestrationTools.groovy`**. When MCP is enabled, the server also registers dynamic **`mcp_<serverId>_<toolName>`** tools (sanitized); those are not listed here.
+**Registered built-in wire names** — use these strings verbatim in **`disabledBuiltInTools`**, **`enabledBuiltInTools`**, and **`omitTools`**. Canonical UI list: **`sources/src/studioAiOrchestrationToolIds.ts`** (`STUDIO_AI_BUILTIN_TOOL_IDS`); server registration in **`StudioAiToolRegistry`** (`CORE_TOOLS`), assembled per chat request by **`AiOrchestrationTools.build`**. When MCP is enabled, the server also registers dynamic **`mcp_<serverId>_<toolName>`** tools (sanitized); those are not listed here.
 
 | Wire name (PascalCase) |
 |------------------------|
@@ -577,13 +577,14 @@ Other **`pluginRag`** fields control retrieval (**`topK`**, **`maxAppendChars`**
 | `GenerateImage` |
 | `GenerateTextNoTools` |
 | `GetContent` |
-| `GetContentSubgraph` |
 | `GetContentTypeFormDefinition` |
+| `ConsultCrafterQ` |
 | `GetContentVersionHistory` |
 | `GetCrafterizingPlaybook` |
 | `GetPreviewHtml` |
 | `InvokeSiteUserTool` |
-| `ListContentTranslationScope` |
+| `ListContentDependencyScope` |
+| `ListContentTranslationScope` (legacy alias for `ListContentDependencyScope`) |
 | `ListPagesAndComponents` |
 | `ListStudioContentTypes` |
 | `QueryExpertGuidance` |

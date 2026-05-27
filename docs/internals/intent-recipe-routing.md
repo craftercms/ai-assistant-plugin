@@ -458,7 +458,7 @@ When a matched recipe has Confirmation **`engineSteps`**, the loop runs **`maybe
 | Plan-defer wired-tools catalog | `AiOrchestrationTools.groovy` (`wireNamesForPlanDeferCatalog` from registered callbacks, `formatPlanDeferToolsCatalogMarkdown`) |
 | Bundled recipes + routing config | `engine/routing/authoring-intent-recipes-default.json` (`routingRecipeFamilies`, `multiGoalDefer`) |
 | Prelude + match pass + tools loop | `AiOrchestration.groovy` |
-| Tools-loop wire policy (progress, truncation, prose JSON) | `tools/loop/ToolsLoopWirePolicyRegistry.groovy`, `ProseDeclaredToolCalls.groovy` |
+| Tools-loop wire policy (progress, truncation, prose JSON) | `engine/policy/ToolsLoopWirePolicyRegistry.groovy`, `engine/turn/ProseDeclaredToolCalls.groovy` |
 | Intent prefetch (read-only context in prompt) | `AuthoringIntentRecipeEngine.groovy` |
 | Execution plan compile + confirmation JVM steps | `AuthoringIntentRecipePlanCompiler.groovy`, `AuthoringIntentRecipeEngine.runConfirmationStepsBlock`, `AiOrchestration.maybeExecuteMatchedRecipeConfirmationSteps` |
 | Confirmation arg merge + tool dispatch | `StudioAiToolRegistry.mergeRecipeConfirmationArgs`, `StudioAiToolRegistry.executeRecipeConfirmationTool` |

@@ -1,8 +1,14 @@
 package plugins.org.craftercms.aiassistant.spi.tool
 
 import plugins.org.craftercms.aiassistant.engine.context.AuthoringPreviewContext
+import plugins.org.craftercms.aiassistant.engine.rag.ExpertSkillVectorRegistry
 import plugins.org.craftercms.aiassistant.studio.config.StudioAiAssistantProjectConfig
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
+
+import java.util.Collections
+import java.util.LinkedHashMap
+import java.util.List
+import java.util.Map
 
 /**
  * Shared build-time and execute-time state for {@link StudioAiOrchestrationTool} implementations.
@@ -25,6 +31,10 @@ class StudioAiToolContext {
   final String llmNormalized
   final String imageGeneratorParam
   final Collection agentEnabledBuiltInTools
+  /** Spring AI embedding model for {@code QueryExpertGuidance}; null when no expert skills or API key. */
+  final Object expertEmbeddingModel
+  /** Expert skill id → markdown corpus URL for {@code QueryExpertGuidance}. */
+  final Map<String, String> expertUrlBySkillId
   /** True for {@link #forRecipeEngine} JVM confirmation/prefetch steps (no browser CrafterQ session). */
   final boolean recipeEngineRun
 
@@ -46,6 +56,10 @@ private StudioAiToolContext(Builder b) {
     this.llmNormalized = b.llmNormalized
     this.imageGeneratorParam = b.imageGeneratorParam
     this.agentEnabledBuiltInTools = b.agentEnabledBuiltInTools
+    this.expertEmbeddingModel = b.expertEmbeddingModel
+    this.expertUrlBySkillId = b.expertUrlBySkillId != null ?
+      Collections.unmodifiableMap(new LinkedHashMap<>(b.expertUrlBySkillId)) :
+      Collections.<String, String>emptyMap()
     this.recipeEngineRun = b.recipeEngineRun
   }
 
@@ -87,6 +101,19 @@ private StudioAiToolContext(Builder b) {
         }
       }
     }
+    String embKey = (apiKeyForImages ?: '').toString().trim()
+    Object expertEmbed = null
+    Map<String, String> expertUrls = new LinkedHashMap<>()
+    if (!experts.isEmpty() && embKey) {
+      expertEmbed = ExpertSkillVectorRegistry.buildEmbeddingModel(embKey, cfg)
+      for (Map m : experts) {
+        String sid = m.skillId?.toString()?.trim()
+        String u = m.url?.toString()?.trim()
+        if (sid && u) {
+          expertUrls.put(sid, u)
+        }
+      }
+    }
     return builder()
       .converter(converter)
       .ops(ops)
@@ -102,6 +129,8 @@ private StudioAiToolContext(Builder b) {
       .llmNormalized(llmNormalized)
       .imageGeneratorParam(imageGeneratorParam)
       .agentEnabledBuiltInTools(agentEnabledBuiltInTools)
+      .expertEmbeddingModel(expertEmbed)
+      .expertUrlBySkillId(expertUrls)
       .build()
   }
 
@@ -138,6 +167,8 @@ private StudioAiToolContext(Builder b) {
     String llmNormalized
     String imageGeneratorParam
     Collection agentEnabledBuiltInTools
+    Object expertEmbeddingModel
+    Map<String, String> expertUrlBySkillId
     boolean recipeEngineRun
 
     /** Assigns Spring AI {@code toolCallResultConverter} callback; returns {@code this}. */
@@ -168,6 +199,10 @@ private StudioAiToolContext(Builder b) {
     Builder imageGeneratorParam(String v) { this.imageGeneratorParam = v; return this }
     /** Tracks filtered built-in tools for this agent/session; returns {@code this}. */
     Builder agentEnabledBuiltInTools(Collection v) { this.agentEnabledBuiltInTools = v; return this }
+    /** Embedding model for expert-skill RAG tools; returns {@code this}. */
+    Builder expertEmbeddingModel(Object v) { this.expertEmbeddingModel = v; return this }
+    /** Expert skill id → corpus URL map; returns {@code this}. */
+    Builder expertUrlBySkillId(Map<String, String> v) { this.expertUrlBySkillId = v; return this }
     /** Marks recipe-engine prefetch/confirmation execution; returns {@code this}. */
     Builder recipeEngineRun(boolean v) { this.recipeEngineRun = v; return this }
 

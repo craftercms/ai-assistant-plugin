@@ -5,20 +5,14 @@ import plugins.org.craftercms.aiassistant.studio.config.StudioAiAssistantProject
 import plugins.org.craftercms.aiassistant.engine.util.ParallelToolExecutor
 import plugins.org.craftercms.aiassistant.engine.util.ContentSubgraphAggregator
 import plugins.org.craftercms.aiassistant.studio.http.AiHttpProxy
-import plugins.org.craftercms.aiassistant.spi.imagegen.StudioAiImageGenContext
-import plugins.org.craftercms.aiassistant.spi.imagegen.StudioAiImageGenerator
-import plugins.org.craftercms.aiassistant.engine.catalog.StudioAiImageGeneratorFactory
 import plugins.org.craftercms.aiassistant.engine.turn.AiOrchestration
-import plugins.org.craftercms.aiassistant.engine.turn.chatcompletions.ChatCompletionsToolWire
 import plugins.org.craftercms.aiassistant.engine.catalog.StudioAiToolRegistry
 import plugins.org.craftercms.aiassistant.contrib.tool.builtin.cms.internal.CmsGetContent
 import plugins.org.craftercms.aiassistant.contrib.tool.builtin.cms.internal.CmsWriteContent
 import plugins.org.craftercms.aiassistant.spi.tool.StudioAiToolContext
 import plugins.org.craftercms.aiassistant.spi.tool.StudioAiToolProgress
-import plugins.org.craftercms.aiassistant.spi.tool.StudioAiToolSchemas
 import plugins.org.craftercms.aiassistant.contrib.tool.builtin.playbook.CrafterizingPlaybookLoader
 import plugins.org.craftercms.aiassistant.engine.prompt.ToolPrompts
-import plugins.org.craftercms.aiassistant.engine.rag.ExpertSkillVectorRegistry
 import plugins.org.craftercms.aiassistant.contrib.tool.site.StudioAiUserSiteTools
 import plugins.org.craftercms.aiassistant.engine.autonomous.AutonomousAssistantWorker
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
@@ -47,7 +41,6 @@ import java.util.Set
 import java.util.concurrent.Callable
 import java.util.concurrent.Future
 import java.util.concurrent.Semaphore
-import java.util.function.Function
 import java.util.regex.Matcher
 import java.util.regex.Pattern
 
@@ -55,8 +48,9 @@ import java.util.regex.Pattern
  * Builds Spring AI tool callbacks for {@link plugins.org.craftercms.aiassistant.engine.turn.AiOrchestration}.
  * <p>Core tools are {@link plugins.org.craftercms.aiassistant.spi.tool.StudioAiOrchestrationTool} classes under
  * {@code tools.cms}, {@code tools.development}, and {@code tools.general}, composed by
- * {@link plugins.org.craftercms.aiassistant.engine.catalog.StudioAiToolRegistry}; this class adds supplemental tools
- * (translate, image, MCP, site user tools).</p>
+ * {@link plugins.org.craftercms.aiassistant.engine.catalog.StudioAiToolRegistry} (all built-ins implement
+ * {@link plugins.org.craftercms.aiassistant.spi.tool.StudioAiOrchestrationTool}); this class holds shared transform
+ * helpers and catalog filters.</p>
  * <p><strong>Every</strong> {@link FunctionToolCallback} must call {@code .inputSchema(...)} — upstream chat APIs reject
  * bare {@code Map.class} schemas ("object schema missing properties").</p>
  */
@@ -389,60 +383,7 @@ class AiOrchestrationTools {
     return ''
   }
 
-  /**
-   * Upstream APIs return 400 if tool {@code parameters} are not valid JSON Schema objects.
-   * {@code FunctionToolCallback} with {@code Map.class} alone often produces schemas the API rejects.
-   */
-  private static final String SCHEMA_GET_CONTENT =
-    '{"type":"object","properties":{"siteId":{"type":"string","description":"Studio site id"},"path":{"type":"string","description":"Repository path starting with /"},"contentPath":{"type":"string","description":"Same as path; use whichever matches your context (e.g. after update_content)."},"commitId":{"type":"string","description":"Git commit id or ref to read (optional). Omit or use HEAD for current sandbox file; set only when comparing or inspecting history."}},"required":["siteId"]}'
-  private static final String SCHEMA_GET_CONTENT_TYPE =
-    '{"type":"object","properties":{"siteId":{"type":"string"},"contentPath":{"type":"string","description":"Repository path to page/component XML (e.g. /site/website/index.xml). Preferred: server reads exact <content-type> from this file — avoids guessing /page/index from filename."},"contentTypeId":{"type":"string","description":"Exact /page/... or /component/... from the item XML <content-type> element only. Never infer from path (index.xml is NOT /page/index)."}},"required":["siteId"]}'
-  private static final String SCHEMA_LIST_STUDIO_CONTENT_TYPES =
-    '{"type":"object","properties":{"siteId":{"type":"string","description":"Studio site id"},"searchable":{"type":"boolean","description":"If true, pass searchable=true to Studio getAllContentTypes when listing all types (site-dependent). Default false."},"contentPath":{"type":"string","description":"Optional repository path (e.g. open preview item or target folder). When set, lists content types **allowed** for creating items under that path’s folder (via Studio getAllowedContentTypesForPath)."}},"required":["siteId"]}'
-  private static final String SCHEMA_GET_CONTENT_VERSION_HISTORY =
-    '{"type":"object","properties":{"siteId":{"type":"string","description":"Studio site id"},"path":{"type":"string","description":"Repository path starting with /"},"contentPath":{"type":"string","description":"Same as path"}},"required":["siteId"]}'
-  private static final String SCHEMA_GET_PREVIEW_HTML =
-    '{"type":"object","properties":{"url":{"type":"string","description":"Absolute http(s) URL of the preview page to fetch (e.g. current preview URL from authoring context)."},"previewUrl":{"type":"string","description":"Alias for url."},"previewToken":{"type":"string","description":"Value of the Studio crafterPreview cookie (often starts with CCE-V1). Omit if the chat request already sent previewToken from the UI."},"siteId":{"type":"string","description":"Optional — when the URL has no crafterSite= query param, it is appended from this value or the active site."}},"required":[]}'
-  private static final String SCHEMA_FETCH_HTTP_URL =
-    '{"type":"object","properties":{"url":{"type":"string","description":"Absolute http(s) URL to GET (reference HTML/CSS/JSON/text). Private IPs, loopback, and metadata endpoints are blocked; each redirect target is re-validated."},"maxChars":{"type":"integer","description":"Optional cap on returned body size; still bounded by Studio JVM aiassistant.httpFetch.maxChars (default 400000)."}},"required":["url"]}'
-  private static final String SCHEMA_WEB_SEARCH = StudioAiToolSchemas.WEB_SEARCH
-  private static final String SCHEMA_RESEARCH_SITE_CONTENT = StudioAiToolSchemas.RESEARCH_SITE_CONTENT
-  private static final String SCHEMA_QUERY_EXPERT_GUIDANCE =
-    '{"type":"object","properties":{"skillId":{"type":"string","description":"Expert skill id from the system message expert skills table (es_ prefix)."},"query":{"type":"string","description":"Question to retrieve relevant markdown chunks for."},"topK":{"type":"integer","description":"Max chunks (1–20, default 8)."}},"required":["skillId","query"]}'
-  private static final String SCHEMA_WRITE_CONTENT =
-    '{"type":"object","properties":{"siteId":{"type":"string"},"path":{"type":"string","description":"Repository path starting with /"},"contentPath":{"type":"string","description":"Same as path; use either."},"contentXml":{"type":"string","description":"Complete file body. For /site/.../*.xml items: full <page> or <component> document preserving existing field element names from the content type; never replace with an unrelated XML schema."},"unlock":{"type":"string","description":"true or false"}},"required":["siteId","contentXml"]}'
-  private static final String SCHEMA_LIST_PAGES =
-    '{"type":"object","properties":{"siteId":{"type":"string"},"size":{"type":"integer","description":"max items, default 1000"}},"required":["siteId"]}'
-  private static final String SCHEMA_LIST_CONTENT_DEPENDENCY_SCOPE =
-    '{"type":"object","properties":{"siteId":{"type":"string"},"contentPath":{"type":"string","description":"Root page or component XML under /site/... ending in .xml"},"path":{"type":"string","description":"Alias for contentPath"},"chunkSize":{"type":"integer","description":"Paths per batch for GetContent/WriteContent rounds (default 1 — one item at a time; max 50)"},"maxItems":{"type":"integer","description":"Optional max items in scope (default 300, cap 2000)"},"maxDepth":{"type":"integer","description":"Optional max reference depth from root (default 40, cap 100)"}},"required":["siteId"]}'
-  private static final String SCHEMA_CRAFTERIZING_PLAYBOOK =
-    '{"type":"object","properties":{"topic":{"type":"string","description":"Optional focus keyword for future use; full playbook is returned regardless."}}}'
-  /** Shared shape for authoring helpers (update_*, analyze, publish, revert). */
-  private static final String SCHEMA_CMS_LOOSE =
-    StudioAiToolSchemas.CMS_LOOSE
-  private static final String SCHEMA_GENERATE_IMAGE =
-    '{"type":"object","additionalProperties":false,"properties":{"prompt":{"type":"string","description":"Description of the image to generate"},"size":{"type":"string","enum":["auto","1024x1024","1024x1536","1536x1024"],"description":"Optional image size preset (built-in images API when active): auto, 1024x1024, 1024x1536, 1536x1024 — omit unless the author asked for aspect ratio. Server coerces invalid values (e.g. 1024x768 → nearest supported)."},"quality":{"type":"string","description":"Optional quality: low, medium, high, auto"},"model":{"type":"string","description":"Optional override of configured imageModel. Do not pass response_format when the images API rejects it."}},"required":["prompt"]}'
-  /** One-shot chat completion (no further function tools on that inner request). Invoked only when the main agent calls this tool. */
-  private static final String SCHEMA_GENERATE_TEXT_NO_TOOLS =
-    '{"type":"object","properties":{"userPrompt":{"type":"string","description":"Full user/task text for the inner model (what to write, format, constraints)."},"prompt":{"type":"string","description":"Alias for userPrompt."},"systemInstructions":{"type":"string","description":"Optional system message for this inner call only (role, output shape, tone)."},"system":{"type":"string","description":"Alias for systemInstructions."},"maxOutTokens":{"type":"integer","description":"Max completion tokens for this inner call (256–8192; server may clamp per model)."},"model":{"type":"string","description":"Optional chat model id for this inner call only; default matches the agent chat model family."},"llmModel":{"type":"string","description":"Alias for model."},"readTimeoutMs":{"type":"integer","description":"HTTP read timeout ms (60000–600000)."}},"required":[]}'
-  private static final String SCHEMA_TRANSFORM_CONTENT_SUBGRAPH =
-    '{"type":"object","properties":{"siteId":{"type":"string"},"contentPath":{"type":"string","description":"Root page or component XML under /site/... ending in .xml"},"path":{"type":"string","description":"Alias for contentPath"},"instructions":{"type":"string","description":"Task for the worker model (e.g. translate all author-visible copy to Arabic ar-SA; preserve XML structure)"},"writeResults":{"type":"boolean","description":"If true (default), WriteContent each document after a valid LLM bundle"},"maxItems":{"type":"integer","description":"Max documents in walk (default 300, cap 2000)"},"maxDepth":{"type":"integer","description":"Max reference depth (default 40, cap 100)"},"unlock":{"type":"string","description":"Unlock flag for WriteContent (default true)"},"llmModel":{"type":"string","description":"Chat model for the bundled inner completion only. Omit to use a smaller model in the same family as main chat. Pass explicitly to override. Alias: model"},"readTimeoutMs":{"type":"integer","description":"HTTP read timeout ms for the inner call (default 600000)"}},"required":["siteId","instructions"]}'
-
-  /** Single-path inner LLM + write; {@link #ENABLE_TRANSFORM_CONTENT_SUBGRAPH_BULK} keeps the multi-document tool off by default. */
-  private static final String SCHEMA_TRANSLATE_CONTENT_ITEM =
-    '{"type":"object","properties":{"siteId":{"type":"string"},"contentPath":{"type":"string","description":"One page or component XML under /site/... ending in .xml"},"path":{"type":"string","description":"Alias for contentPath"},"instructions":{"type":"string","description":"Same task for every item when translating a page tree (e.g. translate author-visible copy to Arabic ar-SA; preserve XML)"},"writeResults":{"type":"boolean","description":"If true (default), WriteContent after a valid LLM bundle"},"unlock":{"type":"string","description":"Unlock flag for WriteContent (default true)"},"llmModel":{"type":"string","description":"Chat model for this item only (inner completion). Omit for server default smaller model in the same family. Alias: model"},"readTimeoutMs":{"type":"integer","description":"HTTP read timeout ms for the inner call (default 600000)"}},"required":["siteId","instructions"]}'
-
-  private static final String SCHEMA_TRANSLATE_CONTENT_BATCH =
-    '{"type":"object","properties":{"siteId":{"type":"string"},"instructions":{"type":"string","description":"Same instruction for every path (e.g. translate author-visible copy to French fr-FR)"},"paths":{"type":"array","items":{"type":"string"},"description":"List of /site/.../*.xml paths"},"contentPaths":{"type":"array","items":{"type":"string"},"description":"Alias for paths"},"pathChunks":{"type":"array","description":"Optional: **pathChunks** from ListContentDependencyScope — same shape as that tool (outer array of chunks; each chunk is an array of path strings). Server flattens to paths.","items":{"type":"array","items":{"type":"string","description":"/site/.../*.xml repository path"}}},"maxConcurrency":{"type":"integer","description":"Parallel workers for this batch only (default from agent agents.json translateBatchConcurrency, else 25; hard cap 64)"},"writeResults":{"type":"boolean"},"unlock":{"type":"string"},"llmModel":{"type":"string"},"model":{"type":"string"},"readTimeoutMs":{"type":"integer"}},"required":["siteId","instructions"]}'
-
-  /** Site sandbox Groovy under {@code config/studio/scripts/aiassistant/user-tools/} (manifest {@code registry.json}). */
-  private static final String SCHEMA_INVOKE_SITE_USER_TOOL =
-    '{"type":"object","properties":{"toolId":{"type":"string","description":"Registered id from the site registry.json tools[] array."},"args":{"type":"object","description":"Optional map passed to the script as binding variable args.","additionalProperties":true}},"required":["toolId"]}'
-
   private static final int TRANSLATE_BATCH_MAX_PATHS = 100
-
-  /** When false, {@code TransformContentSubgraph} is not registered — use {@code ListContentDependencyScope} + {@code TranslateContentBatch} or {@code TranslateContentItem} per path. */
-  private static final boolean ENABLE_TRANSFORM_CONTENT_SUBGRAPH_BULK = false
 
   private static final int TRANSFORM_SUBGRAPH_MAX_CHARS = 280_000
 
@@ -1780,12 +1721,14 @@ class AiOrchestrationTools {
    * @param imageModel resolved default image model from agent/request for the built-in images wire (e.g. gpt-image-1); optional per-call {@code model} in tool args; ignored for pure {@code script:…} image backends unless the script reads it from context
    * @param fullSuppressRepoWrites when true (form engine + client JSON apply but no item path), omit write/publish/revert tools entirely
    * @param protectedFormItemPath normalized repo path of the open form item — when set (and not full suppress), write/publish/revert stay registered but are rejected only for this path; {@code update_content} for this path steers toward {@code aiassistantFormFieldUpdates}
-   * @param expertSkillSpecs normalized maps {@code skillId},{@code name},{@code url},{@code description} from the chat request; when non-empty and an LLM API key is available, registers {@code QueryExpertGuidance}
+   * @param expertSkillSpecs normalized maps {@code skillId},{@code name},{@code url},{@code description} from the chat request; when non-empty and an API key is present, {@link StudioAiToolContext} carries embedding state so {@link plugins.org.craftercms.aiassistant.contrib.tool.builtin.general.QueryExpertGuidanceTool} may register via {@link StudioAiToolRegistry}
    * @param textModel resolved chat model id for inner completions ({@code TranslateContentItem} / bulk subgraph when enabled) default {@code llmModel}; ignored when no API key
    * @param llmNormalized {@link plugins.org.craftercms.aiassistant.spi.llm.StudioAiLlmKind#normalize} result for the active session (image wire defaults)
    * @param imageGeneratorParam optional {@code wire} (default when blank), {@code none}|{@code off}|{@code disabled}, or {@code script:id} — see site docs
+   * <p>Delegates tool registration to {@link StudioAiToolRegistry#buildCoreToolCallbacks} and {@link StudioAiToolRegistry#buildMcpToolCallbacks};
+   * each built-in's {@code enabled(StudioAiToolContext)} gate controls presence on the wire (API key, image backend, expert skills, site user-tools registry, etc.).</p>
    * <p>Built-in tool visibility may be constrained by site {@code /scripts/aiassistant/config/tools.json} — see {@link StudioAiAssistantProjectConfig}.
- * Optional <strong>MCP</strong> servers register additional {@code mcp_*} tools when {@code mcpEnabled} is JSON {@code true} in the same file — see {@link StudioAiAssistantProjectConfig#mcpClientEnabled} and {@link plugins.org.craftercms.aiassistant.contrib.tool.mcp.StudioAiMcpClient}.</p>
+   * Optional <strong>MCP</strong> servers register additional {@code mcp_*} tools when {@code mcpEnabled} is JSON {@code true} in the same file — see {@link StudioAiAssistantProjectConfig#mcpClientEnabled} and {@link plugins.org.craftercms.aiassistant.contrib.tool.mcp.StudioAiMcpClient}.</p>
    */
   static List build(
     Object converter,
@@ -1815,309 +1758,9 @@ class AiOrchestrationTools {
       imageGeneratorParam,
       agentEnabledBuiltInTools
     )
-    Map aiProjectToolCfg = ctx.aiProjectToolCfg
-    def normProtected = ctx.normProtectedFormItemPath
-    boolean pathProtect = ctx.pathProtectFormItem
-    List<Map> expertSpecs = new ArrayList<>()
-    if (expertSkillSpecs instanceof List) {
-      for (Object o : (List) expertSkillSpecs) {
-        if (o instanceof Map) {
-          expertSpecs.add((Map) o)
-        }
-      }
-    }
-    String embKey = (apiKeyForImages ?: '').toString().trim()
-    def expertEmbedModel =
-      (!expertSpecs.isEmpty() && embKey) ? ExpertSkillVectorRegistry.buildEmbeddingModel(embKey, aiProjectToolCfg) : null
-    Map<String, String> expertUrlBySkillId = new HashMap<>()
-    for (Map m : expertSpecs) {
-      String sid = m.skillId?.toString()?.trim()
-      String u = m.url?.toString()?.trim()
-      if (sid && u) {
-        expertUrlBySkillId.put(sid, u)
-      }
-    }
-    String llmChatModelResolved = (textModel ?: '').toString().trim() ?: 'gpt-4o-mini'
-
-    def generateTextNoToolsTool = null
-    if (embKey) {
-      final String apiKeyGen = embKey
-      final String defaultModelGen = llmChatModelResolved
-      generateTextNoToolsTool = FunctionToolCallback.builder('GenerateTextNoTools', new Function<Map, Map>() {
-        @Override Map apply(Map input) {
-          runWithToolProgress('GenerateTextNoTools', input, toolProgressListener, {
-            logToolInvocation('GenerateTextNoTools', (Map) (input ?: [:]))
-            Map m = new LinkedHashMap<>((Map) (input ?: [:]))
-            String userPrompt = m.userPrompt?.toString()?.trim()
-            if (!userPrompt) {
-              userPrompt = m.prompt?.toString()?.trim()
-            }
-            if (!userPrompt) {
-              throw new IllegalArgumentException('Missing required field: userPrompt or prompt')
-            }
-            String systemInstructions = m.systemInstructions?.toString()?.trim()
-            if (!systemInstructions) {
-              systemInstructions = m.system?.toString()?.trim()
-            }
-            String innerSystem = systemInstructions ?
-              systemInstructions :
-              'You are a writing assistant invoked as a tool inside Crafter Studio. Follow the user text exactly. Output only what was asked (plain text, Markdown, JSON, etc.) unless instructions say otherwise.'
-            int maxOut = 8192
-            try {
-              if (m.maxOutTokens != null) {
-                maxOut =
-                  (m.maxOutTokens instanceof Number) ? ((Number) m.maxOutTokens).intValue() : Integer.parseInt(
-                    m.maxOutTokens.toString().trim())
-              }
-            } catch (Throwable ignoredMax) {
-              maxOut = 8192
-            }
-            maxOut = Math.min(8192, Math.max(256, maxOut))
-            String modelOverride = m.model?.toString()?.trim()
-            if (!modelOverride) {
-              modelOverride = m.llmModel?.toString()?.trim()
-            }
-            String modelUse = modelOverride ?: defaultModelGen
-            int readTimeout = 180_000
-            try {
-              if (m.readTimeoutMs != null) {
-                readTimeout =
-                  (m.readTimeoutMs instanceof Number) ? ((Number) m.readTimeoutMs).intValue() : Integer.parseInt(
-                    m.readTimeoutMs.toString().trim())
-              }
-            } catch (Throwable ignoredRt) {
-              readTimeout = 180_000
-            }
-            readTimeout = Math.min(600_000, Math.max(60_000, readTimeout))
-            String text = AiOrchestration.toolsLoopSimpleCompletionAssistantText(
-              apiKeyGen,
-              modelUse,
-              innerSystem,
-              userPrompt,
-              maxOut,
-              readTimeout,
-              'GenerateTextNoTools'
-            )
-            [
-              tool          : 'GenerateTextNoTools',
-              assistantText : text,
-              model         : modelUse,
-              promptChars   : userPrompt.length()
-            ]
-          })
-        }
-      })
-        .description(ToolPrompts.getDESC_GENERATE_TEXT_NO_TOOLS())
-        .inputSchema(SCHEMA_GENERATE_TEXT_NO_TOOLS)
-        .inputType(Map.class)
-        .invokeMethod('toolCallResultConverter', converter)
-        .build()
-    }
-
-    def transformContentSubgraphTool = null
-    def translateContentItemTool = null
-    def translateContentBatchTool = null
-    if (embKey && !fullSuppressRepoWrites) {
-      final String apiKeyFinal = embKey
-      final String defaultModelFinal = llmChatModelResolved
-      final String normProtFinal = normProtected
-      final boolean pathProtectFinal = pathProtect
-      final Closure progressFinal = toolProgressListener
-      translateContentBatchTool = FunctionToolCallback.builder('TranslateContentBatch', new Function<Map, Map>() {
-        @Override Map apply(Map input) {
-          runWithToolProgress('TranslateContentBatch', input, toolProgressListener, {
-            logToolInvocation('TranslateContentBatch', (Map) (input ?: [:]))
-            runTranslateContentBatchParallel(
-              ops,
-              (Map) (input ?: [:]),
-              apiKeyFinal,
-              defaultModelFinal,
-              normProtFinal,
-              pathProtectFinal,
-              progressFinal
-            )
-          })
-        }
-      })
-        .description(ToolPrompts.getDESC_TRANSLATE_CONTENT_BATCH())
-        .inputSchema(SCHEMA_TRANSLATE_CONTENT_BATCH)
-        .inputType(Map.class)
-        .invokeMethod('toolCallResultConverter', converter)
-        .build()
-      translateContentItemTool = FunctionToolCallback.builder('TranslateContentItem', new Function<Map, Map>() {
-        @Override Map apply(Map input) {
-          runWithToolProgress('TranslateContentItem', input, toolProgressListener, {
-            Map m = new LinkedHashMap<>((Map) (input ?: [:]))
-            m.put('maxItems', Integer.valueOf(1))
-            m.put('maxDepth', Integer.valueOf(0))
-            logToolInvocation('TranslateContentItem', m)
-            runTransformContentSubgraph(
-              ops,
-              m,
-              apiKeyFinal,
-              defaultModelFinal,
-              normProtFinal,
-              pathProtectFinal,
-              'TranslateContentItem',
-              'translate_content_item'
-            )
-          })
-        }
-      })
-        .description(ToolPrompts.getDESC_TRANSLATE_CONTENT_ITEM())
-        .inputSchema(SCHEMA_TRANSLATE_CONTENT_ITEM)
-        .inputType(Map.class)
-        .invokeMethod('toolCallResultConverter', converter)
-        .build()
-      if (ENABLE_TRANSFORM_CONTENT_SUBGRAPH_BULK) {
-        transformContentSubgraphTool = FunctionToolCallback.builder('TransformContentSubgraph', new Function<Map, Map>() {
-          @Override Map apply(Map input) {
-            runWithToolProgress('TransformContentSubgraph', input, toolProgressListener, {
-              logToolInvocation('TransformContentSubgraph', (Map) (input ?: [:]))
-              runTransformContentSubgraph(ops, input, apiKeyFinal, defaultModelFinal, normProtFinal, pathProtectFinal)
-            })
-          }
-        })
-          .description(ToolPrompts.getDESC_TRANSFORM_CONTENT_SUBGRAPH())
-          .inputSchema(SCHEMA_TRANSFORM_CONTENT_SUBGRAPH)
-          .inputType(Map.class)
-          .invokeMethod('toolCallResultConverter', converter)
-          .build()
-      }
-    }
-
-    def queryExpertGuidanceTool = null
-    if (expertEmbedModel != null && !expertUrlBySkillId.isEmpty()) {
-      final def exEmbedFinal = expertEmbedModel
-      final Map<String, String> expertUrlBySkillIdFinal = new HashMap<>(expertUrlBySkillId)
-      final Map aiProjectToolCfgFinal = aiProjectToolCfg
-      queryExpertGuidanceTool = FunctionToolCallback.builder('QueryExpertGuidance', new Function<Map, Map>() {
-        @Override
-        Map apply(Map input) {
-          runWithToolProgress('QueryExpertGuidance', input, toolProgressListener, {
-            logToolInvocation('QueryExpertGuidance', (Map) (input ?: [:]))
-            def m = (Map) (input ?: [:])
-            String sid = m.skillId?.toString()?.trim()
-            String q = m.query?.toString()?.trim()
-            int tk = 8
-            try {
-              def tkRaw = m.topK
-              if (tkRaw instanceof Number) {
-                tk = ((Number) tkRaw).intValue()
-              } else if (tkRaw != null) {
-                tk = Integer.parseInt(tkRaw.toString().trim())
-              }
-            } catch (Throwable ignored) {
-              tk = 8
-            }
-            ExpertSkillVectorRegistry.queryExpertSkill(sid, q, tk, expertUrlBySkillIdFinal, exEmbedFinal, ops, aiProjectToolCfgFinal)
-          })
-        }
-      })
-        .description(ToolPrompts.DESC_QUERY_EXPERT_GUIDANCE)
-        .inputSchema(SCHEMA_QUERY_EXPERT_GUIDANCE)
-        .inputType(Map.class)
-        .invokeMethod('toolCallResultConverter', converter)
-        .build()
-    }
-
     def tools = StudioAiToolRegistry.buildCoreToolCallbacks(ctx) as ArrayList
-    if (generateTextNoToolsTool != null) {
-      tools.add(generateTextNoToolsTool)
-    }
-    if (translateContentItemTool != null) {
-      tools.add(translateContentItemTool)
-    }
-    if (translateContentBatchTool != null) {
-      tools.add(translateContentBatchTool)
-    }
-    if (transformContentSubgraphTool != null) {
-      tools.add(transformContentSubgraphTool)
-    }
-    if (queryExpertGuidanceTool != null) {
-      tools.add(queryExpertGuidanceTool)
-    }
-
-    String llmNormForImg = (llmNormalized ?: '').toString()
-    String imageGenSpec = (imageGeneratorParam ?: '').toString().trim()
-    StudioAiImageGenerator imageGen = StudioAiImageGeneratorFactory.resolve(
-      ops,
-      llmNormForImg,
-      imageGenSpec,
-      (apiKeyForImages ?: '').toString().trim(),
-      imageModel
-    )
-    if (imageGen != null) {
-      final StudioAiImageGenContext imageCtx = StudioAiImageGeneratorFactory.buildContext(
-        ops,
-        llmNormForImg,
-        imageGenSpec,
-        (apiKeyForImages ?: '').toString().trim(),
-        imageModel
-      )
-      def generateImageTool = FunctionToolCallback.builder('GenerateImage', new Function<Map, Map>() {
-        @Override Map apply(Map input) {
-          runWithToolProgress('GenerateImage', input, toolProgressListener, {
-            logToolInvocation('GenerateImage', (Map) (input ?: [:]))
-            ChatCompletionsToolWire.enrichGenerateImageToolResult(
-              imageGen.generate((Map) (input ?: [:]), imageCtx) as Map
-            )
-          })
-        }
-      })
-        .description(ToolPrompts.getDESC_GENERATE_IMAGE())
-        .inputSchema(SCHEMA_GENERATE_IMAGE)
-        .inputType(Map.class)
-        .invokeMethod('toolCallResultConverter', converter)
-        .build()
-      tools.add(generateImageTool)
-    }
-
-    List<Map> siteUserToolEntries = StudioAiUserSiteTools.loadRegistryEntries(ops, aiProjectToolCfg)
-    if (!siteUserToolEntries.isEmpty()) {
-      StringBuilder desc = new StringBuilder(512)
-      desc.append(
-        'Runs a **site-defined** Groovy tool from sandbox `config/studio/scripts/aiassistant/user-tools/` (see `registry.json` in that folder). '
-      )
-      desc.append('Pass **toolId** exactly as registered. Scripts receive binding variables: **studio** (StudioToolOperations), **args** (map from this call), **toolId**, **siteId**, **log** (SLF4J). Return a Map (e.g. ok, message, data). Registered tools: ')
-      int i = 0
-      for (Map e : siteUserToolEntries) {
-        if (i++ > 0) {
-          desc.append('; ')
-        }
-        desc.append(e.id)
-        String d = e.description?.toString()?.trim()
-        if (d) {
-          desc.append(' — ').append(d.length() > 200 ? d.substring(0, 200) + '…' : d)
-        }
-      }
-      if (desc.length() > 8000) {
-        desc.setLength(7997)
-        desc.append('…')
-      }
-      final String invokeSiteUserToolDescription = desc.toString()
-      def invokeSiteUserTool = FunctionToolCallback.builder('InvokeSiteUserTool', new Function<Map, Map>() {
-        @Override Map apply(Map input) {
-          runWithToolProgress('InvokeSiteUserTool', input, toolProgressListener, {
-            logToolInvocation('InvokeSiteUserTool', (Map) (input ?: [:]))
-            Map m = new LinkedHashMap<>((Map) (input ?: [:]))
-            String tid = m.toolId?.toString()?.trim()
-            Map args = (m.args instanceof Map) ? (Map) m.args : [:]
-            StudioAiUserSiteTools.invokeRegisteredTool(ops, tid, args)
-          })
-        }
-      })
-        .description(invokeSiteUserToolDescription)
-        .inputSchema(SCHEMA_INVOKE_SITE_USER_TOOL)
-        .inputType(Map.class)
-        .invokeMethod('toolCallResultConverter', converter)
-        .build()
-      tools.add(invokeSiteUserTool)
-    }
-
     tools.addAll(StudioAiToolRegistry.buildMcpToolCallbacks(ctx, ops))
-
-    applyToolCatalogFilters(tools, aiProjectToolCfg)
+    applyToolCatalogFilters(tools, ctx.aiProjectToolCfg)
     applyAgentEnabledBuiltInToolsSubset(tools, agentEnabledBuiltInTools)
     return tools
   }

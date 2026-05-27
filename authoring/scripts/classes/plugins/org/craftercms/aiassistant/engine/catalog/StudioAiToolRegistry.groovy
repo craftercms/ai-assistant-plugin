@@ -8,6 +8,7 @@ import plugins.org.craftercms.aiassistant.contrib.tool.mcp.StudioAiMcpClient
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 import plugins.org.craftercms.aiassistant.contrib.tool.mcp.McpWireStudioAiTool
 import plugins.org.craftercms.aiassistant.contrib.tool.builtin.cms.ContentExistsTool
+import plugins.org.craftercms.aiassistant.contrib.tool.builtin.cms.GenerateImageTool
 import plugins.org.craftercms.aiassistant.contrib.tool.builtin.cms.GeneratePlaceholderImageTool
 import plugins.org.craftercms.aiassistant.contrib.tool.builtin.cms.GetContentTool
 import plugins.org.craftercms.aiassistant.contrib.tool.builtin.cms.GetContentTypeFormDefinitionTool
@@ -19,9 +20,14 @@ import plugins.org.craftercms.aiassistant.contrib.tool.builtin.cms.ListStudioCon
 import plugins.org.craftercms.aiassistant.contrib.tool.builtin.cms.PublishContentTool
 import plugins.org.craftercms.aiassistant.contrib.tool.builtin.cms.ResearchSiteContentTool
 import plugins.org.craftercms.aiassistant.contrib.tool.builtin.cms.RevertChangeTool
+import plugins.org.craftercms.aiassistant.contrib.tool.builtin.cms.TransformContentSubgraphTool
+import plugins.org.craftercms.aiassistant.contrib.tool.builtin.cms.TranslateContentBatchTool
+import plugins.org.craftercms.aiassistant.contrib.tool.builtin.cms.TranslateContentItemTool
 import plugins.org.craftercms.aiassistant.contrib.tool.builtin.cms.UpdateContentTool
 import plugins.org.craftercms.aiassistant.contrib.tool.builtin.cms.UpdateContentTypeTool
 import plugins.org.craftercms.aiassistant.contrib.tool.builtin.cms.WriteContentTool
+import plugins.org.craftercms.aiassistant.contrib.tool.builtin.general.GenerateTextNoToolsTool
+import plugins.org.craftercms.aiassistant.contrib.tool.builtin.general.QueryExpertGuidanceTool
 import plugins.org.craftercms.aiassistant.contrib.tool.builtin.development.AnalyzeTemplateTool
 import plugins.org.craftercms.aiassistant.contrib.tool.builtin.development.GetCrafterizingPlaybookTool
 import plugins.org.craftercms.aiassistant.contrib.tool.builtin.development.UpdateTemplateTool
@@ -31,6 +37,7 @@ import plugins.org.craftercms.aiassistant.contrib.tool.builtin.integrations.Slac
 import plugins.org.craftercms.aiassistant.contrib.tool.builtin.integrations.ConsultCrafterQTool
 import plugins.org.craftercms.aiassistant.contrib.tool.builtin.integrations.SerpApiWebSearchTool
 import plugins.org.craftercms.aiassistant.contrib.tool.builtin.integrations.WebSearchTool
+import plugins.org.craftercms.aiassistant.contrib.tool.builtin.site.InvokeSiteUserTool
 import plugins.org.craftercms.aiassistant.spi.tool.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.spi.tool.StudioAiToolContext
 
@@ -42,7 +49,12 @@ import java.util.Map
 import java.util.Set
 
 /**
- * Composes core {@link plugins.org.craftercms.aiassistant.spi.tool.StudioAiOrchestrationTool} classes into Spring AI callbacks.
+ * Composes all shipped {@link plugins.org.craftercms.aiassistant.spi.tool.StudioAiOrchestrationTool} classes into Spring AI
+ * {@code FunctionToolCallback} entries for a request ({@link #CORE_TOOLS}).
+ * <p>Includes CMS, integrations, development, {@code general} ({@code GenerateTextNoTools}, {@code QueryExpertGuidance}),
+ * translate/image tools, and {@code InvokeSiteUserTool}. MCP wire tools are added separately via
+ * {@link #buildMcpToolCallbacks}. Catalog assembly and site policy filters live on
+ * {@link plugins.org.craftercms.aiassistant.engine.catalog.AiOrchestrationTools#build}.</p>
  */
 final class StudioAiToolRegistry {
 
@@ -68,7 +80,13 @@ private StudioAiToolRegistry() {}
     new ConsultCrafterQTool(),
     new SlackPostMessageTool(),
     new ResearchSiteContentTool(),
+    new QueryExpertGuidanceTool(),
     new GeneratePlaceholderImageTool(),
+    new GenerateImageTool(),
+    new GenerateTextNoToolsTool(),
+    new TranslateContentItemTool(),
+    new TranslateContentBatchTool(),
+    new TransformContentSubgraphTool(),
     new WriteContentTool(),
     new ListPagesAndComponentsTool(),
     new UpdateTemplateTool(),
@@ -78,6 +96,7 @@ private StudioAiToolRegistry() {}
     new PublishContentTool(),
     new GetCrafterizingPlaybookTool(),
     new RevertChangeTool(),
+    new InvokeSiteUserTool(),
   ])
 
   private static final Map<String, AbstractStudioAiTool> CORE_BY_WIRE_NAME = buildCoreByWireName()

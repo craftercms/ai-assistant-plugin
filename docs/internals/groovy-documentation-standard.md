@@ -56,8 +56,19 @@ python3 scripts/polish-groovy-documentation.py
 ./scripts/check-groovy-documentation.sh
 ```
 
+## Adding a built-in wire tool
+
+1. Implement **`StudioAiOrchestrationTool`** (usually extend **`AbstractStudioAiTool`**) under **`contrib/tool/builtin/`** — class name ends in **`Tool`**, **`wireName()`** matches the Chat Completions function name.
+2. Add JSON Schema to **`spi/tool/StudioAiToolSchemas`** and reference it from **`inputSchemaJson()`**.
+3. Register **`new YourTool()`** in **`engine/catalog/StudioAiToolRegistry`** **`CORE_TOOLS`**.
+4. Implement **`enabled(StudioAiToolContext)`** when the tool is conditional (API key, {@code fullSuppressRepoWrites}, image backend, expert skills, site registry, etc.).
+5. Document the type and methods in the same change; run **`./scripts/check-groovy-documentation.sh`**.
+
+Do **not** add tool bodies or duplicate schemas on **`AiOrchestrationTools`** — that class assembles the catalog and hosts shared helpers (e.g. translate subgraph execution).
+
 ## Related docs
 
+- [package-architecture.md](package-architecture.md) — `spi` / `engine` / `contrib` layout
 - [configuration-guide.md §9.2.1](../using-and-extending/configuration-guide.md#cg-9-2-1) — Plugin RAG vs agent skills RAG
 - [maintainer-review-checklist.md](maintainer-review-checklist.md) — review expectations
 - [chat-and-tools-runtime.md](chat-and-tools-runtime.md) — runtime behavior

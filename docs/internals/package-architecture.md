@@ -41,7 +41,7 @@ studio/        # repository ops, config, secrets, http proxy
 |------|------|
 | `engine/turn/` | `AiOrchestration`, tools loop, SSE, plan, chat-completions wire |
 | `engine/routing/` | Intent recipes (`AuthoringIntentRecipeEngine`, catalog, router) |
-| `engine/catalog/` | Per-request tool list, `StudioAiToolRegistry`, LLM/image resolvers |
+| `engine/catalog/` | Per-request tool list assembly (`AiOrchestrationTools#build` → `StudioAiToolRegistry`), translate subgraph helpers, LLM/image resolvers |
 | `engine/policy/` | Tools-loop wire policy |
 | `engine/prompt/` | Tool prompt loading and overrides |
 | `engine/rag/` | Plugin instruction RAG + expert skills vectors |
@@ -55,13 +55,14 @@ Bundled default recipes: `engine/routing/authoring-intent-recipes-default.json`.
 
 | Path | Role |
 |------|------|
-| `contrib/tool/builtin/cms/` | CMS tools (`GetContent`, `WriteContent`, …) |
+| `contrib/tool/builtin/cms/` | CMS tools (`GetContent`, `WriteContent`, `GenerateImage`, translate tools, …) |
+| `contrib/tool/builtin/general/` | `GenerateTextNoTools`, `QueryExpertGuidance` |
 | `contrib/tool/builtin/cms/internal/` | Shared CMS helpers (former `tools/cms/support`) |
 | `contrib/tool/builtin/integrations/` | Slack, web search, CrafterQ, … |
 | `contrib/tool/builtin/http/` | HTTP fetch/post helpers |
 | `contrib/tool/builtin/development/` | Template / playbook tools |
+| `contrib/tool/builtin/site/` | `InvokeSiteUserTool`, `StudioAiUserSiteTools` (site `user-tools/`) |
 | `contrib/tool/mcp/` | MCP client + wire tools |
-| `contrib/tool/site/` | `StudioAiUserSiteTools` (site `user-tools/`) |
 | `contrib/llm/wire/openaispec/` | **OpenAISpec** tools-loop wire (`OpenAiSpecSpringAiLlmRuntime`) — **not** the OpenAI vendor folder |
 | `contrib/llm/vendor/anthropic/` | Claude / Anthropic wire |
 | `contrib/llm/script/` | Site script LLM loader |

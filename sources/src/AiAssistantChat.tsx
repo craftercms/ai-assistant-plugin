@@ -928,8 +928,7 @@ const PREVIEW_RELOAD_TOOL_NAMES_ON_DONE = new Set<string>([
   'update_content_type',
   'TranslateContentItem',
   'TranslateContentBatch',
-  'TransformContentSubgraph',
-  'GetContentSubgraph'
+  'TransformContentSubgraph'
 ]);
 
 const toolProgressScrollBoxSx = {

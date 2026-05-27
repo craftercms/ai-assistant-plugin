@@ -110,7 +110,7 @@ flowchart TB
   subgraph orchestration["Orchestration (JVM)"]
     Recipes["Intent recipe prelude\n(optional)"]
     Orch["AiOrchestration"]
-    Tools["AiOrchestrationTools\n+ StudioToolOperations"]
+    Tools["StudioAiToolRegistry\nAiOrchestrationTools.build\n+ StudioToolOperations"]
     Stream --> Recipes
     Recipes --> Orch
     Orch --> Tools
@@ -331,7 +331,7 @@ flowchart TD
   IR -->|no| Orch
   Prelude --> Orch["AiOrchestration.chatStreamWithSpringAi"]
   Orch --> Branch{llm transport}
-  Branch -->|openAI xAI deepSeek llama gemini| Loop["Tools-loop RestClient\n+ AiOrchestrationTools"]
+  Branch -->|openAI xAI deepSeek llama gemini| Loop["Tools-loop RestClient\n+ StudioAiToolRegistry"]
   Branch -->|claude| Anthropic["Spring AI Anthropic tool loop"]
   Branch -->|script:id| Script["Site scriptLlm runtime.groovy"]
   Loop --> Tools["StudioToolOperations\ncontent · search · deploy · …"]

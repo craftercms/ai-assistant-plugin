@@ -53,6 +53,11 @@ private StudioAiToolProgress() {}
         } catch (Throwable ignored2) {
         }
       }
+      if (!(result instanceof Map)) {
+        throw new IllegalStateException(
+          "Tool ${toolName} returned non-Map result: ${result?.getClass()?.name ?: 'null'}"
+        )
+      }
       return (Map) result
     } catch (Throwable t) {
       long elapsedMs = (System.nanoTime() - t0) / 1_000_000L

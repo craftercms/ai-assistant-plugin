@@ -30,9 +30,9 @@ final class ProseDeclaredToolCalls {
   private static final Pattern FENCED_JSON =
     Pattern.compile('(?s)```(?:json)?\\s*([\\s\\S]*?)```')
 
-  /** e.g. {@code functions.WriteContent({ "siteId": "x", ... })} on one line (common when models skip API tool_calls). */
-  private static final Pattern FUNCTIONS_DOT_ONE_LINE =
-    Pattern.compile('(?m)(?:^\\s*\\d+\\.\\s*)?functions\\.(\\w+)\\s*\\(\\s*(\\{[^}]+(?:\\{[^}]*\\}[^}]*)*\\})\\s*\\)')
+  /** e.g. {@code functions.WriteContent({ ... })} — opening brace; args extracted via {@link #extractBalancedJsonObject}. */
+  private static final Pattern FUNCTIONS_DOT_START =
+    Pattern.compile('(?m)(?:^\\s*\\d+\\.\\s*)?functions\\.(\\w+)\\s*\\(\\s*\\{')
 
   /**
    * @param prose assistant message text (no API {@code tool_calls})
@@ -65,11 +65,15 @@ final class ProseDeclaredToolCalls {
       appendProseInvocation(out, dedupe, inv, byName)
     }
 
-    Matcher fnMatcher = FUNCTIONS_DOT_ONE_LINE.matcher(prose)
+    Matcher fnMatcher = FUNCTIONS_DOT_START.matcher(prose)
     while (fnMatcher.find()) {
       String wireName = fnMatcher.group(1)?.toString()?.trim() ?: ''
-      String argsJson = fnMatcher.group(2)?.toString()?.trim() ?: '{}'
       if (!wireName || !byName.containsKey(wireName)) {
+        continue
+      }
+      int openBrace = fnMatcher.end() - 1
+      String argsJson = extractBalancedJsonObject(prose, openBrace)
+      if (!argsJson) {
         continue
       }
       try {
@@ -81,6 +85,47 @@ final class ProseDeclaredToolCalls {
     }
 
     return out
+  }
+
+  /**
+   * Returns the JSON object substring starting at {@code openBraceIndex}, using brace depth outside strings.
+   */
+  private static String extractBalancedJsonObject(String text, int openBraceIndex) {
+    if (!text || openBraceIndex < 0 || openBraceIndex >= text.length()) {
+      return null
+    }
+    if (text.charAt(openBraceIndex) != (char) '{') {
+      return null
+    }
+    int depth = 0
+    boolean inString = false
+    boolean escape = false
+    for (int i = openBraceIndex; i < text.length(); i++) {
+      char c = text.charAt(i)
+      if (inString) {
+        if (escape) {
+          escape = false
+        } else if (c == (char) '\\') {
+          escape = true
+        } else if (c == (char) '"') {
+          inString = false
+        }
+        continue
+      }
+      if (c == (char) '"') {
+        inString = true
+        continue
+      }
+      if (c == (char) '{') {
+        depth++
+      } else if (c == (char) '}') {
+        depth--
+        if (depth == 0) {
+          return text.substring(openBraceIndex, i + 1)
+        }
+      }
+    }
+    return null
   }
 
   /**

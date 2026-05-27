@@ -29849,7 +29849,8 @@ function intentRecipeLineFromRoutingTelemetry(telemetry) {
 
 /**
  * Built-in Studio AI orchestration tool names (Spring AI wire). Keep aligned with
- * `AiOrchestrationTools.groovy` {@code FunctionToolCallback.builder('…')}.
+ * {@code StudioAiToolRegistry.CORE_TOOLS} wire names (assembled per request via
+ * {@code AiOrchestrationTools.build}).
  * Use {@link STUDIO_AI_MCP_ALL_TOKEN} in agent JSON to retain every dynamic {@code mcp_*} tool after site policy.
  */
 const STUDIO_AI_MCP_ALL_TOKEN = 'mcp:*';
@@ -29859,9 +29860,9 @@ const STUDIO_AI_BUILTIN_TOOL_IDS = [
     'TranslateContentBatch',
     'TranslateContentItem',
     'TransformContentSubgraph',
-    'GetContentSubgraph',
     'ContentExists',
     'GetContent',
+    'ListContentDependencyScope',
     'ListContentTranslationScope',
     'ListStudioContentTypes',
     'GetContentTypeFormDefinition',
@@ -29872,6 +29873,7 @@ const STUDIO_AI_BUILTIN_TOOL_IDS = [
     'WebSearch',
     'SerpApiWebSearch',
     'SlackPostMessage',
+    'ConsultCrafterQ',
     'ResearchSiteContent',
     'QueryExpertGuidance',
     'WriteContent',
@@ -30759,8 +30761,7 @@ const PREVIEW_RELOAD_TOOL_NAMES_ON_DONE = new Set([
     'update_content_type',
     'TranslateContentItem',
     'TranslateContentBatch',
-    'TransformContentSubgraph',
-    'GetContentSubgraph'
+    'TransformContentSubgraph'
 ]);
 const toolProgressScrollBoxSx = {
     maxHeight: 200,
