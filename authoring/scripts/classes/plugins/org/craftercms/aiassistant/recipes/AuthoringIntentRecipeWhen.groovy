@@ -195,7 +195,15 @@ final class AuthoringIntentRecipeWhen {
       case 'currentTurnCmsTooling':
         return AuthoringPreviewContext.authorCurrentRequestSuggestsCmsTooling(wire)
       case 'priorConversationContainsDraftBody':
-        return AuthoringPreviewContext.priorConversationContainsDraftBody(wire)
+        Map projectCfg = ctx?.projectCfg instanceof Map ? (Map) ctx.projectCfg : null
+        return AuthoringPreviewContext.priorConversationContainsDraftBody(wire, projectCfg)
+      case 'priorConversationContainsActionableContent':
+        Map projectCfgActionable = ctx?.projectCfg instanceof Map ? (Map) ctx.projectCfg : null
+        return AuthoringPreviewContext.priorConversationContainsActionableContent(wire, projectCfgActionable)
+      case 'createFromPriorDraftFollowup':
+        return AuthoringPreviewContext.authorCurrentRequestLooksLikeCreateFromPriorDraftFollowUp(wire)
+      case 'noPriorMaterializableAssistant':
+        return !(AuthoringPreviewContext.extractPriorConversationBody(wire)?.trim())
       case 'imageOnlyGenerate':
         return AuthoringPreviewContext.authorVisibleSuggestsIntentRecipeGenerateImage(author)
       case 'authorProvidedHttpUrl':

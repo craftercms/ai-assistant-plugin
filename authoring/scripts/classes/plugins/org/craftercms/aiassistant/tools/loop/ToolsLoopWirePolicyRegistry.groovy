@@ -27,6 +27,7 @@ final class ToolsLoopWirePolicyRegistry {
     Map<String, ToolsLoopWirePolicy> m = new LinkedHashMap<>()
 
     List<String> readTools = [
+      'ContentExists',
       'GetContent',
       'ListContentDependencyScope',
       'ListContentTranslationScope',
@@ -68,6 +69,7 @@ final class ToolsLoopWirePolicyRegistry {
     }
 
     m.put('GenerateImage', ToolsLoopWirePolicy.generateImagePolicy())
+    m.put('GeneratePlaceholderImage', ToolsLoopWirePolicy.placeholderImagePolicy())
     m.put('InvokeSiteUserTool', ToolsLoopWirePolicy.siteUserToolPolicy())
 
     return Collections.unmodifiableMap(m)

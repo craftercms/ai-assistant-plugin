@@ -107,9 +107,15 @@ final class AuthoringIntentRecipeLlmRefiner {
       user.append(
         'When a value uses several emoji-shortcode labels (`:name:`), put **one label per line** (newline before each shortcode after the first).\n'
       )
-      user.append('\n---\n\n**SOURCE (research + draft from the assistant turn):**\n\n')
+      user.append('\n---\n\n**SOURCE (author request, reference fetch, assistant notes):**\n\n')
       user.append(sourceMarkdown.trim())
       user.append('\n')
+      if (sourceMarkdown.contains('## Author request') && sourceMarkdown.contains('## Reference material')) {
+        user.append(
+          '\n**Grounding:** Blog draft keys must summarize the **author request** using facts from **Reference material** — ' +
+            'do not invent unrelated topics (generic CMS operations, workflow tips, etc.) when the author named specific subjects or a source URL.\n'
+        )
+      }
 
       String apiKey = llmContext?.apiKey?.toString()?.trim() ?: ''
       String model = llmContext?.model?.toString()?.trim() ?: ''

@@ -99,8 +99,11 @@ class AuthoringPreviewContext {
     }
     def out = s
     try {
-      // [Prior conversation …] … ---\n\n (from AiOrchestration.buildPriorTurnsContextBlock)
-      out = out.replaceAll('(?s)\\[Prior conversation[^\\]]*\\][\\s\\S]*?\\n---\\s*\\n\\n', '')
+      // [Prior conversation …] … ---\n\nCurrent request: (from client buildPriorTurnsContextBlock)
+      out = out.replaceAll(
+        '(?s)\\[Prior conversation[^\\]]*\\]\\s*\\n[\\s\\S]*?\\n---\\s*\\n\\s*',
+        ''
+      )
       // [Request anchor …]\nRepository path: …\nContent-type id: …\n\n
       out = out.replaceAll(
         '(?is)\\[Request anchor[^\\]]*\\][^\\n]*\\nRepository path:\\s*[^\\n]+\\n(?:Content-type id:\\s*[^\\n]+\\n)?\\s*',
@@ -293,10 +296,33 @@ Use these when the author asks about "today", "now", freshness, or dated content
   )
 
   private static final Pattern PRIOR_TURN_CONTENT_REFERENCE = Pattern.compile(
-    '(?i)\\b(these|those|generated|previous|prior|earlier)\\s+(tips?|list|text|copy|content|results?|draft)\\b|' +
-      '\\buse\\s+(these|those|the)\\s+(tips?|list|text|copy|draft)\\b|' +
+    '(?i)\\b(these|those|generated|previous|prior|earlier)\\s+(tips?|list|text|copy|content|results?|draft|reply|answer|message)\\b|' +
+      '\\buse\\s+(these|those|the)\\s+(tips?|list|text|copy|draft|reply|answer)\\b|' +
       '\\bno[,\\s]+use\\s+these\\b|' +
+      '\\b(?:this|that)\\s+(?:content|copy|text|reply|answer|message)\\b|' +
       '\\b(?:this|the)\\s+draft\\b|\\bfrom\\s+(?:this|the)\\s+draft\\b|\\b(?:this|the)\\s+blog\\s+draft\\b'
+  )
+
+  /**
+   * Deictic or relational reference to prior chat output (not the anchored Studio page — exclude {@code this page}).
+   */
+  private static final Pattern CONVERSATION_DEICTIC_REFERENCE = Pattern.compile(
+    '(?i)\\b(?:this|that|it|these|those)\\b(?!\\s+page\\b)|' +
+      '\\b(?:the|your)\\s+(?:above|last|previous|prior|earlier|last\\s+reply|last\\s+message|last\\s+answer)\\b|' +
+      '\\bwhat\\s+you\\s+(?:wrote|said|generated|proposed|suggested|gave\\s+me)\\b|' +
+      '\\b(?:from|using|with)\\s+(?:this|that|it|the\\s+above)\\b'
+  )
+
+  /** Author wants chat output saved into the repository (type names are hints, not required). */
+  private static final Pattern REPO_MATERIALIZE_FROM_CONVERSATION = Pattern.compile(
+    '(?i)\\b(?:create|save|add|write|put|store|publish)\\b.{0,56}\\b(?:this|that|it|these|those|above|conversation|chat|reply|what\\s+you\\s+wrote)\\b|' +
+      '\\b(?:make|turn|convert)\\s+(?:this|it|that)(?:\\s+\\w+){0,6}?\\s+into\\b|' +
+      '\\b(?:make|create|save|add|write)\\s+(?:a|an|the)?\\s*(?:new\\s+)?(?:blog\\s+)?posts?\\b|' +
+      '\\b(?:make|create|save)\\s+(?:it|this|that)\\s+(?:into\\s+)?(?:a\\s+)?(?:blog\\s+)?posts?\\b|' +
+      '\\b(?:this|that|it)\\s+as\\s+(?:a\\s+)?(?:new\\s+)?(?:content\\s+)?(?:item|page|post|article|component)?\\b|' +
+      '\\b(?:page|post|article|component|item)\\s+from\\s+(?:this|that|the)\\b|' +
+      '\\b(?:from|using)\\s+(?:this|that|the)\\s+(?:draft|conversation|chat|reply|above)\\b|' +
+      '\\bi\\s+like\\s+this\\b'
   )
 
   /** Ask the model to compose fiction or chat prose — not repository field work. */
@@ -329,12 +355,13 @@ Use these when the author asks about "today", "now", freshness, or dated content
     '(?is)Current request:\\s*\\n(.*)\\z'
   )
 
+  /** Ends at the client separator before {@code Current request:}, not arbitrary {@code ---} inside assistant markdown. */
   private static final Pattern PRIOR_CONVERSATION_BODY = Pattern.compile(
-    '(?is)\\[Prior conversation[^\\]]*\\]\\s*\\n(.*?)\\n---\\s*\\n'
+    '(?is)\\[Prior conversation[^\\]]*\\]\\s*\\n(.*?)\\n---\\s*\\n\\s*Current request:'
   )
 
   private static final int PRIOR_TURN_MEMORY_USER_MAX_CHARS = 2800
-  private static final int PRIOR_TURN_MEMORY_ASSISTANT_MAX_CHARS = 1800
+  private static final int PRIOR_TURN_MEMORY_ASSISTANT_MAX_CHARS = 12000
 
   /**
    * Builds the probe string intent routing uses for {@code deterministicMatch} signals.
@@ -472,7 +499,7 @@ Use these when the author asks about "today", "now", freshness, or dated content
     if ((current =~ /(?i)\b(?:this|that|the)\s+draft\b/).find()) {
       return true
     }
-    if ((current =~ /(?i)\b(?:create|save|add)\s+(?:a\s+)?(?:blog\s+)?post\b/).find()) {
+    if ((current =~ /(?i)\b(?:create|save|add|make|write)\s+(?:a\s+)?(?:blog\s+)?posts?\b/).find()) {
       return true
     }
     return current.tokenize().size() <= 8 &&
@@ -480,17 +507,96 @@ Use these when the author asks about "today", "now", freshness, or dated content
   }
 
   /**
-   * Prior abbreviated conversation still carries a draft section from an earlier assistant turn.
+   * Prior abbreviated conversation still carries prose worth persisting (recipe-configured markers, substantial
+   * {@code ##} sections, or a long last assistant reply).
    */
-  static boolean priorConversationContainsDraftBody(String fullPrompt) {
-    def prior = extractPriorConversationBody(fullPrompt)?.trim()
+  static boolean priorConversationContainsDraftBody(String fullPrompt, Map projectCfg = null) {
+    return priorConversationContainsActionableContent(fullPrompt, projectCfg)
+  }
+
+  /**
+   * Prior chat block has actionable assistant output for a repository materialize follow-up.
+   */
+  static boolean priorConversationContainsActionableContent(String fullPrompt, Map projectCfg = null) {
+    String prior = extractPriorConversationBody(fullPrompt)?.trim()
     if (!prior) {
       return false
     }
-    if (prior.contains('## Draft body')) {
+    Map detection = [:]
+    if (projectCfg instanceof Map) {
+      Object o = plugins.org.craftercms.aiassistant.config.StudioAiAssistantProjectConfig
+        .intentRecipeRoutingSection(projectCfg)?.get('priorDraftDetection')
+      if (o instanceof Map) {
+        detection = (Map) o
+      }
+    }
+    return plugins.org.craftercms.aiassistant.recipes.PriorConversationDraftExtract
+      .priorConversationContainsActionableContent(prior, detection, projectCfg)
+  }
+
+  /**
+   * Current turn refers to prior chat output (deictic / relational), not the anchored open page alone.
+   */
+  static boolean authorCurrentRequestRefersToPriorConversationContent(String authorVisibleText) {
+    String current = (authorVisibleText ?: '').toString().trim()
+    if (!current) {
+      return false
+    }
+    if ((current =~ /(?i)\b(?:this|the)\s+page\b/).find()) {
+      return false
+    }
+    if (PRIOR_TURN_CONTENT_REFERENCE.matcher(current).find()) {
       return true
     }
-    return (prior =~ /(?i)✏️\s*Draft\s*·/).find() || (prior =~ /(?i)\*Draft blog:\*/).find()
+    return CONVERSATION_DEICTIC_REFERENCE.matcher(current).find()
+  }
+
+  /**
+   * Current turn asks to persist prior chat into the CMS (content-type words are optional hints).
+   */
+  static boolean authorCurrentRequestSuggestsRepoMaterializeFromConversation(String authorVisibleText) {
+    String current = (authorVisibleText ?: '').toString().trim()
+    if (!current) {
+      return false
+    }
+    if ((current =~ /(?i)\b(?:shorter|longer|condense|trim it|expand it|rewrite it|two|three|\d+)\s+paragraphs?\b/).find() &&
+      !(current =~ /(?i)\b(?:create|save|add|write|put|store|publish|make\s+it\s+into|turn|convert)\b/).find()) {
+      return false
+    }
+    return REPO_MATERIALIZE_FROM_CONVERSATION.matcher(current).find()
+  }
+
+  /**
+   * Follow-up: persist prior chat prose into the repository (deictic + CMS intent).
+   * Authors often say “make a post” / “save this” — not the word “draft”.
+   */
+  static boolean authorCurrentRequestLooksLikeCreateFromPriorDraftFollowUp(String fullPrompt) {
+    String prior = extractPriorConversationBody(fullPrompt)?.trim()
+    if (!prior) {
+      return false
+    }
+    if (!plugins.org.craftercms.aiassistant.recipes.PriorConversationDraftExtract
+        .priorConversationHasMaterializableAssistantReply(prior)) {
+      return false
+    }
+    String current = extractAuthorCurrentRequestVisible(fullPrompt)?.trim()
+    if (!current || current.length() > 400) {
+      return false
+    }
+    if ((current =~ /(?i)\b(?:this|the)\s+page\b/).find()) {
+      return false
+    }
+    if (authorCurrentRequestEditsPriorChatArtifact(fullPrompt) &&
+      !authorCurrentRequestSuggestsRepoMaterializeFromConversation(current)) {
+      return false
+    }
+    if (!authorCurrentRequestSuggestsCmsTooling(fullPrompt)) {
+      return false
+    }
+    if (!authorCurrentRequestRefersToPriorConversationContent(current)) {
+      return false
+    }
+    return authorCurrentRequestSuggestsRepoMaterializeFromConversation(current)
   }
 
   /**

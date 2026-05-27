@@ -223,9 +223,10 @@ final class CmsResearchSiteContent {
             if (skipPath(path, ctype)) {
               continue
             }
+            String internalName = src.get('internal-name')?.toString()?.trim() ?: ''
             String title =
               src.get('title_t')?.toString()?.trim() ?:
-                src.get('internal-name')?.toString()?.trim() ?:
+                internalName ?:
                 src.get('navLabel')?.toString()?.trim() ?: ''
             Double scoreVal = null
             try {
@@ -239,6 +240,9 @@ final class CmsResearchSiteContent {
               title       : title,
               score       : scoreVal
             ]
+            if (internalName) {
+              row['internal-name'] = internalName
+            }
             String indexSnippet = ''
             for (String fk : ['body_html', 'description_html', 'seoDescription_t', 'title_t']) {
               String fv = src.get(fk)?.toString()?.trim()

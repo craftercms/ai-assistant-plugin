@@ -6,13 +6,17 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext
 import plugins.org.craftercms.aiassistant.config.StudioAiAssistantProjectConfig
+import plugins.org.craftercms.aiassistant.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.tools.AiOrchestrationTools
 import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
+import plugins.org.craftercms.aiassistant.tools.cms.support.CmsContentExists
 import plugins.org.craftercms.aiassistant.tools.cms.support.CmsGetContent
 import plugins.org.craftercms.aiassistant.tools.cms.support.CmsGetContentTypeFormDefinition
 import plugins.org.craftercms.aiassistant.tools.cms.support.CmsListPagesAndComponents
 import plugins.org.craftercms.aiassistant.tools.cms.support.CmsListStudioContentTypes
+import plugins.org.craftercms.aiassistant.tools.cms.support.CmsRepositorySupport
 import plugins.org.craftercms.aiassistant.tools.cms.support.CmsResearchSiteContent
+import plugins.org.craftercms.aiassistant.tools.cms.support.CmsWriteContent
 
 import java.util.ArrayList
 import java.util.Calendar
@@ -52,7 +56,7 @@ final class AuthoringIntentRecipeEngine {
    * @return map keys: {@code markdown}, {@code prefetchSteps}, {@code prefetchEnvelopeTruncated}, {@code initialBindings}
    */
   static Map runPrefetchBlock(StudioToolOperations ops, Map recipe, Map projectCfg) {
-    return runPrefetchBlock(ops, recipe, projectCfg, null)
+    return runPrefetchBlock(ops, recipe, projectCfg, null, null)
   }
 
   /**
@@ -62,6 +66,19 @@ final class AuthoringIntentRecipeEngine {
    * @param blockLabel when set, replaces the default {@code recipe engine prefetch} marker in the markdown header
    */
   static Map runPrefetchBlock(StudioToolOperations ops, Map recipe, Map projectCfg, String blockLabel) {
+    return runPrefetchBlock(ops, recipe, projectCfg, blockLabel, null)
+  }
+
+  /**
+   * @param prefetchProgressListener optional {@code (toolName, phase, input, err, result, durationMs) -> void} for chat SSE
+   */
+  static Map runPrefetchBlock(
+    StudioToolOperations ops,
+    Map recipe,
+    Map projectCfg,
+    String blockLabel,
+    Closure prefetchProgressListener
+  ) {
     Map empty = [
       markdown                   : '',
       prefetchSteps                : [],
@@ -129,6 +146,9 @@ final class AuthoringIntentRecipeEngine {
 
       Map summary = [index: index, tool: tool, ok: true]
       Map resultPayload = [:] as Map
+      Map progressInput = recipePrefetchToolProgressInput(tool, resolvedArgs)
+      long stepT0 = System.currentTimeMillis()
+      emitConfirmationProgress(prefetchProgressListener, tool, 'start', progressInput, null, null, null)
 
       try {
         resultPayload = executeReadOnlyTool(ops, tool, resolvedArgs)
@@ -137,6 +157,27 @@ final class AuthoringIntentRecipeEngine {
         summary.put('ok', false)
         summary.put('error', tex.message ?: tex.toString())
         log.debug('AuthoringIntentRecipeEngine step {} {} failed: {}', index, tool, tex.message)
+        emitConfirmationProgress(
+          prefetchProgressListener,
+          tool,
+          'error',
+          progressInput,
+          tex,
+          null,
+          System.currentTimeMillis() - stepT0
+        )
+      }
+
+      if (Boolean.TRUE.equals(summary.get('ok'))) {
+        emitConfirmationProgress(
+          prefetchProgressListener,
+          tool,
+          'done',
+          progressInput,
+          null,
+          resultPayload,
+          System.currentTimeMillis() - stepT0
+        )
       }
 
       if (Boolean.TRUE.equals(summary.get('ok'))) {
@@ -301,20 +342,23 @@ final class AuthoringIntentRecipeEngine {
    * @return map keys: {@code markdown}, {@code steps}, {@code ok}
    */
   static Map runConfirmationStepsBlock(StudioToolOperations ops, Map recipe, Map projectCfg) {
-    return runConfirmationStepsBlock(ops, recipe, projectCfg, null, null)
+    return runConfirmationStepsBlock(ops, recipe, projectCfg, null, null, null)
   }
 
   /**
    * @param lastAssistantMarkdown optional Action-phase assistant prose after the tools loop; passed to each
    *   confirmation tool via {@link plugins.org.craftercms.aiassistant.tools.catalog.StudioAiToolRegistry#mergeRecipeConfirmationArgs}
    *   so tools may fill empty {@code engineSteps} {@code args} (tool-specific; default is no merge).
+   * @param confirmationProgressListener optional {@code (toolName, phase, input, err, result, durationMs) -> void}
+   *   for chat SSE (same contract as orchestration {@code writeToolProgressSse}).
    */
   static Map runConfirmationStepsBlock(
     StudioToolOperations ops,
     Map recipe,
     Map projectCfg,
     String lastAssistantMarkdown,
-    Map confirmationLlmContext = null
+    Map confirmationLlmContext = null,
+    Closure confirmationProgressListener = null
   ) {
     Map empty = [markdown: '', steps: [], ok: true]
     if (ops == null || recipe == null || projectCfg == null) {
@@ -358,6 +402,9 @@ final class AuthoringIntentRecipeEngine {
       Map step = (Map) stepObj
       String llmRefineProfile = step.get('llmRefine')?.toString()?.trim()
       if (llmRefineProfile) {
+        String refineToolLabel = llmRefineProfile ? "LLM refine (${llmRefineProfile})" : 'LLM refine'
+        long refineStepStartMs = System.currentTimeMillis()
+        emitConfirmationProgress(confirmationProgressListener, refineToolLabel, 'start', [:], null, null, null)
         Map refineSummary = [index: index, step: 'llmRefine', profile: llmRefineProfile, ok: true]
         Map refineStepResult = [:] as Map
         if (StudioAiAssistantProjectConfig.intentRecipeConfirmationLlmRefineEnabled(projectCfg)) {
@@ -424,6 +471,15 @@ final class AuthoringIntentRecipeEngine {
           }
           refineSummary.put('as', refineAs)
         }
+        emitConfirmationProgress(
+          confirmationProgressListener,
+          refineToolLabel,
+          Boolean.TRUE.equals(refineSummary.get('ok')) ? 'done' : 'error',
+          [:],
+          Boolean.TRUE.equals(refineSummary.get('ok')) ? null : new IllegalStateException(refineSummary.get('message')?.toString() ?: 'llmRefine failed'),
+          refineSummary,
+          System.currentTimeMillis() - refineStepStartMs
+        )
         stepSummaries.add(refineSummary)
         stepResults.add(refineStepResult)
         index++
@@ -474,6 +530,9 @@ final class AuthoringIntentRecipeEngine {
       )
       Map summary = [index: index, tool: tool, ok: true]
       Map resultPayload = [:] as Map
+      Map progressInput = confirmationToolProgressInput(tool, resolvedArgs)
+      long toolStepStartMs = System.currentTimeMillis()
+      emitConfirmationProgress(confirmationProgressListener, tool, 'start', progressInput, null, null, null)
       try {
         resultPayload = executeConfirmationTool(ops, tool, resolvedArgs)
         summary.put('ok', Boolean.TRUE.equals(resultPayload?.get('ok')))
@@ -503,6 +562,15 @@ final class AuthoringIntentRecipeEngine {
         allOk = false
         log.error('AuthoringIntentRecipeEngine confirmation step {} {} failed: {}', index, tool, tex.message)
       }
+      emitConfirmationProgress(
+        confirmationProgressListener,
+        tool,
+        Boolean.TRUE.equals(summary.get('ok')) ? 'done' : 'error',
+        progressInput,
+        Boolean.TRUE.equals(summary.get('ok')) ? null : new IllegalStateException(summary.get('error')?.toString() ?: 'step failed'),
+        resultPayload,
+        System.currentTimeMillis() - toolStepStartMs
+      )
       String asName = AuthoringIntentRecipeBindings.stepOutputName(step)
       if (asName && Boolean.TRUE.equals(summary.get('ok')) && resultPayload instanceof Map) {
         namedSoFar.put(asName, (Map) resultPayload)
@@ -543,6 +611,113 @@ final class AuthoringIntentRecipeEngine {
       }
     }
     return out
+  }
+
+  /**
+   * Optional chat SSE hook for each confirmation {@code engineSteps} row (llmRefine or tool).
+   * Listener args: {@code toolName}, {@code phase}, {@code input}, {@code err}, {@code result}, {@code durationMs}.
+   */
+  private static void emitConfirmationProgress(
+    Closure listener,
+    String toolName,
+    String phase,
+    Map input,
+    Throwable err,
+    Object result,
+    Long durationMs
+  ) {
+    if (!(listener instanceof Closure)) {
+      return
+    }
+    try {
+      listener.call(
+        (toolName ?: '').toString(),
+        (phase ?: '').toString(),
+        input instanceof Map ? input : [:],
+        err,
+        result,
+        durationMs
+      )
+    } catch (Throwable ignored) {
+    }
+  }
+
+  /** Maps resolved recipe prefetch args to tool-progress {@code input} (content type id, path, etc.). */
+  static Map recipePrefetchToolProgressInput(String tool, Map resolvedArgs) {
+    Map a = resolvedArgs instanceof Map ? resolvedArgs : [:]
+    String tn = (tool ?: '').toString().trim()
+    if ('GetContentTypeFormDefinition'.equals(tn)) {
+      String contentTypeId = (a.contentTypeId ?: '').toString().trim()
+      String contentPath = (a.contentPath ?: '').toString().trim()
+      Map out = [:]
+      if (contentTypeId) {
+        out.contentTypeId = contentTypeId
+        out.path = contentTypeId
+      }
+      if (contentPath) {
+        out.contentPath = contentPath
+        if (!out.path) {
+          out.path = contentPath
+        }
+      }
+      return out
+    }
+    String path = (a.path ?: a.contentPath ?: a.contentTypeId ?: a.url ?: a.previewUrl ?: '').toString().trim()
+    return path ? [path: path] : [:]
+  }
+
+  /** Path/url fragment for confirmation tool-progress lines (channel, emoji, or text preview). */
+  private static Map confirmationToolProgressInput(String tool, Map args) {
+    Map a = args instanceof Map ? args : [:]
+    String hint = confirmationToolProgressPathHint(tool, a)
+    if ('GetContentTypeFormDefinition'.equals((tool ?: '').toString().trim())) {
+      String contentTypeId = (a.contentTypeId ?: '').toString().trim()
+      Map out = [:]
+      if (contentTypeId) {
+        out.contentTypeId = contentTypeId
+        out.path = contentTypeId
+      }
+      if (hint) {
+        out.contentPath = hint
+        if (!out.path) {
+          out.path = hint
+        }
+      }
+      return out.isEmpty() ? [:] : out
+    }
+    return hint ? [path: hint, url: hint] : [:]
+  }
+
+  private static String confirmationToolProgressPathHint(String tool, Map args) {
+    if (!(args instanceof Map) || !(tool ?: '').toString().trim()) {
+      return ''
+    }
+    if ('GetContentTypeFormDefinition'.equals(tool)) {
+      String contentTypeId = (args.contentTypeId ?: '').toString().trim()
+      if (contentTypeId) {
+        return contentTypeId
+      }
+      String contentPath = (args.contentPath ?: '').toString().trim()
+      if (contentPath) {
+        return contentPath
+      }
+    }
+    if ('SlackPostMessage'.equals(tool)) {
+      String ch = (args.channel ?: args.channelId ?: '').toString().trim()
+      if (ch) {
+        return ch.startsWith('#') ? ch : '#' + ch
+      }
+      String emoji = (args.iconEmoji ?: '').toString().trim()
+      if (emoji) {
+        return emoji
+      }
+    }
+    String text = (args.text ?: args.message ?: args.query ?: args.url ?: args.previewUrl ?: '').toString().trim()
+    if (text) {
+      text = text.replaceAll(/\s+/, ' ').trim()
+      return text.length() > 72 ? text.substring(0, 69) + '…' : text
+    }
+    return ''
   }
 
   /** Dispatches one allowlisted read-only core tool through {@link StudioAiToolRegistry#executeRecipePrefetchTool}. */
@@ -643,29 +818,100 @@ final class AuthoringIntentRecipeEngine {
   }
 
   /**
+   * True when recipe-engine prefetch JSON already includes a non-truncated {@code GetContentTypeFormDefinition}.
+   */
+  static boolean prefetchIncludesFormDefinitions(String prefetchBlock) {
+    return extractPrefetchFormDefinitionXml((prefetchBlock ?: '').toString()).trim().length() > 0
+  }
+
+  /**
    * Scans prefetch step results for the first successful, non-truncated {@code GetContentTypeFormDefinition}
    * {@code formDefinitionXml}.
    */
-  private static String extractPrefetchFormDefinitionXml(String prefetchBlock) {
+  static String extractPrefetchFormDefinitionXml(String prefetchBlock) {
     if (!(prefetchBlock instanceof CharSequence) || !prefetchBlock.toString().trim()) {
       return ''
     }
 
-    Object parsed = parsePrefetchJsonEnvelope(prefetchBlock.toString())
+    String text = prefetchBlock.toString()
+    int searchFrom = 0
+    while (true) {
+      int fence = text.indexOf('```json', searchFrom)
+      if (fence < 0) {
+        break
+      }
+      int jsonStart = text.indexOf('\n', fence)
+      if (jsonStart < 0) {
+        break
+      }
+      jsonStart++
+      int jsonEnd = text.indexOf('\n```', jsonStart)
+      if (jsonEnd <= jsonStart) {
+        break
+      }
+      String jsonStr = text.substring(jsonStart, jsonEnd).trim()
+      searchFrom = jsonEnd + 4
+      if (!jsonStr) {
+        continue
+      }
+      Object parsed
+      try {
+        parsed = new JsonSlurper().parseText(jsonStr)
+      } catch (Throwable ignored) {
+        continue
+      }
+      String fromBindings = formDefinitionXmlFromPrefetchBindings(parsed)
+      if (fromBindings) {
+        return fromBindings
+      }
+      String fromSteps = formDefinitionXmlFromPrefetchSteps(parsed)
+      if (fromSteps) {
+        return fromSteps
+      }
+    }
+    return ''
+  }
+
+  private static String formDefinitionXmlFromPrefetchBindings(Object parsed) {
     if (!(parsed instanceof Map)) {
       return ''
     }
+    Object bindingsObj = ((Map) parsed).get('bindings')
+    if (!(bindingsObj instanceof Map)) {
+      return ''
+    }
+    Object initialObj = ((Map) bindingsObj).get('initial')
+    if (!(initialObj instanceof Map)) {
+      return ''
+    }
+    for (String prefer : ['postForm', 'parentForm', 'form', 'contentTypeForm']) {
+      Object bindingObj = ((Map) initialObj).get(prefer)
+      String xml = formDefinitionXmlFromToolResult(bindingObj)
+      if (xml) {
+        return xml
+      }
+    }
+    for (Object bindingObj : ((Map) initialObj).values()) {
+      String xml = formDefinitionXmlFromToolResult(bindingObj)
+      if (xml) {
+        return xml
+      }
+    }
+    return ''
+  }
 
+  private static String formDefinitionXmlFromPrefetchSteps(Object parsed) {
+    if (!(parsed instanceof Map)) {
+      return ''
+    }
     Object stepsObj = ((Map) parsed).get('steps')
     if (!(stepsObj instanceof List)) {
       return ''
     }
-
     for (Object stepObj : (List) stepsObj) {
       if (!(stepObj instanceof Map)) {
         continue
       }
-
       Map step = (Map) stepObj
       if (!'GetContentTypeFormDefinition'.equalsIgnoreCase(step.get('tool')?.toString())) {
         continue
@@ -673,26 +919,27 @@ final class AuthoringIntentRecipeEngine {
       if (!Boolean.TRUE.equals(step.get('ok'))) {
         continue
       }
-
-      Object resObj = step.get('result')
-      if (!(resObj instanceof Map)) {
-        continue
+      String xml = formDefinitionXmlFromToolResult(step.get('result'))
+      if (xml) {
+        return xml
       }
-
-      Object fx = ((Map) resObj).get('formDefinitionXml')
-      if (!(fx instanceof String)) {
-        continue
-      }
-
-      String xml = ((String) fx).trim()
-      if (!xml || prefetchFieldLooksTruncated(xml)) {
-        continue
-      }
-
-      return xml
     }
-
     return ''
+  }
+
+  private static String formDefinitionXmlFromToolResult(Object resultObj) {
+    if (!(resultObj instanceof Map)) {
+      return ''
+    }
+    Object fx = ((Map) resultObj).get('formDefinitionXml')
+    if (!(fx instanceof CharSequence)) {
+      return ''
+    }
+    String xml = fx.toString().trim()
+    if (!xml || prefetchFieldLooksTruncated(xml)) {
+      return ''
+    }
+    return xml
   }
 
   /**
@@ -803,8 +1050,8 @@ final class AuthoringIntentRecipeEngine {
         'Mirror that item\'s **full** XML document shape (root element, field element names, node-selector / inline component layout, ' +
         'date literal formats, objectId/objectGroupId style).\n' +
         '**Do not** invent field ids or generic wrappers (e.g. `<sections>`, `<title>`, `<description>`) that are not in ' +
-        '**GetContentTypeFormDefinition** and the sibling XML. Map author copy from **## Draft body** or the current message ' +
-        'into the **actual** fields (commonly `*_html` or embedded inline components).\n' +
+        '**GetContentTypeFormDefinition** and the sibling XML. Map author copy from **[Prior conversation]** draft sections ' +
+        '(headings configured on the matched recipe) or the current message into the **actual** fields (commonly `*_html` or embedded inline components).\n' +
         'The **first** tool round that will create the item must include this sibling **GetContent** — **do not** call **WriteContent** ' +
         'until sibling XML is in hand.\n\n'
     )
@@ -815,18 +1062,52 @@ final class AuthoringIntentRecipeEngine {
    * Recipe-declared prefetch supplement (see {@code toolsLoopPrefetchSupplement} in intent-recipes.json).
    * Orchestration calls this by id only — implementations live here, not in {@code AiOrchestration}.
    */
-  static Map runPrefetchSupplement(String supplementId, StudioToolOperations ops, Map projectCfg, String wirePrompt) {
+  static Map runPrefetchSupplement(
+    String supplementId,
+    StudioToolOperations ops,
+    Map projectCfg,
+    String wirePrompt,
+    Map supplementConfig = null
+  ) {
     String id = (supplementId ?: '').toString().trim()
     if (!id) {
       return [:]
     }
+    Map cfg = supplementConfig instanceof Map ? new LinkedHashMap<>(supplementConfig) : [:]
+    attachContextFormDefinitionsForSupplement(cfg)
     switch (id) {
       case 'createFromChatDraft':
-        return runCreateFromPriorDraftSupplementalPrefetch(ops, projectCfg, wirePrompt)
+        return runCreateFromPriorDraftSupplementalPrefetch(ops, projectCfg, wirePrompt, cfg)
       default:
         log.warn('AuthoringIntentRecipeEngine: unknown toolsLoopPrefetchSupplement id={}', id)
         return [:]
     }
+  }
+
+  /**
+   * When {@code phases.context.engineSteps} already ran {@code GetContentTypeFormDefinition}, pass that XML into
+   * supplement config so implementations (e.g. {@code createFromChatDraft}) do not load the same form again.
+   * Orchestration supplies {@code recipeContextPrefetchMarkdown}; supplement-specific logic stays in the engine.
+   */
+  private static void attachContextFormDefinitionsForSupplement(Map supplementConfig) {
+    if (!(supplementConfig instanceof Map) || supplementConfig.isEmpty()) {
+      return
+    }
+    if (Boolean.FALSE.equals(supplementConfig.get('reuseContextFormDefinitions'))) {
+      return
+    }
+    String existing = (supplementConfig.get('contextFormDefinitionXml') ?: '').toString().trim()
+    if (existing && !prefetchFieldLooksTruncated(existing)) {
+      supplementConfig.put('contextFormDefsPrefetched', Boolean.TRUE)
+      return
+    }
+    String contextMarkdown = (supplementConfig.get('recipeContextPrefetchMarkdown') ?: '').toString()
+    String ctxFormXml = extractPrefetchFormDefinitionXml(contextMarkdown)
+    if (!ctxFormXml) {
+      return
+    }
+    supplementConfig.put('contextFormDefsPrefetched', Boolean.TRUE)
+    supplementConfig.put('contextFormDefinitionXml', ctxFormXml)
   }
 
   /** Hotpath directive for a prefetch supplement result (paired with {@link #runPrefetchSupplement}). */
@@ -847,7 +1128,12 @@ final class AuthoringIntentRecipeEngine {
    * JVM prefetch for {@code createFromChatDraft}: exact catalog match, form {@code quickCreatePath}, sibling
    * {@code GetContent} under that tree — site-agnostic (no hardcoded content-type paths).
    */
-  static Map runCreateFromPriorDraftSupplementalPrefetch(StudioToolOperations ops, Map projectCfg, String wirePrompt) {
+  static Map runCreateFromPriorDraftSupplementalPrefetch(
+    StudioToolOperations ops,
+    Map projectCfg,
+    String wirePrompt,
+    Map supplementConfig = null
+  ) {
     Map empty = [
       markdown                   : '',
       prefetchSteps              : [],
@@ -874,6 +1160,8 @@ final class AuthoringIntentRecipeEngine {
     String prior = AuthoringPreviewContext.extractPriorConversationBody(wirePrompt)
     String current = AuthoringPreviewContext.extractAuthorCurrentRequestVisible(wirePrompt)
     List<String> phraseCandidates = inferCreateTypePhraseCandidates(prior, current)
+    String resolvedType = (supplementConfig?.resolvedContentTypeId ?: supplementConfig?.contentTypeId ?: '')
+      .toString().trim()
 
     Map typesRes = CmsListStudioContentTypes.list(ops, siteId, false, null) as Map
     List<Map> typeRows = []
@@ -886,11 +1174,12 @@ final class AuthoringIntentRecipeEngine {
       }
     }
 
-    String resolvedType = ''
-    for (String phrase : phraseCandidates) {
-      resolvedType = exactCatalogMatchContentTypeId(typeRows, phrase)
-      if (resolvedType) {
-        break
+    if (!resolvedType) {
+      for (String phrase : phraseCandidates) {
+        resolvedType = exactCatalogMatchContentTypeId(typeRows, phrase)
+        if (resolvedType) {
+          break
+        }
       }
     }
 
@@ -901,22 +1190,134 @@ final class AuthoringIntentRecipeEngine {
       return empty
     }
 
-    Map formRes = [:]
-    try {
-      formRes = CmsGetContentTypeFormDefinition.load(ops, siteId, resolvedType) as Map
-      stepSummaries.add([index: stepIdx++, tool: 'GetContentTypeFormDefinition', ok: true, result: shrinkToolResultForPrefetch(formRes, 12000)])
-    } catch (Throwable tForm) {
-      stepSummaries.add([index: stepIdx++, tool: 'GetContentTypeFormDefinition', ok: false, error: tForm.message ?: tForm.toString()])
-      empty.prefetchSteps = stepSummaries
-      empty.resolvedContentTypeId = resolvedType
-      return empty
+    Closure prefetchProgressListener =
+      supplementConfig?.recipePrefetchProgressListener instanceof Closure ?
+        (Closure) supplementConfig.recipePrefetchProgressListener :
+        null
+    Map formProgressInp = recipePrefetchToolProgressInput(
+      'GetContentTypeFormDefinition',
+      [siteId: siteId, contentTypeId: resolvedType]
+    )
+    String formXml = ''
+    boolean contextFormDefsPrefetched = Boolean.TRUE.equals(supplementConfig?.contextFormDefsPrefetched)
+    String injectedFormXml = (supplementConfig?.contextFormDefinitionXml ?: '').toString().trim()
+    long formT0 = System.currentTimeMillis()
+    if (injectedFormXml && !prefetchFieldLooksTruncated(injectedFormXml)) {
+      emitConfirmationProgress(prefetchProgressListener, 'GetContentTypeFormDefinition', 'start', formProgressInp, null, null, null)
+      formXml = injectedFormXml
+      Map reusedResult = [
+        ok            : true,
+        siteId        : siteId,
+        contentTypeId : resolvedType,
+        note          : 'Reused from recipe context engineSteps prefetch (no duplicate load)'
+      ]
+      stepSummaries.add([
+        index : stepIdx++,
+        tool  : 'GetContentTypeFormDefinition',
+        ok    : true,
+        result: [
+          ok                : true,
+          siteId            : siteId,
+          contentTypeId     : resolvedType,
+          formDefinitionXml : shrinkToolResultForPrefetch([formDefinitionXml: injectedFormXml], 12000).formDefinitionXml,
+          note              : reusedResult.note
+        ]
+      ])
+      emitConfirmationProgress(
+        prefetchProgressListener,
+        'GetContentTypeFormDefinition',
+        'done',
+        formProgressInp,
+        null,
+        reusedResult,
+        System.currentTimeMillis() - formT0
+      )
+    } else if (!contextFormDefsPrefetched) {
+      emitConfirmationProgress(prefetchProgressListener, 'GetContentTypeFormDefinition', 'start', formProgressInp, null, null, null)
+      Map formRes = [:]
+      try {
+        formRes = CmsGetContentTypeFormDefinition.load(ops, siteId, resolvedType) as Map
+        stepSummaries.add([index: stepIdx++, tool: 'GetContentTypeFormDefinition', ok: true, result: shrinkToolResultForPrefetch(formRes, 12000)])
+        formXml = (formRes?.formDefinitionXml ?: '').toString()
+        emitConfirmationProgress(
+          prefetchProgressListener,
+          'GetContentTypeFormDefinition',
+          'done',
+          formProgressInp,
+          null,
+          formRes,
+          System.currentTimeMillis() - formT0
+        )
+      } catch (Throwable tForm) {
+        stepSummaries.add([index: stepIdx++, tool: 'GetContentTypeFormDefinition', ok: false, error: tForm.message ?: tForm.toString()])
+        emitConfirmationProgress(
+          prefetchProgressListener,
+          'GetContentTypeFormDefinition',
+          'error',
+          formProgressInp,
+          tForm,
+          null,
+          System.currentTimeMillis() - formT0
+        )
+        empty.prefetchSteps = stepSummaries
+        empty.resolvedContentTypeId = resolvedType
+        return empty
+      }
+    } else {
+      log.warn('createFromChatDraft: contextFormDefsPrefetched=true but no contextFormDefinitionXml in supplement config')
     }
-
-    String formXml = (formRes?.formDefinitionXml ?: '').toString()
     String quickCreateTemplate = extractQuickCreatePathTemplate(formXml)
     String searchPrefix = quickCreatePathToSearchPrefix(quickCreateTemplate)
-    String draftTitle = extractDraftTitleFromPriorConversation(prior)
-    String suggestedPath = suggestNewItemPathFromQuickCreate(quickCreateTemplate, draftTitle)
+    String draftTitleFromPrior = PriorConversationDraftExtract.extractDraftTitle(prior, supplementConfig, projectCfg)
+    String suggestedPath = suggestNewItemPathFromQuickCreate(quickCreateTemplate, draftTitleFromPrior)
+    if (!suggestedPath) {
+      suggestedPath = suggestNewItemPathFromQuickCreate(quickCreateTemplate, '')
+    }
+    int priorAssistantChars = PriorConversationDraftExtract.lastAssistantBlockText(prior).length()
+
+    Boolean suggestedPathExists = null
+    if (suggestedPath) {
+      try {
+        Map existsRes = CmsContentExists.probe(ops, siteId, suggestedPath, null) as Map
+        suggestedPathExists = Boolean.TRUE.equals(existsRes?.get('exists'))
+        stepSummaries.add([
+          index : stepIdx++,
+          tool  : 'ContentExists',
+          ok    : Boolean.TRUE.equals(existsRes?.get('ok')),
+          result: existsRes ?: [:]
+        ])
+        if (Boolean.TRUE.equals(suggestedPathExists)) {
+          String available = CmsRepositorySupport.resolveFirstAvailableRepositoryPath(
+            { String p -> CmsContentExists.probe(ops, siteId, p, null) as Map },
+            suggestedPath,
+            12
+          )
+          if (available && !available.equalsIgnoreCase(suggestedPath)) {
+            suggestedPath = available
+            suggestedPathExists = false
+            stepSummaries.add([
+              index : stepIdx++,
+              tool  : 'ContentExists',
+              ok    : true,
+              result: [
+                ok      : true,
+                path    : available,
+                exists  : false,
+                note    : 'Alternate slug — original suggested path already exists in git'
+              ]
+            ])
+          }
+        }
+      } catch (Throwable tExists) {
+        stepSummaries.add([
+          index : stepIdx++,
+          tool  : 'ContentExists',
+          ok    : false,
+          error : tExists.message ?: tExists.toString(),
+          path  : suggestedPath
+        ])
+      }
+    }
 
     String siblingPath = ''
     String researchQuery = catalogTypeTailForResearch(resolvedType)
@@ -962,30 +1363,68 @@ final class AuthoringIntentRecipeEngine {
       }
     }
 
-    Map siblingGetResult = [:]
-    boolean siblingOk = false
+    boolean siblingGetContentPresent = false
     if (siblingPath) {
       try {
-        siblingGetResult = CmsGetContent.read(ops, siteId, siblingPath) as Map
-        siblingOk = true
+        Map siblingRes = CmsGetContent.read(ops, siteId, siblingPath) as Map
+        String sibXml = (siblingRes?.contentXml ?: '').toString().trim()
+        siblingGetContentPresent = sibXml.length() > 0 && !prefetchFieldLooksTruncated(sibXml)
         stepSummaries.add([
           index : stepIdx++,
           tool  : 'GetContent',
-          ok    : true,
-          result: shrinkToolResultForPrefetch(siblingGetResult, 24000)
+          ok    : siblingGetContentPresent,
+          result: shrinkToolResultForPrefetch(siblingRes ?: [:], 12000)
         ])
-      } catch (Throwable tGc) {
-        stepSummaries.add([index: stepIdx++, tool: 'GetContent', ok: false, error: tGc.message ?: tGc.toString()])
+      } catch (Throwable tSib) {
+        stepSummaries.add([
+          index : stepIdx++,
+          tool  : 'GetContent',
+          ok    : false,
+          error : tSib.message ?: tSib.toString(),
+          path  : siblingPath
+        ])
       }
     }
+
+    String priorAuthorLabel = PriorConversationDraftExtract.extractAuthorVoiceLabel(prior, supplementConfig, projectCfg)
+    List<Map> nodeSelectorCandidates = collectNodeSelectorCandidatesFromPrefetch(
+      ops,
+      siteId,
+      supplementConfig,
+      priorAuthorLabel
+    )
+    Map priorDerivedRootFieldValues = priorDerivedRootFieldValuesFromDraft(prior, supplementConfig, projectCfg)
+
+    boolean draftExtractReady = priorAssistantChars >= 200
+    if (!draftExtractReady && suggestedPath && resolvedType) {
+      log.warn(
+        'createFromChatDraft: prior assistant reply under 200 chars (LLM reads [Prior conversation]) suggestedPath={} priorAssistantChars={} priorBlockChars={}',
+        suggestedPath,
+        priorAssistantChars,
+        prior?.length() ?: 0
+      )
+    }
+
+    boolean toolsLoopFastPath =
+      draftExtractReady &&
+        Boolean.TRUE.equals(supplementConfig?.toolsLoopFastPath)
 
     Map envelope = [
       flow                  : 'create_from_prior_chat_draft',
       resolvedContentTypeId : resolvedType,
       quickCreatePath       : quickCreateTemplate,
       suggestedNewItemPath  : suggestedPath,
+      suggestedPathExists   : suggestedPathExists,
+      draftTitleFromPrior   : draftTitleFromPrior,
+      priorAuthorLabelFromPrior    : priorAuthorLabel,
+      nodeSelectorCandidates       : nodeSelectorCandidates,
+      priorDerivedRootFieldValues  : priorDerivedRootFieldValues,
+      toolsLoopFastPath            : toolsLoopFastPath,
       siblingPath           : siblingPath,
       bannedAnchorPath      : anchorPath,
+      draftExtractReady     : draftExtractReady,
+      priorAssistantChars   : priorAssistantChars,
+      note                  : 'Title, body, slug from [Prior conversation]; tools loop is ContentExists then WriteContent when toolsLoopFastPath. Use nodeSelectorCandidates paths only — do not invent repository paths.',
       steps                 : stepSummaries
     ]
     String json = JsonOutput.toJson(envelope)
@@ -1002,14 +1441,288 @@ final class AuthoringIntentRecipeEngine {
       suggestedNewItemPath       : suggestedPath,
       siblingPath                : siblingPath,
       bannedAnchorPath           : anchorPath,
-      siblingGetContentPresent   : siblingOk && (siblingGetResult?.contentXml ?: '').toString().trim()
+      siblingGetContentPresent   : siblingGetContentPresent,
+      draftExtractReady          : draftExtractReady,
+      priorAssistantChars        : priorAssistantChars,
+      suggestedPathExists        : suggestedPathExists,
+      draftTitleFromPrior        : draftTitleFromPrior,
+      priorAuthorLabelFromPrior    : priorAuthorLabel,
+      nodeSelectorCandidates       : nodeSelectorCandidates,
+      priorDerivedRootFieldValues  : priorDerivedRootFieldValues,
+      toolsLoopFastPath            : toolsLoopFastPath,
+      prefetchSupplementConfig   : supplementConfig instanceof Map ? supplementConfig : [:]
     ]
   }
 
   /**
-   * Hotpath for {@code createFromChatDraft}: prior conversation prose is the draft source; never overwrite the
-   * preview anchor unless the author explicitly named that path for editing.
+   * Node-selector reference paths from recipe {@code prefetchSupplementConfig}:
+   * {@code nodeSelectorCandidateBindings} (engine-step {@code as} names) plus optional
+   * {@code nodeSelectorResearchFallback} (pathPrefix, contentTypeId, queries).
    */
+  private static List<Map> collectNodeSelectorCandidatesFromPrefetch(
+    StudioToolOperations ops,
+    String siteId,
+    Map supplementConfig,
+    String priorAuthorLabel
+  ) {
+    LinkedHashMap<String, Map> byPath = new LinkedHashMap<>()
+    Closure addRow = { Map row ->
+      if (!(row instanceof Map)) {
+        return
+      }
+      String path = (row.path ?: '').toString().trim()
+      if (!path || !path.toLowerCase(Locale.ROOT).endsWith('.xml')) {
+        return
+      }
+      if (!byPath.containsKey(path)) {
+        byPath.put(path, row)
+      }
+    }
+
+    Map catalogFilter = nodeSelectorCatalogFilterFromConfig(supplementConfig)
+    Map initialBindings = prefetchInitialBindingsFromSupplement(supplementConfig)
+    for (String bindingName : nodeSelectorCandidateBindingNames(supplementConfig)) {
+      Object binding = initialBindings?.get(bindingName)
+      compactResearchHits(binding).each { Map row -> addRow(row) }
+      compactCatalogItems(binding, catalogFilter).each { Map row -> addRow(row) }
+    }
+
+    if (byPath.isEmpty() && ops != null && (siteId ?: '').trim()) {
+      Map fallback = nodeSelectorResearchFallbackFromConfig(supplementConfig)
+      String prefix = (fallback.pathPrefix ?: '').toString().trim()
+      String ctype = (fallback.contentTypeId ?: '').toString().trim()
+      for (String q : nodeSelectorResearchQueries(fallback, priorAuthorLabel)) {
+        if (!byPath.isEmpty()) {
+          break
+        }
+        if (!q) {
+          continue
+        }
+        Map res = CmsResearchSiteContent.research(ops, siteId, q, 30, 20, prefix) as Map
+        compactResearchHits(res).each { Map row -> addRow(row) }
+      }
+      if (byPath.isEmpty() && prefix && ctype) {
+        Map listRes = CmsListPagesAndComponents.list(ops, siteId, 500) as Map
+        compactCatalogItems(listRes, catalogFilter).each { Map row -> addRow(row) }
+      }
+    }
+
+    if (byPath.isEmpty()) {
+      log.warn('createFromChatDraft: nodeSelectorCandidates empty — site recipe should set engineSteps + nodeSelectorResearchFallback')
+    }
+    return new ArrayList<>(byPath.values())
+  }
+
+  private static Map priorDerivedRootFieldValuesFromDraft(String prior, Map supplementConfig, Map projectCfg) {
+    Map out = new LinkedHashMap<>()
+    Object specs = supplementConfig?.priorDerivedRootFieldsFromDraft
+    if (!(specs instanceof List)) {
+      return out
+    }
+    for (Object specObj : (List) specs) {
+      if (!(specObj instanceof Map)) {
+        continue
+      }
+      Map spec = (Map) specObj
+      String fieldId = (spec.fieldId ?: '').toString().trim()
+      if (!fieldId) {
+        continue
+      }
+      int maxLen = spec.maxLength instanceof Number ? ((Number) spec.maxLength).intValue() : 250
+      String snippet = PriorConversationDraftExtract.extractDraftFirstSentence(prior, supplementConfig, projectCfg, maxLen)
+      if (snippet) {
+        out.put(fieldId, snippet)
+      }
+    }
+    return out
+  }
+
+  private static List<String> nodeSelectorCandidateBindingNames(Map supplementConfig) {
+    List<String> out = []
+    Object raw = supplementConfig?.nodeSelectorCandidateBindings
+    if (!(raw instanceof List)) {
+      return out
+    }
+    for (Object o : (List) raw) {
+      String name = (o ?: '').toString().trim()
+      if (name) {
+        out.add(name)
+      }
+    }
+    return out
+  }
+
+  private static Map nodeSelectorCatalogFilterFromConfig(Map supplementConfig) {
+    Object raw = supplementConfig?.nodeSelectorCatalogFilter
+    return raw instanceof Map ? new LinkedHashMap<>((Map) raw) : [:]
+  }
+
+  private static Map nodeSelectorResearchFallbackFromConfig(Map supplementConfig) {
+    Object raw = supplementConfig?.nodeSelectorResearchFallback
+    Map out = raw instanceof Map ? new LinkedHashMap<>((Map) raw) : [:]
+    Map catalog = nodeSelectorCatalogFilterFromConfig(supplementConfig)
+    if (!out.pathPrefix && catalog.pathPrefix) {
+      out.pathPrefix = catalog.pathPrefix
+    }
+    if (!out.contentTypeId && catalog.contentTypeId) {
+      out.contentTypeId = catalog.contentTypeId
+    }
+    return out
+  }
+
+  private static List<String> nodeSelectorResearchQueries(Map fallback, String priorAuthorLabel) {
+    LinkedHashSet<String> queries = new LinkedHashSet<>()
+    String label = (priorAuthorLabel ?: '').toString().trim()
+    if (label && !Boolean.FALSE.equals(fallback.includePriorAuthorLabelQuery)) {
+      queries.add(label)
+      if (Boolean.TRUE.equals(fallback.includeFirstTokenOfPriorAuthorLabel)) {
+        String firstToken = label.split(/\s+/)[0]?.trim()
+        if (firstToken) {
+          queries.add(firstToken)
+        }
+      }
+    }
+    Object literal = fallback.literalQueries
+    if (literal instanceof List) {
+      for (Object o : (List) literal) {
+        String q = (o ?: '').toString().trim()
+        if (q) {
+          queries.add(q)
+        }
+      }
+    }
+    return new ArrayList<>(queries)
+  }
+
+  private static Map prefetchInitialBindingsFromSupplement(Map supplementConfig) {
+    Object direct = supplementConfig?.prefetchInitialBindings
+    if (direct instanceof Map && !((Map) direct).isEmpty()) {
+      return (Map) direct
+    }
+    String md = (supplementConfig?.recipeContextPrefetchMarkdown ?: '').toString()
+    if (!md.trim()) {
+      return [:]
+    }
+    Object parsed = parseFirstPrefetchJsonBlock(md)
+    if (!(parsed instanceof Map)) {
+      return [:]
+    }
+    Object bindings = ((Map) parsed).get('bindings')
+    if (!(bindings instanceof Map)) {
+      return [:]
+    }
+    Object initial = ((Map) bindings).get('initial')
+    return initial instanceof Map ? (Map) initial : [:]
+  }
+
+  /**
+   * Rows from {@code ListPagesAndComponents} / OpenSearch — optional {@code pathPrefix} and {@code contentTypeId}
+   * from site {@code prefetchSupplementConfig.nodeSelectorCatalogFilter}.
+   */
+  private static List<Map> compactCatalogItems(Object listResult, Map catalogFilter) {
+    List<Map> out = []
+    if (!(listResult instanceof Map)) {
+      return out
+    }
+    Object items = ((Map) listResult).get('items')
+    if (!(items instanceof List)) {
+      return out
+    }
+    Map filter = catalogFilter instanceof Map ? catalogFilter : [:]
+    String prefix = (filter.pathPrefix ?: '').toString().trim()
+    if (prefix && !prefix.startsWith('/')) {
+      prefix = '/' + prefix
+    }
+    String ctypeFilter = (filter.contentTypeId ?: '').toString().trim()
+    for (Object rowObj : (List) items) {
+      if (!(rowObj instanceof Map)) {
+        continue
+      }
+      Map row = (Map) rowObj
+      String path = (row.get('localId') ?: row.get('path') ?: '').toString().trim()
+      if (!path || !path.toLowerCase(Locale.ROOT).endsWith('.xml')) {
+        continue
+      }
+      if (prefix && !path.startsWith(prefix)) {
+        continue
+      }
+      String ctype = (row.get('content-type') ?: row.get('contentType') ?: '').toString().trim()
+      if (ctypeFilter && !ctypeFilter.equalsIgnoreCase(ctype)) {
+        continue
+      }
+      Map entry = [path: path]
+      String name =
+        row.get('internal-name')?.toString()?.trim() ?:
+          row.get('internalName')?.toString()?.trim() ?:
+          row.get('title_t')?.toString()?.trim() ?:
+          row.get('title')?.toString()?.trim() ?:
+          row.get('navLabel')?.toString()?.trim() ?: ''
+      if (name) {
+        entry['internal-name'] = name
+      }
+      if (ctype) {
+        entry.contentType = ctype
+      }
+      out.add(entry)
+    }
+    return out
+  }
+
+  private static Object parseFirstPrefetchJsonBlock(String prefetchBlock) {
+    int fence = prefetchBlock.indexOf('```json')
+    if (fence < 0) {
+      return null
+    }
+    int jsonStart = prefetchBlock.indexOf('\n', fence)
+    if (jsonStart < 0) {
+      return null
+    }
+    jsonStart++
+    int jsonEnd = prefetchBlock.indexOf('\n```', jsonStart)
+    if (jsonEnd <= jsonStart) {
+      return null
+    }
+    try {
+      return new JsonSlurper().parseText(prefetchBlock.substring(jsonStart, jsonEnd).trim())
+    } catch (Throwable ignored) {
+      return null
+    }
+  }
+
+  private static List<Map> compactResearchHits(Object researchResult) {
+    List<Map> out = []
+    if (!(researchResult instanceof Map)) {
+      return out
+    }
+    Object hits = ((Map) researchResult).get('hits')
+    if (!(hits instanceof List)) {
+      return out
+    }
+    for (Object hitObj : (List) hits) {
+      if (!(hitObj instanceof Map)) {
+        continue
+      }
+      Map hit = (Map) hitObj
+      String path = (hit.get('path') ?: '').toString().trim()
+      if (!path || !path.toLowerCase(Locale.ROOT).endsWith('.xml')) {
+        continue
+      }
+      Map row = [path: path]
+      String ctype = (hit.get('contentType') ?: '').toString().trim()
+      if (ctype) {
+        row.contentType = ctype
+      }
+      String name =
+        (hit.get('internal-name') ?: hit.get('internalName') ?: hit.get('title') ?: hit.get('name') ?: '')
+          .toString().trim()
+      if (name) {
+        row['internal-name'] = name
+      }
+      out.add(row)
+    }
+    return out
+  }
+
   static String buildCreateFromPriorDraftHotpath(String wirePrompt, Map supplemental) {
     Map sup = supplemental instanceof Map ? supplemental : [:]
     String anchor = (sup.bannedAnchorPath ?: '').toString().trim()
@@ -1017,11 +1730,15 @@ final class AuthoringIntentRecipeEngine {
     String qcp = (sup.quickCreatePathTemplate ?: '').toString().trim()
     String suggested = (sup.suggestedNewItemPath ?: '').toString().trim()
     String sibling = (sup.siblingPath ?: '').toString().trim()
+    boolean siblingXmlInPrefetch = Boolean.TRUE.equals(sup.siblingGetContentPresent)
+    boolean fastPath = Boolean.TRUE.equals(sup.toolsLoopFastPath)
+    String draftTitle = (sup.draftTitleFromPrior ?: '').toString().trim()
+    Object suggestedExists = sup.suggestedPathExists
 
     StringBuilder sb = new StringBuilder()
     sb.append('[Studio — create repository item from **prior chat draft** (not the open preview item)]\n')
     sb.append(
-      '**This draft** means prose in **[Prior conversation]** (**## Draft body**, *Draft blog:*, *Draft title:*, etc.) — ' +
+      '**This draft** is the **last Assistant** reply in **[Prior conversation]** (full prose there) — ' +
         '**not** the file at **Current content item repository path** / **Request anchor** unless the author explicitly asked to edit that path.\n'
     )
     if (anchor) {
@@ -1035,17 +1752,108 @@ final class AuthoringIntentRecipeEngine {
     if (qcp) {
       sb.append('**New item folder pattern** (from form **quickCreatePath**): `').append(qcp).append('`.\n')
     }
+    if (draftTitle) {
+      sb.append('**Draft title (from prior assistant reply):** ').append(draftTitle).append(' — use for slug / `file-name` (kebab-case).\n')
+    }
+    String priorLabel = (sup.priorAuthorLabelFromPrior ?: '').toString().trim()
+    if (priorLabel) {
+      sb.append('**Prior author label (from prior assistant reply):** ').append(priorLabel).append('\n')
+    }
+    Object nodeCands = sup.nodeSelectorCandidates
+    if (nodeCands instanceof List && !((List) nodeCands).isEmpty()) {
+      sb.append('**Node-selector reference paths from prefetch (match prior label to **internal-name**; copy path exactly):**\n')
+      for (Object o : (List) nodeCands) {
+        if (!(o instanceof Map)) {
+          continue
+        }
+        Map row = (Map) o
+        String path = (row.path ?: '').toString().trim()
+        if (!path) {
+          continue
+        }
+        String label = (row['internal-name'] ?: row.displayName ?: '').toString().trim()
+        sb.append('- `').append(path).append('`')
+        if (label) {
+          sb.append(' — **').append(label).append('**')
+        }
+        sb.append('\n')
+      }
+      sb.append('**Forbidden:** invented repository paths — only paths listed above.\n')
+    } else if (priorLabel) {
+      sb.append('**Node-selector catalog empty in prefetch** — do not invent paths. Stop and report missing search hits.\n')
+    }
+    Object derivedFields = sup.priorDerivedRootFieldValues
+    if (derivedFields instanceof Map && !((Map) derivedFields).isEmpty()) {
+      for (Map.Entry e : ((Map) derivedFields).entrySet()) {
+        String fieldId = (e.key ?: '').toString().trim()
+        String value = (e.value ?: '').toString().trim()
+        if (fieldId && value) {
+          sb.append('**').append(fieldId).append('** (from prior draft — copy verbatim into XML): ').append(value).append('\n')
+        }
+      }
+    }
     if (suggested) {
-      sb.append('**Suggested new repository path:** `').append(suggested).append('` — use this (or same folder layout + slug from draft title) for **WriteContent**.\n')
+      sb.append('**Suggested path (from title + quickCreatePath):** `').append(suggested).append('`')
+      if (suggestedExists instanceof Boolean) {
+        sb.append(Boolean.TRUE.equals(suggestedExists) ? ' — **prefetch ContentExists: exists=true** (pick another slug).' : ' — **prefetch ContentExists: exists=false** (available if you use this path).')
+      }
+      sb.append('\n')
+    }
+    if (fastPath) {
+      sb.append(
+        '**Fast path:** Recipe-engine prefetch already has form defs, taxonomy, reference catalog, and sibling XML shape. ' +
+          '**Only** call **ContentExists** on your final new path, then **WriteContent** once with full **contentXml**. ' +
+          '**Do not** call **GetContentTypeFormDefinition**, **GetContent**, **ResearchSiteContent**, or **ListStudioContentTypes** unless prefetch failed.\n'
+      )
     }
     if (sibling) {
-      sb.append('**Sibling XML template:** `').append(sibling).append('` — already in server prefetch **GetContent**; mirror structure, map **## Draft body** into real field ids.\n')
-    } else if (resolved) {
-      sb.append('**Required before WriteContent:** **GetContent** on one existing `').append(resolved).append('` item under the **quickCreatePath** tree (not the preview anchor).\n')
+      if (siblingXmlInPrefetch) {
+        sb.append('**Sibling XML (structure only, in prefetch):** `').append(sibling).append('` — mirror field ids, node-selector layout, date formats, and taxonomy element shape; **do not** copy sibling title/body text.\n')
+      } else {
+        sb.append('**Sibling path:** `').append(sibling).append('` — call **GetContent** on it **before WriteContent** to mirror XML **structure** (not field values).\n')
+      }
     }
     sb.append(
-      '**API tool_calls required:** Call **GetContent** / **WriteContent** via the tools API — **do not** print `functions.WriteContent(...)` or numbered fake tool lists in prose; Studio will **not** save without real **tool_calls**.\n'
+      '**New file:** **suggestedNewItemPath** does not exist until **WriteContent** succeeds — **never** **GetContent** on that path first.\n'
     )
+    if (!fastPath) {
+      sb.append(
+        '**Form-definition checklist (mandatory):** **GetContentTypeFormDefinition** for `').append(resolved ?: 'resolved contentTypeId').append('`; ' +
+          'then **GetContentTypeFormDefinition** for **each** nested/inline **content-type** the parent form references. ' +
+          'Populate **every required field** from those form defs — element ids and constraints come from the XML, not from this recipe.\n'
+      )
+    }
+    sb.append(ToolPrompts.getLlm_CREATE_REPOSITORY_ITEM_HOTPATH_XML()).append('\n')
+    if (Boolean.TRUE.equals(sup.draftExtractReady)) {
+      sb.append(
+        '**Copy source:** Read the last **Assistant** block in **[Prior conversation]** for title, body, and any labels the author used. Map fields using **GetContentTypeFormDefinition** + **Project authoring context** — the server does not parse or inject title/body text.\n'
+      )
+    } else {
+      sb.append(
+        '**Prior assistant reply is short or missing** — read **[Prior conversation]** yourself; if there is no article to save, ask the author to regenerate the draft before **WriteContent**.\n'
+      )
+    }
+    sb.append(
+      '**Draft copy:** Title, body, slug, and XML field values are **your** job from **[Prior conversation]** + form defs — **never** copy sibling field values.\n'
+    )
+    sb.append(
+      '**Topics / tags (taxonomy checkbox-groups):** Prefetch includes allowed taxonomy keys (e.g. `taxonomyTopics`, `taxonomyTags` bindings). Pick keys that **reasonably match** the draft title and body — do **not** copy sibling item topics/tags verbatim. Omit a field when nothing fits; do not pad with unrelated keys.\n'
+    )
+    sb.append(
+      '**API tool_calls required:** **WriteContent** via **tool_calls** — Studio does not save from prose-only tool lists. **Write verification** rejects incomplete or ill-formed **contentXml** (per recipe config: short body, bad UUIDs, unverified node-selector paths, etc.) — fix tool errors and retry. For **required** image-picker fields with no author art instructions, omit the field — **WriteContent** may apply the Studio sample placeholder; do **not** paste a large custom data URL. **GenerateImage** is excluded.\n'
+    )
+    if (!fastPath) {
+      sb.append(
+        '**Project context:** **GetContent** / **ResearchSiteContent** on paths **named there** for taxonomy keys and shared component refs — never invent repository paths. Field **values** from **[Prior conversation]**; **shape** from form defs + sibling/prefetch **GetContent**.\n'
+      )
+    } else {
+      sb.append(
+        '**Project context:** Field **values** from **[Prior conversation]** (verbatim). Field ids and XML **shape** from recipe-engine prefetch bindings + project authoring context — never invent repository paths.\n'
+      )
+      sb.append(
+        '**Before WriteContent:** satisfy every required field in **Project authoring context** and recipe **writeVerification** (site config). **Write verification** rejects incomplete XML per that config — fix tool errors and retry.\n'
+      )
+    }
     sb.append('\n')
     return sb.toString()
   }
@@ -1064,7 +1872,10 @@ final class AuthoringIntentRecipeEngine {
       return ''
     }
     String resolvedType = contentTypeId.toString().trim()
-    String prefix = (pathPrefix ?: '/site/components/').toString().trim()
+    String prefix = (pathPrefix ?: '').toString().trim()
+    if (!prefix) {
+      return ''
+    }
     if (!prefix.startsWith('/')) {
       prefix = '/' + prefix
     }
@@ -1109,6 +1920,11 @@ final class AuthoringIntentRecipeEngine {
     if ((current =~ /(?i)\b(?:blog\s+)?post\b/).find()) {
       phrases.add('post')
       phrases.add('blog post')
+    }
+    if ((current =~ /(?i)\bblog\s+page\b/).find()) {
+      phrases.add('post')
+      phrases.add('blog post')
+      phrases.add('blog')
     }
     if ((current =~ /(?i)\barticle\b/).find()) {
       phrases.add('article')
@@ -1170,7 +1986,7 @@ final class AuthoringIntentRecipeEngine {
   static String quickCreatePathToSearchPrefix(String quickCreateTemplate) {
     String p = (quickCreateTemplate ?: '').toString().trim()
     if (!p) {
-      return '/site/components/'
+      return ''
     }
     if (!p.startsWith('/')) {
       p = '/' + p
@@ -1192,34 +2008,6 @@ final class AuthoringIntentRecipeEngine {
     return slash >= 0 ? id.substring(slash + 1).replace('-', ' ') : id
   }
 
-  static String extractDraftTitleFromPriorConversation(String priorBody) {
-    String prior = (priorBody ?: '').toString()
-    def m1 = (prior =~ /(?i)\*Draft title:\*\s*([^\n*]+)/)
-    if (m1.find()) {
-      return (m1.group(1) ?: '').toString().trim()
-    }
-    def m2 = (prior =~ /(?i)Draft title:\s*([^\n]+)/)
-    if (m2.find()) {
-      return (m2.group(1) ?: '').toString().trim()
-    }
-    def mPitch = (prior =~ /(?i)[^\n]*?(?:New\s+)?Blog\s+Pitch:\s*([^\n]+)/)
-    if (mPitch.find()) {
-      return (mPitch.group(1) ?: '').toString().trim()
-    }
-    def m3 = (prior =~ /(?i)(?:New\s+)?(?:Blog\s+)?Pitch:\s*([^\n]+)/)
-    if (m3.find()) {
-      return (m3.group(1) ?: '').toString().trim()
-    }
-    def mHead = (prior =~ /(?i)^##\s*draft\s*[\r\n]+[^\n]*[\r\n]+([^\n*][^\n]{8,120})/)
-    if (mHead.find()) {
-      String line = (mHead.group(1) ?: '').toString().trim()
-      if (line && !line.startsWith('*') && !line.startsWith('-')) {
-        return line
-      }
-    }
-    return ''
-  }
-
   static String suggestNewItemPathFromQuickCreate(String quickCreateTemplate, String draftTitle) {
     String template = (quickCreateTemplate ?: '').toString().trim()
     if (!template) {
@@ -1234,7 +2022,14 @@ final class AuthoringIntentRecipeEngine {
       .replace('{dd}', String.format('%02d', cal.get(Calendar.DAY_OF_MONTH)))
     String slug = slugifyForRepositoryFileName(draftTitle)
     if (!slug) {
-      slug = 'draft-post-' + String.format('%04d%02d%02d', cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH))
+      slug = 'draft-' + String.format(
+        '%04d%02d%02d-%02d%02d',
+        cal.get(Calendar.YEAR),
+        cal.get(Calendar.MONTH) + 1,
+        cal.get(Calendar.DAY_OF_MONTH),
+        cal.get(Calendar.HOUR_OF_DAY),
+        cal.get(Calendar.MINUTE)
+      )
     }
     if (!path.endsWith('/')) {
       path = path + '/'

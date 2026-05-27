@@ -143,6 +143,7 @@ This is what runs **out of the box** when intent recipe routing is on and the ag
 | Research/compare **and** create/draft/write (same turn) | B → `multi_goal_defer_plan` (single recipe suppressed) → D **Complex** hint + catalog → **E** |
 | Look up … on the web (single goal) | B → C1 `web_research` → D prefetch → **E** WebSearch |
 | Long paste, no URL | B → C (no eligibility gate) → often `no_match` → **E** |
+| Prior turn: substantial chat output (configured draft markers, substantial `##` section, or long assistant reply); current: deictic + CMS persist intent (“**save this**”, “make **it** into …”, “from **this** draft”) | B → C1 **`new_content_item`** (`deterministic_create_post_from_chat_draft`, priority 72) → D **`createFromChatDraft`** prefetch (form def, sibling **GetContent** for shape only, suggested path, draft title/body extract from prior prose + site `prefetchSupplementConfig`) → **E** model **WriteContent** after **GetContentTypeFormDefinition** (no server field-id guessing) |
 
 ### Telemetry outcomes (default prelude)
 
@@ -240,6 +241,8 @@ When skip reason is **non-null**, prelude returns `outcome: skipped_eligibility`
 | `authorCurrentRequestEditsPriorChatArtifact` | “this story”, “two paragraphs”, revise prior assistant reply |
 | `authorConversationPivotedToChatOnlyArtifact` | prior turn was creative; current turn edits chat artifact |
 | `authorCurrentRequestLooksLikePriorTurnFollowUp` | short follow-ups (“make it shorter”) with guards |
+| `priorConversationContainsActionableContent` / `priorConversationContainsDraftBody` | prior block has extractable prose (site markers, substantial `##`, or long assistant reply) |
+| `createFromPriorDraftFollowup` | deictic + CMS persist intent (“save **this**”, “make **it** into …”) with actionable prior chat — not blog/post-specific |
 | Anchor **or** prior conversation on wire | multi-turn session still runs router even without CMS keywords on this line |
 | Short visible text | ≤ ~320 chars on expansion slice (`AUTHORING_INTENT_EXPANSION_SHORT_VISIBLE_MAX_CHARS`) |
 | Long + URL + visual/reference language | expansion gate for URL-heavy asks |

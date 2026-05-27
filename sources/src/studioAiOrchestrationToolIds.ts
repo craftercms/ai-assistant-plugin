@@ -12,6 +12,7 @@ export const STUDIO_AI_BUILTIN_TOOL_IDS: readonly string[] = [
   'TranslateContentItem',
   'TransformContentSubgraph',
   'GetContentSubgraph',
+  'ContentExists',
   'GetContent',
   'ListContentTranslationScope',
   'ListStudioContentTypes',
@@ -35,6 +36,7 @@ export const STUDIO_AI_BUILTIN_TOOL_IDS: readonly string[] = [
   'GetCrafterizingPlaybook',
   'revert_change',
   'GenerateImage',
+  'GeneratePlaceholderImage',
   'InvokeSiteUserTool',
   STUDIO_AI_MCP_ALL_TOKEN
 ] as const;

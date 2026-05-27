@@ -29859,6 +29859,7 @@ const STUDIO_AI_BUILTIN_TOOL_IDS = [
     'TranslateContentItem',
     'TransformContentSubgraph',
     'GetContentSubgraph',
+    'ContentExists',
     'GetContent',
     'ListContentTranslationScope',
     'ListStudioContentTypes',
@@ -29882,6 +29883,7 @@ const STUDIO_AI_BUILTIN_TOOL_IDS = [
     'GetCrafterizingPlaybook',
     'revert_change',
     'GenerateImage',
+    'GeneratePlaceholderImage',
     'InvokeSiteUserTool',
     STUDIO_AI_MCP_ALL_TOKEN
 ];
@@ -31093,38 +31095,131 @@ function clipContextChunk(s, max) {
         return t;
     return `${t.slice(0, max)}…`;
 }
+/** Prior-turn wire budget defaults (chars). */
+const PRIOR_TURNS_TOTAL_MAX_DEFAULT = 8000;
+/** Persist chat draft to CMS — full *Draft blog:* must survive abbreviation. */
+const PRIOR_TURNS_TOTAL_MAX_REPO_MATERIALIZE = 72000;
+const PRIOR_TURNS_USER_MAX = 2800;
+const PRIOR_TURNS_ASSISTANT_MAX = 1800;
+const PRIOR_TURNS_ASSISTANT_DRAFT_MAX = 68000;
+const PRIOR_TURNS_H2_SECTION_MAX = 5000;
+const DRAFT_H2_HEADINGS = ['Draft body', 'draft'];
+/** End of an `##` section: next heading or true EOF ($ alone matches line endings under /m). */
+const MARKDOWN_H2_SECTION_END = '(?=^##\\s|(?![\\s\\S]))';
+function assistantMarkdownContainsDraftMarkers(text) {
+    const t = (text || '').trim();
+    if (!t)
+        return false;
+    if (/\*Draft blog:\*/i.test(t) || /\*Draft title:\*/i.test(t)) {
+        return true;
+    }
+    for (const h of DRAFT_H2_HEADINGS) {
+        const re = new RegExp(`^##\\s+${h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'im');
+        if (re.test(t)) {
+            return true;
+        }
+    }
+    return false;
+}
+/**
+ * When a Slack/assistant turn includes *Draft blog:*, return only the draft block (title + outline + body)
+ * so we do not concatenate ## root / pitch / sources and then clip the tail (which removed draft paragraphs).
+ */
+function extractPersistableDraftBlock(body) {
+    const t = stripOrchestrationDebugComment(body).trim();
+    if (!t)
+        return '';
+    for (const heading of DRAFT_H2_HEADINGS) {
+        const re = new RegExp(`^##\\s+${heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\r?\\n([\\s\\S]*?)${MARKDOWN_H2_SECTION_END}`, 'im');
+        const m = re.exec(t);
+        if (m?.[1]?.trim()) {
+            return `## ${heading}\n\n${m[1].trim()}`;
+        }
+    }
+    const titleIdx = t.search(/\*Draft title:\*/i);
+    const blogIdx = t.search(/\*Draft blog:\*/i);
+    if (blogIdx >= 0) {
+        const start = titleIdx >= 0 && titleIdx < blogIdx ? titleIdx : blogIdx;
+        return t.slice(start).trim();
+    }
+    if (titleIdx >= 0) {
+        return t.slice(titleIdx).trim();
+    }
+    return '';
+}
+function combinedAssistantBodyForPriorTurn(m) {
+    return combinedAssistantMarkdownForVerification(m).trim();
+}
+/** After streaming, fold plan/tools prose into `text` so the next turn's prior block is complete (no phrase gates). */
+function consolidateAssistantMessageTextForNextTurn(m) {
+    const main = (m.text || '').trim();
+    const combined = combinedAssistantBodyForPriorTurn(m);
+    if (!combined || combined.length <= main.length + 80) {
+        return main;
+    }
+    return combined;
+}
 /**
  * Prior turns: assistant replies often repeat **## Plan** then **## Plan Execution** — keep execution/recap only to
  * shrink the wire prompt and reduce redundant reasoning.
  */
-/** Extracts one `## <heading>` section for prior-turn memory (follow-up “create post from this draft”). */
-function extractMarkdownH2Section(markdown, heading) {
-    const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const re = new RegExp(`^##\\s*${escaped}\\s*\\r?\\n([\\s\\S]*?)(?=^##\\s|$)`, 'im');
-    const m = re.exec(markdown.trim());
-    return m?.[1]?.trim() ?? '';
+/** Orchestration headings — not author draft prose; excluded from prior-turn draft retention. */
+const ORCHESTRATION_H2_HEADINGS = new Set(['plan', 'plan execution']);
+function isOrchestrationH2Heading(heading) {
+    return ORCHESTRATION_H2_HEADINGS.has(heading.trim().toLowerCase());
 }
-function abbreviateAssistantTurnForPriorContext(body) {
+/**
+ * Substantial `##` sections in assistant markdown (site-agnostic).
+ * Mirrors server PriorConversationDraftExtract.priorConversationContainsSubstantialMarkdownSection.
+ */
+function substantialMarkdownH2Sections(markdown, minBodyChars = 120) {
+    const re = new RegExp(`^##\\s+([^\\n]+)\\r?\\n([\\s\\S]*?)${MARKDOWN_H2_SECTION_END}`, 'gim');
+    const out = [];
+    let m;
+    const text = markdown.trim();
+    while ((m = re.exec(text))) {
+        const heading = (m[1] ?? '').trim();
+        const body = (m[2] ?? '').trim();
+        if (!heading || isOrchestrationH2Heading(heading) || body.length < minBodyChars) {
+            continue;
+        }
+        out.push({ heading, body });
+    }
+    return out;
+}
+function assistantTurnCarriesSubstantialDraftContext(prepared) {
+    if (substantialMarkdownH2Sections(prepared).length > 0) {
+        return true;
+    }
+    return prepared.trim().length >= 200;
+}
+function abbreviateAssistantTurnForPriorContext(body, opts) {
     let t = stripOrchestrationDebugComment(body).trim();
     if (!t)
         return '';
-    const draftBody = extractMarkdownH2Section(t, 'Draft body');
-    if (draftBody) {
-        const authorIdea = extractMarkdownH2Section(t, 'Author idea');
-        const workNotes = extractMarkdownH2Section(t, 'Work notes');
-        const parts = [`## Draft body\n\n${clipContextChunk(draftBody, 4000)}`];
-        if (authorIdea) {
-            parts.push(`## Author idea\n\n${clipContextChunk(authorIdea, 800)}`);
-        }
-        if (workNotes) {
-            parts.push(`## Work notes\n\n${clipContextChunk(workNotes, 600)}`);
-        }
-        return parts.join('\n\n');
+    if (opts?.useFullAssistantBody) {
+        const planExec = /^##\s+Plan Execution\b/im;
+        const match = planExec.exec(t);
+        const fromExec = match?.index != null ? t.slice(match.index).trim() : t;
+        return clipContextChunk(fromExec, PRIOR_TURNS_ASSISTANT_DRAFT_MAX);
+    }
+    const draftBlock = extractPersistableDraftBlock(t);
+    if (draftBlock && assistantMarkdownContainsDraftMarkers(t)) {
+        return draftBlock;
+    }
+    const substantial = substantialMarkdownH2Sections(t);
+    if (substantial.length > 0) {
+        return substantial
+            .map(({ heading, body: sectionBody }) => `## ${heading}\n\n${clipContextChunk(sectionBody, PRIOR_TURNS_H2_SECTION_MAX)}`)
+            .join('\n\n');
     }
     const planExec = /^##\s+Plan Execution\b/im;
     const match = planExec.exec(t);
     if (match?.index != null) {
-        t = t.slice(match.index).trim();
+        return t.slice(match.index).trim();
+    }
+    if (t.length >= 200) {
+        return clipContextChunk(t, PRIOR_TURNS_H2_SECTION_MAX);
     }
     return t;
 }
@@ -31133,26 +31228,34 @@ function abbreviateAssistantTurnForPriorContext(body) {
  * without multi-message API history. Used for **every** AI panel embed (XB/ICE preview sidebar, floating dialog,
  * content-type form assistant) — not form-engine-specific.
  */
-function buildPriorTurnsContextBlock(prior) {
+function buildPriorTurnsContextBlock(prior, pendingUserText = '') {
     const relevant = prior.filter((m) => m.role === 'user' || m.role === 'assistant');
     if (relevant.length === 0)
         return '';
-    const totalMax = 8000;
     const slice = relevant.length > 8 ? relevant.slice(-8) : relevant;
+    const pending = pendingUserText.trim();
+    /** Multi-turn chat: send full stored assistant prose on the wire — routing uses the recipe LLM, not client phrase rules. */
+    const useExpandedPriorWire = !!pending && slice.some((m) => m.role === 'assistant');
+    const totalMax = useExpandedPriorWire ? PRIOR_TURNS_TOTAL_MAX_REPO_MATERIALIZE : PRIOR_TURNS_TOTAL_MAX_DEFAULT;
     const lines = [];
     let used = 0;
     for (const m of slice) {
         const label = m.role === 'user' ? 'User' : 'Assistant';
-        let body = (m.text || '').trim();
-        if (m.role === 'assistant' && !body && m.assistantPreToolsText) {
-            body = m.assistantPreToolsText.trim();
-        }
+        let body = m.role === 'assistant' ? combinedAssistantBodyForPriorTurn(m) : (m.text || '').trim();
         if (!body)
             continue;
-        const prepared = m.role === 'assistant' ? abbreviateAssistantTurnForPriorContext(body) : stripOrchestrationDebugComment(body).trim();
+        const prepared = m.role === 'assistant'
+            ? abbreviateAssistantTurnForPriorContext(body, { useFullAssistantBody: useExpandedPriorWire })
+            : stripOrchestrationDebugComment(body).trim();
         if (!prepared.trim())
             continue;
-        const perMsgMax = m.role === 'assistant' ? 1800 : 2800;
+        const assistantCarriesDraft = m.role === 'assistant' &&
+            (assistantMarkdownContainsDraftMarkers(prepared) || assistantTurnCarriesSubstantialDraftContext(prepared));
+        const perMsgMax = m.role === 'user'
+            ? PRIOR_TURNS_USER_MAX
+            : useExpandedPriorWire || assistantCarriesDraft
+                ? PRIOR_TURNS_ASSISTANT_DRAFT_MAX
+                : PRIOR_TURNS_ASSISTANT_MAX;
         const piece = clipContextChunk(prepared, perMsgMax);
         const line = `${label}: ${piece}`;
         if (used + line.length + 2 > totalMax)
@@ -31591,7 +31694,7 @@ function AiAssistantChat(props) {
                 /* ignore snapshot appendix errors — still send the user prompt */
             }
         }
-        const priorBlock = buildPriorTurnsContextBlock(messages);
+        const priorBlock = buildPriorTurnsContextBlock(messages, expandedPrompt);
         const priorTurnsBlockLen = priorBlock.length;
         const wirePrompt = priorBlock ? `${priorBlock}Current request:\n${expandedPrompt}` : expandedPrompt;
         abortRef.current?.abort();
@@ -31901,12 +32004,14 @@ function AiAssistantChat(props) {
                             const reasoningRest = (m.reasoningStreamText || '').trim();
                             const mainRest = (m.text || '').trim();
                             const foldReasoning = noTools && reasoningRest && !mainRest;
+                            const persistedText = consolidateAssistantMessageTextForNextTurn(m);
                             return {
                                 ...m,
                                 isStreaming: false,
                                 summarizingResults: false,
                                 pipelineHeartbeat: undefined,
-                                ...(foldReasoning ? { text: reasoningRest, reasoningStreamText: '' } : {}),
+                                text: foldReasoning ? reasoningRest : persistedText,
+                                ...(foldReasoning ? { reasoningStreamText: '' } : {}),
                                 ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls),
                                 ...mergePipelineTimingFields(m, extractTerminalPipelineTiming(md))
                             };
@@ -37625,8 +37730,7 @@ var routingRecipeFamilies = {
 	researchAny: [
 		"web_research",
 		"site_content_research",
-		"llm_research",
-		"draft_content_from_source"
+		"llm_research"
 	]
 };
 var multiGoalDefer = {
@@ -37650,7 +37754,8 @@ var multiGoalDefer = {
 			"template_display_change",
 			"publish_site",
 			"publish_item",
-			"open_page_inquiry"
+			"open_page_inquiry",
+			"new_content_item_from_chat_draft"
 		]
 	}
 };
@@ -37665,107 +37770,11 @@ var recipeOrder = [
 	"template_display_change",
 	"publish_site",
 	"publish_item",
+	"new_content_item_from_chat_draft",
 	"new_content_item",
 	"translate_content_item"
 ];
 var recipes = [
-	{
-		id: "draft_content_from_source",
-		title: "Draft content from author URL",
-		chatEmoji: "📝",
-		toolsLoopAuthorUrlExclusive: true,
-		toolsLoopAllowlist: [
-			"FetchHttpUrl",
-			"ResearchSiteContent"
-		],
-		toolsLoopExcludeTools: [
-			"WriteContent",
-			"update_content",
-			"publish_content",
-			"TranslateContentItem",
-			"TranslateContentBatch",
-			"SerpApiWebSearch",
-			"WebSearch",
-			"SlackPostMessage",
-			"GetCrafterzingPlaybook"
-		],
-		toolsLoopFetchHttpUrlWireMaxChars: 8000,
-		toolsLoopMaxFetchHttpUrlCalls: 1,
-		deterministicMatch: {
-			priority: 92,
-			routerReason: "deterministic_draft_content_from_author_url",
-			respectDontMatchHints: true,
-			when: {
-				allOf: [
-					"authorProvidedHttpUrl",
-					{
-						anyOf: [
-							{
-								authorMatchesRegex: "(?i)\\bdraft\\b[^\\n]{0,120}\\b(?:blog|article|post)\\b"
-							},
-							{
-								authorMatchesRegex: "(?i)\\b(?:blog|article|post)\\b[^\\n]{0,80}\\bdraft\\b"
-							},
-							{
-								authorMatchesRegex: "(?i)\\bsummariz(?:e|ing)\\b[^\\n]{0,120}\\b(?:blog|article|post|topics)\\b"
-							},
-							{
-								authorMatchesRegex: "(?i)\\bfrom\\s+this\\s*:\\s*https?://"
-							}
-						]
-					},
-					{
-						authorContainsNone: [
-							"create a new",
-							"save to repository",
-							"make a post with",
-							"create a post",
-							"save the draft",
-							"WriteContent"
-						]
-					}
-				]
-			}
-		},
-		description: "Author pasted http(s) source link(s) and wants a **chat draft** (blog/article/post prose) — fetch only those URLs, optional site overlap check. **No** repository save on this turn (use **new_content_item** when they ask to create/save the draft).",
-		matchHints: [
-			"draft a blog",
-			"draft blog",
-			"draft an article",
-			"draft post",
-			"summarize from",
-			"summarizing from",
-			"from this:",
-			"from this url"
-		],
-		dontMatchHints: [
-			"create a new",
-			"new page",
-			"new article",
-			"save to repository",
-			"WriteContent",
-			"publish",
-			"make a post with",
-			"create a post",
-			"latest news",
-			"search the web",
-			"headlines"
-		],
-		matchedUserPrelude: "[Studio — draft from author URL] **FetchHttpUrl** only the http(s) link(s) in **Current request** (recipe **toolsLoopAuthorUrlExclusive**). Then **ResearchSiteContent** for overlap with existing site content (set **pathPrefix** / query from project context when present). Deliver the draft in chat (**## Draft body** or your site’s draft section headings). **Do not** call **WriteContent**, **SerpApiWebSearch**, or **WebSearch** on this turn unless the author adds a new URL or asks to save to the repository.",
-		phases: {
-			context: [
-				"Author URL-only: **FetchHttpUrl** on each distinct author-pasted URL only (max one fetch per turn when configured). No Serp, no other URLs.",
-				"After fetch, **ResearchSiteContent** with a focused query from the author’s topics and a sensible **pathPrefix** from project context (e.g. existing posts/components tree)."
-			],
-			action: [
-				"Summarize or draft from the fetched source plus site research. Use clear markdown sections; include **## Draft body** (or site-configured draft headings) with full prose the author can approve.",
-				"Cite only URLs you actually fetched. Do not invent repository paths or save CMS items unless the author explicitly asks to create/save."
-			],
-			confirmation: [
-				"Offer to save as a repository item only if the author asks in a follow-up (routes to **new_content_item** / **createFromChatDraft** supplement)."
-			]
-		}
-	},
 	{
 		id: "web_research",
 		title: "Web search (news & current events)",
@@ -38283,74 +38292,10 @@ var recipes = [
 		}
 	},
 	{
-		id: "new_content_item",
-		title: "Create new page or component",
-		chatEmoji: "📄",
-		deterministicMatch: [
-			{
-				priority: 72,
-				routerReason: "deterministic_create_post_from_chat_draft",
-				toolsLoopPrefetchSupplement: "createFromChatDraft",
-				toolsLoopRequireSuccessfulTools: [
-					"WriteContent"
-				],
-				when: {
-					allOf: [
-						"currentTurnCmsTooling",
-						"anchoredSiteXml",
-						"priorConversationContainsDraftBody",
-						{
-							anyOf: [
-								{
-									authorMatchesRegex: "(?i)\\b(?:create|save|add)\\s+(?:a\\s+)?(?:blog\\s+)?post\\b"
-								},
-								{
-									authorMatchesRegex: "(?i)\\bpost\\s+from\\s+(?:this|the)\\s+draft\\b"
-								},
-								{
-									authorMatchesRegex: "(?i)\\b(?:from|using)\\s+(?:this|the)\\s+draft\\b"
-								},
-								{
-									authorMatchesRegex: "(?i)\\bi\\s+like\\s+this\\b"
-								}
-							]
-						}
-					]
-				}
-			},
-			{
-				priority: 45,
-				routerReason: "deterministic_new_content_item",
-				respectDontMatchHints: true,
-				when: {
-					allOf: [
-						"currentTurnCmsTooling",
-						"anchoredSiteXml",
-						{
-							anyOf: [
-								{
-									authorMatchesRegex: "(?i)\\b(new\\s+page|new\\s+article|new\\s+post|add\\s+a\\s+(?:new\\s+)?page)\\b"
-								},
-								{
-									allOf: [
-										{
-											authorMatchesRegex: "(?i)\\b(create|add)\\b"
-										},
-										{
-											authorMatchesRegex: "(?i)\\b(new\\s+)?(page|article|component|item|post)s?\\b"
-										}
-									]
-								},
-								{
-									authorMatchesRegex: "(?i)\\bwrite\\s+(?:a\\s+)?new\\s+(page|post|article|component|item)\\b"
-								}
-							]
-						}
-					]
-				}
-			}
-		],
-		description: "Author asks to **create** a new repository item (new URL or new component in Studio). **Not** chat-only “draft a post” prose after research — that is **llm_research** (tools off).",
+		id: "new_content_item_from_chat_draft",
+		title: "Create item from prior chat draft",
+		chatEmoji: "📝",
+		description: "Turn 2 after prior assistant prose in chat: persist **[Prior conversation]** as a **new** repository item. Author may say “make a post”, “save this”, “thanks — publish it”, etc. — the word **draft** is not required. **Not** generic “new page” with no prior assistant article; **not** research-only chat.",
 		dontMatchHints: [
 			"research",
 			"versus",
@@ -38361,6 +38306,126 @@ var recipes = [
 			"pros and cons"
 		],
 		matchHints: [
+			"prior conversation",
+			"save this",
+			"make a post",
+			"persist chat"
+		],
+		toolsLoopExcludeTools: [
+			"GenerateImage",
+			"GetCrafterzingPlaybook",
+			"SerpApiWebSearch",
+			"WebSearch",
+			"publish_content",
+			"update_content",
+			"TranslateContentItem",
+			"TranslateContentBatch",
+			"SlackPostMessage"
+		],
+		toolsLoopAllowlist: [
+			"ListStudioContentTypes",
+			"GetContentTypeFormDefinition",
+			"ResearchSiteContent",
+			"ContentExists",
+			"WriteContent"
+		],
+		toolsLoopRequireSuccessfulTools: [
+			"WriteContent"
+		],
+		toolsLoopWriteVerification: "createFromChatDraft",
+		writeVerification: {
+			repairRootObjectIds: true,
+			requireRootDates: true,
+			repairRootDates: true,
+			dateFieldIds: [
+				"createdDate",
+				"createdDate_dt",
+				"lastModifiedDate",
+				"lastModifiedDate_dt"
+			]
+		},
+		matchedUserPrelude: "[Studio — create **new** repository item from prior chat draft]\n\n**Goal:** One successful **WriteContent** with a **full** `<component>` or `<page>` XML document. Required envelope: `<content-type>`, `<file-name>`, `<merge-strategy>`, `<objectId>`, `<objectGroupId>`, `<internal-name>`. **Not** a fragment or markdown-only body.\n\n**Generate XML — do not copy siblings:** **GetContentTypeFormDefinition** for the resolved type and every nested type on the form. Follow **Project authoring context** when it defines element order and nested-component XML for this site. **Do not** **GetContent** an existing item to copy structure, field values, or body text.\n\n**Copy (from [Prior conversation] only — verbatim):** Read the last **Assistant** reply for title, body, and slug. Do not summarize or rephrase. Map into form fields using **GetContentTypeFormDefinition** — the server does not extract title/body for you. New UUIDs for **objectId** / **objectGroupId**.\n\n**Path:** **ListStudioContentTypes** → match type. **quickCreatePath** from form definition. Choose **file-name** / slug from the title you read; **ContentExists** on that **new** path — expect **false**. **ResearchSiteContent** only for reference targets (bios, taxonomy keys).\n\n**Nested fields:** Per form defs and **Project authoring context** (inline components, RTE `*_html`, node-selectors).\n\nIf **[Prior conversation]** has no saveable article in the last assistant reply, stop and ask the author to regenerate the draft.\n\n**Images:** Omit or leave empty required image-picker fields — **WriteContent** fills placeholders. **GenerateImage** only when the author asked for art.\n",
+		phases: {
+			context: {
+				hints: [
+					"Turn 2: persist prior-turn draft as a **new** file. The Studio preview anchor is context only — not the write target.",
+					"Draft prose is the last **Assistant** reply in **[Prior conversation]** (any headings/labels the author used). Copy verbatim — do not summarize, rephrase, or invent body or title text."
+				],
+				engineSteps: [
+					{
+						tool: "ListStudioContentTypes",
+						args: {
+							siteId: "$siteId",
+							searchable: false
+						}
+					}
+				]
+			},
+			action: [
+				"If **[Prior conversation]** has no full article in the last **Assistant** reply, tell the author to regenerate the draft in chat before **WriteContent**.",
+				"**GetContentTypeFormDefinition** for the resolved type and every nested type referenced on the parent form.",
+				"**ContentExists** on the planned new path (expect **false**). **ResearchSiteContent** only when you need a reference path or allowed taxonomy keys — not to load another item’s XML as a template.",
+				"Build **contentXml** from form definitions + **Project authoring context**: complete root envelope, new UUIDs, nested inline/referenced components per field types. Put the **full verbatim** prior draft in the correct RTE `*_html` field(s) — every paragraph, no edits. Do not copy another item’s field values or rewrite the draft.",
+				"**Images:** Omit or leave empty every required **image-picker** field in **WriteContent** — the server applies the sample placeholder on write. **GenerateImage** only when the author asked for art.",
+				"**WriteContent** once to the **new** path under **quickCreatePath**. Server **write verification** rejects incomplete **contentXml** — fix tool errors and retry; do not finish until **WriteContent** returns ok."
+			],
+			confirmation: [
+				"Report repository path, slug, and that body came from the prior chat draft (not a cloned sibling)."
+			]
+		}
+	},
+	{
+		id: "new_content_item",
+		title: "Create new page or component",
+		chatEmoji: "📄",
+		deterministicMatch: {
+			priority: 45,
+			routerReason: "deterministic_new_content_item",
+			respectDontMatchHints: true,
+			when: {
+				allOf: [
+					"currentTurnCmsTooling",
+					"anchoredSiteXml",
+					"noPriorMaterializableAssistant",
+					{
+						anyOf: [
+							{
+								authorMatchesRegex: "(?i)\\b(new\\s+page|new\\s+article|new\\s+post|add\\s+a\\s+(?:new\\s+)?page)\\b"
+							},
+							{
+								allOf: [
+									{
+										authorMatchesRegex: "(?i)\\b(create|add)\\b"
+									},
+									{
+										authorMatchesRegex: "(?i)\\b(new\\s+)?(page|article|component|item|post)s?\\b"
+									}
+								]
+							},
+							{
+								authorMatchesRegex: "(?i)\\bwrite\\s+(?:a\\s+)?new\\s+(page|post|article|component|item)\\b"
+							}
+						]
+					}
+				]
+			}
+		},
+		description: "Author asks to **create** a new repository item (new URL or new component in Studio) **without** copying a prior assistant reply. **Not** “looks great — make a post” after chat prose — use **new_content_item_from_chat_draft**. **Not** chat-only research prose — **llm_research** (tools off).",
+		dontMatchHints: [
+			"research",
+			"versus",
+			" vs ",
+			"compare",
+			"comparison",
+			"difference between",
+			"pros and cons",
+			"from this draft",
+			"from the draft",
+			"make a post from",
+			"create a post from",
+			"create a blog from"
+		],
+		matchHints: [
 			"create",
 			"new page",
 			"new article",
@@ -38368,7 +38433,7 @@ var recipes = [
 			"add a page",
 			"write a new"
 		],
-		matchedUserPrelude: "[Studio — create new repository item] Resolve **contentTypeId** with **ListStudioContentTypes** (exact catalog match on the author’s type phrase). **GetContentTypeFormDefinition** for that id. **Mandatory:** **GetContent** on one existing item whose `<content-type>` equals that id **before** **WriteContent**. Mirror sibling XML structure; map draft prose into real form fields — never invent element names or generic wrappers not in the form definition or sibling XML.",
+		matchedUserPrelude: "[Studio — create new repository item] Resolve **contentTypeId** with **ListStudioContentTypes** (exact catalog match on the author’s type phrase). **GetContentTypeFormDefinition** for that id. **GetContent** on one existing item of that type **before** **WriteContent** to learn XML shape (field ids, nesting, dates, objectId style) — map **new** copy from the author message; **do not** copy another item’s title, body, taxonomy, images, or bios unless the author asked to duplicate that item.",
 		phases: {
 			context: {
 				hints: [
@@ -38385,10 +38450,10 @@ var recipes = [
 				]
 			},
 			action: [
-				"When **[Prior conversation]** includes **## Draft body** (or *Draft blog:*), **this draft** is that chat prose — **not** the repository file open in Studio preview. Resolve **contentTypeId** via **ListStudioContentTypes** (exact catalog match on **post** / **blog** from prior + current turn). Read **quickCreatePath** from **GetContentTypeFormDefinition** for the new file path; **WriteContent** only under that tree (never the preview anchor unless the author named that path for editing).",
-				"Before **WriteContent**, **GetContent** one existing item with the same `<content-type>`. Clone its document shape (field ids, node-selector / inline component layout, date formats, objectId/objectGroupId style). Map draft title/body into fields from **GetContentTypeFormDefinition** and the sibling XML — not invented schemas.",
-				"Populate **every required field** from **GetContentTypeFormDefinition** (SEO, taxonomy/checkbox groups, nav, etc.). **Do not** call **GenerateImage** unless the author explicitly asked for generated art. For **required** image-picker fields, **omit or leave empty** in **WriteContent** — Studio fills them with the XB-style **`data:image/png;base64,…`** placeholder in-process (do not invent `/static-assets/…` paths).",
-				"**WriteContent** the full `<page>` or `<component>` at a new path under `/site/` consistent with **quickCreatePath** or sibling folder layout; optional **GetPreviewHtml** in confirmation."
+				"Resolve **contentTypeId** via **ListStudioContentTypes** (exact catalog match). **GetContentTypeFormDefinition** for **quickCreatePath** and required fields.",
+				"Before **WriteContent**, **GetContent** one existing item with the same `<content-type>` for **structure only** (element names, inline layout, date/objectId format). Populate fields with **new** author copy — not sibling field values.",
+				"Required image-picker without art instructions: **GeneratePlaceholderImage** → **`dataUrl`** in **WriteContent** (or omit for default placeholder). **GenerateImage** only when the author explicitly asked for specific generated art.",
+				"**WriteContent** at a new path under **quickCreatePath**; optional **GetPreviewHtml** in confirmation."
 			],
 			confirmation: [
 				"Tell the author how to preview the new route; optional GetPreviewHtml."

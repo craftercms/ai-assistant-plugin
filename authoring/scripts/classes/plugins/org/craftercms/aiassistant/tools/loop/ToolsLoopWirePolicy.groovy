@@ -115,6 +115,11 @@ final class ToolsLoopWirePolicy {
     return new ToolsLoopWirePolicy(PROGRESS_READ, false, false, true, false, WIRE_TRUNCATE, null, null, 'verification', true)
   }
 
+  /** GeneratePlaceholderImage: Studio sample placeholder; not a repository mutation. */
+  static ToolsLoopWirePolicy placeholderImagePolicy() {
+    return new ToolsLoopWirePolicy(PROGRESS_WRITE, false, false, false, false, WIRE_TRUNCATE, null, null, 'main', false)
+  }
+
   /** GenerateImage: compact wire output; not counted as a repository XML mutation. */
   static ToolsLoopWirePolicy generateImagePolicy() {
     return new ToolsLoopWirePolicy(PROGRESS_WRITE, false, false, false, false, WIRE_COMPACT_GENERATE_IMAGE, null, null, 'main', false)

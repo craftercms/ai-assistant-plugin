@@ -23,6 +23,10 @@ class ResearchSiteContentTool extends AbstractStudioAiTool {
   @Override
   String inputSchemaJson() { StudioAiToolSchemas.RESEARCH_SITE_CONTENT }
 
+  /** Permitted during recipe-engine prefetch (read-only). */
+  @Override
+  boolean recipeEngineReadOnly() { true }
+
   /** Only registered when {@code siteContentResearchGloballyEnabled} is true on operations. */
   @Override
   boolean enabled(StudioAiToolContext ctx) {

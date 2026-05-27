@@ -7,6 +7,8 @@ import plugins.org.craftercms.aiassistant.config.StudioAiAssistantProjectConfig
 import plugins.org.craftercms.aiassistant.mcp.StudioAiMcpClient
 import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
 import plugins.org.craftercms.aiassistant.tools.mcp.McpWireStudioAiTool
+import plugins.org.craftercms.aiassistant.tools.cms.ContentExistsTool
+import plugins.org.craftercms.aiassistant.tools.cms.GeneratePlaceholderImageTool
 import plugins.org.craftercms.aiassistant.tools.cms.GetContentTool
 import plugins.org.craftercms.aiassistant.tools.cms.GetContentTypeFormDefinitionTool
 import plugins.org.craftercms.aiassistant.tools.cms.GetContentVersionHistoryTool
@@ -49,6 +51,7 @@ final class StudioAiToolRegistry {
   private StudioAiToolRegistry() {}
 
   private static final List<AbstractStudioAiTool> CORE_TOOLS = Collections.unmodifiableList([
+    new ContentExistsTool(),
     new GetContentTool(),
     new ListContentDependencyScopeTool(),
     new ListStudioContentTypesTool(),
@@ -62,6 +65,7 @@ final class StudioAiToolRegistry {
     new ConsultCrafterQTool(),
     new SlackPostMessageTool(),
     new ResearchSiteContentTool(),
+    new GeneratePlaceholderImageTool(),
     new WriteContentTool(),
     new ListPagesAndComponentsTool(),
     new UpdateTemplateTool(),

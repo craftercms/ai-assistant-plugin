@@ -9,11 +9,14 @@ import java.io.InputStream
 import java.io.StringReader
 import java.nio.charset.StandardCharsets
 import java.util.Locale
+import java.util.regex.Pattern
 
 /** Shared repository path/XML helpers for CMS built-in tools. */
 final class CmsRepositorySupport {
 
   static final String CONTENT_REF_HEAD = 'HEAD'
+  private static final Pattern REPOSITORY_PATH_VERSION_SUFFIX =
+    Pattern.compile('^(.*)-v(\\d+)$', Pattern.CASE_INSENSITIVE)
 
   private CmsRepositorySupport() {}
 
@@ -113,6 +116,56 @@ final class CmsRepositorySupport {
       sink.put('xmlParseError', msg)
       sink.put('xmlRepairReminder', ToolPrompts.XML_REPAIR_REMINDER_AFTER_BAD_READ)
     }
+  }
+
+  /**
+   * When a repository path already exists, suggest a sibling filename (site-agnostic suffix pattern).
+   */
+  static String suggestAlternateRepositoryPath(String existingPath) {
+    String p = (existingPath ?: '').toString().trim()
+    if (!p || !p.toLowerCase(Locale.ROOT).endsWith('.xml')) {
+      return ''
+    }
+    int slash = p.lastIndexOf('/')
+    String dir = slash >= 0 ? p.substring(0, slash + 1) : ''
+    String file = slash >= 0 ? p.substring(slash + 1) : p
+    if (!file.endsWith('.xml')) {
+      return ''
+    }
+    String base = file.substring(0, file.length() - 4)
+    def versioned = REPOSITORY_PATH_VERSION_SUFFIX.matcher(base)
+    if (versioned.find()) {
+      int n = Integer.parseInt(versioned.group(2)) + 1
+      return dir + versioned.group(1) + '-v' + n + '.xml'
+    }
+    return dir + base + '-v2.xml'
+  }
+
+  /**
+   * Walks {@link #suggestAlternateRepositoryPath} until {@code exists} is false or {@code maxAttempts} exhausted.
+   */
+  static String resolveFirstAvailableRepositoryPath(
+    Closure<Map> existsProbe,
+    String initialPath,
+    int maxAttempts = 10
+  ) {
+    String candidate = (initialPath ?: '').toString().trim()
+    if (!candidate || !(existsProbe instanceof Closure)) {
+      return candidate
+    }
+    int attempts = Math.max(1, maxAttempts)
+    for (int i = 0; i < attempts; i++) {
+      Map res = existsProbe.call(candidate) as Map
+      if (!Boolean.TRUE.equals(res?.get('exists'))) {
+        return candidate
+      }
+      String next = suggestAlternateRepositoryPath(candidate)
+      if (!next || next.equalsIgnoreCase(candidate)) {
+        break
+      }
+      candidate = next
+    }
+    return candidate
   }
 
   private static SAXReader newHardenedSaxReader() {

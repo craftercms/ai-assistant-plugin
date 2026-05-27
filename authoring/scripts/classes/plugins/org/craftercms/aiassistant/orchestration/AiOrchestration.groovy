@@ -591,7 +591,9 @@ class AiOrchestration {
       /.*\btemplate\b.*/,
       /.*\bcontent type\b.*/,
       /.*\bform-definition\b.*/,
-      /.*\bhome page\b.*/
+      /.*\bhome page\b.*/,
+      /.*\bmake\b.*/,
+      /.*\bsave\b.*/
     ]
     return patterns.any { p ==~ it }
   }
@@ -1207,15 +1209,7 @@ For **content XML** (pages/components): do not invent a new element tree — pre
   ) {
     def converter = { Object result, java.lang.reflect.Type returnType -> toolResultToWireString(result, returnType) }
     /** Spring AI tool callbacks run on Reactor/HTTP-client threads; copy servlet SecurityContext for Studio permission checks. */
-    def securityContextForTools = null
-    try {
-      def ctx = SecurityContextHolder.getContext()
-      if (ctx != null && ctx.getAuthentication() != null) {
-        def copy = SecurityContextHolder.createEmptyContext()
-        copy.setAuthentication(ctx.getAuthentication())
-        securityContextForTools = copy
-      }
-    } catch (Throwable ignored) {}
+    def securityContextForTools = StudioToolOperations.captureSecurityContextCopy()
     def studioOps = new StudioToolOperations(request, applicationContext, params, securityContextForTools)
     String llmNorm = StudioAiLlmKind.normalize(llmRaw)
     Collection agentToolSubset = null
@@ -1897,6 +1891,9 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       springAi.recipeExecutionPlan = route.recipeExecutionPlan
       springAi.recipeConfirmationStepsExecuted = Boolean.FALSE
     }
+    if (route?.createFromChatDraftPrefill instanceof Map) {
+      springAi.createFromChatDraftPrefill = route.createFromChatDraftPrefill
+    }
     if (Boolean.TRUE.equals(tel.get('toolsLoopDisable'))) {
       springAi.useTools = false
       log.info(
@@ -2366,6 +2363,95 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       return ''
     }
     return plugins.org.craftercms.aiassistant.tools.AiOrchestrationTools.repoPathFromToolInput(args) ?: ''
+  }
+
+  /**
+   * When {@code createFromChatDraft} prefetch built authoritative post XML, replace model {@code contentXml}
+   * for the suggested path so draft body / author bio are not regenerated or copied from sibling metadata.
+   */
+  private static boolean createFromChatDraftRepoPathsMatch(String prefillPath, String writePath) {
+    String a = plugins.org.craftercms.aiassistant.tools.cms.support.CmsRepositorySupport
+      .normalizeLeadingSlash((prefillPath ?: '').toString().trim(), 'path')
+    String b = plugins.org.craftercms.aiassistant.tools.cms.support.CmsRepositorySupport
+      .normalizeLeadingSlash((writePath ?: '').toString().trim(), 'path')
+    if (!a || !b) {
+      return false
+    }
+    return a.equalsIgnoreCase(b)
+  }
+
+  /** Prefetch-suggested repository path for create-from-chat-draft (prefill map or routing telemetry). */
+  private static String createFromChatDraftSuggestedPath(Map toolsLoopSessionBundle) {
+    if (!(toolsLoopSessionBundle instanceof Map)) {
+      return ''
+    }
+    Map prefill = toolsLoopSessionBundle.createFromChatDraftPrefill instanceof Map ?
+      (Map) toolsLoopSessionBundle.createFromChatDraftPrefill :
+      null
+    String fromPrefill = (prefill?.path ?: '').toString().trim()
+    if (fromPrefill) {
+      return fromPrefill
+    }
+    Map tel = toolsLoopSessionBundle.intentRecipeRoutingTelemetry instanceof Map ?
+      (Map) toolsLoopSessionBundle.intentRecipeRoutingTelemetry :
+      null
+    return (tel?.toolsLoopSuggestedNewItemPath ?: '').toString().trim()
+  }
+
+  /** Nudges ContentExists toward the prefetch-suggested path when the model omitted path args. */
+  private static String applyCreateFromChatDraftPrefillToContentExistsArgs(
+    String argsStr,
+    Map toolsLoopSessionBundle,
+    JsonSlurper slurper
+  ) {
+    String prefillPath = createFromChatDraftSuggestedPath(toolsLoopSessionBundle)
+    if (!prefillPath) {
+      return argsStr
+    }
+    try {
+      Object parsed = slurper.parseText(argsStr ?: '{}')
+      if (!(parsed instanceof Map)) {
+        return argsStr
+      }
+      Map args = (Map) parsed
+      String existing = repoPathFromToolArgsMap(args)
+      if (existing?.trim()) {
+        return argsStr
+      }
+      Map out = new LinkedHashMap<>(args)
+      out.put('path', prefillPath)
+      return JsonOutput.toJson(out)
+    } catch (Throwable ignored) {
+      return argsStr
+    }
+  }
+
+  /** Nudges WriteContent toward the prefetch-suggested path when the model omitted path args. */
+  private static String applyCreateFromChatDraftPrefillToWriteContentArgs(
+    String argsStr,
+    Map toolsLoopSessionBundle,
+    JsonSlurper slurper
+  ) {
+    String prefillPath = createFromChatDraftSuggestedPath(toolsLoopSessionBundle)
+    if (!prefillPath) {
+      return argsStr
+    }
+    try {
+      Object parsed = slurper.parseText(argsStr ?: '{}')
+      if (!(parsed instanceof Map)) {
+        return argsStr
+      }
+      Map args = (Map) parsed
+      String wpath = repoPathFromToolArgsMap(args)
+      if (wpath?.trim()) {
+        return argsStr
+      }
+      Map out = new LinkedHashMap<>(args)
+      out.put('path', prefillPath)
+      return JsonOutput.toJson(out)
+    } catch (Throwable ignored) {
+      return argsStr
+    }
   }
 
   private static String siteIdFromWireMessages(List<Map> wireMessages) {
@@ -3853,6 +3939,31 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
     return memory.trim() + '\n\n' + main
   }
 
+  /**
+   * User message for the JSON recipe router: full {@code [Prior conversation]} block (when present) plus
+   * current turn — not only {@link AuthoringPreviewContext#formatLastPriorTurnMemoryBlock} (last pair, often truncated).
+   */
+  private static String buildIntentRecipeRouterUserMessage(
+    String catalogMd,
+    String currentTurnVisible,
+    String priorConversationBody,
+    Map cfg
+  ) {
+    StringBuilder sb = new StringBuilder()
+    sb.append('## Recipe catalog\n\n').append((catalogMd ?: '').toString().trim())
+    String prior = (priorConversationBody ?: '').toString().trim()
+    if (prior) {
+      int maxPrior = StudioAiAssistantProjectConfig.intentRecipeEngineMaxTotalChars(cfg)
+      maxPrior = maxPrior > 0 ? Math.min(48000, maxPrior) : 24000
+      if (prior.length() > maxPrior) {
+        prior = '…[prior conversation truncated for router]\n' + prior.substring(prior.length() - maxPrior)
+      }
+      sb.append('\n\n## Prior conversation\n\n').append(prior)
+    }
+    sb.append('\n\n## Author message (this turn)\n\n').append((currentTurnVisible ?: '').toString().trim())
+    return sb.toString().trim()
+  }
+
   private static String authoringIntentRefineCurrentTurnVisible(String wirePrompt) {
     String cand = (wirePrompt ?: '').toString()
     String current = AuthoringPreviewContext.extractAuthorCurrentRequestVisible(cand)?.trim()
@@ -4272,7 +4383,12 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       out.routerReason = detMatch.routerReason?.toString()
       out.skipRecipePrefetch = Boolean.TRUE.equals(detMatch.skipPrefetch)
       out.toolsLoopPrefetchSupplement = AuthoringIntentRecipeCatalog.toolsLoopPrefetchSupplementFromMatch(detMatch)
+      out.toolsLoopPrefetchSupplementConfig = AuthoringIntentRecipeCatalog.toolsLoopPrefetchSupplementConfigFromMatch(detMatch)
       out.toolsLoopRequireSuccessfulTools = AuthoringIntentRecipeCatalog.toolsLoopRequireSuccessfulToolsFromMatch(detMatch)
+      String preludeOverride = AuthoringIntentRecipeCatalog.matchedUserPreludeFromMatch(detMatch)
+      if (preludeOverride) {
+        out.matchedUserPreludeOverride = preludeOverride
+      }
       out.matchPass = 'deterministic'
       out.deterministicMatchCount = 1
       out.siteToolMatchCount = 0
@@ -4286,11 +4402,24 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       List clarifyRows = detMatches.size() > 1 ?
         detMatches :
         (ambiguousCandidates.size() > 1 ? ambiguousCandidates : [])
+      if (detMatches.isEmpty() &&
+        AuthoringIntentRecipeCatalog.authorVisibleSuggestsDraftContentFromAuthorUrl(routerVisibleBeforeClarify)) {
+        Map authorUrlDraft =
+          AuthoringIntentRecipeCatalog.resolveSingleAuthorUrlDraftDeterministicMatch(recipes, routeCtx)
+        if (authorUrlDraft != null) {
+          detMatches = [authorUrlDraft]
+          log.info(
+            'Intent recipe routing: author-url draft fast-path (recipeId={}, reason={}) — skipping enrich/refine tools',
+            authorUrlDraft.recipeId,
+            authorUrlDraft.routerReason
+          )
+        }
+      }
       boolean enrichMode = detMatches.isEmpty() && clarifyRows.isEmpty()
       if (enrichMode &&
         AuthoringIntentRecipeCatalog.authorVisibleSuggestsDraftContentFromAuthorUrl(routerVisibleBeforeClarify)) {
         log.warn(
-          'Intent recipe routing: draft-from-author-url signals on current turn but zero deterministic matches before enrich — check site intent-recipes.json override of draft_content_from_source and plugin deploy'
+          'Intent recipe routing: draft-from-author-url signals on current turn but zero deterministic matches — check site intent-recipes.json (toolsLoopAuthorUrlExclusive, deterministicMatch) and plugin Groovy deploy'
         )
       }
       if (enrichMode || clarifyRows.size() > 1) {
@@ -4370,7 +4499,12 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       out.routerReason = detMatch.routerReason?.toString()
       out.skipRecipePrefetch = Boolean.TRUE.equals(detMatch.skipPrefetch)
       out.toolsLoopPrefetchSupplement = AuthoringIntentRecipeCatalog.toolsLoopPrefetchSupplementFromMatch(detMatch)
+      out.toolsLoopPrefetchSupplementConfig = AuthoringIntentRecipeCatalog.toolsLoopPrefetchSupplementConfigFromMatch(detMatch)
       out.toolsLoopRequireSuccessfulTools = AuthoringIntentRecipeCatalog.toolsLoopRequireSuccessfulToolsFromMatch(detMatch)
+      String preludeOverrideAfterClarify = AuthoringIntentRecipeCatalog.matchedUserPreludeFromMatch(detMatch)
+      if (preludeOverrideAfterClarify) {
+        out.matchedUserPreludeOverride = preludeOverrideAfterClarify
+      }
       out.matchPass = intentClarified ? 'deterministic_after_clarify' : 'deterministic'
       return out
     }
@@ -4388,13 +4522,30 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       out.routingEngineWirePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
       return out
     }
-    if (!StudioAiAssistantProjectConfig.intentRecipeWholeTurnJsonRouterEnabled(cfg)) {
-      log.info('Intent recipe routing: no deterministic match after clarify — defer to plan loop (wholeTurnJsonRouterEnabled=false)')
+    String priorForRouter = AuthoringPreviewContext.extractPriorConversationBody(wireForMemory)?.trim()
+    boolean llmRouterWhenPrior =
+      StudioAiAssistantProjectConfig.intentRecipeLlmRouterWhenPriorConversation(cfg) &&
+        priorForRouter
+    boolean runJsonRouter =
+      StudioAiAssistantProjectConfig.intentRecipeWholeTurnJsonRouterEnabled(cfg) || llmRouterWhenPrior
+    if (!runJsonRouter) {
+      log.info(
+        'Intent recipe routing: no deterministic match after clarify — defer to plan loop (wholeTurnJsonRouterEnabled=false, llmRouterWhenPriorConversation={})',
+        llmRouterWhenPrior
+      )
       out.deferToPlanLoop = true
       out.matchPass = 'no_deterministic_defer_plan'
       out.catalogMd = catalogMd
       out.routingEngineWirePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
       return out
+    }
+    if (llmRouterWhenPrior &&
+      !StudioAiAssistantProjectConfig.intentRecipeWholeTurnJsonRouterEnabled(cfg)) {
+      log.info(
+        'Intent recipe routing: JSON recipe router (prior-conversation follow-up, priorAssistantChars={})',
+        plugins.org.craftercms.aiassistant.recipes.PriorConversationDraftExtract
+          .lastAssistantBlockText(priorForRouter)?.length() ?: 0
+      )
     }
     runIntentRoutingEnginePass(
       routeOps,
@@ -4404,11 +4555,12 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       AuthoringIntentRoutingEngine.PASS_BEFORE_ROUTER
     )
     String routingPrefixForRouter = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
-    String userRouter = routingPrefixForRouter +
-      authoringIntentRefineUserMessage(
-        '## Recipe catalog\n\n' + catalogMd + '\n\n## Author message (this turn)\n\n' + visible,
-        wireForMemory
-      )
+    String userRouter = routingPrefixForRouter + buildIntentRecipeRouterUserMessage(
+      catalogMd,
+      visible,
+      priorForRouter,
+      cfg
+    )
     String rawJson = authoringIntentRefineCompletionOrSimple(
       apiKey,
       model,
@@ -4466,6 +4618,7 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       out.skipRecipePrefetch = false
       out.matchPass = 'router'
       out.catalogMd = catalogMd
+      AuthoringIntentRecipeCatalog.copyRecipeToolsLoopPolicyToRoutingPass(out, recipe)
       return out
     }
     Map fbDet = AuthoringIntentRecipeCatalog.findDeterministicRecipeMatch(recipes, routeCtx)
@@ -4495,7 +4648,12 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       out.routerReason = fbDet.routerReason?.toString()
       out.skipRecipePrefetch = Boolean.TRUE.equals(fbDet.skipPrefetch)
       out.toolsLoopPrefetchSupplement = AuthoringIntentRecipeCatalog.toolsLoopPrefetchSupplementFromMatch(fbDet)
+      out.toolsLoopPrefetchSupplementConfig = AuthoringIntentRecipeCatalog.toolsLoopPrefetchSupplementConfigFromMatch(fbDet)
       out.toolsLoopRequireSuccessfulTools = AuthoringIntentRecipeCatalog.toolsLoopRequireSuccessfulToolsFromMatch(fbDet)
+      String preludeOverrideAfterRouter = AuthoringIntentRecipeCatalog.matchedUserPreludeFromMatch(fbDet)
+      if (preludeOverrideAfterRouter) {
+        out.matchedUserPreludeOverride = preludeOverrideAfterRouter
+      }
       out.matchPass = 'deterministic_after_router'
       out.catalogMd = catalogMd
       out.routerDecision = decision
@@ -4568,12 +4726,16 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
     double conf,
     double minC,
     String routerReason,
+    String fullWirePrompt,
     String visible,
     String authorFieldLabelOverride = null,
     boolean skipRecipePrefetch = false,
     String expansionWirePrefix = '',
     String toolsLoopPrefetchSupplement = '',
-    List toolsLoopRequireSuccessfulTools = null
+    Map toolsLoopPrefetchSupplementConfig = null,
+    List toolsLoopRequireSuccessfulTools = null,
+    String matchedUserPreludeOverride = null,
+    Closure recipePrefetchProgressListener = null
   ) {
     Map pfb = skipRecipePrefetch ?
       [
@@ -4582,7 +4744,7 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
         prefetchEnvelopeTruncated: false,
         initialBindings         : [:]
       ] :
-      AuthoringIntentRecipeEngine.runPrefetchBlock(ops, recipe, cfg)
+      AuthoringIntentRecipeEngine.runPrefetchBlock(ops, recipe, cfg, null, recipePrefetchProgressListener)
     String prefetch = (pfb.markdown ?: '').toString()
     List pfbSteps = pfb.prefetchSteps instanceof List ? (List) pfb.prefetchSteps : []
     boolean prefetchEnvTrunc = Boolean.TRUE.equals(pfb.prefetchEnvelopeTruncated)
@@ -4614,9 +4776,44 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
         }
       }
     }
+    Map recipeForToolsLoopPolicy = recipe instanceof Map ? (Map) recipe : [:]
+    if (!prefetchSupplementId && recipeForToolsLoopPolicy) {
+      prefetchSupplementId = AuthoringIntentRecipeCatalog.toolsLoopPrefetchSupplementFromMatch([recipe: recipeForToolsLoopPolicy])
+    }
+    if (requireSuccessfulTools.isEmpty() && recipeForToolsLoopPolicy) {
+      requireSuccessfulTools.addAll(
+        AuthoringIntentRecipeCatalog.toolsLoopRequireSuccessfulToolsFromMatch([recipe: recipeForToolsLoopPolicy])
+      )
+    }
     Map supplementResult = [:]
+    Map supplementConfig = toolsLoopPrefetchSupplementConfig instanceof Map ?
+      new LinkedHashMap<>(toolsLoopPrefetchSupplementConfig) :
+      [:]
+    if (supplementConfig.isEmpty() && recipeForToolsLoopPolicy) {
+      supplementConfig.putAll(
+        AuthoringIntentRecipeCatalog.toolsLoopPrefetchSupplementConfigFromMatch([recipe: recipeForToolsLoopPolicy])
+      )
+    }
+    if (prefetchSupplementId &&
+      !AuthoringIntentRecipeCatalog.collectPrefetchEngineSteps(recipe).isEmpty() &&
+      prefetch.trim()) {
+      supplementConfig.put('recipeContextPrefetchMarkdown', prefetch)
+    }
+    if (pfb.initialBindings instanceof Map && !((Map) pfb.initialBindings).isEmpty()) {
+      supplementConfig.put('prefetchInitialBindings', pfb.initialBindings)
+    }
+    if (recipePrefetchProgressListener instanceof Closure) {
+      supplementConfig.put('recipePrefetchProgressListener', recipePrefetchProgressListener)
+    }
     if (prefetchSupplementId) {
-      supplementResult = AuthoringIntentRecipeEngine.runPrefetchSupplement(prefetchSupplementId, ops, cfg, visible ?: '')
+      String prefetchWirePrompt = (fullWirePrompt ?: visible ?: '').toString()
+      supplementResult = AuthoringIntentRecipeEngine.runPrefetchSupplement(
+        prefetchSupplementId,
+        ops,
+        cfg,
+        prefetchWirePrompt,
+        supplementConfig
+      )
       String supplementMarkdown = (supplementResult?.markdown ?: '').toString()
       if (supplementMarkdown.trim()) {
         prefetch = prefetch + supplementMarkdown
@@ -4628,12 +4825,27 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
         pfbSteps = mergedSteps
       }
       hotpathDirective = hotpathDirective +
-        AuthoringIntentRecipeEngine.buildPrefetchSupplementHotpath(prefetchSupplementId, visible ?: '', supplementResult)
+        AuthoringIntentRecipeEngine.buildPrefetchSupplementHotpath(prefetchSupplementId, prefetchWirePrompt, supplementResult)
+      if ('createFromChatDraft'.equals(prefetchSupplementId) && supplementResult?.suggestedNewItemPath) {
+        String priorForPrefill = AuthoringPreviewContext.extractPriorConversationBody(prefetchWirePrompt)
+        result.createFromChatDraftPrefill = [
+          path                     : (supplementResult.suggestedNewItemPath ?: '').toString().trim(),
+          siblingPath              : (supplementResult.siblingPath ?: '').toString().trim(),
+          resolvedContentTypeId    : (supplementResult.resolvedContentTypeId ?: '').toString().trim(),
+          draftExtractReady        : Boolean.TRUE.equals(supplementResult.draftExtractReady),
+          priorConversationChars   : priorForPrefill?.length() ?: 0,
+          prefetchSupplementConfig : supplementResult.prefetchSupplementConfig instanceof Map ?
+            supplementResult.prefetchSupplementConfig :
+            supplementConfig
+        ]
+      }
     }
-    Map newContentItemSiblingHot = 'new_content_item'.equals(rid) ?
+    boolean newItemNeedsSiblingShape =
+      'new_content_item'.equals(rid) || 'createFromChatDraft'.equals(prefetchSupplementId)
+    Map newContentItemSiblingHot = newItemNeedsSiblingShape ?
       AuthoringIntentRecipeEngine.buildNewContentItemSiblingReadDirective(prefetch) :
       [directive: '', siblingGetContentPresent: Boolean.TRUE]
-    if ('new_content_item'.equals(rid)) {
+    if (newItemNeedsSiblingShape) {
       hotpathDirective = hotpathDirective + (newContentItemSiblingHot?.directive ?: '').toString()
     }
     String prefetchResolvedFieldId = (fieldHot?.resolvedFieldId ?: '').toString().trim()
@@ -4653,6 +4865,10 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
         visible
       )
     String orchPrelude = AuthoringIntentRecipeCatalog.matchedUserPrelude(recipe)
+    String preludeOverride = (matchedUserPreludeOverride ?: '').toString().trim()
+    if (preludeOverride) {
+      orchPrelude = preludeOverride
+    }
     if (orchPrelude) {
       prelude = orchPrelude + '\n\n' + prelude
     }
@@ -4694,10 +4910,37 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
     if ('open_page_inquiry'.equals(rid) && prefetchSkipRedundantGetForListedPath && !prefetchEnvTrunc) {
       matchedTelExtra.toolsLoopDisable = Boolean.TRUE
     }
-    if ('new_content_item'.equals(rid) &&
+    if (newItemNeedsSiblingShape &&
       !Boolean.TRUE.equals(newContentItemSiblingHot?.siblingGetContentPresent) &&
+      !Boolean.TRUE.equals(supplementResult?.siblingGetContentPresent) &&
       !Boolean.TRUE.equals(matchedTelExtra.toolsLoopSiblingGetContentRequired)) {
       matchedTelExtra.newContentItemSiblingGetContentRequired = Boolean.TRUE
+    }
+    String writeVerificationId =
+      AuthoringIntentRecipeCatalog.toolsLoopWriteVerificationFromMatch([recipe: recipeForToolsLoopPolicy])
+    Map writeVerificationConfig =
+      AuthoringIntentRecipeCatalog.writeVerificationConfigFromMatch([recipe: recipeForToolsLoopPolicy])
+    if (writeVerificationId) {
+      matchedTelExtra.toolsLoopWriteVerification = writeVerificationId
+    }
+    if (!writeVerificationConfig.isEmpty()) {
+      matchedTelExtra.toolsLoopWriteVerificationConfig = writeVerificationConfig
+    } else if (writeVerificationId) {
+      log.warn(
+        'Tools-loop: recipe {} has toolsLoopWriteVerification={} but empty writeVerification map — verification will only apply generic repairs',
+        rid ?: '(unknown)',
+        writeVerificationId
+      )
+    }
+    if (AuthoringIntentRecipeEngine.prefetchIncludesFormDefinitions(prefetch)) {
+      matchedTelExtra.toolsLoopFormDefsPrefetched = Boolean.TRUE
+    }
+    if (Boolean.TRUE.equals(supplementResult?.toolsLoopFastPath) ||
+      Boolean.TRUE.equals(supplementConfig?.toolsLoopFastPath) ||
+      (Boolean.TRUE.equals(matchedTelExtra.toolsLoopFormDefsPrefetched) &&
+        !AuthoringIntentRecipeCatalog.collectPrefetchEngineSteps(recipe).isEmpty() &&
+        prefetchRan)) {
+      matchedTelExtra.toolsLoopFastPath = Boolean.TRUE
     }
     result.recipeExecutionPlan = execPlan
     String inquiryHint = ''
@@ -4742,7 +4985,8 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
     String wireBaseUrl,
     Map toolsLoopSessionBundle,
     StudioToolOperations ops,
-    boolean allowExpansionRematch = false
+    boolean allowExpansionRematch = false,
+    Closure recipePrefetchProgressListener = null
   ) {
     Map result = [
       clarificationOnly     : false,
@@ -4864,6 +5108,7 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       Map detCtx = [
         cand                          : cand,
         routerVisible                 : routerVisible,
+        projectCfg                    : cfg,
         ops                           : ops,
         evaluateTranslateIntent       : { -> authorRequestLooksLikeTranslateIntent(cand, routerVisible) },
         evaluateConcreteFieldEdit     : {
@@ -4977,14 +5222,21 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
           activePass.confidence instanceof Number ? ((Number) activePass.confidence).doubleValue() : 1.0d,
           minC,
           activePass.routerReason?.toString(),
+          cand,
           routerVisible,
           authorFieldLabelEarly,
           Boolean.TRUE.equals(activePass.skipRecipePrefetch),
           expansionWirePrefix,
           activePass.toolsLoopPrefetchSupplement?.toString(),
+          activePass.toolsLoopPrefetchSupplementConfig instanceof Map ?
+            (Map) activePass.toolsLoopPrefetchSupplementConfig :
+            null,
           activePass.toolsLoopRequireSuccessfulTools instanceof List ?
             (List) activePass.toolsLoopRequireSuccessfulTools :
-            null
+            null,
+          (activePass.matchedUserPreludeOverride ?: '').toString().trim() ?:
+            AuthoringIntentRecipeCatalog.matchedUserPreludeFromMatch(activePass),
+          recipePrefetchProgressListener
         )
         if (matchedRoute.intentRecipeRoutingTelemetry instanceof Map) {
           Map matchedTel = (Map) matchedRoute.intentRecipeRoutingTelemetry
@@ -5784,6 +6036,312 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     return false
   }
 
+  /**
+   * Force {@code WriteContent} only when it is required and every other required tool has already succeeded.
+   */
+  private static boolean toolsLoopShouldForceWriteContentToolChoice(
+    Map<String, Boolean> requiredToolSuccess,
+    Map intentTelLoop
+  ) {
+    if (createFromChatDraftWriteVerificationActive(intentTelLoop)) {
+      if (!requiredToolSuccess.containsKey('WriteContent') ||
+        Boolean.TRUE.equals(requiredToolSuccess.get('WriteContent'))) {
+        return false
+      }
+      if (requiredToolSuccess.containsKey('ContentExists')) {
+        return Boolean.TRUE.equals(requiredToolSuccess.get('ContentExists'))
+      }
+      return false
+    }
+    if (!(requiredToolSuccess instanceof Map) || !requiredToolSuccess.containsKey('WriteContent')) {
+      return false
+    }
+    if (Boolean.TRUE.equals(requiredToolSuccess.get('WriteContent'))) {
+      return false
+    }
+    for (Map.Entry entry : requiredToolSuccess.entrySet()) {
+      String name = entry.key?.toString()?.trim() ?: ''
+      if ('WriteContent'.equals(name)) {
+        continue
+      }
+      if (!Boolean.TRUE.equals(entry.value)) {
+        return false
+      }
+    }
+    return true
+  }
+
+  private static boolean createFromChatDraftToolsLoopFastPath(Map intentTelLoop) {
+    return intentTelLoop instanceof Map &&
+      Boolean.TRUE.equals(intentTelLoop.get('toolsLoopFastPath'))
+  }
+
+  /**
+   * When recipe + supplement prefetch loaded discovery data, skip repeat read tools until WriteContent.
+   */
+  private static boolean toolsLoopSkipDiscoveryUntilWriteContent(
+    String fnName,
+    Map intentTelLoop,
+    Map<String, Boolean> requiredToolSuccess
+  ) {
+    if (!createFromChatDraftWriteVerificationActive(intentTelLoop)) {
+      return false
+    }
+    if (!createFromChatDraftToolsLoopFastPath(intentTelLoop) &&
+      !Boolean.TRUE.equals(intentTelLoop?.get('toolsLoopFormDefsPrefetched'))) {
+      return false
+    }
+    if (!toolsLoopRequiredToolsStillPending(requiredToolSuccess)) {
+      return false
+    }
+    if (!requiredToolSuccess.containsKey('WriteContent') ||
+      Boolean.TRUE.equals(requiredToolSuccess.get('WriteContent'))) {
+      return false
+    }
+    String n = (fnName ?: '').trim()
+    return [
+      'GetContentTypeFormDefinition',
+      'ListStudioContentTypes',
+      'GetContent',
+      'ResearchSiteContent',
+      'ListPagesAndComponents'
+    ].contains(n)
+  }
+
+  /**
+   * Human-readable scope for tool-progress lines (repository path, content type id, search query, etc.).
+   */
+  private static String toolProgressContextLabel(String toolName, Map input) {
+    Map inp = input instanceof Map ? input : [:]
+    String tn = (toolName ?: '').toString().trim()
+    if ('GetContentTypeFormDefinition'.equalsIgnoreCase(tn)) {
+      String contentTypeId = (inp.contentTypeId ?: '').toString().trim()
+      String contentPath = (inp.contentPath ?: '').toString().trim()
+      if (contentTypeId && contentPath) {
+        return contentTypeId + ' · ' + contentPath
+      }
+      if (contentTypeId) {
+        return contentTypeId
+      }
+      if (contentPath) {
+        return contentPath
+      }
+    }
+    String path = (inp.path ?: inp.contentPath ?: inp.contentTypeId ?: inp.templatePath ?: inp.contentType ?: inp.url ?: inp.previewUrl ?: '')
+      ?.toString()?.trim() ?: ''
+    return path
+  }
+
+  private static Map toolProgressInputFromArgsJson(String argsStr, JsonSlurper slurper, String toolName = null) {
+    try {
+      Object parsed = slurper.parseText(argsStr ?: '{}')
+      if (parsed instanceof Map) {
+        Map inp = new LinkedHashMap<>((Map) parsed)
+        String label = toolProgressContextLabel((toolName ?: '').toString(), inp)
+        if (label && !inp.path) {
+          inp.path = label
+        }
+        String repoPath = repoPathFromToolArgsMap((Map) parsed)
+        if (repoPath && !inp.contentPath && !inp.path) {
+          inp.path = repoPath
+        }
+        return inp
+      }
+    } catch (Throwable ignored) {
+    }
+    return [:]
+  }
+
+  private static boolean createFromChatDraftWriteVerificationActive(Map intentTelLoop) {
+    if (!(intentTelLoop instanceof Map)) {
+      return false
+    }
+    String verificationId = intentTelLoop.get('toolsLoopWriteVerification')?.toString()?.trim() ?: ''
+    if (plugins.org.craftercms.aiassistant.recipes.ToolsLoopWriteVerification.isActiveVerificationId(verificationId)) {
+      return true
+    }
+    String supplement = intentTelLoop.get('toolsLoopPrefetchSupplement')?.toString()?.trim() ?: ''
+    return 'createFromChatDraft'.equals(supplement)
+  }
+
+  private static Map createFromChatDraftWriteVerificationConfig(Map intentTelLoop) {
+    if (!(intentTelLoop instanceof Map)) {
+      return [:]
+    }
+    Object cfg = intentTelLoop.get('toolsLoopWriteVerificationConfig')
+    Map out = cfg instanceof Map ? new LinkedHashMap<>((Map) cfg) : [:]
+    String priorLabel = (intentTelLoop.get('toolsLoopPriorAuthorLabel') ?: '').toString().trim()
+    if (priorLabel) {
+      out.put('_prefetchPriorAuthorLabel', priorLabel)
+    }
+    Object derived = intentTelLoop.get('toolsLoopPriorDerivedRootFieldValues')
+    if (derived instanceof Map && !((Map) derived).isEmpty()) {
+      out.put('_prefetchPriorDerivedRootFieldValues', new LinkedHashMap<>((Map) derived))
+    }
+    Object nodeCands = intentTelLoop.get('toolsLoopNodeSelectorCandidates')
+    if (nodeCands instanceof List && !((List) nodeCands).isEmpty()) {
+      out.put('_prefetchNodeSelectorCandidates', new ArrayList<>((List) nodeCands))
+    }
+    String siblingPath = (intentTelLoop.get('toolsLoopSiblingTemplatePath') ?: '').toString().trim()
+    if (siblingPath) {
+      out.put('_siblingRepositoryPath', siblingPath)
+    }
+    return out
+  }
+
+  /**
+   * Recipe {@code toolsLoopWriteVerification}: repair UUIDs/dates/images, validate completeness, block bad writes.
+   * @return {@code proceed:true, argsStr} or {@code proceed:false, toolOut}
+   */
+  private static Map gateCreateFromChatDraftWriteContent(
+    String argsStr,
+    Map intentTelLoop,
+    StudioToolOperations ops,
+    JsonSlurper slurper
+  ) {
+    if (!createFromChatDraftWriteVerificationActive(intentTelLoop) || ops == null) {
+      return [proceed: true, argsStr: argsStr]
+    }
+    Map verificationConfig = createFromChatDraftWriteVerificationConfig(intentTelLoop)
+    if (verificationConfig.isEmpty()) {
+      return [
+        proceed : false,
+        toolOut : JsonOutput.toJson([
+          ok                      : false,
+          writeVerificationFailed : true,
+          message                 :
+            'WriteContent **rejected** — create-from-chat-draft requires a non-empty **writeVerification** map on the matched intent recipe. ' +
+              'Deploy site `intent-recipes.json` (see plugin docs example) and reload the AI Assistant plugin.',
+          nextStep                :
+            'Sync site intent-recipes for this workflow, ensure `writeVerification` is present, reload plugin, then retry WriteContent.'
+        ])
+      ]
+    }
+    try {
+      Object parsed = slurper.parseText(argsStr ?: '{}')
+      if (!(parsed instanceof Map)) {
+        return [proceed: true, argsStr: argsStr]
+      }
+      Map args = (Map) parsed
+      String path = repoPathFromToolArgsMap(args)
+      String contentXml = args.get('contentXml')?.toString()
+      if (!path?.trim() || !contentXml?.trim()) {
+        return [proceed: true, argsStr: argsStr]
+      }
+      String siteId = args.get('siteId')?.toString()?.trim()
+      if (!siteId) {
+        siteId = ops.resolveEffectiveSiteId('')
+      }
+      Map prep = plugins.org.craftercms.aiassistant.recipes.ToolsLoopWriteVerification.verifyAndPrepare(
+        ops,
+        siteId,
+        path,
+        contentXml,
+        verificationConfig
+      ) as Map
+      if (Boolean.TRUE.equals(prep.get('ok'))) {
+        String repaired = (prep.get('contentXml') ?: '').toString()
+        if (repaired && !repaired.equals(contentXml)) {
+          args.put('contentXml', repaired)
+          return [proceed: true, argsStr: JsonOutput.toJson(args)]
+        }
+        return [proceed: true, argsStr: argsStr]
+      }
+      List<String> errors = []
+      Object errObj = prep.get('errors')
+      if (errObj instanceof List) {
+        for (Object o : (List) errObj) {
+          String e = o?.toString()?.trim()
+          if (e) {
+            errors.add(e)
+          }
+        }
+      }
+      if (errors.isEmpty()) {
+        errors.add('WriteContent rejected: incomplete contentXml for create-from-chat-draft (write verification).')
+      }
+      StringBuilder msg = new StringBuilder()
+      msg.append('WriteContent **rejected** — fix every issue below, then call **WriteContent** again with corrected **contentXml**. ')
+      msg.append('Title and body must still come from **[Prior conversation]** verbatim (server does not rewrite draft text).\n')
+      errors.eachWithIndex { String line, int i ->
+        msg.append('\n').append(i + 1).append('. ').append(line)
+      }
+      Object repairs = prep.get('repairs')
+      if (repairs instanceof List && !((List) repairs).isEmpty()) {
+        msg.append('\n\n_Server applied repairs before validation but the document was still incomplete._')
+      }
+      return [
+        proceed : false,
+        toolOut : JsonOutput.toJson([
+          ok                      : false,
+          writeVerificationFailed : true,
+          path                    : path,
+          message                 : msg.toString(),
+          errors                  : errors,
+          nextStep                :
+            'Fix contentXml per recipe writeVerification errors and project authoring context, then re-call WriteContent — do not finish in prose only.'
+        ])
+      ]
+    } catch (Throwable t) {
+      log.error('toolsLoop write verification threw (blocking write): {}', t.message, t)
+      return [
+        proceed : false,
+        toolOut : JsonOutput.toJson([
+          ok                      : false,
+          writeVerificationFailed : true,
+          message                 :
+            'WriteContent rejected: server write verification failed unexpectedly. ' +
+              'Reload the AI Assistant plugin and ensure site intent-recipes writeVerification is configured.',
+          error                   : t.message ?: t.toString()
+        ])
+      ]
+    }
+  }
+
+  /**
+   * When create-from-chat-draft sees {@code exists:true}, the model must not treat discovery as done.
+   */
+  private static String augmentContentExistsWireForCreateFromChatDraft(
+    String toolWire,
+    String toolOutRaw,
+    Map intentTelLoop,
+    JsonSlurper slurper
+  ) {
+    if (!(intentTelLoop instanceof Map)) {
+      return toolWire ?: ''
+    }
+    String rid = intentTelLoop.get('recipeId')?.toString()?.trim() ?: ''
+    String supplement = intentTelLoop.get('toolsLoopPrefetchSupplement')?.toString()?.trim() ?: ''
+    boolean createDraftFlow = 'createFromChatDraft'.equals(supplement) ||
+      createFromChatDraftWriteVerificationActive(intentTelLoop)
+    if (!createDraftFlow) {
+      return toolWire ?: ''
+    }
+    try {
+      def parsed = slurper.parseText((toolOutRaw ?: '').toString())
+      if (parsed instanceof Map && Boolean.TRUE.equals(((Map) parsed).get('exists'))) {
+        StringBuilder extra = new StringBuilder()
+        extra.append('\n\n[Studio — create-from-draft: **exists=true** only means this path is already in git. ')
+        extra.append('Pick a **different** slug/path for a new post, or stop if the author asked to update that file. ')
+        extra.append('Discovery is **not** complete — you **must** still call **WriteContent** with full **contentXml** ')
+        extra.append('for the new path you choose.')
+        String checkedPath = ((Map) parsed).get('path')?.toString()?.trim() ?: ''
+        String suggested = (intentTelLoop?.toolsLoopSuggestedNewItemPath ?: '').toString().trim()
+        if (checkedPath && suggested && checkedPath.equalsIgnoreCase(suggested)) {
+          String alt = plugins.org.craftercms.aiassistant.tools.cms.support.CmsRepositorySupport
+            .suggestAlternateRepositoryPath(suggested)
+          if (alt && !alt.equalsIgnoreCase(suggested)) {
+            extra.append(' Suggested alternate: `').append(alt).append('`.')
+          }
+        }
+        extra.append(']\n')
+        return (toolWire ?: '') + extra.toString()
+      }
+    } catch (Throwable ignoredExistsAugment) {
+    }
+    return toolWire ?: ''
+  }
+
   private static boolean repoPathOnToolsLoopBannedList(String path, List<String> bannedPaths) {
     String p = (path ?: '').toString().trim()
     if (!p || !(bannedPaths instanceof List)) {
@@ -5984,32 +6542,134 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
   }
 
   /**
-   * Assistant markdown passed to confirmation {@code llmRefine}: prefer this round’s prose, else the last
-   * non-empty assistant message on the wire (avoids confirming on an empty final turn after tool rounds).
+   * Whether assistant prose is only a short tools-loop status line (not a draft to refine).
+   */
+  private static boolean toolsLoopAssistantProseTooThinForConfirmation(String text) {
+    String t = (text ?: '').toString().trim()
+    if (!t) {
+      return true
+    }
+    if (t.length() < 120) {
+      return true
+    }
+    if ((t =~ /(?i)^Applying your request with the appropriate tools\.?\s*$/).matches()) {
+      return true
+    }
+    return false
+  }
+
+  /**
+   * Collects {@code FetchHttpUrl} bodies from {@code role:tool} wire messages for confirmation {@code llmRefine}.
+   */
+  private static List<String> fetchHttpUrlBodiesFromWire(List wireMessages, int maxTotalChars) {
+    List<String> out = new ArrayList<>()
+    if (!(wireMessages instanceof List) || maxTotalChars < 256) {
+      return out
+    }
+    int used = 0
+    JsonSlurper slurper = new JsonSlurper()
+    for (Object rowObj : wireMessages) {
+      if (!(rowObj instanceof Map)) {
+        continue
+      }
+      Map row = (Map) rowObj
+      if (!'tool'.equals(row.get('role')?.toString())) {
+        continue
+      }
+      String content = flattenWireUserContent(row.get('content'))?.trim() ?: ''
+      if (!content || !content.contains('"body"')) {
+        continue
+      }
+      try {
+        Object parsed = slurper.parseText(content)
+        if (!(parsed instanceof Map)) {
+          continue
+        }
+        Map m = (Map) parsed
+        String url = (m.get('url') ?: '').toString().trim()
+        String body = (m.get('body') ?: '').toString().trim()
+        if (!body) {
+          continue
+        }
+        int room = maxTotalChars - used
+        if (room < 256) {
+          break
+        }
+        if (body.length() > room) {
+          body = body.substring(0, room) + '\n…[FetchHttpUrl body truncated for confirmation refine]'
+        }
+        String block = url ? "**URL:** ${url}\n\n${body}" : body
+        out.add(block)
+        used += body.length()
+      } catch (Throwable ignored) {
+      }
+    }
+    return out
+  }
+
+  /**
+   * Source markdown for confirmation {@code llmRefine}: author request + fetched reference(s) + any substantive
+   * assistant prose. Tool-only turns often end with a one-line status — refining that alone invents off-topic drafts.
+   */
+  private static String buildRecipeConfirmationSourceMarkdown(List wireMessages, String roundAssistantText) {
+    StringBuilder sb = new StringBuilder()
+    String authorRaw = firstAuthoringUserWirePlainText(wireMessages)
+    String author = ''
+    try {
+      author = AuthoringPreviewContext.stripStudioInjectedPromptBlocks(authorRaw)?.trim() ?: ''
+    } catch (Throwable ignored) {
+      author = (authorRaw ?: '').trim()
+    }
+    if (author) {
+      sb.append('## Author request\n\n').append(author).append('\n\n')
+    }
+    List<String> fetches = fetchHttpUrlBodiesFromWire(wireMessages, 20_000)
+    for (int i = 0; i < fetches.size(); i++) {
+      sb.append('## Reference material ').append(i + 1).append('\n\n').append(fetches.get(i)).append('\n\n')
+    }
+    String round = (roundAssistantText ?: '').toString().trim()
+    String assist = !toolsLoopAssistantProseTooThinForConfirmation(round) ?
+      round :
+      ''
+    if (!assist) {
+      String last = lastNonEmptyAssistantWireText(wireMessages)
+      if (!toolsLoopAssistantProseTooThinForConfirmation(last)) {
+        assist = last
+      }
+    }
+    if (assist) {
+      sb.append('## Assistant notes\n\n').append(assist).append('\n\n')
+    }
+    String built = sb.toString().trim()
+    if (built) {
+      return built
+    }
+    return (round ?: lastNonEmptyAssistantWireText(wireMessages) ?: '').trim()
+  }
+
+  /**
+   * Assistant markdown passed to confirmation {@code llmRefine}: author request, {@code FetchHttpUrl} bodies, and
+   * substantive assistant prose (not a thin tools-loop status line).
    */
   private static String resolveMarkdownForRecipeConfirmation(List wireMessages, String roundAssistantText) {
-    String round = (roundAssistantText ?: '').toString().trim()
-    if (round) {
-      return round
-    }
-    return lastNonEmptyAssistantWireText(wireMessages)
+    return buildRecipeConfirmationSourceMarkdown(wireMessages, roundAssistantText)
   }
 
   /** Author-visible markdown after JVM confirmation (structured payload preview + per-tool status). */
-  private static String buildRecipeConfirmationAuthorMarkdown(Map block, Map plan) {
+  private static String buildRecipeConfirmationAuthorMarkdown(Map block, Map plan, Map recipe = null) {
     if (!(block instanceof Map)) {
       return ''
     }
     Map payload = block.confirmationPayload instanceof Map ? (Map) block.confirmationPayload : [:]
     String preview = (block.refinedAssistantMarkdown ?: '').toString().trim()
+    Map llmRefineStep = (block.steps instanceof List) ?
+      ((List) block.steps).find { it instanceof Map && 'llmRefine'.equals(((Map) it).get('step')?.toString()) } :
+      null
     StringBuilder sb = new StringBuilder()
     if (payload instanceof Map && !payload.isEmpty()) {
       List<String> keyOrder = []
-      Map refineStep = (block.steps instanceof List) ?
-        ((List) block.steps).find { it instanceof Map && 'llmRefine'.equals(((Map) it).get('step')?.toString()) } :
-        null
-      if (refineStep instanceof Map && refineStep.outputKeys instanceof List) {
-        keyOrder = (List<String>) refineStep.outputKeys
+      if (llmRefineStep instanceof Map && llmRefineStep.outputKeys instanceof List) {
+        keyOrder = (List<String>) llmRefineStep.outputKeys
       } else {
         keyOrder = new ArrayList<>(payload.keySet())
       }
@@ -6069,19 +6729,33 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     if (sb.length() == 0 && Boolean.FALSE.equals(block.ok)) {
       sb.append('⚠️ **Confirmation steps finished with errors** — check Studio logs.\n')
     }
-    String sourceMd = (block.confirmationSourceMarkdown ?: '').toString().trim()
-    if (sourceMd) {
-      appendRecipeTurnSectionsForFollowUpChat(sb, sourceMd)
+    Map payloadForFollowUp = block.confirmationPayload instanceof Map ? (Map) block.confirmationPayload : [:]
+    String draftForFollowUp = (payloadForFollowUp.draft ?: '').toString().trim()
+    if (draftForFollowUp) {
+      String draftHeading = plugins.org.craftercms.aiassistant.recipes.PriorConversationDraftExtract
+        .followUpHeadingForPayloadKey(llmRefineStep instanceof Map ? (Map) llmRefineStep : [:], 'draft')
+      if (!draftHeading) {
+        List<String> configured = plugins.org.craftercms.aiassistant.recipes.PriorConversationDraftExtract
+          .confirmationFollowUpSectionHeadings(recipe, [:])
+        draftHeading = configured && !configured.isEmpty() ? configured[0] : 'draft'
+      }
+      sb.append('\n\n---\n\n## ').append(draftHeading).append('\n\n').append(draftForFollowUp).append('\n')
+    } else {
+      String sourceMd = (block.confirmationSourceMarkdown ?: '').toString().trim()
+      if (sourceMd) {
+        appendRecipeTurnSectionsForFollowUpChat(sb, sourceMd, recipe)
+      }
     }
     return sb.toString().trim()
   }
 
   /**
-   * Keeps {@code ## Draft body} (and related action-turn sections) in the author-visible message after
-   * recipe confirmation replaces the bubble — follow-up turns like “create a post from this draft” need it.
+   * Keeps recipe-configured {@code ##} sections in the author-visible message after confirmation — needed for
+   * follow-up turns that create repository items from prior chat prose.
    */
-  private static void appendRecipeTurnSectionsForFollowUpChat(StringBuilder sb, String sourceMd) {
-    List<String> headings = ['Draft body', 'Author idea', 'Work notes']
+  private static void appendRecipeTurnSectionsForFollowUpChat(StringBuilder sb, String sourceMd, Map recipe = null) {
+    List<String> headings = plugins.org.craftercms.aiassistant.recipes.PriorConversationDraftExtract
+      .confirmationFollowUpSectionHeadings(recipe, [:])
     boolean any = false
     for (String heading : headings) {
       String body = plugins.org.craftercms.aiassistant.recipes.RecipeMarkdownSections
@@ -6169,25 +6843,23 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       return none
     }
     long t0 = System.currentTimeMillis()
-    writeToolProgressSse(
-      sseOut,
-      'Recipe confirmation',
-      'start',
-      [progressMessage: ' **Running confirmation** (server refine + tools)…\n'] as Map,
-      null,
-      null,
-      null
-    )
+    Closure confirmationProgressListener = null
+    if (sseOut != null) {
+      confirmationProgressListener = { String tn, String ph, Map inp, Throwable er, Object tres, Long dur ->
+        writeToolProgressSse(sseOut, tn, ph, inp instanceof Map ? inp : [:], er, tres, dur)
+      }
+    }
     Map confirmationLlmContext = buildRecipeConfirmationLlmContext(toolsLoopSessionBundle)
     Map block = AuthoringIntentRecipeEngine.runConfirmationStepsBlock(
       ops,
       recipe,
       cfg,
       lastAssistantMarkdown,
-      confirmationLlmContext
+      confirmationLlmContext,
+      confirmationProgressListener
     )
     if (block instanceof Map) {
-      block.confirmationSourceMarkdown = (lastAssistantMarkdown ?: '').toString()
+      block.confirmationSourceMarkdown = (lastAssistantMarkdown ?: '').toString().trim()
     }
     long elapsed = System.currentTimeMillis() - t0
     writeToolProgressSse(sseOut, 'Recipe confirmation', 'done', [:], null, block, elapsed)
@@ -6211,7 +6883,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
         block.steps
       )
     }
-    String finalizeAuthorText = buildRecipeConfirmationAuthorMarkdown(block, plan)
+    String finalizeAuthorText = buildRecipeConfirmationAuthorMarkdown(block, plan, recipe)
     Map out = [
       ran                : true,
       finalizeAuthorText : finalizeAuthorText,
@@ -6460,14 +7132,28 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
             null
         String forceTool = intentTelForce?.get('toolsLoopForceTool')?.toString()?.trim() ?: ''
         if (forceTool && wireToolsIncludeNamedTool(effectiveWireTools, forceTool)) {
-          toolChoice = [type: 'function', function: [name: forceTool]]
-          log.info(
-            'Tools-loop tools-on: tool_choice forced to {} (intent recipe catalog, round 0) agentId={} recipeId={}',
-            forceTool,
-            agentId,
-            intentTelForce?.get('recipeId') ?: ''
-          )
+          boolean deferWriteForce =
+            'WriteContent'.equals(forceTool) &&
+              !toolsLoopShouldForceWriteContentToolChoice(requiredToolSuccess, intentTelForce)
+          if (!deferWriteForce) {
+            toolChoice = [type: 'function', function: [name: forceTool]]
+            log.info(
+              'Tools-loop tools-on: tool_choice forced to {} (intent recipe catalog, round 0) agentId={} recipeId={}',
+              forceTool,
+              agentId,
+              intentTelForce?.get('recipeId') ?: ''
+            )
+          }
         }
+      } else if (wireToolsIncludeNamedTool(effectiveWireTools, 'WriteContent') &&
+        toolsLoopShouldForceWriteContentToolChoice(requiredToolSuccess, intentTelLoop)) {
+        toolChoice = [type: 'function', function: [name: 'WriteContent']]
+        log.info(
+          'Tools-loop: tool_choice forced to WriteContent (required tool still pending) agentId={} round={} recipeId={}',
+          agentId,
+          round,
+          intentTelLoop?.get('recipeId') ?: ''
+        )
       }
       def reqMap = [
         model: model,
@@ -6613,6 +7299,19 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
         }
       }
       boolean willRunTools = runList instanceof List && !runList.isEmpty()
+      if (willRunTools && round > 0) {
+        if (toolsLoopRunListHasExecutableTools(
+          runList,
+          fetchHttpUrlCallsThisTurn,
+          maxFetchHttpUrlCallsThisTurn,
+          fetchedHttpUrlsThisTurn,
+          slurper
+        )) {
+          emitPendingToolsSse(ssePreToolAssistantText, runList, round, previousRoundHadRepoMutation)
+        } else {
+          emitToolsLoopModelTurnSse(ssePreToolAssistantText, round, previousRoundHadRepoMutation)
+        }
+      }
       if (ssePreToolAssistantText != null) {
         try {
           if (willRunTools) {
@@ -6696,8 +7395,20 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           toolsRan = true
           def toolPol =
             plugins.org.craftercms.aiassistant.tools.loop.ToolsLoopWirePolicyRegistry.policyFor(fnName)
+          if ('ContentExists'.equals(fnName)) {
+            String argsBefore = argsStr
+            argsStr = applyCreateFromChatDraftPrefillToContentExistsArgs(argsStr, toolsLoopSessionBundle, slurper)
+            if (!argsBefore.equals(argsStr) && fn instanceof Map) {
+              fn.put('arguments', argsStr)
+              log.info(
+                'Tools-loop: ContentExists args prefilled from create-from-chat-draft prefetch path agentId={}',
+                agentId
+              )
+            }
+          }
           if ('write_content'.equals(toolPol.normalizeArgsId)) {
             argsStr = plugins.org.craftercms.aiassistant.tools.AiOrchestrationTools.normalizeWriteContentToolArgsJson(argsStr)
+            argsStr = applyCreateFromChatDraftPrefillToWriteContentArgs(argsStr, toolsLoopSessionBundle, slurper)
             if (fn instanceof Map) {
               fn.put('arguments', argsStr)
             }
@@ -6751,6 +7462,30 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
               }
             } catch (Throwable ignoredDup) {
             }
+          }
+          if (toolsLoopSkipDiscoveryUntilWriteContent(fnName, intentTelLoop, requiredToolSuccess)) {
+            Map skipInp = toolProgressInputFromArgsJson(argsStr, slurper, fnName)
+            long skipT0 = System.currentTimeMillis()
+            writeToolProgressSse(ssePreToolAssistantText, fnName, 'start', skipInp, null, null, null)
+            String skipOut = JsonOutput.toJson([
+              ok                              : true,
+              skippedUntilWriteContentPending : true,
+              tool                            : fnName,
+              message                         :
+                "${fnName} skipped: recipe-engine prefetch already includes **formDefinitionXml** and discovery data for this turn. " +
+                  'Use the prefetch JSON bindings — do not reload. Call **ContentExists** on your new path, then **WriteContent** once with full **contentXml** from **[Prior conversation]**.'
+            ])
+            writeToolProgressSse(
+              ssePreToolAssistantText,
+              fnName,
+              'warn',
+              skipInp,
+              null,
+              slurper.parseText(skipOut),
+              System.currentTimeMillis() - skipT0
+            )
+            wireMessages << [role: 'tool', tool_call_id: id, content: skipOut]
+            continue
           }
           if (toolPol.repositoryMutation) {
             repoMutationThisRound = true
@@ -6843,8 +7578,47 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
             log.warn('Tools-loop tools-on: unknown tool {} agentId={}', fnName, agentId)
           } else {
             try {
-              toolOut = ChatCompletionsToolWire.runWithNativeToolCallId(id) {
-                tcb.call(argsStr)
+              if ('WriteContent'.equals(fnName)) {
+                Map gate = gateCreateFromChatDraftWriteContent(argsStr, intentTelLoop, ops, slurper)
+                if (Boolean.FALSE.equals(gate.proceed)) {
+                  Map wcInp = toolProgressInputFromArgsJson(argsStr, slurper)
+                  long wcT0 = System.currentTimeMillis()
+                  writeToolProgressSse(ssePreToolAssistantText, 'WriteContent', 'start', wcInp, null, null, null)
+                  toolOut = gate.toolOut?.toString() ?: ''
+                  roundHadWriteAttempt = true
+                  roundHadWriteFailure = true
+                  Object gateParsed = null
+                  try {
+                    gateParsed = slurper.parseText(toolOut)
+                  } catch (Throwable ignoredGateParse) {
+                  }
+                  writeToolProgressSse(
+                    ssePreToolAssistantText,
+                    'WriteContent',
+                    'warn',
+                    wcInp,
+                    null,
+                    gateParsed,
+                    System.currentTimeMillis() - wcT0
+                  )
+                  log.warn(
+                    'Tools-loop: WriteContent blocked by createFromChatDraft write verification agentId={} round={}',
+                    agentId,
+                    round
+                  )
+                } else {
+                  argsStr = (gate.argsStr ?: argsStr).toString()
+                  if (fn instanceof Map) {
+                    fn.put('arguments', argsStr)
+                  }
+                  toolOut = ChatCompletionsToolWire.runWithNativeToolCallId(id) {
+                    tcb.call(argsStr)
+                  }
+                }
+              } else {
+                toolOut = ChatCompletionsToolWire.runWithNativeToolCallId(id) {
+                  tcb.call(argsStr)
+                }
               }
             } catch (Throwable tex) {
               log.warn('Tools-loop tools-on: tool {} failed: {}', fnName, tex.message)
@@ -6948,6 +7722,9 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
             generateImageDataUrlByToolCallId,
             toolsLoopSessionBundle
           )
+          if ('ContentExists'.equals(fnName)) {
+            toolWire = augmentContentExistsWireForCreateFromChatDraft(toolWire, toolOut.toString(), intentTelLoop, slurper)
+          }
           if (toolWire.length() < toolOut.length() &&
             toolPol.wireOutputMode != plugins.org.craftercms.aiassistant.tools.loop.ToolsLoopWirePolicy.WIRE_COMPACT_GENERATE_IMAGE &&
             toolPol.wireOutputMode != plugins.org.craftercms.aiassistant.tools.loop.ToolsLoopWirePolicy.WIRE_COMPACT_FETCH_HTTP) {
@@ -7063,7 +7840,10 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           finished = true
           break
         }
-        previousRoundHadRepoMutation = repoMutationThisRound
+        previousRoundHadRepoMutation =
+          createFromChatDraftWriteVerificationActive(intentTelLoop) ?
+            roundHadWriteSuccess :
+            repoMutationThisRound
         consecutiveToolOnlyRounds++
         if (consecutiveToolOnlyRounds >= TOOLS_LOOP_STALL_FORCE_FINISH_ROUND) {
           log.warn(
@@ -7098,7 +7878,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       }
       consecutiveToolOnlyRounds = 0
       if (toolsLoopRequiredToolsStillPending(requiredToolSuccess)) {
-        if (toolsLoopRequiredToolsNoFinishBlocks < 2 && round < maxRounds - 1) {
+        if (round < maxRounds - 1) {
           toolsLoopRequiredToolsNoFinishBlocks++
           String guardMsg = AuthoringIntentRecipeCatalog.formatToolsLoopRequiredToolsGuardMessage(intentTelLoop)
           if (guardMsg?.trim()) {
@@ -7927,7 +8707,9 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
   }
 
   /**
-   * Logs + SSE immediately before each blocking {@code POST /v1/chat/completions} in the native tool loop (same 🛠️ channel).
+   * Logs + SSE immediately before each blocking {@code POST /v1/chat/completions} in the native tool loop.
+   * Round 0 emits "Working on your request"; follow-up rounds emit nothing here — the per-round tool-list
+   * announcement is emitted *after* the response arrives via {@link #emitPendingToolsSse}.
    */
   private static void emitRoundWaitSse(
     OutputStream o,
@@ -7944,20 +8726,146 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       model,
       wireJsonChars
     )
+    if (o == null || zeroBasedRound > 0) {
+      return
+    }
+    try {
+      String toolName = 'Tools-loop chat'
+      String pfx = toolProgressLinePrefix(toolName)
+      String line = pfx + ' **Working on your request** …\n'
+      String stage =
+        pipelineStageForToolsLoopChatLine(line, 'start', false, 0)
+      def event = [
+        text    : line,
+        metadata: [status: 'tool-progress', tool: toolName, phase: 'start', pipelineStage: stage]
+      ]
+      synchronized (o) {
+        o.write(("data: ${JsonOutput.toJson(event)}\n\n").getBytes(StandardCharsets.UTF_8))
+        o.flush()
+      }
+    } catch (Throwable ignored) {
+    }
+  }
+
+  /**
+   * True when at least one tool in the model's {@code tool_calls} list will run (not capped/skipped by loop guards).
+   */
+  private static boolean toolsLoopRunListHasExecutableTools(
+    List runList,
+    int fetchHttpUrlCallsThisTurn,
+    int maxFetchHttpUrlCallsThisTurn,
+    Set<String> fetchedHttpUrlsThisTurn,
+    JsonSlurper slurper
+  ) {
+    if (!(runList instanceof List) || runList.isEmpty()) {
+      return false
+    }
+    for (Object tcObj : runList) {
+      if (!(tcObj instanceof Map)) {
+        continue
+      }
+      Map tc = (Map) tcObj
+      def fn = tc.get('function')
+      String fnName = fn instanceof Map ? (fn.get('name')?.toString() ?: '') : ''
+      if (!fnName) {
+        continue
+      }
+      if (!'FetchHttpUrl'.equals(fnName)) {
+        return true
+      }
+      if (maxFetchHttpUrlCallsThisTurn > 0 && fetchHttpUrlCallsThisTurn >= maxFetchHttpUrlCallsThisTurn) {
+        continue
+      }
+      String argsStr = fn instanceof Map ? (fn.get('arguments')?.toString() ?: '{}') : '{}'
+      String url = fetchHttpUrlFromToolArgsJson(argsStr, slurper)?.trim()
+      if (url && fetchedHttpUrlsThisTurn instanceof Set && fetchedHttpUrlsThisTurn.contains(url)) {
+        continue
+      }
+      return true
+    }
+    return false
+  }
+
+  /**
+   * Model returned {@code tool_calls} that the loop will skip (e.g. duplicate FetchHttpUrl) — still waiting on chat.
+   */
+  private static void emitToolsLoopModelTurnSse(
+    OutputStream o,
+    int zeroBasedRound,
+    boolean previousRoundHadRepoMutation
+  ) {
     if (o == null) {
       return
     }
     try {
       String toolName = 'Tools-loop chat'
       String pfx = toolProgressLinePrefix(toolName)
-      String line
-      if (zeroBasedRound <= 0) {
-        line = pfx + ' **Working on your request** …\n'
-      } else if (previousRoundHadRepoMutation) {
-        line = pfx + ' **Checking the result** …\n'
-      } else {
-        line = pfx + ' **Continuing** …\n'
+      String label = previousRoundHadRepoMutation ? '**Checking the result** …' : '**Continuing model turn** …'
+      String line = pfx + ' ' + label + '\n'
+      String stage =
+        pipelineStageForToolsLoopChatLine(line, 'start', previousRoundHadRepoMutation, zeroBasedRound)
+      def event = [
+        text    : line,
+        metadata: [status: 'tool-progress', tool: toolName, phase: 'start', pipelineStage: stage]
+      ]
+      synchronized (o) {
+        o.write(("data: ${JsonOutput.toJson(event)}\n\n").getBytes(StandardCharsets.UTF_8))
+        o.flush()
       }
+    } catch (Throwable ignored) {
+    }
+  }
+
+  /**
+   * Emitted after the LLM response arrives and before tools run — announces what tools are about to execute.
+   * This replaces the generic "Continuing …" banner with meaningful intent (e.g. "Writing content …",
+   * "Checking the result …", "Reading page content …").
+   */
+  private static void emitPendingToolsSse(
+    OutputStream o,
+    List runList,
+    int zeroBasedRound,
+    boolean previousRoundHadRepoMutation
+  ) {
+    if (o == null || !(runList instanceof List) || runList.isEmpty()) {
+      return
+    }
+    try {
+      List<String> names = []
+      for (Object tc : runList) {
+        if (!(tc instanceof Map)) continue
+        def fn = ((Map) tc).get('function')
+        String n = fn instanceof Map ? fn.get('name')?.toString()?.trim() : null
+        if (n && !names.contains(n)) {
+          names << n
+        }
+      }
+      if (names.isEmpty()) {
+        return
+      }
+      String label
+      if (previousRoundHadRepoMutation) {
+        label = '**Checking the result** …'
+      } else if (names.any { it == 'WriteContent' || it == 'update_content' }) {
+        label = '**Writing content** …'
+      } else if (names.any { it == 'GetContent' }) {
+        label = '**Reading content** …'
+      } else if (names.any { it == 'GetPreviewHtml' }) {
+        label = '**Verifying the preview** …'
+      } else if (names.any { it == 'FetchHttpUrl' }) {
+        label = '**Fetching source** …'
+      } else if (names.any { it == 'WebSearch' || it == 'SerpApiWebSearch' }) {
+        label = '**Searching the web** …'
+      } else if (names.any { it == 'SlackPostMessage' }) {
+        label = '**Posting to Slack** …'
+      } else if (names.size() == 1) {
+        label = "**${names[0]}** …"
+      } else {
+        label = "**${names[0]}** + ${names.size() - 1} more …"
+      }
+      String toolName = 'Tools-loop chat'
+      String pfx = toolProgressLinePrefix(toolName)
+      String line = pfx + ' ' + label + '\n'
       String stage =
         pipelineStageForToolsLoopChatLine(line, 'start', previousRoundHadRepoMutation, zeroBasedRound)
       def event = [
@@ -8189,7 +9097,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     if (o == null) return
     try {
       def pfx = toolProgressLinePrefix(toolName)
-      def pathFull = (input?.path ?: input?.contentPath ?: input?.templatePath ?: input?.contentType ?: input?.url ?: input?.previewUrl ?: '')?.toString()?.trim() ?: ''
+      def pathFull = toolProgressContextLabel(toolName, input instanceof Map ? (Map) input : [:])
       if ('SerpApiWebSearch'.equalsIgnoreCase(toolName ?: '')) {
         String serpQ = (input?.query ?: input?.q ?: '')?.toString()?.trim() ?: ''
         if (!serpQ && toolResult instanceof Map) {
@@ -8713,7 +9621,8 @@ SerpApi and other tools may still work when only the chat host is blocked. From 
           StudioAiLlmKind.toolsLoopChatBaseUrlFromBundle(springAi),
           springAi,
           springAi.studioOps,
-          effectiveAuthoringIntentExpansionRematchEnabled(bodyPrompt, springAi.studioOps)
+          effectiveAuthoringIntentExpansionRematchEnabled(bodyPrompt, springAi.studioOps),
+          toolProgressListener
         )
         if (route?.intentRecipeRoutingTelemetry instanceof Map) {
           springAi.intentRecipeRoutingTelemetry = route.intentRecipeRoutingTelemetry
@@ -9058,6 +9967,11 @@ Check Studio logs for Spring AI / WebClient / reactor.netty lines emitted for th
           AtomicBoolean cancelRequested = new AtomicBoolean(false)
           AtomicBoolean toolsLoopTerminalEmitted = new AtomicBoolean(false)
           String toolDiagSessionId = 'td-' + java.util.UUID.randomUUID().toString()
+          def toolSecurityCtx = StudioToolOperations.captureSecurityContextCopy()
+          if (toolSecurityCtx != null && springAi.studioOps instanceof StudioToolOperations) {
+            springAi.studioOps =
+              ((StudioToolOperations) springAi.studioOps).withCapturedSecurityContext(toolSecurityCtx)
+          }
           try {
             def fut = pool.submit({
               aiAssistantToolWorkerDiagSessionBind(toolDiagSessionId)

@@ -63,6 +63,25 @@ Recipes do **not** replace `agents.json` or global `tools.json`; they layer on t
 | `when` leaf `authorProvidedHttpUrl` | Author-visible text includes at least one `http(s)` URL (pairs with `toolsLoopAuthorUrlExclusive`) |
 | `toolsLoopRequireSuccessfulTools` | Wire names that must succeed before the tools loop may finish (e.g. `["WriteContent"]`); prose-only “fake” tool lists are rejected |
 | `toolsLoopDisable` | Chat-only (no `tool_calls`) |
+| `toolsLoopWriteVerification` | Extension id (e.g. `createFromChatDraft`) — handled by `ToolsLoopWriteVerification` |
+| `writeVerification` | **Site declares all field ids** — plugin does not assume content-type shape |
+
+**`writeVerification` (site `intent-recipes.json` only — never hardcode field ids in plugin Groovy):**
+
+| Key | Purpose |
+|-----|---------|
+| `repairRootObjectIds` / `requireValidRootObjectIds` | UUID v4 + objectGroupId on root |
+| `inlineComponent.collectionFieldId` | Node-selector holding inline `<component>` (e.g. DCO `content_o`) |
+| `repairInlineObjectIds` / `requireDistinctInlineObjectIds` | Second UUID for inline item |
+| `dateFieldIds` + `requireRootDates` / `repairRootDates` | Which date elements must exist on root |
+| `bodyTextFieldId` + `minBodyTextChars` | Min plain-text length on inline (or root) RTE field |
+| `requiredRootFields` | Root elements that must be non-empty before write |
+| `deriveRootFieldsFromBody` | `{ "fieldId", "bodyTextFieldId", "maxLength", "strategy": "firstSentence" }` — server fill when empty |
+| `nodeSelectorFields` | `{ "fieldId", "minItems", "requireExistingPath", "forbiddenPathSubstrings" }` |
+
+**Topics / tags:** Prefetch taxonomy XML in `engineSteps` (e.g. `GetContent` → `taxonomyTopics` / `taxonomyTags`). The LLM picks keys that match the draft; **do not** use `writeVerification` to enforce counts, allowed keys, or thematic overlap — empty taxonomy fields are OK.
+
+Field ids in `writeVerification` are **site-declared**; plugin code must not default to a specific content type’s element names.
 
 **Routing:** `config/studio/scripts/aiassistant/config/tools.json` → `intentRecipeRouting` (`enabled`, `customRecipesPath`, `confirmationLlmRefineEnabled`).
 

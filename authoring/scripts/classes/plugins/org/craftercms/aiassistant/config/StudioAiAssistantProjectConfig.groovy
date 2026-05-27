@@ -264,6 +264,19 @@ final class StudioAiAssistantProjectConfig {
   }
 
   /**
+   * When {@code true} (default when omitted): after clarify/enrich with zero deterministic matches, run the JSON
+   * recipe router whenever the wire includes a {@code [Prior conversation …]} block — classifier reads the
+   * recipe catalog + prior turns + current message (no client phrase gates).
+   */
+  static boolean intentRecipeLlmRouterWhenPriorConversation(Map cfg) {
+    Map m = intentRecipeRoutingSection(cfg)
+    if (!m.containsKey('llmRouterWhenPriorConversation')) {
+      return true
+    }
+    Boolean.TRUE.equals(m.get('llmRouterWhenPriorConversation'))
+  }
+
+  /**
    * When {@code true} (default when omitted): clarify/enrich, expansion rematch, JSON router, and plan-defer probe may
    * run a bounded native-tool loop before their final formatted answer.
    */

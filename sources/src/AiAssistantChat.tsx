@@ -1363,38 +1363,181 @@ function clipContextChunk(s: string, max: number): string {
   return `${t.slice(0, max)}…`;
 }
 
+/** Prior-turn wire budget defaults (chars). */
+const PRIOR_TURNS_TOTAL_MAX_DEFAULT = 8000;
+/** Persist chat draft to CMS — full *Draft blog:* must survive abbreviation. */
+const PRIOR_TURNS_TOTAL_MAX_REPO_MATERIALIZE = 72000;
+const PRIOR_TURNS_USER_MAX = 2800;
+const PRIOR_TURNS_ASSISTANT_MAX = 1800;
+const PRIOR_TURNS_ASSISTANT_DRAFT_MAX = 68000;
+const PRIOR_TURNS_H2_SECTION_MAX = 5000;
+
+const DRAFT_H2_HEADINGS = ['Draft body', 'draft'];
+
+/** End of an `##` section: next heading or true EOF ($ alone matches line endings under /m). */
+const MARKDOWN_H2_SECTION_END = '(?=^##\\s|(?![\\s\\S]))';
+
+function assistantMarkdownContainsDraftMarkers(text: string): boolean {
+  const t = (text || '').trim();
+  if (!t) return false;
+  if (/\*Draft blog:\*/i.test(t) || /\*Draft title:\*/i.test(t)) {
+    return true;
+  }
+  for (const h of DRAFT_H2_HEADINGS) {
+    const re = new RegExp(`^##\\s+${h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'im');
+    if (re.test(t)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * When a Slack/assistant turn includes *Draft blog:*, return only the draft block (title + outline + body)
+ * so we do not concatenate ## root / pitch / sources and then clip the tail (which removed draft paragraphs).
+ */
+function extractPersistableDraftBlock(body: string): string {
+  const t = stripOrchestrationDebugComment(body).trim();
+  if (!t) return '';
+
+  for (const heading of DRAFT_H2_HEADINGS) {
+    const re = new RegExp(
+      `^##\\s+${heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\r?\\n([\\s\\S]*?)${MARKDOWN_H2_SECTION_END}`,
+      'im'
+    );
+    const m = re.exec(t);
+    if (m?.[1]?.trim()) {
+      return `## ${heading}\n\n${m[1].trim()}`;
+    }
+  }
+
+  const titleIdx = t.search(/\*Draft title:\*/i);
+  const blogIdx = t.search(/\*Draft blog:\*/i);
+  if (blogIdx >= 0) {
+    const start = titleIdx >= 0 && titleIdx < blogIdx ? titleIdx : blogIdx;
+    return t.slice(start).trim();
+  }
+  if (titleIdx >= 0) {
+    return t.slice(titleIdx).trim();
+  }
+  return '';
+}
+
+function combinedAssistantBodyForPriorTurn(m: UiMessage): string {
+  return combinedAssistantMarkdownForVerification(m).trim();
+}
+
+/** After streaming, fold plan/tools prose into `text` so the next turn's prior block is complete (no phrase gates). */
+function consolidateAssistantMessageTextForNextTurn(m: UiMessage): string {
+  const main = (m.text || '').trim();
+  const combined = combinedAssistantBodyForPriorTurn(m);
+  if (!combined || combined.length <= main.length + 80) {
+    return main;
+  }
+  return combined;
+}
+
 /**
  * Prior turns: assistant replies often repeat **## Plan** then **## Plan Execution** — keep execution/recap only to
  * shrink the wire prompt and reduce redundant reasoning.
  */
-/** Extracts one `## <heading>` section for prior-turn memory (follow-up “create post from this draft”). */
-function extractMarkdownH2Section(markdown: string, heading: string): string {
-  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const re = new RegExp(`^##\\s*${escaped}\\s*\\r?\\n([\\s\\S]*?)(?=^##\\s|$)`, 'im');
-  const m = re.exec(markdown.trim());
-  return m?.[1]?.trim() ?? '';
+/** Orchestration headings — not author draft prose; excluded from prior-turn draft retention. */
+const ORCHESTRATION_H2_HEADINGS = new Set(['plan', 'plan execution']);
+
+function isOrchestrationH2Heading(heading: string): boolean {
+  return ORCHESTRATION_H2_HEADINGS.has(heading.trim().toLowerCase());
 }
 
-function abbreviateAssistantTurnForPriorContext(body: string): string {
+/**
+ * Substantial `##` sections in assistant markdown (site-agnostic).
+ * Mirrors server PriorConversationDraftExtract.priorConversationContainsSubstantialMarkdownSection.
+ */
+function substantialMarkdownH2Sections(markdown: string, minBodyChars = 120): Array<{ heading: string; body: string }> {
+  const re = new RegExp(`^##\\s+([^\\n]+)\\r?\\n([\\s\\S]*?)${MARKDOWN_H2_SECTION_END}`, 'gim');
+  const out: Array<{ heading: string; body: string }> = [];
+  let m: RegExpExecArray | null;
+  const text = markdown.trim();
+  while ((m = re.exec(text))) {
+    const heading = (m[1] ?? '').trim();
+    const body = (m[2] ?? '').trim();
+    if (!heading || isOrchestrationH2Heading(heading) || body.length < minBodyChars) {
+      continue;
+    }
+    out.push({ heading, body });
+  }
+  return out;
+}
+
+function assistantTurnCarriesSubstantialDraftContext(prepared: string): boolean {
+  if (substantialMarkdownH2Sections(prepared).length > 0) {
+    return true;
+  }
+  return prepared.trim().length >= 200;
+}
+
+/** Deictic reference to prior chat (not the anchored Studio page). Mirrors server CONVERSATION_DEICTIC_REFERENCE. */
+function currentRequestRefersToPriorConversation(text: string): boolean {
+  const t = text.trim();
+  if (!t || /\b(?:this|the)\s+page\b/i.test(t)) {
+    return false;
+  }
+  return (
+    /\b(?:this|that|it|these|those)\b/i.test(t) ||
+    /\b(?:the|your)\s+(?:above|last|previous|prior|earlier|last\s+reply|last\s+message)\b/i.test(t) ||
+    /\bwhat\s+you\s+(?:wrote|said|generated|proposed|suggested)\b/i.test(t) ||
+    /\b(?:from|using|with)\s+(?:this|that|it|the\s+above)\b/i.test(t)
+  );
+}
+
+function currentRequestSuggestsRepoMaterializeFromConversation(text: string): boolean {
+  const t = text.trim();
+  if (!t) {
+    return false;
+  }
+  if (
+    /\b(?:shorter|longer|condense|trim it|expand it|rewrite it)\b/i.test(t) &&
+    !/\b(?:create|save|add|write|put|store|publish|make\s+it\s+into|turn|convert)\b/i.test(t)
+  ) {
+    return false;
+  }
+  return (
+    /\b(?:create|save|add|write|put|store|publish)\b[\s\S]{0,56}\b(?:this|that|it|these|those|above|conversation|chat|reply)\b/i.test(
+      t
+    ) ||
+    /\b(?:make|turn|convert)\s+(?:this|it|that)(?:\s+\w+){0,6}?\s+into\b/i.test(t) ||
+    /\b(?:from|using)\s+(?:this|that|the)\s+(?:draft|conversation|chat|reply|above)\b/i.test(t)
+  );
+}
+
+function abbreviateAssistantTurnForPriorContext(body: string, opts?: { useFullAssistantBody?: boolean }): string {
   let t = stripOrchestrationDebugComment(body).trim();
   if (!t) return '';
-  const draftBody = extractMarkdownH2Section(t, 'Draft body');
-  if (draftBody) {
-    const authorIdea = extractMarkdownH2Section(t, 'Author idea');
-    const workNotes = extractMarkdownH2Section(t, 'Work notes');
-    const parts = [`## Draft body\n\n${clipContextChunk(draftBody, 4000)}`];
-    if (authorIdea) {
-      parts.push(`## Author idea\n\n${clipContextChunk(authorIdea, 800)}`);
-    }
-    if (workNotes) {
-      parts.push(`## Work notes\n\n${clipContextChunk(workNotes, 600)}`);
-    }
-    return parts.join('\n\n');
+
+  if (opts?.useFullAssistantBody) {
+    const planExec = /^##\s+Plan Execution\b/im;
+    const match = planExec.exec(t);
+    const fromExec = match?.index != null ? t.slice(match.index).trim() : t;
+    return clipContextChunk(fromExec, PRIOR_TURNS_ASSISTANT_DRAFT_MAX);
+  }
+
+  const draftBlock = extractPersistableDraftBlock(t);
+  if (draftBlock && assistantMarkdownContainsDraftMarkers(t)) {
+    return draftBlock;
+  }
+
+  const substantial = substantialMarkdownH2Sections(t);
+  if (substantial.length > 0) {
+    return substantial
+      .map(({ heading, body: sectionBody }) => `## ${heading}\n\n${clipContextChunk(sectionBody, PRIOR_TURNS_H2_SECTION_MAX)}`)
+      .join('\n\n');
   }
   const planExec = /^##\s+Plan Execution\b/im;
   const match = planExec.exec(t);
   if (match?.index != null) {
-    t = t.slice(match.index).trim();
+    return t.slice(match.index).trim();
+  }
+  if (t.length >= 200) {
+    return clipContextChunk(t, PRIOR_TURNS_H2_SECTION_MAX);
   }
   return t;
 }
@@ -1404,24 +1547,34 @@ function abbreviateAssistantTurnForPriorContext(body: string): string {
  * without multi-message API history. Used for **every** AI panel embed (XB/ICE preview sidebar, floating dialog,
  * content-type form assistant) — not form-engine-specific.
  */
-function buildPriorTurnsContextBlock(prior: UiMessage[]): string {
+function buildPriorTurnsContextBlock(prior: UiMessage[], pendingUserText = ''): string {
   const relevant = prior.filter((m) => m.role === 'user' || m.role === 'assistant');
   if (relevant.length === 0) return '';
-  const totalMax = 8000;
   const slice = relevant.length > 8 ? relevant.slice(-8) : relevant;
+  const pending = pendingUserText.trim();
+  /** Multi-turn chat: send full stored assistant prose on the wire — routing uses the recipe LLM, not client phrase rules. */
+  const useExpandedPriorWire = !!pending && slice.some((m) => m.role === 'assistant');
+  const totalMax = useExpandedPriorWire ? PRIOR_TURNS_TOTAL_MAX_REPO_MATERIALIZE : PRIOR_TURNS_TOTAL_MAX_DEFAULT;
   const lines: string[] = [];
   let used = 0;
   for (const m of slice) {
     const label = m.role === 'user' ? 'User' : 'Assistant';
-    let body = (m.text || '').trim();
-    if (m.role === 'assistant' && !body && m.assistantPreToolsText) {
-      body = m.assistantPreToolsText.trim();
-    }
+    let body = m.role === 'assistant' ? combinedAssistantBodyForPriorTurn(m) : (m.text || '').trim();
     if (!body) continue;
     const prepared =
-      m.role === 'assistant' ? abbreviateAssistantTurnForPriorContext(body) : stripOrchestrationDebugComment(body).trim();
+      m.role === 'assistant'
+        ? abbreviateAssistantTurnForPriorContext(body, { useFullAssistantBody: useExpandedPriorWire })
+        : stripOrchestrationDebugComment(body).trim();
     if (!prepared.trim()) continue;
-    const perMsgMax = m.role === 'assistant' ? 1800 : 2800;
+    const assistantCarriesDraft =
+      m.role === 'assistant' &&
+      (assistantMarkdownContainsDraftMarkers(prepared) || assistantTurnCarriesSubstantialDraftContext(prepared));
+    const perMsgMax =
+      m.role === 'user'
+        ? PRIOR_TURNS_USER_MAX
+        : useExpandedPriorWire || assistantCarriesDraft
+          ? PRIOR_TURNS_ASSISTANT_DRAFT_MAX
+          : PRIOR_TURNS_ASSISTANT_MAX;
     const piece = clipContextChunk(prepared, perMsgMax);
     const line = `${label}: ${piece}`;
     if (used + line.length + 2 > totalMax) break;
@@ -1970,7 +2123,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
       }
     }
 
-    const priorBlock = buildPriorTurnsContextBlock(messages);
+    const priorBlock = buildPriorTurnsContextBlock(messages, expandedPrompt);
     const priorTurnsBlockLen = priorBlock.length;
     const wirePrompt = priorBlock ? `${priorBlock}Current request:\n${expandedPrompt}` : expandedPrompt;
 
@@ -2328,12 +2481,14 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                 const reasoningRest = (m.reasoningStreamText || '').trim();
                 const mainRest = (m.text || '').trim();
                 const foldReasoning = noTools && reasoningRest && !mainRest;
+                const persistedText = consolidateAssistantMessageTextForNextTurn(m);
                 return {
                   ...m,
                   isStreaming: false,
                   summarizingResults: false,
                   pipelineHeartbeat: undefined,
-                  ...(foldReasoning ? { text: reasoningRest, reasoningStreamText: '' } : {}),
+                  text: foldReasoning ? reasoningRest : persistedText,
+                  ...(foldReasoning ? { reasoningStreamText: '' } : {}),
                   ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls),
                   ...mergePipelineTimingFields(m, extractTerminalPipelineTiming(md))
                 };

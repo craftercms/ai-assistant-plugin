@@ -8,29 +8,19 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
 import plugins.org.craftercms.aiassistant.tools.cms.support.CmsRepositorySupport
+import plugins.org.craftercms.aiassistant.tools.cms.support.CmsStudioPlaceholderImage
 
-import java.awt.Color
-import java.awt.Font
-import java.awt.FontMetrics
-import java.awt.Graphics2D
-import java.awt.RenderingHints
-import java.awt.image.BufferedImage
-import java.io.ByteArrayOutputStream
 import java.io.StringReader
 import java.nio.charset.StandardCharsets
-import java.util.Base64
 import java.util.Calendar
 import java.util.LinkedHashSet
 import java.util.Locale
 import java.util.Set
 import java.util.TimeZone
-import javax.imageio.ImageIO
-
 /** Repository write pipeline for {@link plugins.org.craftercms.aiassistant.tools.cms.WriteContentTool}. */
 final class CmsWriteContent {
 
   private static final Logger log = LoggerFactory.getLogger(CmsWriteContent)
-  private static volatile String XB_REQUIRED_EMPTY_IMAGE_DATA_URL_CACHE
 
   private CmsWriteContent() {}
 
@@ -158,7 +148,7 @@ final class CmsWriteContent {
       }
       throw new IllegalArgumentException(
         "contentXml for '${pathLabel}' is missing typical Crafter item markers (<content-type>, <file-name>, or <merge-strategy>). " +
-          'Refusing to write — re-fetch with GetContent and send the full item XML.'
+          'Refusing to write — use ContentExists on the path; if exists=false this is a new item (GetContent on an existing sibling for shape, not this path); if exists=true, GetContent and send the full item XML.'
       )
     }
   }
@@ -802,64 +792,9 @@ final class CmsWriteContent {
     null
   }
 
-  /** Same visual defaults as studio-ui {@code generatePlaceholderImageDataUrl} (300×150, {@code #f0f0f0}, “Sample Image”). */
-  private static byte[] renderXbStyleSampleImagePngBytes() {
-    try {
-      final int w = 300
-      final int h = 150
-      BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB)
-      Graphics2D g = img.createGraphics()
-      try {
-        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
-        g.setColor(new Color(0xf0, 0xf0, 0xf0))
-        g.fillRect(0, 0, w, h)
-        String text = 'Sample Image'
-        Font font = new Font('SansSerif', Font.PLAIN, 30)
-        g.setFont(font)
-        g.setColor(Color.BLACK)
-        FontMetrics fm = g.getFontMetrics()
-        int tw = fm.stringWidth(text)
-        int x = Math.max(0, (w - tw) / 2)
-        int y = (h + fm.getAscent() - fm.getDescent()) / 2
-        g.drawString(text, x, y)
-      } finally {
-        g.dispose()
-      }
-      ByteArrayOutputStream bos = new ByteArrayOutputStream()
-      ImageIO.write(img, 'png', bos)
-      return bos.toByteArray()
-    } catch (Throwable t) {
-      log.warn('renderXbStyleSampleImagePngBytes: AWT/ImageIO failed ({}), using minimal PNG', t.message)
-      return Base64.getDecoder().decode(
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
-      )
-    }
-  }
-
   /**
-   * {@code data:image/png;base64,...} in the same format Experience Builder uses for required empty image-picker values
-   * (see studio-ui {@code generatePlaceholderImageDataUrl}).
-   */
-  private static String xbRequiredEmptyImagePickerDataUrl() {
-    String cached = XB_REQUIRED_EMPTY_IMAGE_DATA_URL_CACHE
-    if (cached != null) {
-      return cached
-    }
-    synchronized (CmsWriteContent.class) {
-      cached = XB_REQUIRED_EMPTY_IMAGE_DATA_URL_CACHE
-      if (cached != null) {
-        return cached
-      }
-      byte[] png = renderXbStyleSampleImagePngBytes()
-      String s = 'data:image/png;base64,' + Base64.getEncoder().encodeToString(png)
-      XB_REQUIRED_EMPTY_IMAGE_DATA_URL_CACHE = s
-      return s
-    }
-  }
-
-  /**
-   * Fills missing or empty required top-level {@code image-picker} elements with an XB-style {@code data:image/png;base64,...}
-   * placeholder (generated in-process — no repository path, no copying arbitrary form defaults).
+   * Fills missing, empty, or 1×1-stub required top-level {@code image-picker} elements with an XB-style
+   * {@code data:image/png;base64,...} placeholder (generated in-process — no repository path).
    */
   private static String applyRequiredImagePickerDataUrlDefaultsIfNeeded(StudioToolOperations ops, String siteId, String normalizedRepoPath, String xmlUtf8) {
     if (!xmlUtf8 || !normalizedRepoPath?.startsWith('/site/')) {
@@ -912,7 +847,7 @@ final class CmsWriteContent {
     if (root == null) {
       return xmlUtf8
     }
-    String dataUrl = xbRequiredEmptyImagePickerDataUrl()
+    String dataUrl = CmsStudioPlaceholderImage.defaultRequiredEmptyImagePickerDataUrl()
     int filled = 0
     for (Map spec : targets) {
       String id = spec.id?.toString()?.trim()
@@ -922,7 +857,7 @@ final class CmsWriteContent {
       Element child = findDirectChildByLocalName(root, id)
       if (child != null) {
         String existing = child.getTextTrim()
-        if (existing) {
+        if (existing && !CmsStudioPlaceholderImage.isMinimalStubDataUrl(existing)) {
           continue
         }
         child.setText(dataUrl)
@@ -936,7 +871,7 @@ final class CmsWriteContent {
       return xmlUtf8
     }
     log.info(
-      'applyRequiredImagePickerDataUrlDefaultsIfNeeded: filled {} required empty image-picker field(s) with data URL siteId={} path={} contentType={}',
+      'applyRequiredImagePickerDataUrlDefaultsIfNeeded: set {} required image-picker field(s) to sample placeholder siteId={} path={} contentType={}',
       filled, siteId, normalizedRepoPath, ct
     )
     itemDoc.asXML()

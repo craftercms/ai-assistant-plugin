@@ -40,7 +40,7 @@ Configure agents in **Project Tools → AI Assistant → Agents** (file: **`conf
   "agentId": "00000000-0000-4000-8000-000000000002",
   "label": "OpenAI authoring",
   "llm": "openAI",
-  "llmModel": "gpt-4o-mini",
+  "llmModel": "gpt-4.1-mini",
   "imageModel": "gpt-image-1-mini",
   "enableTools": true
 }

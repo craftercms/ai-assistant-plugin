@@ -643,7 +643,7 @@ final class AuthoringIntentRecipeCatalog {
     Map<String, Map> byId = new LinkedHashMap<>()
     String visible = deterministicRoutingPrompt(ctx)
     for (Map recipe : recipes) {
-      if (!(recipe instanceof Map) || !recipeToolsLoopAuthorUrlExclusive(recipe)) {
+      if (!(recipe instanceof Map) || !recipeEligibleForAuthorUrlDraftFastPath(recipe)) {
         continue
       }
       Map draftFast = buildAuthorUrlExclusiveDraftDeterministicMatch(recipe, ctx)
@@ -690,6 +690,10 @@ final class AuthoringIntentRecipeCatalog {
         if (prefetchSupplement) {
           match.toolsLoopPrefetchSupplement = prefetchSupplement
         }
+        String preludeOverride = entry?.get('matchedUserPreludeOverride')?.toString()?.trim() ?: ''
+        if (preludeOverride) {
+          match.matchedUserPreludeOverride = preludeOverride
+        }
         List<String> requireTools = mergeToolsLoopRequireSuccessfulTools(recipe, entry)
         if (!requireTools.isEmpty()) {
           match.toolsLoopRequireSuccessfulTools = requireTools
@@ -705,6 +709,12 @@ final class AuthoringIntentRecipeCatalog {
     }
 
     List<Map> out = new ArrayList<>(byId.values())
+    if (out.isEmpty()) {
+      Map resolved = resolveSingleAuthorUrlDraftDeterministicMatch(recipes, ctx)
+      if (resolved != null) {
+        out.add(resolved)
+      }
+    }
     out.sort { a, b ->
       int pa = a.priority instanceof Number ? ((Number) a.priority).intValue() : 0
       int pb = b.priority instanceof Number ? ((Number) b.priority).intValue() : 0
@@ -1494,6 +1504,16 @@ final class AuthoringIntentRecipeCatalog {
     'WriteContent'
   ])
 
+  /** Recipe catalog hints that identify author-URL draft workflows (bundled + typical site overrides). */
+  private static final List<String> AUTHOR_URL_DRAFT_RECIPE_HINT_MARKERS = Collections.unmodifiableList([
+    'from this:',
+    'from this url',
+    'draft a blog',
+    'draft blog',
+    'summarize from',
+    'summarizing from'
+  ])
+
   /**
    * True when the author pasted http(s) URL(s) and wants a chat draft/summary from that source (not create/save in repo).
    */
@@ -1509,8 +1529,64 @@ final class AuthoringIntentRecipeCatalog {
   }
 
   /**
+   * Site overrides often keep draft-from-URL {@code matchHints} / {@code routerReason} but omit {@code toolsLoopAuthorUrlExclusive}.
+   */
+  static boolean recipeEligibleForAuthorUrlDraftFastPath(Map recipe) {
+    if (!(recipe instanceof Map)) {
+      return false
+    }
+    if (recipeToolsLoopAuthorUrlExclusive(recipe)) {
+      return true
+    }
+    List<String> hints = matchHintsList(recipe)
+    for (String marker : AUTHOR_URL_DRAFT_RECIPE_HINT_MARKERS) {
+      for (String h : hints) {
+        if (h != null && h.equalsIgnoreCase(marker)) {
+          return true
+        }
+      }
+    }
+    for (Map entry : deterministicMatchEntries(recipe)) {
+      String reason = (entry.routerReason ?: '').toString().toLowerCase(Locale.ROOT)
+      if (reason.contains('draft') && reason.contains('author_url')) {
+        return true
+      }
+    }
+    return false
+  }
+
+  /**
+   * Highest-priority author-URL draft recipe match when structural {@code when} evaluation returned none.
+   */
+  static Map resolveSingleAuthorUrlDraftDeterministicMatch(List<Map> recipes, Map ctx) {
+    if (recipes == null || recipes.isEmpty() || !(ctx instanceof Map)) {
+      return null
+    }
+    String author = deterministicRoutingPrompt(ctx)
+    if (!authorVisibleSuggestsDraftContentFromAuthorUrl(author)) {
+      return null
+    }
+    Map best = null
+    int bestPri = Integer.MIN_VALUE
+    for (Map recipe : recipes) {
+      if (!recipeEligibleForAuthorUrlDraftFastPath(recipe)) {
+        continue
+      }
+      Map match = buildAuthorUrlExclusiveDraftDeterministicMatch(recipe, ctx)
+      if (!match) {
+        continue
+      }
+      int pri = match.priority instanceof Number ? ((Number) match.priority).intValue() : 0
+      if (best == null || pri > bestPri) {
+        best = match
+        bestPri = pri
+      }
+    }
+    return best
+  }
+
+  /**
    * Safety-net match for author-URL draft turns when JSON {@code when} fails (older sandboxes or broken site overrides).
-   * Applies to any recipe with {@code toolsLoopAuthorUrlExclusive} (bundled {@code draft_content_from_source} or site alias).
    */
   static Map buildAuthorUrlExclusiveDraftDeterministicMatch(Map recipe, Map ctx) {
     if (!(recipe instanceof Map) || !(ctx instanceof Map)) {
@@ -1523,18 +1599,22 @@ final class AuthoringIntentRecipeCatalog {
     if (recipeExcludedByDontMatchHints(recipe, author)) {
       return null
     }
-    String rid = recipe.id?.toString()?.trim() ?: 'draft_content_from_source'
+    String rid = recipe.id?.toString()?.trim() ?: ''
+    if (!rid) {
+      return null
+    }
     List<Map> dmEntries = deterministicMatchEntries(recipe)
     Map entry = dmEntries.isEmpty() ? [:] : dmEntries[0]
     int priority = entry.priority instanceof Number ? ((Number) entry.priority).intValue() : 92
     String reason = (entry.routerReason ?: 'deterministic_draft_content_from_author_url').toString()
     Map match = [
-      recipe      : recipe,
-      recipeId    : rid,
-      routerReason: reason,
-      skipPrefetch: Boolean.TRUE.equals(entry.skipPrefetch),
-      visible     : author,
-      priority    : priority
+      recipe                       : recipe,
+      recipeId                     : rid,
+      routerReason                 : reason,
+      skipPrefetch                 : Boolean.TRUE.equals(entry.skipPrefetch),
+      visible                      : author,
+      priority                     : priority,
+      deterministicAuthorUrlFastPath: Boolean.TRUE
     ]
     String prefetchSupplement = entry?.get('toolsLoopPrefetchSupplement')?.toString()?.trim() ?: ''
     if (!prefetchSupplement) {
@@ -1626,13 +1706,12 @@ final class AuthoringIntentRecipeCatalog {
 
     LinkedHashSet<String> allow = new LinkedHashSet<>()
     for (String n : toolsLoopAllowlistNames(recipe)) {
-      if ('FetchHttpUrl'.equals(n) || 'ResearchSiteContent'.equals(n)) {
+      if ('FetchHttpUrl'.equals(n)) {
         allow.add(n)
       }
     }
     if (allow.isEmpty()) {
       allow.add('FetchHttpUrl')
-      allow.add('ResearchSiteContent')
     }
     overlay.put('toolsLoopAllowlist', new ArrayList<>(allow))
     overlay.put('toolsLoopForceTool', '')
@@ -1659,6 +1738,90 @@ final class AuthoringIntentRecipeCatalog {
     }
     Map recipe = detMatch.recipe instanceof Map ? (Map) detMatch.recipe : null
     return recipe?.get('toolsLoopPrefetchSupplement')?.toString()?.trim() ?: ''
+  }
+
+  /**
+   * Optional {@code prefetchSupplementConfig} from deterministic match entry or recipe root (site-specific draft headings).
+   */
+  static Map toolsLoopPrefetchSupplementConfigFromMatch(Map detMatch) {
+    if (!(detMatch instanceof Map)) {
+      return [:]
+    }
+    Object fromEntry = detMatch.get('prefetchSupplementConfig')
+    if (fromEntry instanceof Map && !((Map) fromEntry).isEmpty()) {
+      return new LinkedHashMap<>((Map) fromEntry)
+    }
+    Map recipe = detMatch.recipe instanceof Map ? (Map) detMatch.recipe : null
+    Object fromRecipe = recipe?.get('prefetchSupplementConfig')
+    if (fromRecipe instanceof Map && !((Map) fromRecipe).isEmpty()) {
+      return new LinkedHashMap<>((Map) fromRecipe)
+    }
+    String supplementId = toolsLoopPrefetchSupplementFromMatch(detMatch)
+    if (supplementId && recipe?.prefetchSupplements instanceof Map) {
+      Object nested = ((Map) recipe.prefetchSupplements).get(supplementId)
+      if (nested instanceof Map) {
+        return new LinkedHashMap<>((Map) nested)
+      }
+    }
+    return [:]
+  }
+
+  /**
+   * Copies tools-loop policy from a matched recipe onto a routing-pass map (LLM router and attach fallbacks).
+   */
+  static void copyRecipeToolsLoopPolicyToRoutingPass(Map out, Map recipe) {
+    if (!(out instanceof Map) || !(recipe instanceof Map)) {
+      return
+    }
+    Map synthetic = [recipe: recipe]
+    String supplement = toolsLoopPrefetchSupplementFromMatch(synthetic)
+    if (supplement) {
+      out.toolsLoopPrefetchSupplement = supplement
+    }
+    Map cfg = toolsLoopPrefetchSupplementConfigFromMatch(synthetic)
+    if (!cfg.isEmpty()) {
+      out.toolsLoopPrefetchSupplementConfig = cfg
+    }
+    List<String> requireTools = toolsLoopRequireSuccessfulToolsFromMatch(synthetic)
+    if (!requireTools.isEmpty()) {
+      out.toolsLoopRequireSuccessfulTools = requireTools
+    }
+    String writeVerification = recipe?.get('toolsLoopWriteVerification')?.toString()?.trim() ?: ''
+    if (writeVerification) {
+      out.toolsLoopWriteVerification = writeVerification
+    }
+    Object wvCfg = recipe?.get('writeVerification')
+    if (wvCfg instanceof Map && !((Map) wvCfg).isEmpty()) {
+      out.toolsLoopWriteVerificationConfig = new LinkedHashMap<>((Map) wvCfg)
+    }
+  }
+
+  static Map writeVerificationConfigFromMatch(Map detMatch) {
+    if (!(detMatch instanceof Map)) {
+      return [:]
+    }
+    Map recipe = detMatch.recipe instanceof Map ? (Map) detMatch.recipe : null
+    Object fromEntry = detMatch.get('writeVerification')
+    if (fromEntry instanceof Map && !((Map) fromEntry).isEmpty()) {
+      return new LinkedHashMap<>((Map) fromEntry)
+    }
+    Object fromRecipe = recipe?.get('writeVerification')
+    if (fromRecipe instanceof Map && !((Map) fromRecipe).isEmpty()) {
+      return new LinkedHashMap<>((Map) fromRecipe)
+    }
+    return [:]
+  }
+
+  static String toolsLoopWriteVerificationFromMatch(Map detMatch) {
+    if (!(detMatch instanceof Map)) {
+      return ''
+    }
+    String fromEntry = detMatch.get('toolsLoopWriteVerification')?.toString()?.trim() ?: ''
+    if (fromEntry) {
+      return fromEntry
+    }
+    Map recipe = detMatch.recipe instanceof Map ? (Map) detMatch.recipe : null
+    return recipe?.get('toolsLoopWriteVerification')?.toString()?.trim() ?: ''
   }
 
   /**
@@ -1726,7 +1889,22 @@ final class AuthoringIntentRecipeCatalog {
     if (Boolean.FALSE.equals(sup.siblingGetContentPresent)) {
       overlay.put('toolsLoopSiblingGetContentRequired', Boolean.TRUE)
     }
-    Collections.unmodifiableMap(overlay)
+    if (Boolean.TRUE.equals(sup.draftExtractReady)) {
+      overlay.put('toolsLoopCreateFromChatDraftDraftExtractReady', Boolean.TRUE)
+    }
+    String priorLabel = (sup.priorAuthorLabelFromPrior ?: '').toString().trim()
+    if (priorLabel) {
+      overlay.put('toolsLoopPriorAuthorLabel', priorLabel)
+    }
+    Object derived = sup.priorDerivedRootFieldValues
+    if (derived instanceof Map && !((Map) derived).isEmpty()) {
+      overlay.put('toolsLoopPriorDerivedRootFieldValues', new LinkedHashMap<>((Map) derived))
+    }
+    Object nodeCands = sup.nodeSelectorCandidates
+    if (nodeCands instanceof List && !((List) nodeCands).isEmpty()) {
+      overlay.put('toolsLoopNodeSelectorCandidates', new ArrayList<>((List) nodeCands))
+    }
+    return Collections.unmodifiableMap(overlay)
   }
 
   /** Internal user-message when the loop must run repository tools but the model returned prose-only. */
@@ -1761,11 +1939,22 @@ final class AuthoringIntentRecipeCatalog {
     sb.append('[aiassistant: tools-loop required tools — internal]\n')
     sb.append('This recipe requires successful **').append(required.join('**, **')).append('** before you finish.\n')
     sb.append('Emit **real API tool_calls** — do not print `functions.WriteContent(...)` or numbered fake tool lists in prose.\n')
-    if (sibling) {
+    String supplement = (tel.toolsLoopPrefetchSupplement ?: '').toString().trim()
+    if (sibling && !'createFromChatDraft'.equals(supplement)) {
       sb.append('**GetContent** sibling template: `').append(sibling).append('`.\n')
     }
     if (suggested) {
       sb.append('**Target path:** `').append(suggested).append('`.\n')
+    }
+    if (Boolean.TRUE.equals(tel.get('toolsLoopCreateFromChatDraftDraftExtractReady'))) {
+      sb.append(
+        '**Prior-chat draft** is in **[Prior conversation]** — build **contentXml** from **GetContentTypeFormDefinition** (parent + nested types); copy title/body verbatim from chat; do not copy sibling field values.\n'
+      )
+    }
+    if (ToolsLoopWriteVerification.isActiveVerificationId(tel.get('toolsLoopWriteVerification')?.toString())) {
+      sb.append(
+        '**Write verification:** **WriteContent** is rejected until **contentXml** passes server checks (distinct UUIDs, verified node-selector paths, full body). Fix errors from the tool result and call **WriteContent** again. Topics/tags are your assignment from prefetch + draft — server does not enforce taxonomy fit.\n'
+      )
     }
     if (!banned.isEmpty()) {
       sb.append('**Banned paths:** ')
@@ -1909,7 +2098,7 @@ final class AuthoringIntentRecipeCatalog {
           .append('**; **at most ')
           .append(maxFetch > 0 ? Math.min(maxFetch, authorUrls.size()) : authorUrls.size())
           .append('** fetches total). The draft must reflect what you read from the author’s link(s).\n')
-        sb.append('- After those reads, call **ResearchSiteContent** when the recipe requires site overlap, then **complete the deliverable in chat** — no more **FetchHttpUrl**.\n')
+        sb.append('- After those reads, **complete the deliverable in chat** using the **##** section headings required by this recipe (see **matchedUserPrelude** / confirmation passthrough) — **no** **ResearchSiteContent**, **no SerpApiWebSearch**, and no more **FetchHttpUrl** on this turn.\n')
       } else if (!authorUrls.isEmpty()) {
         sb.append('- **Author-provided URL(s) in Current request (fetch first):** ')
         for (int i = 0; i < authorUrls.size(); i++) {
@@ -1946,6 +2135,18 @@ final class AuthoringIntentRecipeCatalog {
   static String matchedUserPrelude(Map recipe) {
     String p = recipe?.get('matchedUserPrelude')?.toString()?.trim()
     return p ?: ''
+  }
+
+  /**
+   * Deterministic-match prelude override when {@code matchedUserPreludeOverride} is set on the winning entry
+   * (e.g. create-from-chat-draft vs generic new item on the same recipe id).
+   */
+  static String matchedUserPreludeFromMatch(Map detMatch) {
+    if (!(detMatch instanceof Map)) {
+      return ''
+    }
+    String fromEntry = detMatch.get('matchedUserPreludeOverride')?.toString()?.trim() ?: ''
+    return fromEntry
   }
 
   /**

@@ -1,0 +1,154 @@
+{
+  "id": "recipe_1779227205002",
+  "title": "Propose DCO blog idea (Slack)",
+  "chatEmoji": "💡",
+  "chatLineSuffix": "workflow",
+  "toolsLoopAuthorUrlExclusive": true,
+  "toolsLoopAllowlist": ["FetchHttpUrl"],
+  "toolsLoopExcludeTools": [
+    "WriteContent",
+    "update_content",
+    "GetCrafterzingPlaybook",
+    "publish_content",
+    "TranslateContentItem",
+    "TranslateContentBatch",
+    "WebSearch",
+    "SlackPostMessage",
+    "SerpApiWebSearch",
+    "ResearchSiteContent"
+  ],
+  "toolsLoopFetchHttpUrlWireMaxChars": 8000,
+  "toolsLoopMaxFetchHttpUrlCalls": 1,
+  "deterministicMatch": [
+    {
+      "priority": 92,
+      "routerReason": "deterministic_draft_dco_blog",
+      "respectDontMatchHints": true,
+      "when": {
+        "allOf": [
+          { "authorMatchesRegex": "(?i)https?://[^\\s<>\"\\)\\]\\u00a0]+" },
+          {
+            "anyOf": [
+              { "authorMatchesRegex": "(?i)\\bdraft\\b[^\\n]{0,120}\\b(?:blog|article|post)\\b" },
+              { "authorMatchesRegex": "(?i)\\b(?:blog|article|post)\\b[^\\n]{0,80}\\bdraft\\b" },
+              { "authorMatchesRegex": "(?i)\\bsummariz(?:e|ing)\\b[^\\n]{0,120}\\b(?:blog|article|post|topics)\\b" },
+              { "authorMatchesRegex": "(?i)\\bfrom\\s+this\\s*:\\s*https?://" }
+            ]
+          },
+          {
+            "authorContainsNone": [
+              "create a new",
+              "save to repository",
+              "make a post",
+              "create a post",
+              "save the draft",
+              "WriteContent",
+              "make a post from this draft",
+              "post from this draft"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "matchHints": [
+    "draft a blog",
+    "draft blog",
+    "summarize from",
+    "summarizing from",
+    "from this:",
+    "from this url"
+  ],
+  "dontMatchHints": [
+    "create a new",
+    "new page",
+    "new article",
+    "save to repository",
+    "make a post",
+    "create a post",
+    "make a post from this draft",
+    "post from this draft"
+  ],
+  "matchedUserPrelude": "[Studio — Propose DCO blog (author URL)]\n1. **FetchHttpUrl** once on the author’s pasted URL only — no **ResearchSiteContent**, **WebSearch**, or **SerpApiWebSearch**.\n2. In your **last** assistant message (after tools finish), you **must** include a **## Draft body** section with:\n   - `Author voice: **…**` (from project / site author context)\n   - `*Draft title:*` …\n   - `*Outline:*` (bullets — one per topic the author named)\n   - `*Draft blog:*` then the **full article** (at least 6 paragraphs), grounded in the fetch\n3. Cover **every** topic the author listed — do not substitute unrelated generic filler unrelated to those topics.\n4. Also include **## root** (short pitch) and **## craftercmsAlignment** (bullets). Put the long article **only** under **## Draft body** / `*Draft blog:*`, not only in Slack-bound fields.\n5. **Do not** call **SlackPostMessage** in **tool_calls** — confirmation runs Slack on the server.\n",
+  "phases": {
+    "context": [
+      "Author pasted a source URL and named specific topics. Treat those topics as mandatory sections in the draft."
+    ],
+    "action": [
+      "**FetchHttpUrl** on the author URL (one call).",
+      "**Required in your final assistant markdown:** a **## Draft body** section containing `*Draft title:*`, `*Outline:*`, and `*Draft blog:*` followed by the complete blog prose. Without `*Draft blog:*` and full paragraphs, a follow-up **Make a post from this draft** cannot create repository content.",
+      "Optional **## root** and **## craftercmsAlignment** for pitch/alignment; keep them short.",
+      "Do not end the turn with only a one-line tools status or an empty **## draft** header."
+    ],
+    "confirmation": {
+      "hints": [
+        "**draft** for Slack is copied from **## Draft body** in the assistant turn (passthrough). Short Slack fields come from **llmRefine** JSON. Five **SlackPostMessage** steps use **$slackOutbound.*** — do not call them in **tool_calls**."
+      ],
+      "engineSteps": [
+        {
+          "llmRefine": "dcoBlogSlackOutbound",
+          "as": "slackOutbound",
+          "outputFormat": "json",
+          "outputKeys": ["root", "craftercmsAlignment", "pitch", "sources"],
+          "passthroughFromSource": {
+            "draft": ["Draft body", "draft"]
+          },
+          "passthroughFallbackMaxOutTokens": {
+            "draft": 8192
+          },
+          "passthroughFallbackHints": {
+            "draft": [
+              "**draft** (own Slack thread reply): Start `✏️ Draft · voice: **…**` (one voice from project context, bold). Then `*Draft title:*`, `*Outline:*` (one bullet per topic the author named in their request), then `*Draft blog:*` followed by the **full** article (8+ paragraphs) grounded in the fetched page.",
+              "Use only facts supported by the author request and the fetched URL. **Forbidden:** generic filler unrelated to the author’s named topics."
+            ]
+          },
+          "userPreamble": "From the assistant turn below, produce **four** Slack mrkdwn bodies: **root**, **craftercmsAlignment**, **pitch**, **sources** only. (**draft** is copied separately from **## Draft body**.) Today is **{{studio.today}}**.\n\n",
+          "hints": [
+            "**root**: `💡 New Blog Pitch:` + title; `✍️ Author voice:`; `📋 Summary:` one paragraph on why this topic now.",
+            "**craftercmsAlignment**: `🔝 CrafterCMS alignment` with ✅ / ⚠️ bullets (honest).",
+            "**pitch**: hook, audience, angle, why now — one label per line.",
+            "**sources**: `🔗 Sources` with the author URL and any citations from research.",
+            "Do not put the full article in root — long copy belongs in **draft** passthrough only."
+          ]
+        },
+        {
+          "tool": "SlackPostMessage",
+          "as": "slackRoot",
+          "args": { "text": "$slackOutbound.root", "iconEmoji": ":bulb:" }
+        },
+        {
+          "tool": "SlackPostMessage",
+          "args": {
+            "threadTs": "$slackRoot.ts",
+            "text": "$slackOutbound.craftercmsAlignment",
+            "iconEmoji": ":gear:"
+          }
+        },
+        {
+          "tool": "SlackPostMessage",
+          "args": {
+            "threadTs": "$slackRoot.ts",
+            "text": "$slackOutbound.draft",
+            "iconEmoji": ":memo:"
+          }
+        },
+        {
+          "tool": "SlackPostMessage",
+          "args": {
+            "threadTs": "$slackRoot.ts",
+            "text": "$slackOutbound.pitch",
+            "iconEmoji": ":dart:"
+          }
+        },
+        {
+          "tool": "SlackPostMessage",
+          "args": {
+            "threadTs": "$slackRoot.ts",
+            "text": "$slackOutbound.sources",
+            "iconEmoji": ":link:"
+          }
+        }
+      ]
+    }
+  }
+}

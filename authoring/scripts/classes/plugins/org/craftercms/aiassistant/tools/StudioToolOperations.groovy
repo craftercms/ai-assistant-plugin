@@ -15,6 +15,7 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.context.ApplicationContext
 import org.springframework.security.core.Authentication
+import org.springframework.security.core.context.SecurityContext
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.web.context.support.WebApplicationContextUtils
 
@@ -181,6 +182,32 @@ class StudioToolOperations {
       throw new IllegalStateException(errorMessage)
     }
     return s
+  }
+
+  /**
+   * Snapshot of the current servlet-thread {@link SecurityContext} for tool callbacks on worker threads.
+   * Returns null when there is no authenticated principal (caller may still run tools without install).
+   */
+  static SecurityContext captureSecurityContextCopy() {
+    try {
+      SecurityContext ctx = SecurityContextHolder.getContext()
+      def auth = ctx?.getAuthentication()
+      if (auth != null && auth.isAuthenticated()) {
+        SecurityContext copy = SecurityContextHolder.createEmptyContext()
+        copy.setAuthentication(auth)
+        return copy
+      }
+    } catch (Throwable ignored) {
+    }
+    return null
+  }
+
+  /** New ops instance with an updated security snapshot (same request/beans). */
+  StudioToolOperations withCapturedSecurityContext(SecurityContext ctx) {
+    if (ctx == null) {
+      return this
+    }
+    return new StudioToolOperations(request, applicationContext, params, ctx)
   }
 
   /** Username of the authenticated Studio user (same context as permission checks). */

@@ -54,6 +54,13 @@ final class ProseDeclaredToolCalls {
       if (!block) {
         continue
       }
+      List<Map> batch = resolveProseToolBatchFromJsonBlock(block, byName, slurper)
+      if (!batch.isEmpty()) {
+        for (Map inv : batch) {
+          appendProseInvocation(out, dedupe, inv, byName)
+        }
+        continue
+      }
       Map inv = resolveInvocationFromJsonBlock(block, prose, matcher.start(), byName, slurper)
       appendProseInvocation(out, dedupe, inv, byName)
     }
@@ -95,6 +102,59 @@ final class ProseDeclaredToolCalls {
       return
     }
     out.add(buildToolCallMap(wireName, args))
+  }
+
+  /**
+   * OpenAI-style {@code tool_uses} / {@code tool_calls} arrays inside fenced JSON
+   * (e.g. {@code recipient_name: functions.ContentExists}).
+   */
+  private static List<Map> resolveProseToolBatchFromJsonBlock(
+    String block,
+    Map<String, FunctionToolCallback> byName,
+    JsonSlurper slurper
+  ) {
+    Object parsed
+    try {
+      parsed = slurper.parseText(block)
+    } catch (Throwable ignored) {
+      return []
+    }
+    if (!(parsed instanceof Map)) {
+      return []
+    }
+    Object batch = ((Map) parsed).tool_uses ?: ((Map) parsed).tool_calls
+    if (!(batch instanceof List)) {
+      return []
+    }
+    List<Map> out = []
+    for (Object entryObj : (List) batch) {
+      if (!(entryObj instanceof Map)) {
+        continue
+      }
+      Map entry = (Map) entryObj
+      String wireName = proseWireNameFromBatchEntry(entry)
+      if (!wireName || !byName.containsKey(wireName)) {
+        continue
+      }
+      Object params = entry.parameters instanceof Map ? entry.parameters :
+        (entry.arguments instanceof Map ? entry.arguments : [:])
+      Map args = new LinkedHashMap<>((Map) params)
+      out.add([wireName: wireName, arguments: JsonOutput.toJson(args)])
+    }
+    return out
+  }
+
+  private static String proseWireNameFromBatchEntry(Map entry) {
+    String recipient = (entry.recipient_name ?: entry.recipientName ?: '').toString().trim()
+    if (recipient) {
+      int dot = recipient.lastIndexOf('.')
+      String tail = dot >= 0 ? recipient.substring(dot + 1) : recipient
+      if (tail) {
+        return tail
+      }
+    }
+    String explicit = (entry.tool ?: entry.name ?: '').toString().trim()
+    return explicit
   }
 
   /**
