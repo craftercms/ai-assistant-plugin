@@ -85,6 +85,9 @@
       "matchHints": [
         "latest news",
         "recent news",
+        "draft a blog",
+        "draft blog",
+        "blog about",
         "news on",
         "news about",
         "headlines",
@@ -387,8 +390,9 @@
         "priority": 70,
         "routerReason": "deterministic_revert_content_version",
         "skipPrefetch": true,
-        "requiresAnchoredSiteXml": true,
-        "authorFromMatchHints": true,
+        "when": {
+          "allOf": ["anchoredSiteXml", "repositoryVersionRevert"]
+        },
         "respectDontMatchHints": true
       },
       "matchHints": ["revert", "undo", "rollback", "restore version", "previous version"],
@@ -398,7 +402,10 @@
         "describe",
         "explain",
         "what is this page",
-        "tell me about"
+        "tell me about",
+        "draft",
+        "blog",
+        "news"
       ],
       "phases": {
         "context": ["Confirm siteId and anchored repository path from Studio context."],

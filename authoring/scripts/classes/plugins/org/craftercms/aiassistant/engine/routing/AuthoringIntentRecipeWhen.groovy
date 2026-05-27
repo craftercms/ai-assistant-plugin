@@ -211,6 +211,8 @@ private AuthoringIntentRecipeWhen() {}
         return AuthoringPreviewContext.authorVisibleSuggestsIntentRecipeGenerateImage(author)
       case 'authorProvidedHttpUrl':
         return !AuthoringIntentRecipeCatalog.extractAuthorHttpUrls(author).isEmpty()
+      case 'repositoryVersionRevert':
+        return AuthoringPreviewContext.authorVisibleSuggestsRevertIntent(author)
       default:
         return false
     }

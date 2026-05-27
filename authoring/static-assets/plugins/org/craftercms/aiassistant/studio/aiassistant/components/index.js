@@ -37920,6 +37920,9 @@ var recipes = [
 		matchHints: [
 			"latest news",
 			"recent news",
+			"draft a blog",
+			"draft blog",
+			"blog about",
 			"news on",
 			"news about",
 			"headlines",
@@ -38242,8 +38245,12 @@ var recipes = [
 			priority: 70,
 			routerReason: "deterministic_revert_content_version",
 			skipPrefetch: true,
-			requiresAnchoredSiteXml: true,
-			authorFromMatchHints: true,
+			when: {
+				allOf: [
+					"anchoredSiteXml",
+					"repositoryVersionRevert"
+				]
+			},
 			respectDontMatchHints: true
 		},
 		matchHints: [
@@ -38259,7 +38266,10 @@ var recipes = [
 			"describe",
 			"explain",
 			"what is this page",
-			"tell me about"
+			"tell me about",
+			"draft",
+			"blog",
+			"news"
 		],
 		phases: {
 			context: [

@@ -112,6 +112,8 @@ class AuthoringPreviewContext {
         '(?is)\\[Request anchor[^\\]]*\\][^\\n]*\\nRepository path:\\s*[^\\n]+\\n(?:Content-type id:\\s*[^\\n]+\\n)?\\s*',
         ''
       )
+      // --- Working CMS site … --- (prepended before preview context in assembleOrchestrationPrompt)
+      out = out.replaceAll('(?ms)\\n\\n--- Working CMS site[\\s\\S]*?\\n---\\s*', '')
       // --- Studio preview context … --- (legacy title: Studio authoring context)
       def ctxIdx = out.indexOf('--- Studio preview context')
       if (ctxIdx < 0) {
@@ -448,12 +450,19 @@ Use these when the author asks about "today", "now", freshness, or dated content
     if (!s.trim()) {
       return ''
     }
-    int idx = s.indexOf('\n\n--- Studio preview context')
-    if (idx < 0) {
-      idx = s.indexOf('\n\n--- Studio authoring context')
+    int cut = s.length()
+    for (String marker : [
+      '\n\n--- Working CMS site',
+      '\n\n--- Studio preview context',
+      '\n\n--- Studio authoring context'
+    ]) {
+      int idx = s.indexOf(marker)
+      if (idx >= 0 && idx < cut) {
+        cut = idx
+      }
     }
-    if (idx >= 0) {
-      return s.substring(0, idx).trim()
+    if (cut < s.length()) {
+      return s.substring(0, cut).trim()
     }
     return extractAuthorCurrentRequestVisible(s) ?: stripStudioInjectedPromptBlocks(s)?.trim() ?: ''
   }

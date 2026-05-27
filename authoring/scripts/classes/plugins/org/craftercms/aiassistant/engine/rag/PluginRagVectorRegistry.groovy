@@ -4,7 +4,7 @@ import plugins.org.craftercms.aiassistant.studio.config.StudioAiAssistantProject
 import plugins.org.craftercms.aiassistant.engine.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 
-@Grab(group='org.springframework.ai', module='spring-ai-core', version='1.1.7', initClass=false)
+@Grab(group='org.springframework.ai', module='spring-ai-model', version='1.1.7', initClass=false)
 @Grab(group='org.springframework.ai', module='spring-ai-openai', version='1.1.7', initClass=false)
 
 import groovy.json.JsonOutput

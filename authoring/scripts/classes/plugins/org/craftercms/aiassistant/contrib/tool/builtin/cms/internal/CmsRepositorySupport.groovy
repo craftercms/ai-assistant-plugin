@@ -124,7 +124,7 @@ private CmsRepositorySupport() {}
     sink.put('contentTypeIdFromXml', ct)
     sink.put(
       'contentTypeCatalogHint',
-      "This file's <content-type> is **${ct}**. For **GetContentTypeFormDefinition** targeting **this same repository file**, pass **contentTypeId='${ct}'** or **contentPath='${p}'**. Do **not** substitute **/page/page_generic** unless **${ct}** is literally **/page/page_generic**."
+      "This file's <content-type> is **${ct}**. For **GetContentTypeFormDefinition** targeting **this same repository file**, pass **contentTypeId='${ct}'** or **contentPath='${p}'**. Do **not** substitute a different **contentTypeId** than **${ct}** for this path."
     )
   }
 

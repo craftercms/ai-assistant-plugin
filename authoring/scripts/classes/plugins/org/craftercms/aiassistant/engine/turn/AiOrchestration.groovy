@@ -27,7 +27,9 @@ import plugins.org.craftercms.aiassistant.contrib.llm.wire.openaispec.OpenAiSpec
 import plugins.org.craftercms.aiassistant.contrib.llm.script.StudioAiScriptLlmContainerRuntime
 import plugins.org.craftercms.aiassistant.contrib.tool.builtin.http.OutboundHttpPolicy
 
-@Grab(group='org.springframework.ai', module='spring-ai-core', version='1.1.7', initClass=false)
+// Spring AI 1.1.x: no spring-ai-core on Maven Central — use split modules (was 1.0.0-M6 spring-ai-core).
+@Grab(group='org.springframework.ai', module='spring-ai-model', version='1.1.7', initClass=false)
+@Grab(group='org.springframework.ai', module='spring-ai-client-chat', version='1.1.7', initClass=false)
 @Grab(group='org.springframework.ai', module='spring-ai-openai', version='1.1.7', initClass=false)
 @Grab(group='org.springframework.ai', module='spring-ai-anthropic', version='1.1.7', initClass=false)
 @Grab(group='io.projectreactor', module='reactor-core', version='3.6.6', initClass=false)
@@ -644,11 +646,11 @@ You MUST call at least one tool before giving your final response.
 Do not respond with prose-only output for this request (no final answer that skips tools).
 **WriteContent**, **publish_content**, and **revert_change** are **not registered** — never call them.
 After **update_content** (or sufficient **GetContent** / **GetContentTypeFormDefinition**), your **final** reply must include **`aiassistantFormFieldUpdates`** JSON (see system **Form-engine client-forward mode**) so the Studio form can apply edits — do not substitute MCP commands or “paste into Studio” tutorials.
-Follow system **Plan when warranted** (see STUDIO POLICY). **Simple** (**one** tool): one or two sentences, then **`tool_calls`** — **skip** **## Plan**. **Complex** (**more than one** tool): output **## Plan** with **📋** steps formulated from required **tools** and any **matched recipe** phases (each line names a **concrete visitor- or editor-visible outcome**); **do not** call tools until that checklist is visible. Then follow the plan; after each tool refresh the **same** **📋** lines with **✅** / **❌** / **⚠️** / **⬜** only. When you narrate tool use in your own words, prefix with **🛠️**. Do **not** fake server-style tool log lines (see system STUDIO POLICY).
+Follow **Plan when warranted** in the system message. **Simple** (**one** tool): one or two sentences, then **`tool_calls`** — **skip** **## Plan**. **Complex** (**more than one** tool): **## Plan** with **📋** steps from **tools + matched recipe** phases (concrete outcomes); then **`tool_calls`**. Refresh the **same** **📋** lines with **✅** / **❌** / **⚠️** / **⬜** only. Prefix narrated tool use with **🛠️**. Do **not** fake server-style tool log lines.
 Do **not** paste full FreeMarker (`.ftl`) bodies or large XML dumps into the author's chat — summarize outcomes; they edit in the form.
 If target path/id is unclear and the user message does not include **Studio authoring context** with a current repository path, call discovery tools first.
 Your **final** reply after tools must state **success or problems** using **✅** / **❌** / **⚠️**, include a **clear business-friendly** recap under **## Plan Execution** (not **## Plan** again) that mirrors the **📋** checklist — **open that section** with one short line that **core work is done** and the bullets are **recap / verification**, then **ask what's next**.
-For **content XML** (pages/components): preserve `<page>`/`<component>` and field tags from the current file and content type (`formFieldIds` / GetContentTypeFormDefinition). For GetContentTypeFormDefinition use **contentPath** or copy **contentTypeId** from `<content-type>` — never infer content type from filename. For **page-wide** translate/tone/rewrite, include **all referenced component** items, not the page file only (see system **“This page”** rule).
+For **content XML** (pages/components): preserve `<page>`/`<component>` and field tags from the current file and content type (`formFieldIds` / GetContentTypeFormDefinition). For GetContentTypeFormDefinition use **contentPath** or copy **contentTypeId** from `<content-type>` — never infer content type from filename. For **page-wide** translate/tone/rewrite, include **all referenced component** items, not the page file only (**ListContentDependencyScope** then per-path tools).
 When the author only asked to **update content** — **field values and item XML / static-assets**, not template or schema **file edits** (e.g. tone, grammar, proofreading, translate/localize, copy, rephrase) — use **update_content** / **GetContent** — **do not** call **update_template** or **update_content_type** to fix gaps in those tasks. You **may** use **analyze_template** or **GetContent** on `.ftl` **read-only** to diagnose why preview still disagrees with the goal; if the issue is **in the template** (hardcoded copy, wrong defaults, etc.), **tell the author** (path + brief evidence) — do not patch FTL without explicit consent to change templates.
 [/TOOL-GUARD]
 
@@ -660,7 +662,7 @@ This user request is a content/template/config modification task.
 You MUST call at least one tool before giving your final response.
 The repository item **${normProt}** is open in the Studio **content form** with client-side apply: for **that path only**, do **not** call **WriteContent**, **publish_content**, or **revert_change** (they are blocked) — use **`aiassistantFormFieldUpdates`** in your **final** JSON for that item.
 For **any other path**, you may call **WriteContent** (and publish/revert) as usual after **update_*** tools.
-Follow system **Plan when warranted** (see STUDIO POLICY). **Simple** (**one** tool): one or two sentences, then **`tool_calls`** — **skip** **## Plan**. **Complex** (**more than one** tool): **## Plan** with **📋** steps from **tools + matched recipe** phases when present (concrete outcomes only) before tools. Then **follow that plan**; after each tool refresh the **same** **📋** lines with **✅** / **❌** / **⚠️** / **⬜** only. When you narrate tool use in your own words, prefix with **🛠️**. Do **not** fake server-style tool log lines (see system STUDIO POLICY).
+Follow **Plan when warranted** in the system message. **Simple** (**one** tool): one or two sentences, then **`tool_calls`** — **skip** **## Plan**. **Complex** (**more than one** tool): **## Plan** with **📋** steps from **tools + matched recipe** phases when present (concrete outcomes only) before tools. Then **follow that plan**; after each tool refresh the **same** **📋** lines with **✅** / **❌** / **⚠️** / **⬜** only. Prefix narrated tool use with **🛠️**. Do **not** fake server-style tool log lines.
 Do **not** paste full FreeMarker (`.ftl`) bodies or large XML dumps into the author's chat — summarize outcomes.
 Your **final** reply after tools must state **success or problems** using **✅** / **❌** / **⚠️**, include a **clear business-friendly** recap under **## Plan Execution** — **lead with** one short **done + now wrapping up** line, then markers — and **ask what's next**.
 When the author only asked to **update content** — **field values and item XML / static-assets**, not template or schema **file edits** — use **update_content** / **GetContent** — **do not** call **update_template** or **update_content_type** to fix those tasks. You **may** use **analyze_template** or **GetContent** on `.ftl` **read-only** to diagnose; if the issue is **in the template**, **tell the author** — do not patch FTL without explicit consent to change templates. **Page-level** translate/rewrite: update the **page** and **each referenced component** with visible text (not the page file alone) unless the author limited scope.
@@ -672,11 +674,11 @@ When the author only asked to **update content** — **field values and item XML
 This user request is a content/template/config modification task.
 You MUST call at least one tool before giving your final response.
 Do not respond with prose-only output for this request (no final answer that skips tools).
-Follow system **Plan when warranted** (see STUDIO POLICY). **Simple** (**one** tool): one or two sentences, then **`tool_calls`** — **skip** **## Plan**. **Complex** (**more than one** tool): **## Plan** with **📋** steps from **tools + matched recipe** phases when present (concrete outcomes only) before tools. Then **follow that plan**; after each tool refresh the **same** **📋** lines with **✅** / **❌** / **⚠️** / **⬜** only — keep the step list stable. When you narrate tool use in your own words, prefix with **🛠️**. Do **not** fake server-style tool log lines (see system STUDIO POLICY).
+Follow **Plan when warranted** in the system message. **Simple** (**one** tool): one or two sentences, then **`tool_calls`** — **skip** **## Plan**. **Complex** (**more than one** tool): **## Plan** with **📋** steps from **tools + matched recipe** phases when present (concrete outcomes only) before tools. Then **follow that plan**; after each tool refresh the **same** **📋** lines with **✅** / **❌** / **⚠️** / **⬜** only — keep the step list stable. Prefix narrated tool use with **🛠️**. Do **not** fake server-style tool log lines.
 Do **not** paste full FreeMarker (`.ftl`) bodies or large XML dumps into the author's chat — summarize what was saved; they edit files in Studio.
 If target path/id is unclear and the user message does not include **Studio authoring context** with a current repository path, call discovery tools first.
 After **update_content**, **update_template**, or **update_content_type** returns, you must still call **WriteContent** with the full file — those tools do not save.
-When the author only asked to **update content** — **field values and item XML / static-assets**, not template or schema **file edits** — use **update_content** → **WriteContent** on the **content item** path — **do not** call **update_template** or **update_content_type** to fix those tasks. You **may** use **analyze_template** or **GetContent** on `.ftl` **read-only** to diagnose; if the issue is **in the template**, **tell the author** — do not patch FTL without explicit consent to change templates. For **page-wide** translate/rewrite, call **GetContent**/**update_content** and **WriteContent** for the **page** and **each referenced component** (see system **“This page”** rule) unless the author limited scope.
+When the author only asked to **update content** — **field values and item XML / static-assets**, not template or schema **file edits** — use **update_content** → **WriteContent** on the **content item** path — **do not** call **update_template** or **update_content_type** to fix those tasks. You **may** use **analyze_template** or **GetContent** on `.ftl` **read-only** to diagnose; if the issue is **in the template**, **tell the author** — do not patch FTL without explicit consent to change templates. For **page-wide** translate/rewrite, call **ListContentDependencyScope** then **GetContent**/**update_content** and **WriteContent** for the **page** and **each referenced component** unless the author limited scope.
 Your **final** reply after tools must state **success or problems** using **✅** / **❌** / **⚠️**, include a **clear business-friendly** recap under **## Plan Execution** with those markers — **first** a tight **main outcome shipped; below is scorecard** cue — and **ask what's next**—not only mid-flight progress.
 For **content XML** (pages/components): do not invent a new element tree — preserve `<page>`/`<component>` and field tags from the current file and content type (`formFieldIds` / GetContentTypeFormDefinition). For GetContentTypeFormDefinition use **contentPath** (item XML path) or copy **contentTypeId** from `<content-type>` — never infer content type from filename.
 [/TOOL-GUARD]
@@ -8365,7 +8367,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
   /**
    * Tools-loop native tools without {@link OpenAiChatModel}: sync {@code stream:false} rounds + {@link JsonSlurper}
    * + {@link FunctionToolCallback#call(String)} until the assistant stops calling tools.
-   * <p>One chat session with tools enabled: the model should stream a **## Plan** (see system STUDIO POLICY) in the
+   * <p>One chat session with tools enabled: the model should stream a **## Plan** (see {@link ToolPrompts#getLlm_AUTHORING_PLAN_WHEN_WARRANTED()}) in the
    * <strong>first assistant message</strong> whenever it also issues tool calls; that assistant {@code content} is
    * forwarded to {@code sseOut} before tools run so authors see plan → tools → final answer like a composer flow.</p>
    * <p>Post-execution review (extra LLM pass + optional correction loop) is <strong>not</strong> run — hardcoded off.</p>
@@ -9016,7 +9018,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
         }
       } else {
         callSpec = springAi.useTools
-          ? springAi.chatClient.prompt().user(userText).tools(*springAi.tools)
+          ? springAi.chatClient.prompt().user(userText).toolCallbacks(*springAi.tools)
           : springAi.chatClient.prompt().user(userText)
       }
       String content
@@ -10098,10 +10100,10 @@ SerpApi and other tools may still work when only the chat host is blocked. From 
           )
           return null
         }
-        promptSpec = springAi.chatClient.prompt(authoringChatPrompt).tools(*springAi.tools)
+        promptSpec = springAi.chatClient.prompt(authoringChatPrompt).toolCallbacks(*springAi.tools)
       } else {
         promptSpec = springAi.useTools
-          ? springAi.chatClient.prompt().user(userText).tools(*springAi.tools)
+          ? springAi.chatClient.prompt().user(userText).toolCallbacks(*springAi.tools)
           : springAi.chatClient.prompt().user(userText)
       }
       def toolsLoopBlockingForStudioStream = (StudioAiLlmKind.useToolsLoopChatRestClient(springAi.llm, springAi) && springAi.useTools)

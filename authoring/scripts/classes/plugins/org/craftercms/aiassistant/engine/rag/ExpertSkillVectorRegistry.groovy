@@ -3,7 +3,9 @@ package plugins.org.craftercms.aiassistant.engine.rag
 import plugins.org.craftercms.aiassistant.studio.config.StudioAiAssistantProjectConfig
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 
-@Grab(group='org.springframework.ai', module='spring-ai-core', version='1.1.7', initClass=false)
+@Grab(group='org.springframework.ai', module='spring-ai-commons', version='1.1.7', initClass=false)
+@Grab(group='org.springframework.ai', module='spring-ai-model', version='1.1.7', initClass=false)
+@Grab(group='org.springframework.ai', module='spring-ai-vector-store', version='1.1.7', initClass=false)
 @Grab(group='org.springframework.ai', module='spring-ai-openai', version='1.1.7', initClass=false)
 
 import java.security.MessageDigest
