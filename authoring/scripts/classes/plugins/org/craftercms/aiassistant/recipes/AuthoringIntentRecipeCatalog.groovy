@@ -124,15 +124,15 @@ final class AuthoringIntentRecipeCatalog {
 
     if (ops != null && sitePath?.trim()) {
       try {
-        String siteId = ops.resolveEffectiveSiteId('')
-        String raw = ops.readStudioConfigurationUtf8(siteId, sitePath.trim())
+        String raw = readSiteIntentRecipesUtf8(ops, sitePath.trim())
 
         if (raw?.trim()) {
           siteOrder = parseRecipeOrderFromJsonText(raw)
           Map siteDoc = parseCatalogDocument(raw)
 
           if (siteDoc?.chatDefaults instanceof Map) {
-            installCatalogChatDefaults((Map) siteDoc.chatDefaults, siteId)
+            String chatDefaultsSite = ops.resolveEffectiveSiteId('')?.toString()?.trim() ?: ops.resolveStudioSessionSiteId()?.trim()
+            installCatalogChatDefaults((Map) siteDoc.chatDefaults, chatDefaultsSite)
           }
 
           for (Map r : (siteDoc?.recipes ?: []) as List<Map>) {
@@ -176,8 +176,7 @@ final class AuthoringIntentRecipeCatalog {
     String sitePath = StudioAiAssistantProjectConfig.intentRecipeCustomRecipesPath(projectCfg)
     if (ops != null && sitePath?.trim()) {
       try {
-        String siteId = ops.resolveEffectiveSiteId('')
-        String raw = ops.readStudioConfigurationUtf8(siteId, sitePath.trim())
+        String raw = readSiteIntentRecipesUtf8(ops, sitePath.trim())
         if (raw?.trim()) {
           appendRoutingEngineStepsFromDoc(merged, parseCatalogDocument(raw))
         }
@@ -462,25 +461,65 @@ final class AuthoringIntentRecipeCatalog {
    * Studio Groovy often loads this class from a classpath that does not include sibling JSON; the site sandbox
    * copy under {@link #BUNDLED_SANDBOX_REPO_PATH} is authoritative after {@code install-plugin.sh}.
    */
+  /**
+   * Plugin-bundled default catalog in the site sandbox — always read from the Studio session site
+   * (plugin install target), not the POST-body working site used for CMS tools.
+   */
   private static String loadBundledRecipesJsonFromSiteSandbox(StudioToolOperations ops) {
     if (ops == null) {
       return ''
     }
 
-    try {
-      String siteId = ops.resolveEffectiveSiteId('')?.toString()?.trim()
+    List<String> siteIds = []
+    String sessionSite = ops.resolveStudioSessionSiteId()?.toString()?.trim()
+    if (sessionSite) {
+      siteIds.add(sessionSite)
+    }
+    String workingSite = ops.resolveEffectiveSiteId('')?.toString()?.trim()
+    if (workingSite && !siteIds.contains(workingSite)) {
+      siteIds.add(workingSite)
+    }
 
-      if (!siteId) {
+    for (String siteId : siteIds) {
+      try {
+        Map item = plugins.org.craftercms.aiassistant.tools.cms.support.CmsGetContent.read(
+          ops,
+          siteId,
+          BUNDLED_SANDBOX_REPO_PATH
+        ) as Map
+        String raw = item?.contentXml?.toString()?.trim()
+        if (raw?.trim() && parseCatalogDocument(raw)?.recipes) {
+          return raw
+        }
+      } catch (Throwable t) {
+        log.trace('AuthoringIntentRecipeCatalog: sandbox bundled JSON not readable siteId={}: {}', siteId, t.message)
+      }
+    }
+    return ''
+  }
+
+  /** Site {@code intent-recipes.json}: working site first, then Studio session site when cross-site. */
+  private static String readSiteIntentRecipesUtf8(StudioToolOperations ops, String sitePath) {
+    String workingSite = ops.resolveEffectiveSiteId('')?.toString()?.trim() ?: ''
+    String raw = ''
+    if (workingSite) {
+      try {
+        raw = ops.readStudioConfigurationUtf8(workingSite, sitePath) ?: ''
+      } catch (Throwable ignoredWorking) {
+      }
+    }
+    if (raw?.trim()) {
+      return raw
+    }
+    String sessionSite = ops.resolveStudioSessionSiteId()?.toString()?.trim() ?: ''
+    if (sessionSite && !sessionSite.equalsIgnoreCase(workingSite)) {
+      try {
+        return ops.readStudioConfigurationUtf8(sessionSite, sitePath) ?: ''
+      } catch (Throwable ignoredSession) {
         return ''
       }
-
-      Map item = plugins.org.craftercms.aiassistant.tools.cms.support.CmsGetContent.read(ops, siteId, BUNDLED_SANDBOX_REPO_PATH) as Map
-      String raw = item?.contentXml?.toString()?.trim()
-      return raw ?: ''
-    } catch (Throwable t) {
-      log.trace('AuthoringIntentRecipeCatalog: sandbox bundled JSON not readable: {}', t.message)
-      return ''
     }
+    return raw ?: ''
   }
 
   /** Peer {@link #BUNDLED_RELATIVE} next to this class code-source (handles Studio {@code file:/config/...} URLs). */

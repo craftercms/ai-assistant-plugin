@@ -61,6 +61,20 @@ try {
   def authoringSurface = body?.authoringSurface
   def clientJsonApply = body?.formEngineClientJsonApply
   def siteIdBody = body?.siteId?.toString()?.trim()
+  if (siteIdBody) {
+    try {
+      request.setAttribute('aiassistant.siteId', siteIdBody)
+    } catch (Throwable ignoredEarlySite) {
+    }
+  }
+  def sessionSiteId = AuthoringPreviewContext.resolveStudioSessionSiteId(request, params)
+  def crossSiteWorking = AuthoringPreviewContext.isCrossSiteWorking(siteIdBody, sessionSiteId) &&
+    !AuthoringPreviewContext.isFormEngineSurface(authoringSurface)
+  def contentPathForAssembly = crossSiteWorking ? null : contentPathBody
+  def contentTypeIdForAssembly = crossSiteWorking ? null : contentTypeIdBody
+  def contentTypeLabelForAssembly = crossSiteWorking ? null : contentTypeLabelBody
+  def displayTemplateForAssembly = crossSiteWorking ? null : body?.displayTemplate
+  def studioPreviewPageUrlForAssembly = crossSiteWorking ? null : body?.studioPreviewPageUrl
   StudioToolOperations pubOpsForPrompt = null
   def siteForPub = siteIdBody ?: params?.siteId?.toString()?.trim()
   if (siteForPub && !AuthoringPreviewContext.isFormEngineSurface(authoringSurface)) {
@@ -74,25 +88,19 @@ try {
     authoringSurface,
     clientJsonApply,
     siteIdBody ?: params?.siteId,
-    contentPathBody,
-    contentTypeIdBody,
-    contentTypeLabelBody,
-    body?.displayTemplate,
+    contentPathForAssembly,
+    contentTypeIdForAssembly,
+    contentTypeLabelForAssembly,
+    displayTemplateForAssembly,
     request,
-    body?.studioPreviewPageUrl,
+    studioPreviewPageUrlForAssembly,
     pubOpsForPrompt,
-    applicationContext)
+    applicationContext,
+    params)
   def promptForOrchestration = assembledPrompt.orchestrationPrompt
   def promptStepDeltas = assembledPrompt.stepDeltas
   def chatId = body?.chatId?.toString()
-  if (siteIdBody) {
-    try {
-      request.setAttribute('aiassistant.siteId', siteIdBody)
-    } catch (Throwable ignored) {
-      // non-mutable request in some contexts
-    }
-  }
-  def normContentPath = AuthoringPreviewContext.normalizeRepoPath(contentPathBody?.toString())
+  def normContentPath = AuthoringPreviewContext.normalizeRepoPath(contentPathForAssembly?.toString())
   if (normContentPath) {
     try {
       request.setAttribute('aiassistant.contentPath', normContentPath)
@@ -104,7 +112,7 @@ try {
       request.setAttribute('aiassistant.formEngineItemPath', normFormItemPath)
     } catch (Throwable ignoredFp) {}
   }
-  def ctIdBody = contentTypeIdBody?.toString()?.trim()
+  def ctIdBody = contentTypeIdForAssembly?.toString()?.trim()
   if (ctIdBody) {
     try {
       request.setAttribute('aiassistant.contentTypeId', ctIdBody)

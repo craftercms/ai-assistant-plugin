@@ -48,6 +48,19 @@ if (Boolean.TRUE.equals(body.get('__aiassistantInvalidJson'))) {
 def agentId = body.agentId != null ? body.agentId.toString().trim() : ''
 def prompt = body.prompt?.toString()
 def siteIdBody = body.siteId?.toString()?.trim()
+if (siteIdBody) {
+  try {
+    request.setAttribute('aiassistant.siteId', siteIdBody)
+  } catch (Throwable ignoredEarlySite) {}
+}
+def sessionSiteId = AuthoringPreviewContext.resolveStudioSessionSiteId(request, params)
+def crossSiteWorking = AuthoringPreviewContext.isCrossSiteWorking(siteIdBody, sessionSiteId) &&
+  !AuthoringPreviewContext.isFormEngineSurface(body?.authoringSurface)
+def contentPathForAssembly = crossSiteWorking ? null : body?.contentPath
+def contentTypeIdForAssembly = crossSiteWorking ? null : body?.contentTypeId
+def contentTypeLabelForAssembly = crossSiteWorking ? null : body?.contentTypeLabel
+def displayTemplateForAssembly = crossSiteWorking ? null : body?.displayTemplate
+def studioPreviewPageUrlForAssembly = crossSiteWorking ? null : body?.studioPreviewPageUrl
 StudioToolOperations pubOpsForPrompt = null
 def siteForPub = siteIdBody ?: params?.siteId?.toString()?.trim()
 if (siteForPub && !AuthoringPreviewContext.isFormEngineSurface(body?.authoringSurface)) {
@@ -61,25 +74,21 @@ def assembledPrompt = AuthoringPreviewContext.assembleOrchestrationPrompt(
   body?.authoringSurface,
   body?.formEngineClientJsonApply,
   siteIdBody ?: params?.siteId,
-  body?.contentPath,
-  body?.contentTypeId,
-  body?.contentTypeLabel,
-  body?.displayTemplate,
+  contentPathForAssembly,
+  contentTypeIdForAssembly,
+  contentTypeLabelForAssembly,
+  displayTemplateForAssembly,
   request,
-  body?.studioPreviewPageUrl,
+  studioPreviewPageUrlForAssembly,
   pubOpsForPrompt,
-  applicationContext)
+  applicationContext,
+  params)
 def promptForOrchestration = assembledPrompt.orchestrationPrompt
 def promptStepDeltas = assembledPrompt.stepDeltas
 def chatId = body.chatId?.toString()
 def llmApiKey = (body?.apiKey ?: body?.llmApiKey ?: body?.openAiApiKey)?.toString()
 def llmSecretKey = body?.llmSecretKey?.toString()?.trim() ?: null
-if (siteIdBody) {
-  try {
-    request.setAttribute('aiassistant.siteId', siteIdBody)
-  } catch (Throwable ignored) {}
-}
-def normContentPath = AuthoringPreviewContext.normalizeRepoPath(body?.contentPath?.toString())
+def normContentPath = AuthoringPreviewContext.normalizeRepoPath(contentPathForAssembly?.toString())
 if (normContentPath) {
   try {
     request.setAttribute('aiassistant.contentPath', normContentPath)
@@ -91,7 +100,7 @@ if (normFormItemPath) {
     request.setAttribute('aiassistant.formEngineItemPath', normFormItemPath)
   } catch (Throwable ignoredFp) {}
 }
-def ctIdBody = body?.contentTypeId?.toString()?.trim()
+def ctIdBody = contentTypeIdForAssembly?.toString()?.trim()
 if (ctIdBody) {
   try {
     request.setAttribute('aiassistant.contentTypeId', ctIdBody)

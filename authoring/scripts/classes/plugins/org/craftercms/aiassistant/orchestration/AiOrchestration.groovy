@@ -591,7 +591,6 @@ class AiOrchestration {
       /.*\btemplate\b.*/,
       /.*\bcontent type\b.*/,
       /.*\bform-definition\b.*/,
-      /.*\bhome page\b.*/,
       /.*\bmake\b.*/,
       /.*\bsave\b.*/
     ]
@@ -2456,6 +2455,10 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
 
   private static String siteIdFromWireMessages(List<Map> wireMessages) {
     String user = firstAuthorVisibleUserFromWire(wireMessages) ?: ''
+    def working = (user =~ /Working CMS site id:\s*"([^"]+)"/)
+    if (working.find()) {
+      return working.group(1)?.trim() ?: ''
+    }
     def m = (user =~ /Current CrafterCMS site id:\s*"([^"]+)"/)
     if (m.find()) {
       return m.group(1)?.trim() ?: ''
@@ -3943,14 +3946,44 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
    * User message for the JSON recipe router: full {@code [Prior conversation]} block (when present) plus
    * current turn — not only {@link AuthoringPreviewContext#formatLastPriorTurnMemoryBlock} (last pair, often truncated).
    */
+  /**
+   * {@code open_page_inquiry} requires a servlet-bound repository path; without one, defer to plan loop
+   * so the tools loop can resolve content on the working site (see cross-site metadata).
+   */
+  private static boolean shouldDeferOpenPageInquiryWithoutBindingAnchor(Map pass, StudioToolOperations ops) {
+    if (!Boolean.TRUE.equals(pass?.matched) || ops == null) {
+      return false
+    }
+    String rid = (pass.recipeId ?: pass.recipe?.id ?: '').toString().trim()
+    if (!'open_page_inquiry'.equals(rid)) {
+      return false
+    }
+    String path = ops.recipeEngineAuthoringBindings()?.contentPath?.toString()?.trim()
+    String lower = path?.toLowerCase(Locale.ROOT) ?: ''
+    return !(lower.startsWith('/site/') && lower.endsWith('.xml'))
+  }
+
   private static String buildIntentRecipeRouterUserMessage(
     String catalogMd,
     String currentTurnVisible,
     String priorConversationBody,
-    Map cfg
+    Map cfg,
+    String orchestrationWireForSiteContext = null
   ) {
     StringBuilder sb = new StringBuilder()
     sb.append('## Recipe catalog\n\n').append((catalogMd ?: '').toString().trim())
+    Map siteCtx = AuthoringPreviewContext.parseWorkingSiteFromOrchestrationWire(
+      (orchestrationWireForSiteContext ?: '').toString()
+    )
+    if (Boolean.TRUE.equals(siteCtx.crossSiteWorking)) {
+      String work = (siteCtx.workingSiteId ?: '').toString().trim()
+      String session = (siteCtx.studioSessionSiteId ?: '').toString().trim()
+      sb.append('\n\n## Studio site context\n\n')
+      sb.append("Working CMS site id for this turn: \"${work}\". Studio UI session site: \"${session}\". ")
+      sb.append('There is no open-preview repository anchor for the session site on this turn. ')
+      sb.append('Prior conversation may describe the session site only — choose a recipe that reads the working site ')
+      sb.append('(e.g. site content search with ResearchSiteContent), not read-only open-page inquiry, unless bindings include a path on the working site.\n')
+    }
     String prior = (priorConversationBody ?: '').toString().trim()
     if (prior) {
       int maxPrior = StudioAiAssistantProjectConfig.intentRecipeEngineMaxTotalChars(cfg)
@@ -4559,7 +4592,8 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       catalogMd,
       visible,
       priorForRouter,
-      cfg
+      cfg,
+      wireForMemory
     )
     String rawJson = authoringIntentRefineCompletionOrSimple(
       apiKey,
@@ -5040,12 +5074,24 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       ]
       if (recipes == null || recipes.isEmpty()) {
         log.warn('Intent recipe routing skipped: recipe catalog is empty after bundled + site custom merge.')
-        result.userTextForToolsLoop =
-          '[Studio — intent recipe catalog is empty (bundled JSON not loaded, site override removed all recipes, or custom JSON invalid). **tools are still available** — use normal CMS judgement **with strict content-vs-code discipline**:\n' +
+        Map workSiteCtx = AuthoringPreviewContext.parseWorkingSiteFromOrchestrationWire((cand ?: '').toString())
+        StringBuilder emptyCatalog = new StringBuilder()
+        emptyCatalog.append(
+          '[Studio — intent recipe catalog is empty (bundled JSON not loaded, site override removed all recipes, or custom JSON invalid). **tools are still available** — use normal CMS judgement **with strict content-vs-code discipline**:\n'
+        )
+        if (Boolean.TRUE.equals(workSiteCtx.crossSiteWorking)) {
+          String workId = (workSiteCtx.workingSiteId ?: '').toString().trim()
+          emptyCatalog.append(
+            '- **Working CMS site** for this turn is **"' + workId + '"** (Studio session site differs). **Do not** answer from prior conversation as repository truth — call **ResearchSiteContent** or **GetContent** with **siteId="' +
+              workId + '"** on that site before summarizing or describing content.\n'
+          )
+        }
+        emptyCatalog.append(
           '- When **Current content item repository path** or **Request anchor** is **`/site/.../*.xml`** and the author asks to change **copy, field values, or tone** without naming **FTL**, **template**, or **CSS**: **GetContent** then **WriteContent** (or **update_content** then **WriteContent**) on **that same repository .xml path** — preserve **`<page>` / `<component>`** structure and existing field tag names from the file you read; map labels to element ids via **GetContentTypeFormDefinition** when needed.\n' +
           '- **Do not** call **update_template** for that scenario; **do not** **WriteContent** a **`.ftl`** path with page/component XML bodies; **do not** invent **`/static-assets/styles.css`** or other asset paths unless the author explicitly asked for stylesheet/asset work **or** **GetContent** on the item you edit already referenced that exact path and the task requires editing that file.\n' +
-          '- If copy still looks wrong after XML saves, **analyze_template** / **GetContent** on **display-template** is **read-only diagnosis** — explain findings; **do not** patch FTL for a **content-only** goal.\n\n' +
-          (userTextAfterGuard ?: '')
+          '- If copy still looks wrong after XML saves, **analyze_template** / **GetContent** on **display-template** is **read-only diagnosis** — explain findings; **do not** patch FTL for a **content-only** goal.\n\n'
+        )
+        result.userTextForToolsLoop = emptyCatalog.toString() + (userTextAfterGuard ?: '')
         return intentRecipeAttachTelemetry(
           ops,
           cfg,
@@ -5095,12 +5141,6 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       Closure<Boolean> anchoredSiteXml = {
         Map bindEarly = ops.recipeEngineAuthoringBindings()
         String anchorEarly = (bindEarly?.contentPath ?: '').toString().trim()
-        if (!anchorEarly) {
-          anchorEarly = AuthoringPreviewContext.extractAnchoredRepositoryPath(cand)
-        }
-        if (!anchorEarly) {
-          anchorEarly = AuthoringPreviewContext.extractAnchoredRepositoryPath(routerVisible)
-        }
         return anchorEarly &&
           anchorEarly.toLowerCase(Locale.ROOT).startsWith('/site/') &&
           anchorEarly.toLowerCase(Locale.ROOT).endsWith('.xml')
@@ -5201,6 +5241,16 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
         routerVisible,
         toolsLoopSessionBundle
       )
+      if (Boolean.TRUE.equals(activePass.matched)) {
+        if (shouldDeferOpenPageInquiryWithoutBindingAnchor(activePass, ops)) {
+          log.info(
+            'Intent recipe routing: open_page_inquiry without anchored repository path — defer to plan loop (working site may differ from session)'
+          )
+          activePass.matched = false
+          activePass.deferToPlanLoop = true
+          activePass.matchPass = 'open_page_no_anchor_defer_plan'
+        }
+      }
       if (Boolean.TRUE.equals(activePass.matched)) {
         double minC = activePass.minConfidence instanceof Number ?
           ((Number) activePass.minConfidence).doubleValue() :
@@ -7410,6 +7460,13 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
             argsStr = plugins.org.craftercms.aiassistant.tools.AiOrchestrationTools.normalizeWriteContentToolArgsJson(argsStr)
             argsStr = applyCreateFromChatDraftPrefillToWriteContentArgs(argsStr, toolsLoopSessionBundle, slurper)
             if (fn instanceof Map) {
+              fn.put('arguments', argsStr)
+            }
+          }
+          if (ops != null && fnName) {
+            String argsBeforeSite = argsStr
+            argsStr = AuthoringPreviewContext.ensureToolArgsSiteId(argsStr, fnName, ops, slurper)
+            if (!argsBeforeSite.equals(argsStr) && fn instanceof Map) {
               fn.put('arguments', argsStr)
             }
           }

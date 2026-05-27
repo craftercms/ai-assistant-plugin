@@ -1,5 +1,7 @@
 package plugins.org.craftercms.aiassistant.authoring
 
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
 import plugins.org.craftercms.aiassistant.config.StudioAiAssistantProjectConfig
 import plugins.org.craftercms.aiassistant.context.SiteProjectContext
 import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
@@ -13,6 +15,7 @@ import java.util.Collections
 import java.util.LinkedHashMap
 import java.util.List
 import java.util.Locale
+import java.util.Set
 import java.util.regex.Pattern
 
 /**
@@ -168,6 +171,34 @@ Use these when the author asks about "today", "now", freshness, or dated content
    * Server-side prompt assembly (preview metadata, URLs, clock, form-engine notices).
    * Returns {@code orchestrationPrompt} and per-step char deltas in {@code stepDeltas}.
    */
+  /** Studio UI session site from plugin URL params and servlet query (not POST body working site). */
+  static String resolveStudioSessionSiteId(Object request, Map params = null) {
+    def session = ''
+    try {
+      if (params != null) {
+        session = params['siteId']?.toString()?.trim() ?: ''
+        if (!session) {
+          session = params.siteId?.toString()?.trim() ?: ''
+        }
+      }
+    } catch (Throwable ignoredParams) {
+    }
+    if (!session) {
+      try {
+        session = request?.getParameter('siteId')?.toString()?.trim() ?: ''
+      } catch (Throwable ignoredQuery) {
+      }
+    }
+    return session ?: ''
+  }
+
+  /** True when POST/body working site differs from the Studio session site (plugin URL). */
+  static boolean isCrossSiteWorking(String workingSiteId, String studioSessionSiteId) {
+    def work = (workingSiteId ?: '').toString().trim()
+    def session = (studioSessionSiteId ?: '').toString().trim()
+    return work && session && !work.equalsIgnoreCase(session)
+  }
+
   static Map assembleOrchestrationPrompt(
     String clientWire,
     Object authoringSurface,
@@ -180,12 +211,20 @@ Use these when the author asks about "today", "now", freshness, or dated content
     Object request,
     Object studioPreviewPageUrlRaw,
     StudioToolOperations publishingOps = null,
-    Object applicationContext = null
+    Object applicationContext = null,
+    Map params = null
   ) {
     def stepDeltas = new LinkedHashMap<String, Integer>()
     def cur = (clientWire ?: '').toString()
     stepDeltas.clientWire = cur.length()
     def site = (siteIdRaw ?: '').toString().trim()
+    String sessionSite = resolveStudioSessionSiteId(request, params)
+    boolean crossSiteWorking = isCrossSiteWorking(site, sessionSite)
+    if (site) {
+      int prevWorking = cur.length()
+      cur = appendWorkingCmsSiteContext(cur, site, sessionSite, crossSiteWorking)
+      stepDeltas.workingCmsSite = cur.length() - prevWorking
+    }
 
     if (isFormEngineSurface(authoringSurface)) {
       int prev = cur.length()
@@ -197,11 +236,18 @@ Use these when the author asks about "today", "now", freshness, or dated content
         stepDeltas.formEngineClientJsonApply = cur.length() - prev
       }
     } else {
+      Object pathForPreview = crossSiteWorking ? null : contentPathRaw
+      Object typeForPreview = crossSiteWorking ? null : contentTypeIdRaw
+      Object typeLabelForPreview = crossSiteWorking ? null : contentTypeLabelRaw
+      Object templateForPreview = crossSiteWorking ? null : displayTemplateRaw
+      Object previewUrlForHint = crossSiteWorking ? null : studioPreviewPageUrlRaw
       int prev = cur.length()
-      cur = appendToUserPrompt(cur, site, contentPathRaw, contentTypeIdRaw, contentTypeLabelRaw, displayTemplateRaw)
+      cur = appendToUserPrompt(cur, site, pathForPreview, typeForPreview, typeLabelForPreview, templateForPreview)
       stepDeltas.previewContext = cur.length() - prev
       prev = cur.length()
-      cur = appendEnginePreviewHintIfPossible(cur, request, site, contentPathRaw, studioPreviewPageUrlRaw)
+      if (!crossSiteWorking) {
+        cur = appendEnginePreviewHintIfPossible(cur, request, site, pathForPreview, previewUrlForHint)
+      }
       stepDeltas.enginePreviewUrls = cur.length() - prev
       if (site && publishingOps != null) {
         try {
@@ -256,6 +302,7 @@ Use these when the author asks about "today", "now", freshness, or dated content
     tel.hasFormEngineClientJsonApply = finalPrompt.contains('--- Studio form client-apply instructions')
     tel.hasPublishingStatus = finalPrompt.contains('--- Studio publishing status')
     tel.hasProjectContext = finalPrompt.contains('--- Studio project context')
+    tel.hasWorkingCmsSite = finalPrompt.contains('--- Working CMS site')
     tel.contentPathPresent = normalizeRepoPath(args?.contentPath?.toString()).length() > 0
     tel.displayTemplatePresent = (args?.displayTemplate ?: '').toString().trim().length() > 0
     if (args?.enableToolsRequested != null) {
@@ -819,10 +866,6 @@ ${asstLine}"""
   /** Author-visible text (after stripping Studio blocks) this long or shorter is treated as likely underspecified. */
   private static final int AUTHORING_INTENT_EXPANSION_SHORT_VISIBLE_MAX_CHARS = 320
 
-  private static final Pattern PAGE_SUMMARIZE_SIGNAL = Pattern.compile(
-    '(?i)\\b(summarize|summary|sum\\s+up)\\b'
-  )
-
   /**
    * Author names the **open** Studio item in their own words ({@code this page}, {@code the component}, …)
    * while the wire prompt carries a {@code Repository path: /site/.../*.xml} anchor.
@@ -943,16 +986,6 @@ ${asstLine}"""
       (v =~ /(?i)\b(about|think|purpose|mean|describe|explain|overview|topic)\b/).find()
   }
 
-  /** Author asks for open-page / in-Studio summary (not open-web news). */
-  static boolean authorVisibleSuggestsPageSummarize(String fullOrUserPrompt) {
-    def v = stripStudioInjectedPromptBlocks((fullOrUserPrompt ?: '').toString())?.trim()
-    if (!v) {
-      return false
-    }
-    return PAGE_SUMMARIZE_SIGNAL.matcher(v).find() &&
-      (FULL_PAGE_OR_SITE_COPY_INTENT.matcher(v).find() || v.matches('(?is).*(this|the)\\s+page.*'))
-  }
-
   /**
    * Routing context for {@link plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeCatalog} matchers.
    */
@@ -1015,6 +1048,32 @@ This site has **never** been published to the delivery tier. For first go-live o
       authorConversationPivotedToChatOnlyArtifact(fullOrUserPrompt)
   }
 
+  /**
+   * Parses working vs Studio session site ids from orchestration wire text (client + server metadata blocks).
+   * @return map with {@code workingSiteId}, {@code studioSessionSiteId}, {@code crossSiteWorking} (booleans/strings)
+   */
+  static Map parseWorkingSiteFromOrchestrationWire(String fullPrompt) {
+    def s = (fullPrompt ?: '').toString()
+    def working = ''
+    def session = ''
+    if (s.trim()) {
+      def wm = (s =~ /Working CMS site id:\s*"([^"]+)"/)
+      if (wm.find()) {
+        working = wm.group(1).toString().trim()
+      }
+      def sm = (s =~ /Studio session site(?:\s*\(UI\))?:\s*"([^"]+)"/)
+      if (sm.find()) {
+        session = sm.group(1).toString().trim()
+      }
+    }
+    boolean cross = working && session && !working.equalsIgnoreCase(session)
+    return Collections.unmodifiableMap([
+      workingSiteId        : working,
+      studioSessionSiteId  : session,
+      crossSiteWorking     : cross
+    ] as Map)
+  }
+
   /** {@code Repository path: /site/...} from a Studio request anchor block, when present. */
   static String extractAnchoredRepositoryPath(String fullPrompt) {
     def s = (fullPrompt ?: '').toString()
@@ -1026,7 +1085,7 @@ This site has **never** been published to the delivery tier. For first go-live o
   }
 
   /**
-   * Author wants to place or change copy on the open {@code /site/.../*.xml} item (hero title, body field, etc.)
+   * Author wants to place or change copy on the open {@code /site/.../*.xml} item (field values in item XML, etc.)
    * even when they did not say “update” / “edit”.
    */
   static boolean anchoredSiteXmlFieldPlacementIntent(String fullPrompt) {
@@ -1134,10 +1193,6 @@ This site has **never** been published to the delivery tier. For first go-live o
    * @param routingCfg {@link plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeCatalog#loadMergedCatalogRoutingConfig}
    */
   static String intentRecipeRouterEligibilitySkipReason(String fullPrompt, List<Map> recipes, Map routingCfg) {
-    String currentReq = extractAuthorCurrentRequestVisible(fullPrompt)
-    if (currentReq && authorVisibleSuggestsPageSummarize(currentReq)) {
-      return 'author_summarize_no_intent_recipe'
-    }
     if (authorCurrentRequestLooksLikeImageOnlyGenerate(fullPrompt)) {
       return null
     }
@@ -1288,6 +1343,94 @@ This site has **never** been published to the delivery tier. For first go-live o
       return true
     }
     return words.size() >= 2 && first == 'good' && ['morning', 'afternoon', 'evening'].contains(words[1])
+  }
+
+  private static final Set<String> CMS_TOOLS_ACCEPTING_SITE_ID = Collections.unmodifiableSet([
+    'GetContent',
+    'ContentExists',
+    'GetContentTypeFormDefinition',
+    'ListStudioContentTypes',
+    'GetContentVersionHistory',
+    'WriteContent',
+    'ListPagesAndComponents',
+    'ResearchSiteContent',
+    'ListContentDependencyScope',
+    'TranslateContentItem',
+    'TranslateContentBatch',
+    'publish_content',
+    'revert_change',
+    'update_content',
+    'update_content_type',
+    'update_template',
+    'analyze_template'
+  ] as Set)
+
+  /**
+   * When the author set a working site (POST body {@code siteId}), force that id into CMS tool args
+   * (models often pass the Studio session site from injected context instead).
+   */
+  static String ensureToolArgsSiteId(String argsStr, String toolName, StudioToolOperations ops, JsonSlurper slurper) {
+    String wire = (toolName ?: '').toString().trim()
+    if (!wire || !CMS_TOOLS_ACCEPTING_SITE_ID.contains(wire) || ops == null) {
+      return argsStr
+    }
+    String effective = ops.resolveEffectiveSiteId('')?.toString()?.trim() ?: ''
+    if (!effective) {
+      return argsStr
+    }
+    try {
+      Object parsed = slurper.parseText((argsStr ?: '{}').toString())
+      if (!(parsed instanceof Map)) {
+        return argsStr
+      }
+      Map args = (Map) parsed
+      args.put('siteId', effective)
+      return JsonOutput.toJson(args)
+    } catch (Throwable ignored) {
+      return argsStr
+    }
+  }
+
+  /**
+   * Declares the CMS site id tools should use for this turn (may differ from the Studio UI session site).
+   */
+  static String appendWorkingCmsSiteContext(
+    String prompt,
+    String workingSiteId,
+    String studioSessionSiteId,
+    boolean crossSiteWorking = false
+  ) {
+    def work = (workingSiteId ?: '').toString().trim()
+    if (!work) {
+      return (prompt ?: '').toString()
+    }
+    def session = (studioSessionSiteId ?: '').toString().trim()
+    def lines = []
+    lines.add("Working CMS site id: \"${work}\"")
+    lines.add(
+      "Always pass siteId=\"${work}\" on every CMS tool that accepts siteId " +
+        '(GetContent, ListPagesAndComponents, ResearchSiteContent, GetContentTypeFormDefinition, WriteContent, publish_content, revert_change, update_* , etc.) ' +
+        'unless the author explicitly names another site. Never use "default" as siteId.'
+    )
+    if (session && !session.equalsIgnoreCase(work)) {
+      if (crossSiteWorking) {
+        lines.add(
+          "Studio session site (UI): \"${session}\". The open-preview repository anchor from \"${session}\" is omitted on this turn — " +
+            "read content on siteId=\"${work}\" with CMS tools before answering. Do not treat prior-chat prose as repository truth for \"${work}\"."
+        )
+      } else {
+        lines.add(
+          "Studio session site (UI): \"${session}\". Preview anchors below may refer to the session site only — " +
+            "still use siteId=\"${work}\" for repository reads and writes."
+        )
+      }
+    }
+    def base = (prompt ?: '').toString()
+    return """${base}
+
+--- Working CMS site (metadata only — not the author's request) ---
+${lines.join('\n')}
+---"""
   }
 
   /**

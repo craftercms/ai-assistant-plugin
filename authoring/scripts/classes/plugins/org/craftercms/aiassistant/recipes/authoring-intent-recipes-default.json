@@ -132,7 +132,7 @@
         "authorFromMatchHints": true,
         "respectDontMatchHints": true
       },
-      "description": "Author wants to find or summarize existing pages and components in this Crafter site (indexed authoring search + content lookup), not the open web and not a write.",
+      "description": "Author wants to find or summarize existing pages and components in the Crafter CMS site named by Working CMS site metadata or the current Studio site (indexed authoring search + content lookup), including when there is no open-preview repository anchor on this turn. Not the open web and not a write.",
       "matchHints": [
         "search the site",
         "site search",
@@ -308,7 +308,7 @@
           ]
         },
         "action": [
-          "Answer what the page is about from the XML fields (title, hero, features, sections). Plain prose for the author."
+          "Answer what the page is about from the item XML and any referenced components the prefetch or tools returned. Plain prose for the author."
         ],
         "confirmation": [
           "Do not call WriteContent. Optional GetPreviewHtml only if it helps describe what visitors see."
@@ -392,6 +392,14 @@
         "respectDontMatchHints": true
       },
       "matchHints": ["revert", "undo", "rollback", "restore version", "previous version"],
+      "dontMatchHints": [
+        "summarize",
+        "summary",
+        "describe",
+        "explain",
+        "what is this page",
+        "tell me about"
+      ],
       "phases": {
         "context": ["Confirm siteId and anchored repository path from Studio context."],
         "action": ["Use revert_change on the anchored /site/.../*.xml item when the author wants to roll back."],
@@ -467,7 +475,7 @@
       "matchHints": ["template", "ftl", "freemarker", "render", "layout", "listing", "cards", "display"],
       "phases": {
         "context": [
-          "GetContent on page/component XML; read display-template; follow sections_o keys to component templates when the shell is not the listing."
+          "GetContent on page/component XML; read display-template; follow node-selector and component references from the page XML to component templates when the shell is not the listing."
         ],
         "action": [
           "Read templates with GetContent or analyze_template (read-only) before update_template; persist with WriteContent on .ftl paths."

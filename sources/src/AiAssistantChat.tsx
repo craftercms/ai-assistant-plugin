@@ -1279,8 +1279,88 @@ function foldAssistantReasoningIntoMainText(m: Pick<UiMessage, 'text' | 'reasoni
 type StoredConversation = {
   version: 1;
   chatId?: string;
+  assumedSiteId?: string;
   messages: UiMessage[];
 };
+
+type ParsedSiteDirective = {
+  stickySiteId?: string;
+  requestSiteId?: string;
+};
+
+function sanitizeCandidateSiteId(raw: string): string | undefined {
+  const t = (raw || '').trim().replace(/^['"`]+|['"`]+$/g, '');
+  if (!t) return undefined;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(t)) return undefined;
+  return t;
+}
+
+/**
+ * Whole-message "set site to X" (or `siteId=X`). Used for client hot path and sticky parsing.
+ */
+function matchStickySetSiteCommand(prompt: string): string | undefined {
+  const text = (prompt || '').trim();
+  if (!text) return undefined;
+  const sticky =
+    text.match(/^\s*(?:set|use)\s+(?:the\s+)?site(?:\s+id)?\s+(?:to|as|=)\s+([A-Za-z0-9._-]+)\s*$/i) ??
+    text.match(/^\s*site(?:\s+id)?\s*(?:=|:)\s*([A-Za-z0-9._-]+)\s*$/i);
+  return sticky?.[1] ? sanitizeCandidateSiteId(sticky[1]) : undefined;
+}
+
+function buildWorkingSiteContextAppendix(workingSiteId: string, studioSiteId: string): string {
+  const work = (workingSiteId || '').trim();
+  if (!work) return '';
+  const session = (studioSiteId || '').trim();
+  const crossSite = Boolean(session && session !== work);
+  const lines = [
+    `Working CMS site id: "${work}"`,
+    `Use siteId="${work}" on all CMS tools that accept siteId unless the author names another site.`
+  ];
+  if (crossSite) {
+    lines.push(
+      `Studio session site: "${session}". Open-preview paths from "${session}" are not sent on this turn — ` +
+        `read site "${work}" with CMS tools before answering; do not reuse prior-chat prose as repository truth for "${work}".`
+    );
+  }
+  return `--- Working CMS site (chat context) ---\n${lines.join('\n')}\n---\n\n`;
+}
+
+function buildSetSiteHotPathReply(targetSiteId: string, activeStudioSiteId: string): string {
+  const active = (activeStudioSiteId || '').trim();
+  if (active && targetSiteId !== active) {
+    return (
+      `Working site set to **${targetSiteId}** (Studio session site is **${active}**). ` +
+      `CMS tools will use **${targetSiteId}** until you change it or start a new chat.`
+    );
+  }
+  return (
+    `Working site set to **${targetSiteId}**. ` +
+    'CMS tools will use this site until you change it or start a new chat.'
+  );
+}
+
+/**
+ * Extracts optional per-turn or sticky site directives from author text.
+ * - "Set site to X" updates sticky chat site for this and future turns.
+ * - "... in site X" / "... for site X" applies only to this request.
+ */
+function parseSiteDirective(prompt: string): ParsedSiteDirective {
+  const text = (prompt || '').trim();
+  if (!text) return {};
+
+  const stickyId = matchStickySetSiteCommand(text);
+  if (stickyId) {
+    return { stickySiteId: stickyId, requestSiteId: stickyId };
+  }
+
+  const requestOnly = text.match(/\b(?:in|for)\s+site\s+([A-Za-z0-9._-]+)\b/i);
+  if (requestOnly?.[1]) {
+    const siteId = sanitizeCandidateSiteId(requestOnly[1]);
+    return siteId ? { requestSiteId: siteId } : {};
+  }
+
+  return {};
+}
 
 function getConversationStorageKey(siteId: string, agentId: string): string {
   const site = (siteId || 'default').replace(/[^a-zA-Z0-9-_]/g, '_');
@@ -1298,6 +1378,8 @@ function loadConversation(siteId: string, agentId: string): StoredConversation |
     return {
       version: 1,
       chatId: typeof parsed.chatId === 'string' ? parsed.chatId : undefined,
+      assumedSiteId:
+        typeof parsed.assumedSiteId === 'string' ? sanitizeCandidateSiteId(parsed.assumedSiteId) : undefined,
       messages: parsed.messages
         .filter((m) => m && typeof m.id === 'string' && typeof m.text === 'string' && typeof m.role === 'string')
         .map((m) => {
@@ -1704,6 +1786,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
   const welcomeMessage: string | null = null;
 
   const [chatId, setChatId] = useState<string | undefined>(undefined);
+  const [assumedSiteId, setAssumedSiteId] = useState<string | undefined>(undefined);
   const [messages, setMessages] = useState<UiMessage[]>(() => {
     const base: UiMessage[] = [];
     (initialMessages ?? []).forEach((m, idx) => {
@@ -1731,6 +1814,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     siteId: string;
     agentId: string;
     chatId: string | undefined;
+    assumedSiteId: string | undefined;
     messages: UiMessage[];
   } | null>(null);
   const iceRootRef = useRef<HTMLDivElement | null>(null);
@@ -1743,6 +1827,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     const stored = loadConversation(siteId, agentId);
     if (stored) {
       setChatId(stored.chatId);
+      setAssumedSiteId(stored.assumedSiteId);
       setMessages(stored.messages);
       return;
     }
@@ -1756,6 +1841,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
       });
     });
     setChatId(undefined);
+    setAssumedSiteId(undefined);
     setMessages(base);
   }, [siteId, agentId, initialMessages]);
 
@@ -1765,7 +1851,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     if (hasStreaming) {
       return;
     }
-    pendingPersistRef.current = { siteId, agentId, chatId, messages };
+    pendingPersistRef.current = { siteId, agentId, chatId, assumedSiteId, messages };
     if (saveDebounceRef.current) {
       window.clearTimeout(saveDebounceRef.current);
     }
@@ -1775,6 +1861,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
         saveConversation(p.siteId, p.agentId, {
           version: 1,
           chatId: p.chatId,
+          assumedSiteId: p.assumedSiteId,
           messages: p.messages.map((m) => ({ ...m, isStreaming: false }))
         });
       }
@@ -1786,7 +1873,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
         saveDebounceRef.current = null;
       }
     };
-  }, [siteId, agentId, chatId, messages]);
+  }, [siteId, agentId, chatId, assumedSiteId, messages]);
 
   useEffect(() => {
     return () => {
@@ -1795,6 +1882,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
         saveConversation(p.siteId, p.agentId, {
           version: 1,
           chatId: p.chatId,
+          assumedSiteId: p.assumedSiteId,
           messages: p.messages.map((m) => ({ ...m, isStreaming: false }))
         });
       }
@@ -1884,6 +1972,11 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
   const [voiceListening, setVoiceListening] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [promptFocused, setPromptFocused] = useState(false);
+  const showSiteOverridePill = useMemo(() => {
+    const assumed = (assumedSiteId || '').trim();
+    const active = (siteId || '').trim();
+    return Boolean(assumed && active && assumed !== active);
+  }, [assumedSiteId, siteId]);
 
   const stopVoiceInput = useCallback(() => {
     voiceActiveRef.current = false;
@@ -2029,6 +2122,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     setSending(false);
     clearChatPromptInput();
     setChatId(undefined);
+    setAssumedSiteId(undefined);
     setMessages([]);
     sessionStreamLogRef.current = [];
     try {
@@ -2051,17 +2145,55 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     const trimmed = prompt.trim();
     if (!trimmed) return;
 
+    const setSiteOnly = matchStickySetSiteCommand(trimmed);
+    if (setSiteOnly) {
+      stopVoiceInput();
+      clearChatPromptInput();
+      setAssumedSiteId(setSiteOnly);
+      const userBubble = (displayInChat ?? trimmed).trim() || trimmed;
+      const userId = `user-${Date.now()}`;
+      const assistantId = `assistant-${Date.now()}`;
+      setMessages((prev) => [
+        ...prev,
+        { id: userId, role: 'user', text: userBubble },
+        {
+          id: assistantId,
+          role: 'assistant',
+          text: buildSetSiteHotPathReply(setSiteOnly, siteId)
+        }
+      ]);
+      try {
+        pushStreamLog(
+          sessionStreamLogRef,
+          JSON.stringify({
+            kind: 'client.setSiteHotPath',
+            ts: new Date().toISOString(),
+            siteId,
+            targetSiteId: setSiteOnly
+          })
+        );
+      } catch {
+        /* ignore log serialization errors */
+      }
+      return;
+    }
+
+    const siteDirective = parseSiteDirective(trimmed);
+    const effectiveSiteId = siteDirective.requestSiteId || assumedSiteId || siteId;
+    const crossSiteWorking = effectiveSiteId !== siteId;
+
     stopVoiceInput();
 
     const now = new Date();
     const pad2 = (n: number) => String(n).padStart(2, '0');
+    const macroContentPath = crossSiteWorking ? undefined : macroValuesRef.current.contentPath;
     const macroCtx: PromptMacrosContext = {
       dateToday: `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`,
       timeNow: `${pad2(now.getHours())}:${pad2(now.getMinutes())}`,
       currentPage: macroValuesRef.current.currentPage,
-      currentContentPath: macroValuesRef.current.contentPath,
+      currentContentPath: macroContentPath,
       currentUsername: macroValuesRef.current.currentUsername,
-      siteId: macroValuesRef.current.siteId
+      siteId: effectiveSiteId
     };
     let expandedPrompt = expandPromptMacros(trimmed, macroCtx).trim();
     const expandedDisplaySync = expandPromptMacros((displayInChat ?? trimmed).trim(), macroCtx).trim();
@@ -2085,15 +2217,16 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
       { omitRepoFileBodies: !formEngine }
     ).then((s) => s.trim());
 
-    expandedPrompt = await expandContentMacros(expandedPrompt, macroCtx.siteId, macroValuesRef.current.contentPath, {
+    expandedPrompt = await expandContentMacros(expandedPrompt, macroCtx.siteId, macroContentPath, {
       omitRepoFileBodies: !formEngine,
-      liveAuthoring: authoringSnap
-        ? {
-            contentItemPath: authoringSnap.contentPath,
-            fieldValuesJson: authoringSnap.fieldValuesJson,
-            serializedContentXml: authoringSnap.serializedContentXml
-          }
-        : undefined
+      liveAuthoring:
+        !crossSiteWorking && authoringSnap
+          ? {
+              contentItemPath: authoringSnap.contentPath,
+              fieldValuesJson: authoringSnap.fieldValuesJson,
+              serializedContentXml: authoringSnap.serializedContentXml
+            }
+          : undefined
     }).then((s) => s.trim());
     let expandedDisplay = expandContentTypeMacrosForDisplay(
       expandedDisplaySync,
@@ -2125,7 +2258,14 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
 
     const priorBlock = buildPriorTurnsContextBlock(messages, expandedPrompt);
     const priorTurnsBlockLen = priorBlock.length;
-    const wirePrompt = priorBlock ? `${priorBlock}Current request:\n${expandedPrompt}` : expandedPrompt;
+    const workingSiteForContext =
+      (assumedSiteId || '').trim() || (effectiveSiteId !== siteId ? effectiveSiteId : '');
+    const workingSiteAppendix = workingSiteForContext
+      ? buildWorkingSiteContextAppendix(workingSiteForContext, siteId)
+      : '';
+    const wirePrompt = `${priorBlock || ''}${workingSiteAppendix}${
+      priorBlock || workingSiteAppendix ? 'Current request:\n' : ''
+    }${expandedPrompt}`;
 
     abortRef.current?.abort();
     userStopRequestedRef.current = false;
@@ -2138,8 +2278,10 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
 
     /** `crafterPreview` cookie when present — forwarded for server preview tools (GetPreviewHtml, etc.). */
     const previewTokenForStream = readCrafterPreviewTokenFromCookie();
-    const previewContentTypeLabel = formEngine ? undefined : resolvePreviewContentTypeLabel(previewItem);
-    const studioPreviewPageUrl = formEngine ? undefined : pickStudioPreviewPageUrlForServer(previewItem);
+    const previewContentTypeLabel =
+      formEngine || crossSiteWorking ? undefined : resolvePreviewContentTypeLabel(previewItem);
+    const studioPreviewPageUrl =
+      formEngine || crossSiteWorking ? undefined : pickStudioPreviewPageUrlForServer(previewItem);
 
     setMessages((prev) => [
       ...prev,
@@ -2154,6 +2296,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
           ts: new Date().toISOString(),
           context: {
             siteId,
+            effectiveSiteId,
             agentId,
             llm: llm ?? null,
             llmModel: llmModel ?? null,
@@ -2163,10 +2306,12 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
             omitTools: omitToolsThisSend,
             enableTools: enableTools !== false,
             chatId: chatId ?? null,
-            contentPath: formEngine ? null : macroValuesRef.current.contentPath?.trim() || null,
-            contentTypeId: formEngine ? null : macroValuesRef.current.contentTypeId?.trim() || null,
-            displayTemplate: formEngine ? null : macroValuesRef.current.displayTemplate?.trim() || null,
+            contentPath: formEngine || crossSiteWorking ? null : macroValuesRef.current.contentPath?.trim() || null,
+            contentTypeId: formEngine || crossSiteWorking ? null : macroValuesRef.current.contentTypeId?.trim() || null,
+            displayTemplate:
+              formEngine || crossSiteWorking ? null : macroValuesRef.current.displayTemplate?.trim() || null,
             studioPreviewPageUrl: studioPreviewPageUrl ?? null,
+            crossSiteWorking,
             formEngineClientJsonApply: wantClientJsonApply,
             formEngineItemPath:
               formEngine && wantClientJsonApply && authoringSnap?.contentPath?.trim()
@@ -2205,10 +2350,11 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
         chatId,
         prompt: wirePrompt,
         // Form engine: do not send preview path — server would treat it as repo truth for tools; unsaved edits are only in the prompt appendix.
-        contentPath: formEngine ? undefined : macroValuesRef.current.contentPath?.trim() || undefined,
-        contentTypeId: formEngine ? undefined : macroValuesRef.current.contentTypeId?.trim() || undefined,
+        contentPath: formEngine || crossSiteWorking ? undefined : macroValuesRef.current.contentPath?.trim() || undefined,
+        contentTypeId:
+          formEngine || crossSiteWorking ? undefined : macroValuesRef.current.contentTypeId?.trim() || undefined,
         ...(previewContentTypeLabel ? { contentTypeLabel: previewContentTypeLabel } : {}),
-        ...(macroValuesRef.current.displayTemplate?.trim()
+        ...(!crossSiteWorking && macroValuesRef.current.displayTemplate?.trim()
           ? { displayTemplate: macroValuesRef.current.displayTemplate.trim() }
           : {}),
         ...(studioPreviewPageUrl ? { studioPreviewPageUrl } : {}),
@@ -2225,7 +2371,8 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
           ? { imageGenerator: String(imageGenerator).trim() }
           : {}),
         llmApiKey,
-        siteId,
+        siteId: effectiveSiteId,
+        pluginRequestSiteId: siteId,
         ...(previewTokenForStream ? { previewToken: previewTokenForStream } : {}),
         ...(omitToolsThisSend ? { omitTools: true } : {}),
         ...(enableTools === false ? { enableTools: false } : {}),
@@ -3259,47 +3406,76 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
             {voiceError}
           </Typography>
         ) : null}
-        {ttsAvailable ? (
-          <FormControlLabel
-            sx={{
-              mt: 0.75,
-              mr: 0,
-              ml: 0,
-              width: '100%',
-              minWidth: 0,
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: 0.75
-            }}
-            control={
-              <Switch
-                size="small"
-                checked={readResponsesAloud}
-                onChange={(_, checked) => {
-                  setReadResponsesAloud(checked);
-                  if (checked) {
-                    const assistants = messages.filter((m) => m.role === 'assistant' || m.role === 'system');
-                    const last = assistants[assistants.length - 1];
-                    lastSpokenAssistantIdRef.current = last?.id ?? null;
-                  } else {
-                    window.speechSynthesis?.cancel();
-                    lastSpokenAssistantIdRef.current = null;
-                  }
+        {ttsAvailable || showSiteOverridePill ? (
+          <Stack
+            direction="row"
+            alignItems="center"
+            spacing={1}
+            sx={{ mt: 0.75, width: '100%', minWidth: 0, flexWrap: 'wrap', rowGap: 0.5 }}
+          >
+            {ttsAvailable ? (
+              <FormControlLabel
+                sx={{
+                  mr: 0,
+                  ml: 0,
+                  flex: '1 1 auto',
+                  minWidth: 0,
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 0.75
                 }}
-                inputProps={{ 'aria-label': 'Read assistant responses aloud' }}
-                sx={{ mt: 0.25, flexShrink: 0 }}
+                control={
+                  <Switch
+                    size="small"
+                    checked={readResponsesAloud}
+                    onChange={(_, checked) => {
+                      setReadResponsesAloud(checked);
+                      if (checked) {
+                        const assistants = messages.filter((m) => m.role === 'assistant' || m.role === 'system');
+                        const last = assistants[assistants.length - 1];
+                        lastSpokenAssistantIdRef.current = last?.id ?? null;
+                      } else {
+                        window.speechSynthesis?.cancel();
+                        lastSpokenAssistantIdRef.current = null;
+                      }
+                    }}
+                    inputProps={{ 'aria-label': 'Read assistant responses aloud' }}
+                    sx={{ mt: 0.25, flexShrink: 0 }}
+                  />
+                }
+                label={
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ userSelect: 'none', whiteSpace: 'normal', overflowWrap: 'anywhere' }}
+                  >
+                    Read responses aloud
+                  </Typography>
+                }
               />
-            }
-            label={
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ userSelect: 'none', whiteSpace: 'normal', overflowWrap: 'anywhere' }}
-              >
-                Read responses aloud
-              </Typography>
-            }
-          />
+            ) : null}
+            {showSiteOverridePill ? (
+              <Tooltip title={`Using site ${assumedSiteId} (active Studio site is ${siteId})`}>
+                <Chip
+                  size="small"
+                  color="warning"
+                  variant="outlined"
+                  label={`Site: ${assumedSiteId}`}
+                  sx={{
+                    height: 28,
+                    maxWidth: 140,
+                    flexShrink: 0,
+                    ml: ttsAvailable ? 'auto' : 0,
+                    '& .MuiChip-label': {
+                      px: 0.75,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis'
+                    }
+                  }}
+                />
+              </Tooltip>
+            ) : null}
+          </Stack>
         ) : null}
       </Box>
     </Box>

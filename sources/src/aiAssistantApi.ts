@@ -86,8 +86,16 @@ export interface StreamChatArgs {
    * Optional key from agent config — server uses only if env/JVM key unset. Not recommended for production.
    */
   llmApiKey?: string;
-  /** Required by Studio plugin script API */
+  /**
+   * CMS target site for tool calls (POST body). May differ from the Studio session site when the author
+   * uses "in site X" or "set site to X".
+   */
   siteId?: string;
+  /**
+   * Studio session site for the plugin script URL query only. Must be the site where the plugin is loaded
+   * (active Studio site). When omitted, falls back to {@link siteId}.
+   */
+  pluginRequestSiteId?: string;
   /**
    * Studio {@code crafterPreview} cookie value — sent to the plugin stream/chat API so {@code GetPreviewHtml} can
    * GET Engine preview markup without passing the token on every tool call.
@@ -179,6 +187,7 @@ export async function streamChat(args: StreamChatArgs): Promise<void> {
     imageGenerator,
     llmApiKey,
     siteId,
+    pluginRequestSiteId,
     previewToken,
     enableTools,
     omitTools,
@@ -196,8 +205,9 @@ export async function streamChat(args: StreamChatArgs): Promise<void> {
   };
 
   let pluginStreamUrl = '/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/ai/stream';
-  if (siteId) {
-    pluginStreamUrl += (pluginStreamUrl.includes('?') ? '&' : '?') + 'siteId=' + encodeURIComponent(siteId);
+  const urlSiteId = (pluginRequestSiteId ?? siteId)?.toString()?.trim();
+  if (urlSiteId) {
+    pluginStreamUrl += (pluginStreamUrl.includes('?') ? '&' : '?') + 'siteId=' + encodeURIComponent(urlSiteId);
   }
   const requestBody: Record<string, unknown> =
     chatId != null && String(chatId).trim() !== ''

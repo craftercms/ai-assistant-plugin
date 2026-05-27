@@ -255,7 +255,6 @@ When skip reason is **non-null**, prelude returns `outcome: skipped_eligibility`
 | `no_cms_task_signal` | No CMS/research/creative signal **and** no anchor/prior conversation |
 | `visible_exceeds_1600_chars` | Long paste without qualifying current-line exception |
 | `long_message_no_url_for_expansion_gate` | Long message without URL/visual gate (uses current-line slice when prior conversation present) |
-| `author_summarize_no_intent_recipe` | Summarize routed elsewhere (page summarize path) |
 | `empty_visible_after_strip` | Nothing left after stripping Studio blocks |
 
 **Length gates:** When `[Prior conversation …]` is present, expansion length checks use `intentExpansionVisibleSlice` (**current request**), not the full wire.

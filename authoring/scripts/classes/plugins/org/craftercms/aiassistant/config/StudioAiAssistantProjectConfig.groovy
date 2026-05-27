@@ -70,10 +70,25 @@ final class StudioAiAssistantProjectConfig {
     if (ops == null) {
       return Collections.emptyMap()
     }
-    String siteId = ops.resolveEffectiveSiteId('')
+    String workingSite = ops.resolveEffectiveSiteId('')?.toString()?.trim() ?: ''
+    Map cfg = loadFromSite(ops, workingSite)
+    if (!cfg.isEmpty()) {
+      return cfg
+    }
+    String sessionSite = ops.resolveStudioSessionSiteId()?.toString()?.trim() ?: ''
+    if (sessionSite && !sessionSite.equalsIgnoreCase(workingSite)) {
+      return loadFromSite(ops, sessionSite)
+    }
+    return cfg
+  }
+
+  private static Map loadFromSite(StudioToolOperations ops, String siteId) {
+    if (ops == null || !siteId?.trim()) {
+      return Collections.emptyMap()
+    }
     String raw = null
     try {
-      raw = ops.readStudioConfigurationUtf8(siteId, TOOLS_JSON_PATH)
+      raw = ops.readStudioConfigurationUtf8(siteId.trim(), TOOLS_JSON_PATH)
     } catch (Throwable t) {
       LOG.debug('StudioAiAssistantProjectConfig: read failed siteId={}: {}', siteId, t.message)
       return Collections.emptyMap()

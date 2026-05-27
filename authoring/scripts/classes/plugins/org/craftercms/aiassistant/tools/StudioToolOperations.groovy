@@ -267,7 +267,10 @@ class StudioToolOperations {
     }
   }
 
-  /** LLMs often pass siteId "default". Prefer request site from body/query/params. */
+  /**
+   * CMS site for this turn. The POST-body working site ({@code aiassistant.siteId}) wins over
+   * LLM-supplied {@code siteId} on tool calls (models often echo the Studio session site from context).
+   */
   String resolveEffectiveSiteId(String fromTool) {
     def tool = (fromTool ?: '').toString().trim()
     def reqSite = ''
@@ -286,9 +289,25 @@ class StudioToolOperations {
       }
     } catch (Throwable ignored) {}
 
-    if (tool && !tool.equalsIgnoreCase('default')) return tool
-    if (reqSite) return reqSite
+    if (reqSite) {
+      return reqSite
+    }
+    if (tool && !tool.equalsIgnoreCase('default')) {
+      return tool
+    }
     return tool
+  }
+
+  /** Studio UI / plugin URL site (not POST-body working site). */
+  String resolveStudioSessionSiteId() {
+    Map paramMap = null
+    try {
+      if (params instanceof Map) {
+        paramMap = (Map) params
+      }
+    } catch (Throwable ignoredParams) {
+    }
+    return AuthoringPreviewContext.resolveStudioSessionSiteId(request, paramMap) ?: ''
   }
 
   /**

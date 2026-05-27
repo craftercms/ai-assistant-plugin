@@ -722,9 +722,17 @@ final class AuthoringIntentRecipeEngine {
 
   /** Dispatches one allowlisted read-only core tool through {@link StudioAiToolRegistry#executeRecipePrefetchTool}. */
   private static Map executeReadOnlyTool(StudioToolOperations ops, String tool, Map input) {
+    Map args = input instanceof Map ? new LinkedHashMap((Map) input) : [:]
+    String sid = args.get('siteId')?.toString()?.trim() ?: args.get('site_id')?.toString()?.trim() ?: ''
+    if (!sid || sid.equalsIgnoreCase('default')) {
+      String effective = ops?.resolveEffectiveSiteId(sid)?.toString()?.trim() ?: ''
+      if (effective) {
+        args.put('siteId', effective)
+      }
+    }
     return plugins.org.craftercms.aiassistant.tools.catalog.StudioAiToolRegistry.executeRecipePrefetchTool(
       tool,
-      (Map) (input ?: [:]),
+      args,
       ops
     )
   }

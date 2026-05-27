@@ -213,15 +213,12 @@ final class AuthoringIntentRecipeWhen {
     }
   }
 
-  /** True when request bindings or wire/author text contain a {@code /site/.../*.xml} repository anchor path. */
+  /**
+   * True when servlet bindings carry the anchored {@code /site/.../*.xml} path for this turn.
+   * Does not infer anchors from prior conversation or prose — only {@link #anchoredSiteXmlPathFromBindings}.
+   */
   private static boolean hasAnchoredSiteXml(String wire, String author, Map ctx) {
     String anchor = anchoredSiteXmlPathFromBindings(ctx)
-    if (!anchor?.trim()) {
-      anchor = AuthoringPreviewContext.extractAnchoredRepositoryPath(wire)
-    }
-    if (!anchor?.trim()) {
-      anchor = AuthoringPreviewContext.extractAnchoredRepositoryPath(author)
-    }
     if (!anchor?.trim()) {
       return false
     }
