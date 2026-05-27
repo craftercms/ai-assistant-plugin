@@ -1,6 +1,12 @@
 .idea
 chatgpt-plugin.iml
 
+# Cursor IDE (local rules, skills, agent state — do not commit)
+.cursor/
+
+# Dependencies (install with yarn in repo root and/or sources/)
+node_modules/
+
 # Local Studio auth (never commit)
 scripts/.studio-token
 .env.local
