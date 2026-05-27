@@ -114,6 +114,30 @@ Sites can attach **remote MCP servers** so **tools-loop chat** agents (and other
 
 ---
 
+<a id="plugin-rag"></a>
+
+## Optional: Plugin RAG (Bundled Instructions, System Prompt)
+
+**Site policy:** **`tools.json`** → **`pluginRag`**. **Studio UI:** **Project Tools → AI Assistant → Integrations → Tools** (bottom of tab), or **Agents** → agent → **Site orchestration** (same file). Overview and comparison with agent skills: **[configuration-guide.md §9.2.1](../using-and-extending/configuration-guide.md#cg-9-2-1)**.
+
+The plugin ships a **large fixed authoring instruction set** (`ToolPrompts.getLlm_AUTHORING_INSTRUCTIONS()`, with optional site overrides under **`prompts/GENERAL_LLM_AUTHORING_INSTRUCTIONS.md`**). **Plugin RAG** is **site-wide** retrieval over the **bundled plugin corpus** (not site content, not per-agent skill URLs).
+
+**When it runs:** On each native-tools orchestration turn, **before** the tools loop, **`PluginRagVectorRegistry.adjustAuthoringCore`** may shrink or augment the **system** message:
+
+| **`pluginRag.mode`** | Behavior |
+|------------------------|----------|
+| **`off`** (default) | No change — full authoring instructions only. |
+| **`supplement`** | Full instructions + **"## Retrieved AI Assistant plugin reference"** appendix (similarity search over the plugin index for the user message). |
+| **`replace`** | Compact **kernel** (`kernelMaxChars` from the start of instructions) + the same appendix. If retrieval returns nothing, Studio falls back to full instructions. |
+
+**Index:** Built or refreshed in the site sandbox at **`/config/studio/plugins/org/craftercms/aiassistant/aiassistant-plugin-rag-index.json`** when mode is active and an embedding-capable key is available. Sliders **`topK`**, **`maxAppendChars`**, **`maxChunkChars`**, **`maxChunks`**, **`embedBatchSize`** bound retrieval and indexing (see **`StudioAiAssistantProjectConfig`**).
+
+**Contrast with agent skills:** Plugin RAG targets **system-layer token control** for the shared plugin manual. **Agent skills** target **per-agent optional playbooks** via **`QueryExpertGuidance`** during the tools loop — see **[§ Expert skills](#expert-skills-rag)** below.
+
+---
+
+<a id="expert-skills-rag"></a>
+
 ## Optional: Per-Agent Expert Skills (Markdown RAG, Embeddings + Tools)
 
 Inside an `<agent>` that uses `<llm>openAI</llm>`, add one or more **`<expertSkill>`** children. Each row points to a **public `http(s)` URL** whose response body is treated as **UTF-8 markdown**. On first use, Studio **fetches** that URL (same SSRF rules as **`FetchHttpUrl`**), **chunks** the text, **embeds** it with Spring AI (**`text-embedding-3-small`** by default), and stores vectors in a **per-skill in-memory `SimpleVectorStore`**. The model gets a system appendix with **`skillId`** (stable hash from the URL) and may call **`QueryExpertGuidance`** (`skillId`, `query`, optional `topK`).
@@ -133,7 +157,7 @@ Inside an `<agent>` that uses `<llm>openAI</llm>`, add one or more **`<expertSki
 
 Element form is also supported: `<expertSkill><name>…</name><url>…</url><description>…</description></expertSkill>`.
 
-**Optional tuning (agent skills RAG):** Markdown from per-agent **`skills`** URLs is chunked and embedded into a per-skill in-memory index on the Studio server. Limits (max skills, chunk size, embedding model) are in site **`tools.json`** → **`agentSkillsRag`**, edited under **Project Tools → Agents → Site orchestration**. This is **not** agent `ui.xml` configuration.
+**Optional tuning (agent skills RAG):** Markdown from per-agent **`skills`** URLs is chunked and embedded into a per-skill in-memory index on the Studio server. Limits (max skills, chunk size, embedding model) are in site **`tools.json`** → **`agentSkillsRag`**, edited under **Project Tools → Integrations → Tools** (bottom) or **Agents → Site orchestration** (same **`tools.json`**). **Which** skills exist is configured **on each agent** (skills URLs / `<expertSkill>`), not in `ui.xml`. Compare with **plugin RAG**: **[§ Plugin RAG](#plugin-rag)** and **[configuration-guide §9.2.1](../using-and-extending/configuration-guide.md#cg-9-2-1)**.
 
 ---
 

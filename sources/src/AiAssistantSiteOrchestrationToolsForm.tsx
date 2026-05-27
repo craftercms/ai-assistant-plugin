@@ -24,13 +24,15 @@ import AiAssistantRagPolicyFields from './AiAssistantRagPolicyFields';
 export interface AiAssistantSiteOrchestrationToolsFormProps {
   value: ToolsPolicyFormState;
   onChange: (next: ToolsPolicyFormState) => void;
+  /** When false, RAG fields are omitted (caller may render them elsewhere). Default true. */
+  showRag?: boolean;
 }
 
 /**
  * Site-wide {@code tools.json} policy: built-in tool enable/disable and optional per-tool settings.
  */
 export default function AiAssistantSiteOrchestrationToolsForm(props: AiAssistantSiteOrchestrationToolsFormProps) {
-  const { value, onChange } = props;
+  const { value, onChange, showRag = true } = props;
   const whitelistMode = value.enabledBuiltInTools.length > 0;
   const builtInWires = useMemo(() => [...BUILTIN_ORCHESTRATION_TOOL_WIRES], []);
   const [configureWire, setConfigureWire] = useState<string | null>(null);
@@ -52,12 +54,14 @@ export default function AiAssistantSiteOrchestrationToolsForm(props: AiAssistant
         Intent recipe routing and the recipe catalog are configured under the <strong>Recipes</strong> tab.
       </Typography>
 
-      <AiAssistantRagPolicyFields
-        pluginRag={value.pluginRag}
-        agentSkillsRag={value.agentSkillsRag}
-        onPluginRagChange={(pluginRag) => onChange({ ...value, pluginRag })}
-        onAgentSkillsRagChange={(agentSkillsRag) => onChange({ ...value, agentSkillsRag })}
-      />
+      {showRag ? (
+        <AiAssistantRagPolicyFields
+          pluginRag={value.pluginRag}
+          agentSkillsRag={value.agentSkillsRag}
+          onPluginRagChange={(pluginRag) => onChange({ ...value, pluginRag })}
+          onAgentSkillsRagChange={(agentSkillsRag) => onChange({ ...value, agentSkillsRag })}
+        />
+      ) : null}
 
       <Paper variant="outlined" sx={{ p: 2.5 }}>
         <Typography variant="subtitle2" gutterBottom>

@@ -44,6 +44,7 @@ import {
   AI_ASSISTANT_PROJECT_CONTEXT_STUDIO_PATH,
   aiAssistantToolPromptMarkdownStub
 } from './aiAssistantScriptStubs';
+import AiAssistantRagPolicyFields from './AiAssistantRagPolicyFields';
 import AiAssistantToolsMcpForm from './AiAssistantToolsMcpForm';
 import {
   defaultToolsPolicyFormState,
@@ -681,6 +682,20 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
         <strong>Project context</strong> is appended to every chat turn when non-empty. Per-key markdown under{' '}
         <code>scripts/aiassistant/prompts/&lt;KEY&gt;.md</code> overrides built-in tool prompt text (see ToolPromptsLoader).
       </Typography>
+    ) : panel === 'llms' ? (
+      <Typography variant="body2" color="text.secondary" paragraph>
+        Site Groovy backends under <code>config/studio/scripts/aiassistant/llm/&lt;id&gt;/runtime.groovy</code> (or{' '}
+        <code>llm.groovy</code>). Reference agents with <code>&lt;llm&gt;script:&lt;id&gt;&lt;/llm&gt;</code> in{' '}
+        <strong>Agents</strong>. Use <strong>Add script LLM</strong> to create a folder and starter script in this site
+        sandbox.
+      </Typography>
+    ) : panel === 'imagegen' ? (
+      <Typography variant="body2" color="text.secondary" paragraph>
+        Site Groovy image backends under{' '}
+        <code>config/studio/scripts/aiassistant/imagegen/&lt;id&gt;/generate.groovy</code>. Reference agents with{' '}
+        <code>imageGenerator</code> set to <code>script:&lt;id&gt;</code>. Use <strong>Add generator</strong> to create a
+        folder and starter script in this site sandbox.
+      </Typography>
     ) : null;
 
   return (
@@ -703,7 +718,7 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
             <Button
               size="small"
               variant="outlined"
-              startIcon={<RefreshRounded />}
+              startIcon={loading ? <CircularProgress size={16} /> : <RefreshRounded />}
               disabled={loading}
               onClick={() => {
                 setRegistryDirty(false);
@@ -713,6 +728,11 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
             >
               Reload
             </Button>
+            {loading ? (
+              <Typography variant="body2" color="text.secondary">
+                Loading script index…
+              </Typography>
+            ) : null}
           </Stack>
 
           {showToolsBuiltIn ? (
@@ -726,6 +746,7 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
           </Typography>
           <AiAssistantToolsMcpForm
             sections="builtIn"
+            showRag={panel !== 'tools'}
             value={toolsPolicy}
             onChange={(next) => {
               setToolsPolicy(next);
@@ -927,6 +948,24 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
               Save tools policy
             </Button>
           </Stack>
+            </>
+          ) : null}
+
+          {panel === 'tools' && showToolsBuiltIn ? (
+            <>
+              <Divider sx={{ my: 4 }} />
+              <AiAssistantRagPolicyFields
+                pluginRag={toolsPolicy.pluginRag}
+                agentSkillsRag={toolsPolicy.agentSkillsRag}
+                onPluginRagChange={(pluginRag) => {
+                  setToolsPolicy((prev) => ({ ...prev, pluginRag }));
+                  setToolsPolicyDirty(true);
+                }}
+                onAgentSkillsRagChange={(agentSkillsRag) => {
+                  setToolsPolicy((prev) => ({ ...prev, agentSkillsRag }));
+                  setToolsPolicyDirty(true);
+                }}
+              />
             </>
           ) : null}
 

@@ -820,28 +820,143 @@ class StudioToolOperations {
   }
 
   /**
-   * First-level child folder names under a Studio sandbox directory (e.g. {@code /scripts/aiassistant/imagegen}).
-   * Uses v1 {@code getContentItemTree} when available; returns an empty list on failure.
+   * First-level child folder names under a Studio {@code studio} module directory
+   * (e.g. {@code /scripts/aiassistant/llm/} → sandbox {@code /config/studio/scripts/aiassistant/llm/}).
+   * Prefers v2 {@code contentService.getChildrenByPath} (same API the Studio UI uses for config files);
+   * falls back to v1 {@code getContentItemTree} when needed.
    */
   List<String> listStudioSandboxChildFolderNames(String siteId, String studioModuleParentDir) {
     withStudioRequestSecurity {
-      siteId = resolveEffectiveSiteId(siteId)
+      String site = (siteId ?: '').toString().trim()
+      if (!site) {
+        site = resolveEffectiveSiteId('')
+      }
       String dir = (studioModuleParentDir ?: '').toString().trim()
       if (!dir.startsWith('/')) {
         dir = "/${dir}"
       }
       String fullPath = toSandboxConfigStudioRepoPath(dir)
+      List<String> fromV2 = listStudioSandboxChildFolderNamesViaContentService(site, fullPath)
+      if (fromV2.isEmpty() && dir != fullPath) {
+        fromV2 = listStudioSandboxChildFolderNamesViaContentService(site, dir)
+      }
+      if (!fromV2.isEmpty()) {
+        return fromV2
+      }
       try {
         if (cstudioContentServiceBean != null &&
           cstudioContentServiceBean.metaClass.respondsTo(cstudioContentServiceBean, 'getContentItemTree', String, String, int)) {
-          Object root = cstudioContentServiceBean.getContentItemTree(siteId, fullPath, 2)
-          return extractFirstLevelFolderNamesFromContentItemTree(root)
+          Object root = cstudioContentServiceBean.getContentItemTree(site, fullPath, 2)
+          List<String> fromTree = extractFirstLevelFolderNamesFromContentItemTree(root)
+          if (!fromTree.isEmpty()) {
+            return fromTree
+          }
         }
       } catch (Throwable t) {
-        log.debug('listStudioSandboxChildFolderNames failed siteId={} path={}: {}', siteId, fullPath, t.message)
+        log.debug('listStudioSandboxChildFolderNames tree failed siteId={} path={}: {}', site, fullPath, t.message)
       }
       []
     }
+  }
+
+  private List<String> listStudioSandboxChildFolderNamesViaContentService(String siteId, String parentSandboxRepoPath) {
+    if (!siteId?.trim() || !parentSandboxRepoPath?.trim()) {
+      return []
+    }
+    Object cs = contentServiceBean
+    if (cs == null ||
+      !cs.metaClass.respondsTo(cs, 'getChildrenByPath', String, String, String, String, List, List, String, String, int, int)) {
+      return []
+    }
+    try {
+      Object result = cs.getChildrenByPath(siteId.trim(), parentSandboxRepoPath.trim(), null, null, null, null, null, null, 0, 500)
+      return extractFirstLevelFolderNamesFromGetChildrenResult(result, parentSandboxRepoPath.trim())
+    } catch (Throwable t) {
+      log.debug('listStudioSandboxChildFolderNames getChildrenByPath failed siteId={} path={}: {}', siteId, parentSandboxRepoPath, t.message)
+      return []
+    }
+  }
+
+  private static List<String> extractFirstLevelFolderNamesFromGetChildrenResult(Object result, String parentSandboxRepoPath) {
+    if (result == null) {
+      return []
+    }
+    Object children = null
+    try {
+      children = result.children
+    } catch (Throwable ignored) {
+    }
+    if (children == null) {
+      try {
+        if (result.metaClass.respondsTo(result, 'getChildren')) {
+          children = result.getChildren()
+        }
+      } catch (Throwable ignored2) {
+      }
+    }
+    if (!(children instanceof Iterable)) {
+      return []
+    }
+    String parent = (parentSandboxRepoPath ?: '').replaceAll(/\/+$/, '')
+    List<String> out = []
+    for (Object child : (Iterable) children) {
+      if (child == null) {
+        continue
+      }
+      String path = ''
+      String label = ''
+      String systemType = ''
+      int childCount = 0
+      try {
+        path = child.path?.toString() ?: ''
+      } catch (Throwable ignored) {
+      }
+      try {
+        label = child.label?.toString() ?: ''
+      } catch (Throwable ignored) {
+      }
+      try {
+        systemType = child.systemType?.toString() ?: ''
+      } catch (Throwable ignored) {
+      }
+      try {
+        Object cc = child.childrenCount
+        if (cc instanceof Number) {
+          childCount = ((Number) cc).intValue()
+        }
+      } catch (Throwable ignored) {
+      }
+      if (!path) {
+        try {
+          path = child.uri?.toString() ?: ''
+        } catch (Throwable ignored) {
+        }
+      }
+      if (!path) {
+        continue
+      }
+      if (path.endsWith('.groovy') || path.endsWith('.json') || path.endsWith('.md') || path.endsWith('.yaml') || path.endsWith('.yml')) {
+        continue
+      }
+      String name = (label ?: '').trim()
+      if (!name && parent) {
+        String p = parent.replaceAll(/\/+$/, '')
+        if (path.startsWith(p + '/')) {
+          String rest = path.substring(p.length() + 1)
+          int slash = rest.indexOf('/')
+          name = slash >= 0 ? rest.substring(0, slash) : rest
+        }
+      }
+      if (!name) {
+        int slash = path.lastIndexOf('/')
+        name = slash >= 0 ? path.substring(slash + 1) : path
+      }
+      name = (name ?: '').trim()
+      if (name && !name.contains('.')) {
+        out.add(name)
+      }
+    }
+    return out.unique()
   }
 
   /**

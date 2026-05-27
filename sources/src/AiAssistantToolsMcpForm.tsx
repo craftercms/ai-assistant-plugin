@@ -41,10 +41,12 @@ export interface AiAssistantToolsMcpFormProps {
   onChange: (next: ToolsPolicyFormState) => void;
   /** When split across Project Tools tabs, show built-in orchestration only, MCP only, or both. */
   sections?: AiAssistantToolsMcpFormSections;
+  /** Passed through to built-in orchestration form; default true. */
+  showRag?: boolean;
 }
 
 export default function AiAssistantToolsMcpForm(props: AiAssistantToolsMcpFormProps) {
-  const { value, onChange, sections = 'both', userTools } = props;
+  const { value, onChange, sections = 'both', showRag = true } = props;
   const activeSite = useActiveSiteId();
   const siteId = useMemo(() => effectiveStudioSiteId(activeSite), [activeSite]);
   const [customSecretKeyOptions, setCustomSecretKeyOptions] = useState<string[]>([]);
@@ -88,7 +90,9 @@ export default function AiAssistantToolsMcpForm(props: AiAssistantToolsMcpFormPr
 
   return (
     <Stack spacing={4}>
-      {showBuiltIn ? <AiAssistantSiteOrchestrationToolsForm value={value} onChange={onChange} /> : null}
+      {showBuiltIn ? (
+        <AiAssistantSiteOrchestrationToolsForm value={value} onChange={onChange} showRag={showRag} />
+      ) : null}
 
       {showMcp ? (
       <Paper variant="outlined" sx={{ p: 2.5 }}>

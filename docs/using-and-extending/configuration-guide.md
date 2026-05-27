@@ -25,6 +25,7 @@
 | [9.0](#cg-9-0) | Intent recipes (**Recipes** tab) |
 | [9.1](#cg-9-1) | Override tool / system prompt text (`prompts/*.md`) |
 | [9.2](#cg-9-2) | Enable / disable stock (built‑in) tools |
+| [9.2.1](#cg-9-2-1) | Two kinds of RAG — plugin (system) vs agent skills |
 | [9.3](#cg-9-3) | Scripted tools, script LLMs, image generators |
 | [9.4](#cg-9-4) | MCP servers (optional remote tools) |
 
@@ -513,10 +514,36 @@ config/studio/scripts/aiassistant/config/tools.json
 | **`enabledBuiltInTools`** | If this array is **non‑empty**, it is a **whitelist** of **built‑in** tool wire names to **keep**; every other built‑in is removed **except** **`InvokeSiteUserTool`** and any **`mcp_*`** tools (unless those appear in **`disabledBuiltInTools`** / **`disabledMcpTools`**). Names must match the registered tool string **exactly** (case‑sensitive). If **omitted** or **empty**, all built‑ins are available minus **`disabledBuiltInTools`**. |
 | **`builtInToolSettings`** | Per–built-in tool options (not enable/disable). **`SerpApiWebSearch.defaults`** holds Google/SerpAPI params (`engine`, `gl`, `hl`, **`tbs`** for date range such as **`qdr:w`** past week, etc.). **`SlackPostMessage.defaults`** may set **`defaultChannel`** (used by LLM **`tool_calls`** and recipe-engine confirmation steps via **`StudioAiToolContext.forRecipeEngine`**); optional **`secretKey`** selects a non-default Secrets row. For recipe Confirmation with empty **`args`**, **`SlackPostMessage`** converts the assistant message to Slack mrkdwn (**`SlackConfirmationPostFormatter`** — generic only). Recipes may ask the model for a **`## Slack message`** section; layout and copy live in recipe phase hints, not in the tool. Configure **`serpapi_api_key`** / **`slack_bot_token`** on **Secrets** only — missing or unresolved keys fail the tool call; Studio does not hide the wire or substitute another tool. |
 | **`disabledUserTools`** | JSON array of site user tool ids (from **`user-tools/registry.json`**) to hide from **`InvokeSiteUserTool`** while keeping registry rows. |
-| **`pluginRag`** | Bundled instruction RAG before the tools loop (**`mode`**: **`off`** default, **`supplement`**, **`replace`**; sliders for kernel size, retrieval **topK**, appendix/chunk limits). |
-| **`agentSkillsRag`** | Limits for per-agent markdown **skills** (**`QueryExpertGuidance`**): max enabled skills per request, embedding model, chunk caps. |
+| **`pluginRag`** | Site-wide **plugin instruction RAG** (system prompt, before the tools loop). See **[§9.2.1](#cg-9-2-1)**. |
+| **`agentSkillsRag`** | Site-wide **limits** for per-agent markdown **skills** (**`QueryExpertGuidance`**). Skill URLs are per agent; see **[§9.2.1](#cg-9-2-1)** and **[chat-and-tools-runtime.md](../internals/chat-and-tools-runtime.md)** (expert skills). |
 
-**Studio UI:** **Project Tools → Agents** → open an agent → **Site orchestration (tools.json)** — RAG sliders and built-in tool toggles. Intent recipe routing remains on the **Recipes** tab.
+**Studio UI:** Edit **`tools.json`** under **Project Tools → AI Assistant → Integrations → Tools** (built-in allowlist, user tools registry, **Plugin RAG** and **Agent skills RAG** at the bottom of that tab). The same **`pluginRag`** / **`agentSkillsRag`** / built-in toggles are also on **Agents** → open an agent → **Site orchestration (tools.json)** (one site file). Intent recipe routing remains on the **Recipes** tab.
+
+<a id="cg-9-2-1"></a>
+
+#### 9.2.1 Two kinds of RAG — plugin (system) vs agent skills
+
+Studio exposes two separate retrieval mechanisms in **`tools.json`**. They are **not** interchangeable: different corpora, timing, and scope.
+
+| | **Plugin RAG** (`pluginRag`) | **Agent skills RAG** (`agentSkillsRag` + per-agent skills) |
+|--|------------------------------|-----------------------------------------------------------|
+| **What is indexed** | The plugin’s **bundled authoring instruction corpus** (shipped with the AI Assistant JAR — same family as `ToolPrompts.getLlm_AUTHORING_INSTRUCTIONS()`). | **Public `http(s)` markdown URLs** you attach to **one agent** (UI: **Skills (markdown URLs)** on that agent, or `<expertSkill>` in `agents.json`). |
+| **Scope** | **Site-wide** — one policy for every agent on the site. | **Per agent** — which playbooks exist; **`agentSkillsRag`** only caps indexing/search. |
+| **When it runs** | **Before the tools loop**, on every orchestration turn — adjusts the **system** message (`PluginRagVectorRegistry.adjustAuthoringCore`). | **On demand** — only when the model calls **`QueryExpertGuidance`** during the tools loop (and only if that agent has **enabled** skills). |
+| **Default** | **`mode`: `off`** — full bundled instructions, no retrieval. | Limits only; skills are optional per agent. |
+| **Typical goal** | **Token efficiency** for the large fixed system prompt (`supplement` or `replace` + retrieved appendix). | **Optional expert playbooks** (crafterizing guides, team standards) without loading every URL into every turn. |
+
+**Plugin RAG modes** (`pluginRag.mode`):
+
+| Mode | Effect |
+|------|--------|
+| **`off`** | No retrieval; full authoring instructions only (recommended default). |
+| **`supplement`** | Full instructions **plus** a retrieved appendix of relevant plugin chunks for this turn. |
+| **`replace`** | A **compact kernel** (leading slice of instructions, size = **`kernelMaxChars`**) **plus** the retrieved appendix — saves tokens; use only if retrieval quality is acceptable. |
+
+Other **`pluginRag`** fields control retrieval (**`topK`**, **`maxAppendChars`**) and index build (**`maxChunkChars`**, **`maxChunks`**, **`embedBatchSize`**). When mode is not **`off`**, Studio builds or loads a persisted index at **`config/studio/plugins/org/craftercms/aiassistant/aiassistant-plugin-rag-index.json`** (see **`PluginRagVectorRegistry`**). Embeddings use the same OpenAI key path as chat when native tools are on.
+
+**Agent skills:** Configure **URLs and descriptions on the agent**; set **`agentSkillsRag`** caps in **`tools.json`**. Requires a tools-loop provider with embeddings (typically **`openAI`** + **`OPENAI_API_KEY`**). Details: **[chat-and-tools-runtime.md](../internals/chat-and-tools-runtime.md#expert-skills-rag)**.
 
 **Example — plugin RAG off (default), agent skills limits explicit:**
 

@@ -98,7 +98,7 @@ When POST **`siteId`** + **`agentId`** match a catalog row, the server may **cop
 
 **Credential order (LLM):** resolve the agent’s **`llmSecretKey`** or provider default row from **`secrets.json`** first (`${env:…}` / `${enc:…}` expansion). Provider stacks may then apply documented **host env** or JVM property fallbacks when the resolved secret is still empty — see **[configuration-guide §4](configuration-guide.md#cg-4)**. This is **not** the same as inventing a default row at runtime when the file or key is missing. Built-in integration tools (e.g. **`SerpApiWebSearch`**) use **secrets only** — no second env bypass.
 | **`enableTools`** | Tool-capable | When **`false`**, tools are off for that agent (subject to per-request **`omitTools`**). |
-| **`skills`** | Tools-loop + Claude (tools on) | Per-agent markdown URL skills (enabled rows only) → **QueryExpertGuidance**. Limits: **`tools.json`** → **`agentSkillsRag`**. |
+| **`skills`** | Tools-loop + Claude (tools on) | Per-agent markdown URL skills (enabled rows only) → **QueryExpertGuidance** during the tools loop (not plugin system RAG). Limits: **`tools.json`** → **`agentSkillsRag`**. See **[configuration-guide §9.2.1](configuration-guide.md#cg-9-2-1)** (plugin RAG vs agent skills). |
 
 ---
 

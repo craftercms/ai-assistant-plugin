@@ -310,7 +310,7 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
               <Tab label="Tools" value="tools" />
               <Tab label="MCP" value="mcp" />
             </Tabs>
-            <Box sx={{ flex: '1 1 auto', minHeight: 0 }}>
+            <Box sx={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
               <AiAssistantScriptsSandboxConfiguration
                 key={integrationsSub === 'tools' || integrationsSub === 'mcp' ? 'tools-policy' : integrationsSub}
                 panel={integrationsSandboxPanel(integrationsSub)}
