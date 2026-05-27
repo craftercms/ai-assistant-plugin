@@ -6,9 +6,9 @@
 // docs/using-and-extending/script-llm-bring-your-own-backend.md and docs/examples/aiassistant-llm/byo-llm/runtime.groovy (tools-loop custom-host sample)
 // (StudioAiScriptLlmContainerRuntime overwrites bundle.llm to scriptLlm:demo after this closure returns).
 
-import plugins.org.craftercms.aiassistant.llm.OpenAiSpecSpringAiLlmRuntime
-import plugins.org.craftercms.aiassistant.llm.StudioAiLlmKind
-import plugins.org.craftercms.aiassistant.llm.StudioAiRuntimeBuildRequest
+import plugins.org.craftercms.aiassistant.contrib.llm.wire.openaispec.OpenAiSpecSpringAiLlmRuntime
+import plugins.org.craftercms.aiassistant.spi.llm.StudioAiLlmKind
+import plugins.org.craftercms.aiassistant.spi.llm.StudioAiRuntimeBuildRequest
 
 [
   supportsNativeStudioTools: true,

@@ -1,7 +1,7 @@
 import jakarta.servlet.http.HttpServletResponse
-import plugins.org.craftercms.aiassistant.http.AiHttpProxy
-import plugins.org.craftercms.aiassistant.secrets.StudioAiAssistantSecretsService
-import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
+import plugins.org.craftercms.aiassistant.studio.http.AiHttpProxy
+import plugins.org.craftercms.aiassistant.studio.secrets.StudioAiAssistantSecretsService
+import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 
 /**
  * Persist site secrets from Project Tools → Secrets tab.

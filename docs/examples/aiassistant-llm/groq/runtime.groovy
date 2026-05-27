@@ -37,11 +37,11 @@ import org.springframework.ai.openai.OpenAiChatModel
 import org.springframework.ai.openai.OpenAiChatOptions
 import org.springframework.ai.openai.api.OpenAiApi
 
-import plugins.org.craftercms.aiassistant.llm.StudioAiLlmKind
-import plugins.org.craftercms.aiassistant.llm.StudioAiLlmRuntime
-import plugins.org.craftercms.aiassistant.llm.StudioAiRuntimeBuildRequest
-import plugins.org.craftercms.aiassistant.orchestration.AiOrchestration
-import plugins.org.craftercms.aiassistant.tools.AiOrchestrationTools
+import plugins.org.craftercms.aiassistant.spi.llm.StudioAiLlmKind
+import plugins.org.craftercms.aiassistant.spi.llm.StudioAiLlmRuntime
+import plugins.org.craftercms.aiassistant.spi.llm.StudioAiRuntimeBuildRequest
+import plugins.org.craftercms.aiassistant.engine.turn.AiOrchestration
+import plugins.org.craftercms.aiassistant.engine.catalog.AiOrchestrationTools
 
 /** Groq-backed script LLM: Spring AI chat client for Groq. Spring AI is vendor-neutral; OpenAi* classes are from spring-ai-openai (HTTP contract naming, not OpenAI-only). */
 class GroqScriptLlmRuntime implements StudioAiLlmRuntime {

@@ -1,6 +1,6 @@
-import plugins.org.craftercms.aiassistant.config.StudioAiAssistantProjectConfig
-import plugins.org.craftercms.aiassistant.recipes.AuthoringIntentRecipeCatalog
-import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
+import plugins.org.craftercms.aiassistant.studio.config.StudioAiAssistantProjectConfig
+import plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentRecipeCatalog
+import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 
 /**
  * GET diagnostic for intent recipe catalog deployment (bundled JSON, merged count, prefetch allowlist).

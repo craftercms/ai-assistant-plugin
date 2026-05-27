@@ -60,6 +60,11 @@ Put new bullets in the **right section** (React/TS vs Groovy) or add a small `##
 
 ## Groovy / Studio scripts (`authoring/scripts/classes/…`)
 
+### Documentation (required)
+
+- **Every Groovy type and every method** under **`authoring/scripts/`** must have a **`/** … */`** block comment on the line above the declaration (including **`private`** methods). See **[groovy-documentation-standard.md](groovy-documentation-standard.md)**.
+- **Audit:** `./scripts/check-groovy-documentation.sh` (exit **1** lists gaps). Document **in the same PR** as functional changes; full-tree catch-up is incremental.
+
 Patterns that have bitten us in review or production:
 
 - **`try` / `catch` / `finally`:** every `try` in Groovy must have **`catch` and/or `finally`**. A stray outer `try { … }` with only a closing `}` fails compilation and can surface as obscure `GroovyBugError` during unrelated script loads.

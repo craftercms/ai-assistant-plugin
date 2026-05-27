@@ -4,7 +4,7 @@ Companion to **[`chat-and-tools-runtime.md`](chat-and-tools-runtime.md)** and **
 
 **Audience:** Maintainers debugging `intent-recipe-routing` SSE telemetry, `skipped_eligibility`, wrong recipe matches, or tools firing on chat-only turns.
 
-**Configuration:** Project Tools → AI Assistant → **Recipes** tab (`tools.json` → `intentRecipeRouting` flags + site **`intent-recipes.json`** catalog). Bundled defaults ship in the plugin JAR: `authoring/scripts/classes/plugins/org/craftercms/aiassistant/recipes/authoring-intent-recipes-default.json`. Site overrides: `config/studio/scripts/aiassistant/intent-recipes.json` (path configurable via **custom recipes path**). Admin overview: **[configuration-guide.md §9.0](../using-and-extending/configuration-guide.md#cg-9-0)**. **Broader architecture:** [Architecture & diagrams](../architecture-diagrams.md#logical-architecture-design) (recipe prelude in the orchestration layer).
+**Configuration:** Project Tools → AI Assistant → **Recipes** tab (`tools.json` → `intentRecipeRouting` flags + site **`intent-recipes.json`** catalog). Bundled defaults ship in the plugin JAR: `authoring/scripts/classes/plugins/org/craftercms/aiassistant/engine/routing/authoring-intent-recipes-default.json`. Site overrides: `config/studio/scripts/aiassistant/intent-recipes.json` (path configurable via **custom recipes path**). Admin overview: **[configuration-guide.md §9.0](../using-and-extending/configuration-guide.md#cg-9-0)**. **Broader architecture:** [Architecture & diagrams](../architecture-diagrams.md#logical-architecture-design) (recipe prelude in the orchestration layer).
 
 ---
 
@@ -456,7 +456,7 @@ When a matched recipe has Confirmation **`engineSteps`**, the loop runs **`maybe
 | Eligibility + current-turn signals | `AuthoringPreviewContext.groovy` |
 | Recipe catalog, deterministic + ambiguity competitors, plan-defer context | `AuthoringIntentRecipeCatalog.groovy`, `AuthoringIntentRecipeWhen.groovy` |
 | Plan-defer wired-tools catalog | `AiOrchestrationTools.groovy` (`wireNamesForPlanDeferCatalog` from registered callbacks, `formatPlanDeferToolsCatalogMarkdown`) |
-| Bundled recipes + routing config | `recipes/authoring-intent-recipes-default.json` (`routingRecipeFamilies`, `multiGoalDefer`) |
+| Bundled recipes + routing config | `engine/routing/authoring-intent-recipes-default.json` (`routingRecipeFamilies`, `multiGoalDefer`) |
 | Prelude + match pass + tools loop | `AiOrchestration.groovy` |
 | Tools-loop wire policy (progress, truncation, prose JSON) | `tools/loop/ToolsLoopWirePolicyRegistry.groovy`, `ProseDeclaredToolCalls.groovy` |
 | Intent prefetch (read-only context in prompt) | `AuthoringIntentRecipeEngine.groovy` |

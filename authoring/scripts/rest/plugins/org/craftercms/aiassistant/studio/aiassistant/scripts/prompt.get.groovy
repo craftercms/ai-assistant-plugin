@@ -1,8 +1,8 @@
-import plugins.org.craftercms.aiassistant.prompt.ToolPromptsBuiltinDefaults
-import plugins.org.craftercms.aiassistant.prompt.ToolPromptsLoader
-import plugins.org.craftercms.aiassistant.prompt.ToolPromptsOverrideCatalog
-import plugins.org.craftercms.aiassistant.prompt.ToolPromptsSiteContext
-import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
+import plugins.org.craftercms.aiassistant.engine.prompt.ToolPromptsBuiltinDefaults
+import plugins.org.craftercms.aiassistant.engine.prompt.ToolPromptsLoader
+import plugins.org.craftercms.aiassistant.engine.prompt.ToolPromptsOverrideCatalog
+import plugins.org.craftercms.aiassistant.engine.prompt.ToolPromptsSiteContext
+import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 
 /**
  * One tool-prompt key: default text (classpath {@code KEY.md} if present, else Groovy literal) vs raw site sandbox file.

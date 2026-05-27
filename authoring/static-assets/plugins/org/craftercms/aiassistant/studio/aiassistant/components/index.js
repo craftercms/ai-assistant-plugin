@@ -74903,9 +74903,9 @@ const AI_ASSISTANT_IMAGEGEN_GROOVY_STUB = `{ Map input, Map context ->
 }
 `;
 /** Default Groovy for script LLM {@code script:id} (see {@code StudioAiScriptLlmLoader} and demo runtime). */
-const AI_ASSISTANT_LLM_RUNTIME_GROOVY_STUB = `import plugins.org.craftercms.aiassistant.llm.OpenAiSpecSpringAiLlmRuntime
-import plugins.org.craftercms.aiassistant.llm.StudioAiLlmKind
-import plugins.org.craftercms.aiassistant.llm.StudioAiRuntimeBuildRequest
+const AI_ASSISTANT_LLM_RUNTIME_GROOVY_STUB = `import plugins.org.craftercms.aiassistant.contrib.llm.wire.openaispec.OpenAiSpecSpringAiLlmRuntime
+import plugins.org.craftercms.aiassistant.spi.llm.StudioAiLlmKind
+import plugins.org.craftercms.aiassistant.spi.llm.StudioAiRuntimeBuildRequest
 
 [
   supportsNativeStudioTools: true,

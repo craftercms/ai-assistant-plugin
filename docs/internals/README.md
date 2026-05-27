@@ -14,6 +14,8 @@ Documentation here is aimed at **maintainers**, **integrators**, and anyone debu
 | [**intent-recipe-routing.md**](intent-recipe-routing.md) | **Pre-tools** intent recipe routing (eligibility → match pass → expansion rematch) and how it affects the native tools loop; admin UI: **[configuration-guide §9.0](../using-and-extending/configuration-guide.md#cg-9-0)** |
 | [**studio-aiassistant-jvm-parameters.md**](../using-and-extending/studio-aiassistant-jvm-parameters.md) | JVM **`-D`** / `System.getProperty` tuning (timeouts, HTTP/MCP caps, optional key/model defaults) |
 | [**reference-spring-ai-completions-with-tools.md**](reference-spring-ai-completions-with-tools.md) | Archived Spring AI pattern reference (may diverge from current wiring) |
+| [**package-architecture.md**](package-architecture.md) | **Groovy layout** — `spi` / `engine` / `contrib` / `studio`; OpenAISpec vs OpenAI vendor |
+| [**groovy-documentation-standard.md**](groovy-documentation-standard.md) | **Required** — every Groovy type and method under **`authoring/scripts/`** has a **`/** … */`** block comment; run **`scripts/check-groovy-documentation.sh`** |
 | [**maintainer-review-checklist.md**](maintainer-review-checklist.md) | **Lessons learned** — capture **anti-pattern → preferred pattern** when reviews surface systemic issues; React/TS (localStorage + SSE, bounded logs, Studio user identity, caches, markdown/sandbox, a11y) and Groovy (try/finally, thread pools, SSE terminal CAS, deep state copies) |
 
 ## Debug Logging

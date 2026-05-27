@@ -279,7 +279,7 @@ For a **real-world Groovy `StudioAiLlmRuntime` class** that builds the **full** 
 
 | Concern | Class |
 |---------|--------|
-| User tool registry + invoke | `plugins.org.craftercms.aiassistant.tools.StudioAiUserSiteTools` |
-| Image script load / cache | `plugins.org.craftercms.aiassistant.imagegen.StudioAiScriptImageGenLoader` |
-| Backend resolution | `plugins.org.craftercms.aiassistant.imagegen.StudioAiImageGeneratorFactory` |
-| Tool schemas (`InvokeSiteUserTool`, `GenerateImage`) | `plugins.org.craftercms.aiassistant.tools.AiOrchestrationTools` |
+| User tool registry + invoke | `plugins.org.craftercms.aiassistant.contrib.tool.site.StudioAiUserSiteTools` |
+| Image script load / cache | `plugins.org.craftercms.aiassistant.contrib.imagegen.StudioAiScriptImageGenLoader` |
+| Backend resolution | `plugins.org.craftercms.aiassistant.engine.catalog.StudioAiImageGeneratorFactory` |
+| Tool schemas (`InvokeSiteUserTool`, `GenerateImage`) | `plugins.org.craftercms.aiassistant.engine.catalog.AiOrchestrationTools` |

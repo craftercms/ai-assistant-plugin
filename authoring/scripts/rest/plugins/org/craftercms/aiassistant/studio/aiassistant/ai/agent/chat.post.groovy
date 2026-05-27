@@ -1,13 +1,13 @@
 import jakarta.servlet.http.HttpServletResponse
 import org.slf4j.LoggerFactory
-import plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext
-import plugins.org.craftercms.aiassistant.http.AiHttpProxy
-import plugins.org.craftercms.aiassistant.http.AiAssistantCentralAgentsMerge
-import plugins.org.craftercms.aiassistant.orchestration.AiOrchestration
-import plugins.org.craftercms.aiassistant.prompt.ToolPromptsSiteContext
-import plugins.org.craftercms.aiassistant.rag.ExpertSkillVectorRegistry
+import plugins.org.craftercms.aiassistant.engine.context.AuthoringPreviewContext
+import plugins.org.craftercms.aiassistant.studio.http.AiHttpProxy
+import plugins.org.craftercms.aiassistant.contrib.agents.AiAssistantCentralAgentsMerge
+import plugins.org.craftercms.aiassistant.engine.turn.AiOrchestration
+import plugins.org.craftercms.aiassistant.engine.prompt.ToolPromptsSiteContext
+import plugins.org.craftercms.aiassistant.engine.rag.ExpertSkillVectorRegistry
 import plugins.org.craftercms.aiassistant.secrets.StudioAiAssistantSecretsContext
-import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
+import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 
 /**
  * Minimal proxy for assistant chat (non-streaming).
@@ -126,7 +126,7 @@ if (crafterQChatUserBody) {
 Map projectToolCfg = [:]
 try {
   def cfgOps = new StudioToolOperations(request, applicationContext, params)
-  projectToolCfg = plugins.org.craftercms.aiassistant.config.StudioAiAssistantProjectConfig.load(cfgOps)
+  projectToolCfg = plugins.org.craftercms.aiassistant.studio.config.StudioAiAssistantProjectConfig.load(cfgOps)
 } catch (Throwable ignoredCfg) {}
 def skillsNorm = ExpertSkillVectorRegistry.normalizeRequestExpertSkills(body?.skills, projectToolCfg)
 try {

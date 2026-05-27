@@ -2,11 +2,11 @@ import jakarta.servlet.http.HttpServletResponse
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import org.springframework.security.core.context.SecurityContextHolder
-import plugins.org.craftercms.aiassistant.http.AiHttpProxy
-import plugins.org.craftercms.aiassistant.prompt.ToolPromptsLoader
-import plugins.org.craftercms.aiassistant.secrets.StudioAiAssistantSecretsService
-import plugins.org.craftercms.aiassistant.tools.StudioAiUserSiteTools
-import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
+import plugins.org.craftercms.aiassistant.studio.http.AiHttpProxy
+import plugins.org.craftercms.aiassistant.engine.prompt.ToolPromptsLoader
+import plugins.org.craftercms.aiassistant.studio.secrets.StudioAiAssistantSecretsService
+import plugins.org.craftercms.aiassistant.contrib.tool.site.StudioAiUserSiteTools
+import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 
 /**
  * Mutate site sandbox AI Assistant scripts / registry.

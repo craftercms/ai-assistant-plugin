@@ -1,6 +1,6 @@
 import jakarta.servlet.http.HttpServletResponse
-import plugins.org.craftercms.aiassistant.http.AiHttpProxy
-import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
+import plugins.org.craftercms.aiassistant.studio.http.AiHttpProxy
+import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 
 /**
  * Downloads an image from a remote URL and writes it to the site sandbox under {@code /static-assets/...},

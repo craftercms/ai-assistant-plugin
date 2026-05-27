@@ -20,11 +20,11 @@ import org.springframework.ai.openai.OpenAiChatModel
 import org.springframework.ai.openai.OpenAiChatOptions
 import org.springframework.ai.openai.api.OpenAiApi
 
-import plugins.org.craftercms.aiassistant.llm.StudioAiLlmKind
-import plugins.org.craftercms.aiassistant.llm.StudioAiLlmRuntime
-import plugins.org.craftercms.aiassistant.llm.StudioAiRuntimeBuildRequest
-import plugins.org.craftercms.aiassistant.orchestration.AiOrchestration
-import plugins.org.craftercms.aiassistant.tools.AiOrchestrationTools
+import plugins.org.craftercms.aiassistant.spi.llm.StudioAiLlmKind
+import plugins.org.craftercms.aiassistant.spi.llm.StudioAiLlmRuntime
+import plugins.org.craftercms.aiassistant.spi.llm.StudioAiRuntimeBuildRequest
+import plugins.org.craftercms.aiassistant.engine.turn.AiOrchestration
+import plugins.org.craftercms.aiassistant.engine.catalog.AiOrchestrationTools
 
 /** Bring-your-own tools-loop chat host: custom base URL + API key for the tools-loop wire. */
 class BringYourOwnToolsLoopHostRuntime implements StudioAiLlmRuntime {

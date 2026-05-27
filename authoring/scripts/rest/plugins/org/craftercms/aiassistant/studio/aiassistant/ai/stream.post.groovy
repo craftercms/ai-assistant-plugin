@@ -4,15 +4,15 @@ import java.util.LinkedHashSet
 import java.util.Set
 import groovy.json.JsonOutput
 import org.slf4j.LoggerFactory
-import plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext
-import plugins.org.craftercms.aiassistant.http.AiHttpProxy
-import plugins.org.craftercms.aiassistant.http.AiAssistantCentralAgentsMerge
-import plugins.org.craftercms.aiassistant.orchestration.AiOrchestration
-import plugins.org.craftercms.aiassistant.prompt.ToolPromptsSiteContext
-import plugins.org.craftercms.aiassistant.config.StudioAiAssistantProjectConfig
-import plugins.org.craftercms.aiassistant.rag.ExpertSkillVectorRegistry
+import plugins.org.craftercms.aiassistant.engine.context.AuthoringPreviewContext
+import plugins.org.craftercms.aiassistant.studio.http.AiHttpProxy
+import plugins.org.craftercms.aiassistant.contrib.agents.AiAssistantCentralAgentsMerge
+import plugins.org.craftercms.aiassistant.engine.turn.AiOrchestration
+import plugins.org.craftercms.aiassistant.engine.prompt.ToolPromptsSiteContext
+import plugins.org.craftercms.aiassistant.studio.config.StudioAiAssistantProjectConfig
+import plugins.org.craftercms.aiassistant.engine.rag.ExpertSkillVectorRegistry
 import plugins.org.craftercms.aiassistant.secrets.StudioAiAssistantSecretsContext
-import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
+import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 
 /**
  * Single streaming chat endpoint: agentId + full prompt in, SSE stream out.

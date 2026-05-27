@@ -1,12 +1,12 @@
 import jakarta.servlet.http.HttpServletResponse
 import org.springframework.security.core.Authentication
 import org.springframework.security.core.context.SecurityContextHolder
-import plugins.org.craftercms.aiassistant.autonomous.AutonomousAssistantRegistry
-import plugins.org.craftercms.aiassistant.autonomous.AutonomousAssistantStateStore
-import plugins.org.craftercms.aiassistant.autonomous.AutonomousAssistantStatus
-import plugins.org.craftercms.aiassistant.autonomous.AutonomousAssistantSupervisor
-import plugins.org.craftercms.aiassistant.autonomous.AutonomousScopeGuard
-import plugins.org.craftercms.aiassistant.http.AiHttpProxy
+import plugins.org.craftercms.aiassistant.engine.autonomous.AutonomousAssistantRegistry
+import plugins.org.craftercms.aiassistant.engine.autonomous.AutonomousAssistantStateStore
+import plugins.org.craftercms.aiassistant.engine.autonomous.AutonomousAssistantStatus
+import plugins.org.craftercms.aiassistant.engine.autonomous.AutonomousAssistantSupervisor
+import plugins.org.craftercms.aiassistant.engine.autonomous.AutonomousScopeGuard
+import plugins.org.craftercms.aiassistant.studio.http.AiHttpProxy
 
 def body = AiHttpProxy.parseJsonBody(request)
 if (Boolean.TRUE.equals(body?.get('__aiassistantInvalidJson'))) {

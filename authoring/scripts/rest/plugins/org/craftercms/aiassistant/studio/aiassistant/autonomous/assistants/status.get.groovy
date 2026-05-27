@@ -1,11 +1,11 @@
 import org.springframework.security.core.Authentication
 import org.springframework.security.core.context.SecurityContextHolder
-import plugins.org.craftercms.aiassistant.autonomous.AutonomousAssistantRegistry
-import plugins.org.craftercms.aiassistant.autonomous.AutonomousAssistantRuntimeHooks
-import plugins.org.craftercms.aiassistant.autonomous.AutonomousAssistantStateStore
-import plugins.org.craftercms.aiassistant.autonomous.AutonomousAssistantStatus
-import plugins.org.craftercms.aiassistant.autonomous.AutonomousAssistantSupervisor
-import plugins.org.craftercms.aiassistant.autonomous.AutonomousScopeGuard
+import plugins.org.craftercms.aiassistant.engine.autonomous.AutonomousAssistantRegistry
+import plugins.org.craftercms.aiassistant.engine.autonomous.AutonomousAssistantRuntimeHooks
+import plugins.org.craftercms.aiassistant.engine.autonomous.AutonomousAssistantStateStore
+import plugins.org.craftercms.aiassistant.engine.autonomous.AutonomousAssistantStatus
+import plugins.org.craftercms.aiassistant.engine.autonomous.AutonomousAssistantSupervisor
+import plugins.org.craftercms.aiassistant.engine.autonomous.AutonomousScopeGuard
 
 String siteId = (params?.siteId ?: request.getParameter('siteId'))?.toString()?.trim()
 if (!siteId) {
