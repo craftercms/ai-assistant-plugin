@@ -14,13 +14,18 @@ import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
  *
  * Routes through {@link AiOrchestration}: Spring AI tools-loop chat, Claude, or site script LLM per configured {@code llm}.
  *
+ * URL query {@code siteId} — Studio **session** site (required by plugin script controller).
+ * POST body {@code siteId} — optional **working CMS site** for CMS tools (may differ from session site); sets {@code aiassistant.siteId}.
+ * When working ≠ session, preview {@code contentPath} / {@code contentTypeId} / {@code displayTemplate} / {@code studioPreviewPageUrl} are omitted for assembly.
+ *
  * Body:
  * {
  *   "agentId": "...",
  *   "prompt": "...",
    *   "llm": "required on the wire (POST body or merged from agents.json when siteId is set); missing/blank/unknown → 400",
+ *   "siteId": "optional working CMS site for tools",
  *   "chatId": "optional",
- *   "contentPath": "optional Studio preview repo path",
+ *   "contentPath": "optional Studio preview repo path (same-site preview only)",
  *   "contentTypeId": "optional",
  *   "contentTypeLabel": "optional Studio UI label for the open item’s type",
  *   "studioPreviewPageUrl": "optional — Studio XB address bar `…/studio/preview#/?page=…&site=…` when available",

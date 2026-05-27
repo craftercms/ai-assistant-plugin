@@ -36,6 +36,8 @@ An **intent recipe** specializes **one chat turn** when the author’s **current
 
 Recipes do **not** replace `agents.json` or global `tools.json`; they layer on top for a matched intent.
 
+**Cross-site / NL routing (plugin defaults):** Do not add **homepage** / bare **summarize** phrase lists or **`deterministic_open_page_summarize`**. Site-wide asks use **`site_content_research`** / **ResearchSiteContent**. When authors **`set site to X`**, CMS tools use **X**; bundled recipe JSON loads from the **Studio session** site when the working site has no copy — see **`docs/internals/intent-recipe-routing.md`** (cross-site) and **`.cursor/rules/intent-routing-natural-language.mdc`**.
+
 ---
 
 ## Catalog shape

@@ -165,12 +165,14 @@ If a tool throws mid-stream (e.g. Spring AI `MessageAggregator` / `UndeclaredThr
 - `llmModel`: optional string
 - `imageModel`: optional string — OpenAI **Images** model id for **GenerateImage**; must be set on the agent and/or this body field when the model should call **GenerateImage** (no server default). Prefer **`gpt-image-1`** or **`gpt-image-1-mini`**.
 - `openAiApiKey`: optional string — **testing only**; per-provider precedence (OpenAI, xAI, DeepSeek, etc.): ignored when the matching server-side key is set (host **env** vars per **[llm-configuration.md](../using-and-extending/llm-configuration.md)**, plus JVM fallbacks in **[studio-aiassistant-jvm-parameters.md](../using-and-extending/studio-aiassistant-jvm-parameters.md)**). For **`claude`**, the same field can carry the Anthropic key when no **`ANTHROPIC_API_KEY`** is configured.
-- `contentPath`: optional repository path of the item open in Studio preview (e.g. `/site/website/about/index.xml`). When set, the server appends **Studio preview context** (metadata only — path, content type, display template, siteId; no inlined file bodies) so the model can resolve “this page” without preloading XML/FTL.
-- `displayTemplate`: optional display-template path for the open item’s content type (metadata only).
-- `contentTypeId`: optional preview content type (e.g. `/page/home`); included in that context when present.
+- `siteId`: optional **working CMS site** for this turn. When set, the server stores it on **`aiassistant.siteId`** and uses it for **all** CMS tool calls (**`resolveEffectiveSiteId`** and **`ensureToolArgsSiteId`** override model-supplied `siteId` on tools). May differ from the Studio session site (URL query / active site). Sticky chat state: whole-message **`set site to X`** updates client state and sends `siteId: X` on subsequent turns without repeating the command.
+- `contentPath`: optional repository path of the item open in Studio preview (e.g. `/site/website/about/index.xml`). Omitted when working `siteId` ≠ session site (cross-site). When set, the server appends **Studio preview context** (metadata only — path, content type, display template; no inlined file bodies) so the model can resolve “this page” without preloading XML/FTL.
+- `displayTemplate`: optional display-template path for the open item’s content type (metadata only). Omitted on cross-site turns.
+- `contentTypeId`: optional preview content type (e.g. `/page/home`); included in that context when present. Omitted on cross-site turns.
+- `studioPreviewPageUrl`: optional Studio preview shell URL from the browser; omitted on cross-site turns.
 - `skills`: optional JSON array of `{ "name", "url", "description", "enabled" }` — enabled rows only; server normalizes URLs and registers **`QueryExpertGuidance`** when tools are on.
 
-The React widget sends `llm` / model / key from the selected agent config and sends `contentPath` / `contentTypeId` from the current preview item when available. When the agent has enabled skills, the widget sends **`skills`** on stream/chat POST.
+The React widget sends `llm` / model / key from the selected agent config. It sends **`siteId`** = working site (`assumedSiteId` or per-turn directive, else active Studio site) and puts the **session** site on the plugin URL query only. It sends `contentPath` / `contentTypeId` from preview **only when** working site equals session site. When the agent has enabled skills, the widget sends **`skills`** on stream/chat POST.
 
 ### Prompt assembly observability
 
@@ -211,7 +213,7 @@ If you see **`Unexpected end-of-input`** while parsing `ChatCompletion` during *
 
 - **Fix (ops):** Ensure the **authoring OpenSearch** service is running and reachable from the Studio JVM (Docker Compose / Kubernetes / local install — match your Crafter distribution docs). Until search is up, **`GetContent` / `WriteContent` / `GetContentTypeFormDefinition`** still work when you pass a real **`siteId`** and repository **`path`**.
 - **Plugin behavior:** If OpenSearch is down, `ListPagesAndComponents` returns a JSON tool result with **`error: true`** and a short message instead of throwing, so the chat stream can continue and the model can fall back to paths the user provides.
-- **`siteId`:** The widget and REST body should send the **actual Studio site id** (e.g. `new-demo` for this repo’s default local test site in `install-plugin.sh`). If the model passes `default`, the server substitutes the request’s `siteId` when present (`aiassistant.siteId` request attribute / query / body).
+- **`siteId`:** POST body **`siteId`** is the **working CMS site** for tools. The plugin script URL query uses the **Studio session** site. **`resolveEffectiveSiteId`** prefers **`aiassistant.siteId`** (from POST) over tool arguments and over `default`. **`ensureToolArgsSiteId`** rewrites CMS tool JSON so **`siteId`** on the wire matches the working site even when the model echoes the session site from context.
 
 ### `WriteContent` Returns `ok: false` / “No Commit” (Studio Did Not Save)
 

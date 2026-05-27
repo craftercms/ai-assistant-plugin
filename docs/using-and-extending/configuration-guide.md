@@ -281,6 +281,15 @@ Each **chat** row (`mode: chat` or omitted) is one Helper picker entry (and one 
 
 Field reference: [spec.md — Central agent catalog](../internals/spec.md) · [llm-configuration.md](llm-configuration.md). Use **Reload example catalog** in Project Tools for a starter file.
 
+#### Cross-site working site (authors)
+
+Authors can keep Studio on site **A** while directing CMS tools at site **B**:
+
+- **`set site to B`** (whole message) — sticky until **New chat** or another **`set site`**; the Helper shows a **Site: B** chip when B ≠ the active Studio site.
+- **`… in site B`** / **`… for site B`** — applies only to that message.
+
+The plugin still calls REST scripts with **`?siteId=`** = active Studio site (required). The JSON body sends **`siteId: B`** for tools. When B ≠ A, preview anchor fields are not sent so answers are not tied to A’s open preview. Site-wide asks (e.g. “summarize the homepage”) should use **ResearchSiteContent** / **GetContent** on **B**, not phrase-list routing to the session preview path. Maintainer detail: [spec.md — Working CMS site](../internals/spec.md#working-cms-site-cross-site) · [intent-recipe-routing.md — Cross-site](../internals/intent-recipe-routing.md#cross-site-working-site).
+
 ---
 
 <a id="cg-4"></a>

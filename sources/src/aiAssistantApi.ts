@@ -44,6 +44,7 @@ export interface StreamChatArgs {
   /**
    * Studio preview item path (XB / ICE). Server appends **repository** authoring context for tools.
    * Omit in **form-engine** mode — unsaved edits live in the browser; use {@link authoringSurface} `formEngine` instead.
+   * Omit when POST {@link siteId} differs from {@link pluginRequestSiteId} (cross-site working).
    */
   contentPath?: string;
   /** Preview content type id (XB). Omit in form-engine mode. */

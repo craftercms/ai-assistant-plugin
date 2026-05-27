@@ -33,6 +33,7 @@ Use this skill when editing **this repo**: `ai-assistant-plugin` — Studio plug
 
 ## Mechanical checklist (non-UI changes)
 
+- **Cross-site working site:** POST body **`siteId`** = CMS tools site; URL query **`siteId`** = Studio session site only. **`resolveEffectiveSiteId`** / **`ensureToolArgsSiteId`** must prefer POST **`aiassistant.siteId`** over model tool args. Bundled **`authoring-intent-recipes-default.json`** and empty **`tools.json`** load from **session** site sandbox when classpath misses; site **`intent-recipes.json`** tries working site then session. No homepage / front-page phrase-list routing — NL + router per **`.cursor/rules/intent-routing-natural-language.mdc`**.
 - **Form control `main.js`:** Edit **`sources/control/ai-assistant/main.js` only**. Rollup **`yarn package`** copies it into **`authoring/static-assets/plugins/.../studio/control/ai-assistant/main.js`**. Editing only the `authoring/...` copy is overwritten on the next package — that pattern makes fixes “disappear.”
 - After TS/React changes: run **`yarn package`** from **`sources/`**; do not hand-edit **`authoring/.../aiassistant/components/index.js`** (generated bundle).
 - After edits to `sources/src` form or chat bundle: run **`yarn package`** from `sources/`.

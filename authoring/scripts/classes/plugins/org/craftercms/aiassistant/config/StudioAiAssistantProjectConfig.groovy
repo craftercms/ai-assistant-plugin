@@ -66,6 +66,10 @@ final class StudioAiAssistantProjectConfig {
 
   private StudioAiAssistantProjectConfig() {}
 
+  /**
+   * Loads {@link #TOOLS_JSON_PATH} for the POST-body working site first; when empty and working site
+   * differs from the Studio session site (cross-site chat), falls back to the session site sandbox.
+   */
   static Map load(StudioToolOperations ops) {
     if (ops == null) {
       return Collections.emptyMap()

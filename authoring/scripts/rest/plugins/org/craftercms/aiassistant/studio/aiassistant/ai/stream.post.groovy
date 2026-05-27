@@ -20,6 +20,9 @@ import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
  * to serialize a return value (client sends Accept: text/event-stream).
  *
  * Contract:
+ *   URL query {@code siteId} — Studio **session** site (plugin script controller requirement). Client sends active Studio site here ({@code pluginRequestSiteId}).
+ *   POST body {@code siteId} — optional **working CMS site** for tool calls; may differ from the URL query. Sets request attribute {@code aiassistant.siteId}.
+ *     When working site ≠ session site, preview fields below are ignored for prompt assembly (cross-site working).
  *   POST body: { ..., "contentPath", "contentTypeId", "contentTypeLabel" (optional), "displayTemplate" (optional metadata),
  *   "studioPreviewPageUrl" (optional) — `…/studio/preview#/?page=…&site=…` from the browser when available so the prompt matches the author’s address bar,
  *   "authoringSurface": "formEngine" | omit for XB/preview,

@@ -41,6 +41,7 @@
 | Site secrets (`secrets.json`, `${secret:}`) | [configuration-guide §4](using-and-extending/configuration-guide.md#cg-4) · [spec.md — secrets](internals/spec.md) |
 | Configuration tour (joyride) | [configuration-guide §4b](using-and-extending/configuration-guide.md#cg-joyride) |
 | REST/stream body, tools, MCP | [chat-and-tools-runtime.md](internals/chat-and-tools-runtime.md) |
+| Cross-site working site (`set site to X`, POST vs URL `siteId`) | [configuration-guide §3](using-and-extending/configuration-guide.md#cg-3) · [spec.md](internals/spec.md#working-cms-site-cross-site) · [intent-recipe-routing](internals/intent-recipe-routing.md#cross-site-working-site) |
 | Engineering contracts (`ui.xml` / stream / form / REST) | [internals/spec.md](internals/spec.md) |
 | Architecture, admin setup, author journeys, build/runtime | [architecture-diagrams.md](architecture-diagrams.md) |
 | Review-style invariants (perf, memory, SSE, Groovy pitfalls) | [internals/maintainer-review-checklist.md](internals/maintainer-review-checklist.md) |

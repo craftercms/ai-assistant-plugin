@@ -13,6 +13,13 @@ Companion to **[`chat-and-tools-runtime.md`](chat-and-tools-runtime.md)** and **
 - **Repository anchor** (`contentPath`, Request anchor on `/site/.../*.xml`) is **context** — which item is open in Studio.
 - **CMS intent** follows the **current author message** (`Current request:` line on the wire), not keywords buried in `[Prior conversation …]`.
 - A **repo anchor alone** must not add structural competitors for `modify_page_content` or force tools on creative / chat-only turns.
+- **Natural language first** — no phrase-list routing for site-wide concepts (e.g. “homepage”); use recipe **`description`** + optional **JSON router** / **## Plan**, not bare “summarize” + anchor fast paths. See **`.cursor/rules/intent-routing-natural-language.mdc`**.
+
+<a id="cross-site-working-site"></a>
+
+### Cross-site working site
+
+When POST **`siteId`** (working site) differs from the Studio session site, the client does **not** send preview **`contentPath`**. **`open_page_inquiry`** is **deferred** (`matchPass: open_page_no_anchor_defer_plan`) unless servlet bindings include a real **`/site/.../*.xml`** path for that turn. Bundled recipe JSON and empty **`tools.json`** load from the **session** site sandbox first; site **`intent-recipes.json`** tries working site then session. The JSON recipe router user message includes **Studio site context** when cross-site. CMS tools still use POST **`siteId`** via **`resolveEffectiveSiteId`** / **`ensureToolArgsSiteId`**.
 
 ---
 
@@ -76,8 +83,9 @@ This is what runs **out of the box** when intent recipe routing is on and the ag
 | `eligibilityGateEnabled` | **`false`** | **No** early message filter — every non-empty turn reaches recipe match |
 | `engineEnabled` | `true` | Prefetch engine runs on match |
 | `requestClarificationOnUnmatched` | `false` | On `no_match`, tools loop runs (no tools-off clarification turn) |
-| `wholeTurnJsonRouterEnabled` | **`false`** | When off, zero/multiple deterministic hits defer to **## Plan** (no JSON router forcing one recipe) |
-| `minConfidence` | `0.55` | Whole-turn JSON router must meet this when `wholeTurnJsonRouterEnabled: true` |
+| `wholeTurnJsonRouterEnabled` | **`false`** | When off, zero/multiple deterministic hits defer to **## Plan** unless **`llmRouterWhenPriorConversation`** runs (below) |
+| `llmRouterWhenPriorConversation` | **`true`** | When **`wholeTurnJsonRouterEnabled`** is false: still run JSON router after clarify if wire includes **`[Prior conversation …]`** |
+| `minConfidence` | `0.55` | Whole-turn JSON router must meet this when JSON router runs |
 
 **Wire in:** `Repository path` / Request anchor + optional `[Prior conversation …]` + **`Current request:`** (current-turn text for routing).
 

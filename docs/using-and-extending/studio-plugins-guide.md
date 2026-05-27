@@ -294,6 +294,15 @@ Example (this plugin’s streaming endpoint):
 POST /studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/ai/stream?siteId=new-demo
 ```
 
+**Two `siteId` values on stream/chat (do not confuse them):**
+
+| Where | Meaning |
+|-------|---------|
+| **URL query** `?siteId=` | **Studio session site** — where the plugin is loaded (required by Studio’s script controller). The React client always passes the **active Studio site** here (`pluginRequestSiteId`). |
+| **POST JSON** `"siteId"` | **Working CMS site** for **`GetContent`**, **`ResearchSiteContent`**, writes, and other CMS tools. Defaults to the session site; authors can set a different site with **`set site to X`** (sticky per chat) or **`… in site X`** (one turn). Server **`resolveEffectiveSiteId`** and **`ensureToolArgsSiteId`** force this id on tool calls even when the model echoes the session site from context. |
+
+When POST **`siteId`** differs from the URL query, the client **omits** preview **`contentPath`** / **`contentTypeId`** / **`displayTemplate`** / **`studioPreviewPageUrl`** so the open preview on the session site is not treated as repository truth for the working site. See **[chat-and-tools-runtime.md § REST body](../internals/chat-and-tools-runtime.md#rest-body-advanced)** and **[spec.md — Working CMS site](../internals/spec.md#working-cms-site-cross-site)**.
+
 - **Script lives in plugin repo** (and must be copied into the site sandbox at install time):
   - `authoring/scripts/rest/plugins/org/craftercms/aiassistant/studio/aiassistant/ai/stream.post.groovy`
 
@@ -416,7 +425,7 @@ Each entry needs **`id`** (letters, digits, `_`, `-`, max 64 chars) and **`scrip
 | `studio` | `StudioToolOperations` — same CMS helpers as built-in tools (`getContent`, `writeContent`, …). |
 | `args` | Map from the `InvokeSiteUserTool` call (may be empty). |
 | `toolId` | Registered id string. |
-| `siteId` | Effective Studio site id (`studio.resolveEffectiveSiteId('')`). |
+| `siteId` | Working CMS site id for this turn (`studio.resolveEffectiveSiteId('')` — POST body wins over tool args). |
 | `log` | SLF4J logger for the user-tool runner. |
 
 **Return value:** The script’s **last expression** should be a **Map** (e.g. `ok`, `message`, custom fields). Non-Map results are wrapped as `{ ok: true, result: … }`.

@@ -88,7 +88,7 @@ class StudioToolOperations {
 
   final def request
   final def applicationContext
-  /** Plugin script params (may include siteId from query string). */
+  /** Plugin script params (URL query {@code siteId} is the Studio session site, not POST-body working site). */
   final def params
   /** Copy of {@link org.springframework.security.core.context.SecurityContext} from the Studio HTTP request thread. */
   final def securityContextForTools

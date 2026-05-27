@@ -25,6 +25,9 @@ import java.util.regex.Pattern
  * Loads bundled + optional site **authoring intent recipes** for the intent-router pass.
  * <p>Default file ships next to this class on the classpath; sites may override via
  * {@link StudioAiAssistantProjectConfig#intentRecipeCustomRecipesPath}.</p>
+ * <p>Cross-site chat: bundled defaults and empty {@code tools.json} load from the <strong>Studio session</strong>
+ * site sandbox when classpath misses; site {@code intent-recipes.json} tries POST working site then session.
+ * CMS tool {@code siteId} still follows {@link StudioToolOperations#resolveEffectiveSiteId}.</p>
  * <p>Phase helpers: {@link #collectPrefetchEngineSteps} (context + action JVM prefetch),
  * {@link #collectConfirmationEngineSteps} and {@link #inferConfirmationEngineStepsFromHints}
  * (post-action confirmation), {@link #formatMatchedRecipePrelude} (execution plan wire block).</p>

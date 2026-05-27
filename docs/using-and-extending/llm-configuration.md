@@ -57,9 +57,9 @@ Use the same shape with **`llm`**: **`claude`**, **`xAI`**, **`deepSeek`**, **`l
 
 ## Omitted `llm` And POST Body
 
-The React client may omit **`llm`** on the stream/chat JSON when the selected agent row has no **`llm`**. The server **does not** infer a default adapter: after **agents.json merge** (when **`siteId`** + **`agentId`** are present), **`StudioAiLlmKind.normalize`** requires a **non-blank**, **recognized** `llm` string. Missing or invalid values produce **HTTP 400** on **`/ai/stream`** and **`/ai/agent/chat`**.
+The React client may omit **`llm`** on the stream/chat JSON when the selected agent row has no **`llm`**. The server **does not** infer a default adapter: after **agents.json merge** (when POST **`siteId`** (working CMS site) + **`agentId`** are present), **`StudioAiLlmKind.normalize`** requires a **non-blank**, **recognized** `llm` string. Missing or invalid values produce **HTTP 400** on **`/ai/stream`** and **`/ai/agent/chat`**. The URL query **`siteId`** is the Studio session site only; merge reads **`agents.json`** from the site sandbox for the working id when present.
 
-When **`siteId`** + **`agentId`** match a catalog row, the server may **copy `llm`**, **`llmModel`**, **`imageModel`**, and **`imageGenerator`** into the POST body before normalize.
+When POST **`siteId`** + **`agentId`** match a catalog row, the server may **copy `llm`**, **`llmModel`**, **`imageModel`**, and **`imageGenerator`** into the POST body before normalize.
 
 **Always set `llm` explicitly** on each chat row in **`agents.json`**.
 

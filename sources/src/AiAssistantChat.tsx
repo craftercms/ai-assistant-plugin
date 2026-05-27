@@ -2179,7 +2179,9 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     }
 
     const siteDirective = parseSiteDirective(trimmed);
+    /** CMS tools site (POST body); Studio session site stays in `siteId` for URL + localStorage. */
     const effectiveSiteId = siteDirective.requestSiteId || assumedSiteId || siteId;
+    /** When true, omit preview anchor fields on stream/chat so session preview is not repo truth. */
     const crossSiteWorking = effectiveSiteId !== siteId;
 
     stopVoiceInput();
