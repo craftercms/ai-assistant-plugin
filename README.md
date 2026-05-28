@@ -32,13 +32,12 @@ Optional **autonomous** agents (experimental): scheduled runs from the sidebar w
 | **Helper widget** | `ui.xml` registration for the Experience Builder toolbar and, if you add it, the Studio **Tools Panel** list |
 | **Autonomous assistants** (optional and experimental) | Scheduled server-side runs + human tasks |
 | **Project Tools** (optional) | One **AI Assistant** entry (tabs: **UI** / **Agents** / **Recipes** / **Integrations** → LLMs · Image generators · Tools · MCP / **Secrets** / **Prompts and Context**) — `studio-ui.json` + bulk, `agents.json`, `intent-recipes.json`, `secrets.json`, `tools.json`, prompts, user tools, script LLMs/imagegen · [Screenshots](docs/using-and-extending/configuration-guide.md#cg-screenshots) |
-| **TinyMCE** (optional RTE wiring) | Toolbar actions + RTE config → chat / shortcuts |
 
 ## Capabilities (at a Glance)
 
 | Area | Highlights | Notes |
 |------|------------|-------|
-| **Site setup** | Agents, `ui.xml`, keys, Experience Builder, forms; optional TinyMCE | [Configuration guide](docs/using-and-extending/configuration-guide.md) |
+| **Site setup** | Agents, `ui.xml`, keys, Experience Builder, forms | [Configuration guide](docs/using-and-extending/configuration-guide.md) |
 | **LLMs** | OpenAI, Anthropic, XAI, Ollama, Deepseek, scriptable (**`script:{id}`**) | [LLM configuration](docs/using-and-extending/llm-configuration.md) |
 | **Image generation** | OpenAI, scriptable (**`script:{id}`**) | [Image generation](docs/using-and-extending/image-generation.md) · [Scripted tools & imagegen](docs/using-and-extending/scripted-tools-and-imagegen.md) |
 | **Tools and MCP** | CMS / HTTP / scriptable user tools; optional **MCP** (`mcpEnabled` + `mcpServers` in `tools.json`); intent **recipes** on the **Recipes** tab | [Configuration guide §9](docs/using-and-extending/configuration-guide.md#cg-adv) · [Intent recipe routing](docs/internals/intent-recipe-routing.md) · [Chat & tools runtime](docs/internals/chat-and-tools-runtime.md#mcp-client-tools-streamable-http) |
@@ -54,7 +53,6 @@ Optional **autonomous** agents (experimental): scheduled runs from the sidebar w
 | **Project Tools UI (screenshots)** | [Configuration guide — Screenshots](docs/using-and-extending/configuration-guide.md#cg-screenshots) |
 | **Runtime UI flags (`studio-ui.json`) + bulk tools** | [Configuration guide — §1e](docs/using-and-extending/configuration-guide.md#cg-1e) · [spec.md](docs/internals/spec.md#studio-ui-flags-studio-uijson) |
 | **Helper widget snippet & troubleshooting** | [Helper widget](docs/using-and-extending/helper-widget.md) |
-| **TinyMCE toolbar & JSON** | [TinyMCE integration](docs/using-and-extending/tinymce-integration.md) |
 | **Autonomous widget overview** | [Autonomous assistants widget](docs/using-and-extending/autonomous-assistants-widget.md) |
 | **LLM ids, secrets, env + `ui.xml`** | [LLM configuration](docs/using-and-extending/llm-configuration.md) |
 | **JVM-only tuning (`-D` properties)** | [Studio AI assistant JVM parameters](docs/using-and-extending/studio-aiassistant-jvm-parameters.md) |

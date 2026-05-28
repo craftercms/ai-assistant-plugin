@@ -87,10 +87,8 @@ flowchart TB
     Helper["Helper widget"]
     FormCtl["Form control\n(ai-assistant)"]
     Chat["AiAssistantChat\n(SSE client)"]
-    TinyMCE["TinyMCE plugin\n(optional)"]
     Helper --> Chat
     FormCtl --> Chat
-    TinyMCE --> Chat
   end
 
   subgraph studioIntegration["Studio integration"]
@@ -148,7 +146,7 @@ flowchart TB
   end
 
   subgraph studioConfig["config/studio/"]
-    UiXml["ui.xml\n(Helper · Autonomous · TinyMCE)"]
+    UiXml["ui.xml\n(Helper · Autonomous)"]
     Agents["ai-assistant/agents.json\nchat + autonomous rows"]
     Secrets["scripts/aiassistant/config/secrets.json"]
     StudioUi["scripts/aiassistant/config/studio-ui.json"]
@@ -180,7 +178,7 @@ flowchart TB
 |----------|---------|
 | **`agents.json`** | Chat agents (`mode: chat`) and autonomous agents (`mode: autonomous`); **`agentId`**, **`llm`**, models, tools policy, prompts |
 | **`secrets.json`** (`scripts/aiassistant/config/`) | Site credential slots (`${env:…}`, `${enc:…}`); resolve at runtime only stored rows — **`${secret:…}`** in MCP/agents; **`serpapi_api_key`** for **SerpApiWebSearch** |
-| **`ui.xml`** | Registers **Helper**, optional **AutonomousAssistants**, **TinyMCE** external plugin URL |
+| **`ui.xml`** | Registers **Helper** and optional **AutonomousAssistants** |
 | **`studio-ui.json`** (`scripts/aiassistant/config/`) | Toolbar/sidebar visibility, XB image scope, bulk form-control helpers |
 | **`tools.json`** | Built-in tool allow/deny, **`builtInToolSettings`** (e.g. **SerpApiWebSearch** defaults), MCP **`mcpEnabled`** + **`mcpServers`**, intent recipe routing flags |
 | **`intent-recipes.json`** | Pre-tools workflow recipes (phases, **`toolsLoopForceTool`**, **`{{studio.today-7D}}`** hints; site override of plugin defaults) |
@@ -206,11 +204,8 @@ flowchart TD
   FormDef --> Flags[Optional: UI tab → studio-ui.json flags]
   Flags --> Adv{Advanced integrations?}
   Adv -->|yes| AdvScripts[Integrations + Recipes + Prompts tabs\n→ site scripts under aiassistant/]
-  Adv -->|no| Tiny
-  AdvScripts --> Tiny{TinyMCE needed?}
-  Tiny -->|yes| TinyCfg[ui.xml TinyMCE toolbar + external_plugins]
-  Tiny -->|no| Check[Run checklist §7]
-  TinyCfg --> Check
+  Adv -->|no| Check
+  AdvScripts --> Check[Run checklist §7]
   Check --> Done([Authors can use assistant])
 ```
 
@@ -265,25 +260,20 @@ flowchart TB
   subgraph surfaces["Author-facing surfaces"]
     Preview["Experience Builder / Preview\nHelper → ICE panel or popup"]
     Form["Content type form\nAI Assistant accordion per agent"]
-    RTE["Rich text field\nTinyMCE aiAssistantOpen / shortcuts"]
     Auto["Tools Panel\nAutonomous status\n(experimental)"]
   end
 
   subgraph outcome["Typical outcome"]
     ChatUI["Chat panel\nstreaming reply"]
     FormUpdate["Optional: form field updates\nfrom fenced JSON block"]
-    RTEInsert["Optional: insert text into RTE"]
   end
 
   Author --> Preview
   Author --> Form
-  Author --> RTE
   Author --> Auto
   Preview --> ChatUI
   Form --> ChatUI
   Form --> FormUpdate
-  RTE --> ChatUI
-  RTE --> RTEInsert
 ```
 
 ---
@@ -357,7 +347,7 @@ flowchart LR
   end
 
   subgraph build["yarn package (sources/)"]
-    Rollup["Rollup → index.js\n+ tinymce bundle"]
+    Rollup["Rollup → index.js"]
     Copy["Copy control/ai-assistant/main.js"]
     Verify["verify-aiassistant-form-pipeline.mjs"]
   end

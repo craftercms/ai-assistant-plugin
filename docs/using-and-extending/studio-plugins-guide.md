@@ -33,10 +33,9 @@ Your plugin depends on `@craftercms/studio-ui`; inspecting this branch helps whe
 - The **plugin ID** is set in the root descriptor: `craftercms-plugin.yaml` → `plugin.id` (e.g. `org.craftercms.aiassistant.studio`).
 - **Every place** that references the plugin for loading JS must use this **exact** ID:
   - `config/studio/ui.xml` → `<plugin id="...">` for Helper and autonomous (scheduled) widget entries
-  - TinyMCE `external_plugins` URL → `pluginId=...` query param
   - Runtime `importPlugin(site, type, name, file, pluginId)` → `pluginId` argument
 
-If the ID in `ui.xml` (or in the TinyMCE URL) does not match the ID used at install time, Studio will look for files under a different path and return **404** for the plugin script.
+If the ID in `ui.xml` does not match the ID used at install time, Studio will look for files under a different path and return **404** for the plugin script.
 
 ### How Studio Resolves Plugin File Paths
 
@@ -70,11 +69,10 @@ In your plugin repo, the **marketplace/copy** (or **copy-plugin**) install step 
 So you must build your JS (and other assets) into a directory that mirrors the target path under `authoring/static-assets/`. For example, if the plugin id is `org.craftercms.aiassistant.studio` and you use `type=aiassistant` and `name=components`:
 
 - Build the main bundle to: `authoring/static-assets/plugins/org/craftercms/aiassistant/studio/aiassistant/components/index.js`
-- And e.g. TinyMCE script to: `authoring/static-assets/plugins/org/craftercms/aiassistant/studio/aiassistant/tinymce/craftercms_aiassistant.js`
 
 Then, after install, Studio will find them at the same relative path under `config/studio/static-assets/plugins/org/craftercms/aiassistant/studio/`.
 
-**Rule:** The `plugin.id` in the descriptor, the paths in `ui.xml` and TinyMCE config, and the build output paths must all be consistent. Changing the plugin id (e.g. from `org.craftercms` to `org.craftercms.aiassistant.studio`) changes the installed path; update build and all references together.
+**Rule:** The `plugin.id` in the descriptor, the paths in `ui.xml`, and the build output paths must all be consistent. Changing the plugin id (e.g. from `org.craftercms` to `org.craftercms.aiassistant.studio`) changes the installed path; update build and all references together.
 
 ---
 
@@ -502,26 +500,12 @@ Keep experiments non-fatal (log + continue) so streaming endpoints aren’t brok
 
 ### Rollup (or Similar) Configuration
 
-- Set the **output directory** to the path that, after copy, becomes `config/studio/static-assets/plugins/<pluginId-path>/<type>/<name>/` (and optionally a sibling like `tinymce`).
+- Set the **output directory** to the path that, after copy, becomes `config/studio/static-assets/plugins/<pluginId-path>/<type>/<name>/`.
 - Example for plugin id `org.craftercms.aiassistant.studio`, type `aiassistant`, name `components`:
 
   - Main bundle: `../authoring/static-assets/plugins/org/craftercms/aiassistant/studio/aiassistant/components/index.js`
-  - TinyMCE: `../authoring/static-assets/plugins/org/craftercms/aiassistant/studio/aiassistant/tinymce/craftercms_aiassistant.js`
 
 - Use **externals** and/or **replace** so the bundle uses Studio’s shared libs (e.g. `craftercms.libs.React`, `craftercms.components`, etc.) instead of bundling React/MUI/studio-ui.
-
-### TinyMCE Plugin
-
-- Built as a separate bundle (e.g. IIFE) and placed under the same plugin id path, e.g. `tinymce/craftercms_aiassistant.js`.
-- In `ui.xml`, TinyMCE’s `external_plugins` must point at the **plugin file URL** with the **correct pluginId**:
-
-  ```text
-  /studio/1/plugin/file?siteId=new-demo&pluginId=org.craftercms.aiassistant.studio&type=aiassistant&name=tinymce&file=craftercms_aiassistant.js
-  ```
-
-  Substitute `new-demo` with your Studio site id (e.g. `qtest`) when different.
-
-- Use `file=...` (not `filename=...`) in the query string if that’s what Studio expects.
 
 ### Packaging Command
 
@@ -536,7 +520,6 @@ Edits belong in **`sources/`**. Most paths under **`authoring/static-assets/`** 
 | React plugin bundle (Helper, FormControl, chat, ICE, etc.) | `sources/index.tsx`, `sources/src/**/*.tsx`, `sources/src/**/*.ts` | `plugins/org/craftercms/aiassistant/studio/aiassistant/components/index.js` (**bundled**). Also **copied** to `org/craftercms/aiassistant/components/index.js` for legacy `ui.xml` paths. **Do not hand-edit those `index.js` files.** |
 | Form engine control (assistant panel, agent list, `cqLoadAgentsForSite`, etc.) | **`sources/control/ai-assistant/main.js`** | **Copied** (not compiled) to `plugins/.../studio/control/ai-assistant/main.js` at end of `yarn package`. |
 | Image-from-URL datasource | `sources/datasource/aiassistant-img-from-url/main.js` | Copied to `plugins/.../studio/datasource/aiassistant-img-from-url/` and legacy `org/craftercms/aiassistant/datasource/aiassistant-img-from-url/`. |
-| TinyMCE plugin | Built from `sources/src/craftercms_aiassistant.tsx` → `sources/public/craftercms_aiassistant.js` | Rolled into `plugins/.../studio/aiassistant/tinymce/` and legacy `org/craftercms/aiassistant/tinymce/`. |
 
 **Workflow:** Change **`sources/`** → run **`yarn package`** from **`sources/`** → install or copy `authoring/static-assets/` to the site. Treat **`authoring/static-assets/plugins/.../aiassistant/components/index.js`** and the duplicate under **`org/craftercms/aiassistant/components/`** as **generated**.
 
@@ -623,7 +606,7 @@ The install script **copies and commits** `authoring/scripts/classes` into the s
 
 ### After Install
 
-- Ensure **plugin id** in `ui.xml` matches the descriptor. If the site had an older version of the plugin with a different id, fix the plugin id in `ui.xml` (and in TinyMCE config if present) so it matches the descriptor and the installed path.
+- Ensure **plugin id** in `ui.xml` matches the descriptor. If the site had an older version of the plugin with a different id, fix the plugin id in `ui.xml` so it matches the descriptor and the installed path.
 - If you added a **toolbar** entry in the descriptor, the toolbar widget should appear after install (default: **`rightSection/widgets`**). For an icon next to the address bar, move the widget under `PreviewToolbar` → `middleSection` → `widgets` (see section 3 and examples).
 
 ### Groovy Scripting Sandbox
@@ -728,9 +711,9 @@ Pattern: capture **`SecurityContextHolder.getContext()`** on the Studio servlet 
 ## 9. Checklist: Plugin Loads Without 404
 
 - [ ] **Descriptor** `plugin.id` is set and consistent (e.g. `org.craftercms.aiassistant.studio`).
-- [ ] **Build** writes to `authoring/static-assets/plugins/<pluginId-path>/<type>/<name>/...` (and tinymce if used).
+- [ ] **Build** writes to `authoring/static-assets/plugins/<pluginId-path>/<type>/<name>/...`.
 - [ ] **Install** copies that tree into the site’s `config/studio/static-assets/plugins/...`.
-- [ ] **ui.xml** (and TinyMCE config) use the **same** plugin id in every `<plugin id="...">` and in every plugin file URL.
+- [ ] **ui.xml** uses the **same** plugin id in every `<plugin id="...">` and in every plugin file URL.
 - [ ] **Preview toolbar:** **`craftercms-plugin.yaml`** merges the Helper with **`parentXpath`** = **`…/PreviewToolbar/configuration/rightSection/widgets`**. After install, confirm **`craftercms.components.aiassistant.Helper`** under **`PreviewToolbar`**; optionally move the widget to **`middleSection/widgets`** for URL-bar placement. Set **`OPENAI_API_KEY`** on Studio for the default OpenAI agent.
 - [ ] **Auth:** Browser (or client) is logged in to Studio so plugin file requests send the same session (cookies/JWT).
 
@@ -743,7 +726,6 @@ Pattern: capture **`SecurityContextHolder.getContext()`** on the Studio servlet 
 | Descriptor plugin id | `org.craftercms.aiassistant.studio` |
 | Plugin id path (dots → slashes) | `org/craftercms/aiassistant/studio` |
 | Main bundle (type/name) | `aiassistant` / `components` → `.../studio/aiassistant/components/index.js` |
-| TinyMCE bundle | `aiassistant` / `tinymce` → `.../studio/aiassistant/tinymce/craftercms_aiassistant.js` |
 | ui.xml plugin element | `<plugin id="org.craftercms.aiassistant.studio" type="aiassistant" name="components" file="index.js"/>` |
 | importPlugin (runtime) | `importPlugin(site, 'aiassistant', 'components', 'index.js', 'org.craftercms.aiassistant.studio')` |
 

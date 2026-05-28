@@ -29,7 +29,7 @@ Put new bullets in the **right section** (React/TS vs Groovy) or add a small `##
 - **“Copy full session log”** can include wire prompts and metadata not shown in the chat UI. Treat it as **potentially sensitive**.
 - **Pattern we use:** best-effort **redaction** on copy (e.g. obvious `authorization` / `bearer` / `token` / `previewToken`-shaped JSON fragments). Prefer **not** logging secrets in the first place.
 
-### Studio identity in TinyMCE and other non-Redux shells
+### Studio identity in non-Redux shells
 
 - **Never hard-code usernames** for `AiAssistantProps.userName` (or similar). Attribution and downstream logic depend on the real Studio user.
 - **Pattern we use:** read from `craftercms.getStore()?.getState()?.user?.username` with a safe fallback (e.g. `anonymous`) when the store is missing.
@@ -89,6 +89,5 @@ Patterns that have bitten us in review or production:
 |-------|----------|
 | Stream / SSE contracts | [stream-endpoint-design.md](stream-endpoint-design.md), [chat-and-tools-runtime.md](chat-and-tools-runtime.md) |
 | Form control / `yarn package` verify | [studio-plugins-guide.md](../using-and-extending/studio-plugins-guide.md), repo `.cursor/rules/ai-assistant-form-panel-contract.mdc` |
-| TinyMCE wiring (admin) | [tinymce-integration.md](../using-and-extending/tinymce-integration.md) |
 
 When a review item becomes a **stable invariant** of the product (author-visible or contractual), mirror the requirement in **`spec.md`** (or the relevant user-facing doc) in the same change set where appropriate. **Style-only or one-off nits** usually do not need a new checklist row.

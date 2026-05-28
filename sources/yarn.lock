@@ -3767,7 +3767,6 @@ __metadata:
     rollup-plugin-copy: "npm:^3.5.0"
     rollup-plugin-replace-imports-with-vars: "npm:^1.1.0"
     rxjs: "npm:^7.8.1"
-    tinymce: "npm:5.10.9"
     tss-react: "npm:^4.9.10"
     typescript: "npm:^5.3.3"
     uuid: "npm:^11.0.2"
@@ -8432,13 +8431,6 @@ __metadata:
   version: 1.0.3
   resolution: "tiny-warning@npm:1.0.3"
   checksum: da62c4acac565902f0624b123eed6dd3509bc9a8d30c06e017104bedcf5d35810da8ff72864400ad19c5c7806fc0a8323c68baf3e326af7cb7d969f846100d71
-  languageName: node
-  linkType: hard
-
-"tinymce@npm:5.10.9":
-  version: 5.10.9
-  resolution: "tinymce@npm:5.10.9"
-  checksum: 58e6aaa6ae44da2e6b8387c2d67d5eae79e84c277d15b3411b1fbabcf3577836713c7fe80698891e4a4f6fed545ae1774b76f38898f8eca9c055d992585eacfd
   languageName: node
   linkType: hard
 

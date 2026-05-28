@@ -7,11 +7,10 @@
 | Document | What It Covers |
 |----------|----------------|
 | [installation.md](installation.md) | Install from Studio UI (with screenshots), CLI, Marketplace API, **`install-plugin.sh`**, build-before-install |
-| [configuration-guide.md](configuration-guide.md) | **Admins — start here** — **Basic:** `ui.xml`, plugin id, agents, keys, form pipeline, autonomous checklist; **TinyMCE last** (**§8**) within **§1–§8**. **`§1e`:** **`studio-ui.json`** (toolbar/sidebar toggles, XB image augmentation scope, bulk form field). **Advanced:** [site scripts](configuration-guide.md#cg-adv) — prompts, `tools.json`, MCP, user tools, script LLM; **[§9.2.1](configuration-guide.md#cg-9-2-1)** plugin RAG vs agent skills. **Visual:** [Screenshots](configuration-guide.md#cg-screenshots) · [Diagrams](../architecture-diagrams.md#administrator-setup-workflow). |
+| [configuration-guide.md](configuration-guide.md) | **Admins — start here** — **Basic:** `ui.xml`, plugin id, agents, keys, form pipeline, autonomous checklist (**§1–§7**). **`§1e`:** **`studio-ui.json`** (toolbar/sidebar toggles, XB image augmentation scope, bulk form field). **Advanced:** [site scripts](configuration-guide.md#cg-adv) — prompts, `tools.json`, MCP, user tools, script LLM; **[§9.2.1](configuration-guide.md#cg-9-2-1)** plugin RAG vs agent skills. **Visual:** [Screenshots](configuration-guide.md#cg-screenshots) · [Diagrams](../architecture-diagrams.md#administrator-setup-workflow). |
 | [building-intent-recipes.md](building-intent-recipes.md) | **Custom workflows** — points to Cursor skill `.cursor/skills/building-intent-recipes/` (`SKILL.md`, PM/Slack `examples.md`) |
 | [helper-widget.md](helper-widget.md) | Helper **`ui.xml`** snippet and “component not found” checklist |
 | [autonomous-assistants-widget.md](autonomous-assistants-widget.md) | Optional autonomous widget — placement and links to spec |
-| [tinymce-integration.md](tinymce-integration.md) | **Optional RTE** — TinyMCE **`tinymceOptions`**, toolbar ids, **`craftercms_aiassistant`** config |
 | [llm-configuration.md](llm-configuration.md) | **`<llm>`** — supported providers (**`openAI`**, **`claude`**, **`script:`**, …), env + `ui.xml`, merge rules |
 | [image-generation.md](image-generation.md) | **Pluggable `GenerateImage`** — wire vs **`script:{id}`**, **`imageGenerator`** / **`imageModel`**, site overrides |
 | [studio-aiassistant-jvm-parameters.md](studio-aiassistant-jvm-parameters.md) | **JVM-only** `-D` / `System.getProperty` tuning (timeouts, fetch/MCP caps, key fallbacks) |

@@ -1,10 +1,10 @@
 # Configuration Guide — AI Assistant for Crafter Studio
 
-**Audience:** **Crafter Studio admins** responsible for installing and configuring the assistant and its **tools** for authors—`ui.xml` widget placement, **`agents.json`**, credentials, form wiring, optional TinyMCE, and optional site-script overrides.
+**Audience:** **Crafter Studio admins** responsible for installing and configuring the assistant and its **tools** for authors—`ui.xml` widget placement, **`agents.json`**, credentials, form wiring, and optional site-script overrides.
 
 ## Table of Contents
 
-**[Basic Configuration](#cg-basic)** — `ui.xml` widget placement + **`agents.json`**: Helper / Tools Panel / Preview / Autonomous, **`plugin`** line, secrets, form pipeline, checklist; TinyMCE last (**§8**) within **§1–§8**.
+**[Basic Configuration](#cg-basic)** — `ui.xml` widget placement + **`agents.json`**: Helper / Tools Panel / Preview / Autonomous, **`plugin`** line, secrets, form pipeline, checklist (**§1–§7**).
 
 | § | Topic |
 |---|--------|
@@ -16,7 +16,6 @@
 | [5](#cg-5) | Form Engine control |
 | [6](#cg-6) | Autonomous assistants (overview) |
 | [7](#cg-7) | Checklist before support |
-| [8](#cg-8) | TinyMCE (rich text editor) |
 
 **[Advanced Configuration](#cg-adv)** — Site Git scripts under `config/studio/scripts/aiassistant/…`: Markdown prompts, **`tools.json`**, user tools, script image backends, script LLMs, MCP.
 
@@ -136,7 +135,7 @@ Current configuration tabs are **UI**, **Agents**, **Recipes**, **Integrations**
 
 ## Basic Configuration
 
-Typical authoring setup is **`config/studio/ui.xml`** (widget placement) plus **`config/studio/ai-assistant/agents.json`** (agents) and content-type form definitions: register the Helper (and optional Autonomous), use one consistent **`plugin`** line, configure agents in **Project Tools → AI Assistant → Agents**, supply keys, run the checklist (**§1–§7**), then optionally wire **TinyMCE** (**§8**). **§1–§8** below are the subsections in reading order.
+Typical authoring setup is **`config/studio/ui.xml`** (widget placement) plus **`config/studio/ai-assistant/agents.json`** (agents) and content-type form definitions: register the Helper (and optional Autonomous), use one consistent **`plugin`** line, configure agents in **Project Tools → AI Assistant → Agents**, supply keys, and run the checklist (**§7**). **§1–§7** below are the subsections in reading order.
 
 ---
 
@@ -149,7 +148,6 @@ Typical authoring setup is **`config/studio/ui.xml`** (widget placement) plus **
 | Authors use AI **in Experience Builder** while authoring in **preview** | `ui.xml` → **`craftercms.components.aiassistant.Helper`** + agents in **`agents.json`** — optional toolbar icon visibility via **`studio-ui.json`** (**§1e**) |
 | Authors use AI on a **content type form** | Content type **form definition** → **AI Assistant** control + chat agents in **`agents.json`** (per-agent visibility toggles on the form field) |
 | **Scheduled** server-side runs (experimental) | `ui.xml` → **`craftercms.components.aiassistant.AutonomousAssistants`** + **`agents.json`** rows with **`mode: autonomous`** — see [spec.md — Autonomous assistants widget](../internals/spec.md#autonomous-assistants-widget-tools-panel); optional **sidebar show** via **`studio-ui.json`** (**§1e**); default off. |
-| Authors use AI from the **rich text editor** (optional) | `config/studio/ui.xml` → **TinyMCE** widget → `tinymceOptions` (external plugin URL + `craftercms_aiassistant` JSON) — **§8** (last) and [tinymce-integration.md](tinymce-integration.md) |
 
 Commit **`config/studio/ui.xml`** (and any content-type changes) to the site sandbox so Studio and other authors load the same configuration.
 
@@ -162,7 +160,6 @@ Commit **`config/studio/ui.xml`** (and any content-type changes) to the site san
 | **Helper** (Experience Builder toolbar, optional Tools Panel) | **`config/studio/ui.xml`** | **A** (Preview toolbar) and/or **B** (Tools Panel) — the `<widget id="craftercms.components.aiassistant.Helper">` block is a **child of an existing `widgets` list**, not a loose sibling of `ToolsPanel`. |
 | **Form assistant** | **`config/studio/content-types/<your-type>/form-definition.xml`** | New **field** inside the right **`<section>`** / **`<fields>`** — prefer adding the **Studio AI Assistant** control from the Content Types UI after install (see **C**). |
 | **Autonomous** (optional) | **`config/studio/ui.xml`** | **D** — under **`craftercms.components.ToolsPanel`** → **`configuration`** → **`widgets`** (same list as Helper when both are used). Optional **hide** without removing the widget: **`studio-ui.json`** (**§1e**). |
-| **TinyMCE** (optional) | **`config/studio/ui.xml`** | Under **`craftercms.components.TinyMCE`** → **`configuration`** → **`setups`** → **`setup`** → **`tinymceOptions`** (JSON). See **§8** (last in basic sequence). |
 
 ---
 
@@ -376,41 +373,6 @@ Separate **AutonomousAssistants** widget in **`ui.xml`** (placement only). Agent
 - [ ] For **OpenAI‑wire / Claude / …**: host **env** vars referenced from **Secrets**, or testing‑only **`llmApiKey`** on an agent row.
 - [ ] For **GenerateImage**: **`imageModel`** set on the agent (or body) when that tool is used.
 - [ ] **`llm`** is a **supported** provider (**`openAI`**, **`claude`**, **`script:{id}`**, …).
-
----
-
-<a id="cg-8"></a>
-
-### 8. TinyMCE (Rich Text Editor)
-
-**File:** **`config/studio/ui.xml`**
-
-**Locate:** widget **`craftercms.components.TinyMCE`** → **`configuration`** → **`setups`** → **`setup`** (the setup your site uses) → **`tinymceOptions`**. That node holds JSON (often as text); merge the plugin URL and toolbar ids there.
-
-Path in the tree (names may differ):
-
-```text
-config/studio/ui.xml
-  └── widget[@id='craftercms.components.TinyMCE']
-        └── configuration
-              └── setups
-                    └── setup
-                          └── tinymceOptions   ← merge here (JSON)
-```
-
-**Example JSON** (replace **`YOUR_SITE_ID`**; use **`&amp;`** for `&` when this JSON is inlined inside an XML attribute):
-
-```json
-{
-  "toolbar1": "... | aiAssistantOpen aiassistantShortcuts",
-  "external_plugins": {
-    "craftercms_aiassistant": "/studio/1/plugin/file?siteId=YOUR_SITE_ID&pluginId=org.craftercms.aiassistant.studio&type=aiassistant&name=tinymce&file=craftercms_aiassistant.js"
-  },
-  "craftercms_aiassistant": {}
-}
-```
-
-Full toolbar list and keys: [tinymce-integration.md](tinymce-integration.md).
 
 ---
 

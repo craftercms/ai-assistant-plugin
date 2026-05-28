@@ -11,7 +11,7 @@
 | Audience | Start Here |
 |----------|------------|
 | **Install the plugin** | [Installation](using-and-extending/installation.md) |
-| **Admins** — `ui.xml`, agents, keys, **Project Tools**, **`studio-ui.json`**, surfaces, sandbox scripts, build paths | [Configuration guide](using-and-extending/configuration-guide.md) · [Screenshots](using-and-extending/configuration-guide.md#cg-screenshots) · [Helper](using-and-extending/helper-widget.md) · [Autonomous widget](using-and-extending/autonomous-assistants-widget.md) · [Scripted tools & imagegen](using-and-extending/scripted-tools-and-imagegen.md) · [TinyMCE](using-and-extending/tinymce-integration.md) · [Studio plugins guide](using-and-extending/studio-plugins-guide.md) |
+| **Admins** — `ui.xml`, agents, keys, **Project Tools**, **`studio-ui.json`**, surfaces, sandbox scripts, build paths | [Configuration guide](using-and-extending/configuration-guide.md) · [Screenshots](using-and-extending/configuration-guide.md#cg-screenshots) · [Helper](using-and-extending/helper-widget.md) · [Autonomous widget](using-and-extending/autonomous-assistants-widget.md) · [Scripted tools & imagegen](using-and-extending/scripted-tools-and-imagegen.md) · [Studio plugins guide](using-and-extending/studio-plugins-guide.md) |
 | **Product / review** — mandatory outcomes for authors, admins, and integrators | [Product requirements](using-and-extending/product-requirements.md) |
 | **LLM & image backends** — wire ids, secrets, **`script:`** LLM, **pluggable `GenerateImage`** | [LLM configuration](using-and-extending/llm-configuration.md) · [Script LLM — BYO backend](using-and-extending/script-llm-bring-your-own-backend.md) · Groq script sample: `docs/examples/aiassistant-llm/groq/runtime.groovy` · [Image generation](using-and-extending/image-generation.md) · JVM tuning: [studio-aiassistant-jvm-parameters.md](using-and-extending/studio-aiassistant-jvm-parameters.md) |
 | **Extension developers** — Rollup, descriptor, classpath, sandbox script layout | [Studio plugins guide](using-and-extending/studio-plugins-guide.md) · [Using & extending index](using-and-extending/README.md) |
@@ -27,7 +27,6 @@
 | Runtime UI flags, bulk form control, `studio-ui.json` | [configuration-guide.md §1e](using-and-extending/configuration-guide.md#cg-1e) · [spec.md — Studio UI flags](internals/spec.md#studio-ui-flags-studio-uijson) |
 | Helper `ui.xml` & “component not found” | [helper-widget.md](using-and-extending/helper-widget.md) |
 | Autonomous widget placement & overview | [autonomous-assistants-widget.md](using-and-extending/autonomous-assistants-widget.md) |
-| TinyMCE toolbar & `craftercms_aiassistant` | [tinymce-integration.md](using-and-extending/tinymce-integration.md) |
 | Product requirements | [product-requirements.md](using-and-extending/product-requirements.md) |
 | **`imageGenerator`**, **`imagegen/`**, tool/prompt overrides | [image-generation.md](using-and-extending/image-generation.md) · [scripted-tools-and-imagegen.md](using-and-extending/scripted-tools-and-imagegen.md) |
 | **`InvokeSiteUserTool`**, `user-tools/registry.json` | [scripted-tools-and-imagegen.md](using-and-extending/scripted-tools-and-imagegen.md) |

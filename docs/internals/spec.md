@@ -20,7 +20,7 @@
 
 ### Terminology
 
-- **Studio AI assistant** — The authoring-facing assistant in Crafter Studio that this plugin provides: the form-engine control, the Helper widget on the Tools Panel or preview toolbar, optional autonomous scheduled runs, and **TinyMCE** when sites wire the RTE integration.
+- **Studio AI assistant** — The authoring-facing assistant in Crafter Studio that this plugin provides: the form-engine control, the Helper widget on the Tools Panel or preview toolbar, and optional autonomous scheduled runs.
 - **Agent catalog ids** — Chat rows in **`config/studio/ai-assistant/agents.json`** use **`agentId`** as the stable id sent on stream/chat as POST **`agentId`**.
 - **Optional remote tools** — Sites may add **MCP** servers, **user tools** (Groovy), or custom integrations; this plugin does not ship a separate remote chat product.
 
@@ -37,7 +37,6 @@ It currently focuses on:
 
 - **Studio UI Helper widget**: Preview toolbar and/or Tools Panel entry points for the assistant (`craftercms.components.aiassistant.Helper`).
 - **Autonomous runs (Tools Panel)**: Optional widget for scheduled in-memory assistant steps (prototype); see § [Autonomous assistants widget](#autonomous-assistants-widget-tools-panel).
-- **TinyMCE (RTE) integration**: Toolbar controls that open the assistant UI and can insert returned text into the editor.
 
 The UI uses a combination of:
 
@@ -47,7 +46,7 @@ The UI uses a combination of:
 ### Code Locations (Source vs Built)
 
 - **Source code**: `sources/src/`
-- **Built plugin assets served by Studio**: `authoring/static-assets/plugins/org/craftercms/aiassistant/studio/aiassistant/` (e.g. `components/index.js`; optional RTE bundle `tinymce/craftercms_aiassistant.js`)
+- **Built plugin assets served by Studio**: `authoring/static-assets/plugins/org/craftercms/aiassistant/studio/aiassistant/` (e.g. `components/index.js`)
 
 ### User-Facing Surfaces
 
@@ -161,34 +160,6 @@ If the worker throws or the model response cannot be parsed as JSON, **`state.la
 - `authoring/scripts/classes/plugins/org/craftercms/aiassistant/engine/autonomous/` — registry, state store, supervisor, worker, scope guard, id builder, schedule probe, **`AutonomousAssistantRuntimeHooks`** (Spring context + auth for worker threads), **`AutonomousSiteDigestBuilder`** (authoring OpenSearch digest for prompts).
 - `authoring/scripts/rest/plugins/org/craftercms/aiassistant/studio/aiassistant/autonomous/assistants/` — `sync.post`, `status.get`, `control.post`.
 
-#### TinyMCE Plugin (RTE)
-
-- **Entry**: `sources/src/craftercms_aiassistant.tsx`
-- **TinyMCE plugin name**: `craftercms_aiassistant`
-- **Registered toolbar controls**:
-  - `aiAssistantOpen` (button)
-  - `aiassistantShortcuts` (menu button; **`aiassistantShortcuts`** still registered for older `studio-ui.json` toolbar strings)
-  - `aiassistant` (split button)
-
-##### Behavior
-
-When invoked, the plugin:
-
-- Reads either:
-  - the current **selection** (preferred) or
-  - the editor’s **full text content** (fallback)
-- Builds a message array (based on the instance config) and opens the Studio AI assistant
-- Provides an **“Insert”** action that inserts returned content into the selection via `editor.selection.setContent(content)`
-
-##### XB vs non-XB Execution
-
-The TinyMCE integration detects Experience Builder:
-
-- **XB**: Uses `xb.post(openAiAssistantMessageId, props)` (`craftercms.aiassistant.OpenPanel` in **`consts.ts`**) to request opening the assistant in Studio via a message topic.
-- **Non-XB**: Dynamically imports the plugin widgets bundle using:
-  - `craftercms.services.plugin.importPlugin(site, 'aiassistant', 'components', 'index.js', 'org.craftercms.aiassistant.studio')`
-  - then mounts the `AiAssistantPopover` widget inside the Studio React bridge (`CrafterCMSNextBridge`)
-
 ### Assistant Popover (Floating Chat Shell)
 
 - **Component**: `sources/src/AiAssistantPopover.tsx`
@@ -206,14 +177,11 @@ Defined in `sources/src/consts.ts`:
   - `autonomousAssistantsWidgetId` (`craftercms.components.aiassistant.AutonomousAssistants`)
   - `projectToolsAiAssistantConfigWidgetId` (`craftercms.components.aiassistant.ProjectToolsConfiguration`) — **Project Tools** single entry with tabs **UI**, **Agents**, **Recipes**, **Integrations** (sub-tabs: LLMs, Image generators, Tools, MCP), **Secrets**, **Prompts and Context**; opened in a **large modal dialog** (legacy widget ids open the same shell with a different default tab).
   - `projectToolsCentralAgentsWidgetId`, `projectToolsScriptsSandboxWidgetId`, `projectToolsStudioUiSettingsWidgetId` — **legacy** widget ids; **`ScriptsSandboxConfiguration`** opens **Integrations → Tools** (`tools.json`, `user-tools/registry.json`, Groovy list); **`CentralAgentsConfiguration`** → **Agents**; **`StudioUiSettings`** → **UI**
-- **XB message topics**
-  - `openAiAssistantMessageId` (`craftercms.aiassistant.OpenPanel`)
-  - `aiAssistantClosedMessageId` (`craftercms.aiassistant.PanelClosed`)
 
 ### Plugin ID and Studio File URL
 
 - **Plugin ID**: `org.craftercms.aiassistant.studio` — must be used in `ui.xml` for both the Tools Panel Helper and the Preview Toolbar icon so Studio serves the correct path.
-- **Installed path**: Plugin assets are under `config/studio/static-assets/plugins/org/craftercms/aiassistant/studio/aiassistant/` (e.g. `components/index.js`, `tinymce/craftercms_aiassistant.js`).
+- **Installed path**: Plugin assets are under `config/studio/static-assets/plugins/org/craftercms/aiassistant/studio/aiassistant/` (e.g. `components/index.js`).
 - **Plugin file requests**: Studio serves plugin JS from `/studio/1/plugin/file?siteId=...&pluginId=org.craftercms.aiassistant.studio&type=aiassistant&name=components&file=index.js`. These requests require **authenticated session** (same as preview): send the same cookies (e.g. `JSESSIONID`, `XSRF-TOKEN`, `crafterPreview`, `crafterSite`) or JWT/bearer auth that you use for Studio and preview. Unauthenticated requests will redirect to login and can cause 404-like behavior in the UI.
 - **Bundle `PluginDescriptor.id`** (`sources/index.tsx`): Must match `plugin.id` in `craftercms-plugin.yaml` (`org.craftercms.aiassistant.studio`). Studio deduplicates `registerPlugin` on that id; a different id can let an earlier registration win and leave **`craftercms.components.aiassistant.Helper`** or **`craftercms.components.aiassistant.AutonomousAssistants`** unregistered (“Component … not found”).
 
@@ -351,7 +319,6 @@ Defined in `sources/package.json`:
 - `yarn start`: Vite dev server for local development (`sources/`)
 - `yarn build`: TypeScript + Vite build
 - `yarn package`: Rollup build used to produce the plugin bundle artifacts
-- `yarn build-tinymce-plugin`: Rollup build variant for the TinyMCE plugin bundle
 
 ### Current Known Gaps / Limitations (As-Is)
 
@@ -377,6 +344,5 @@ A single **streaming** endpoint accepts `agentId`, `prompt`, optional `llm` / `l
 - `sources/src/AiAssistantHelper.tsx`: Helper widget for Studio UI
 - `sources/src/AiAssistantAutonomousAssistants.tsx`: Studio AI assistant — autonomous (Tools Panel widget)
 - `sources/src/autonomousAssistantsConfig.ts` / `sources/src/autonomousApi.ts`: autonomous catalog types; REST client for sync/status/control
-- `sources/src/consts.ts`: ids and message topics
-- `sources/src/craftercms_aiassistant.tsx`: optional TinyMCE (RTE) integration & open logic
+- `sources/src/consts.ts`: widget ids
 
