@@ -78,31 +78,6 @@ curl --fail-with-body --silent --show-error \
 EOF
 )"
 
-CLASSES_SRC="${PLUGIN_PATH}/authoring/scripts/classes"
-CLASSES_DEST="${SITE_REPO_PATH}/config/studio/scripts/classes"
-if [[ ! -d "${CLASSES_SRC}" ]]; then
-  echo "${AI_WARN} Warning: classes source not found at ${CLASSES_SRC}, skipping copy." >&2
-elif [[ ! -d "${SITE_REPO_PATH}" ]]; then
-  echo "${AI_WARN} Warning: site sandbox not found at ${SITE_REPO_PATH}, skipping copy." >&2
-else
-  mkdir -p "${CLASSES_DEST}"
-  echo "${AI_INFO} Copying authoring/scripts/classes to ${CLASSES_DEST}..."
-  cp -r "${CLASSES_SRC}"/* "${CLASSES_DEST}/"
-  # Site-maintained Groovy under config/studio/scripts/aiassistant/user-tools/ and aiassistant/llm/ is NOT copied
-  # by this script; Studio reads those paths via configurationService when present.
-  if git -C "${SITE_REPO_PATH}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    git -C "${SITE_REPO_PATH}" add config/studio/scripts/classes
-    if git -C "${SITE_REPO_PATH}" diff --staged --quiet; then
-      echo "${AI_OK} No changes to commit (classes already up to date)."
-    else
-      git -C "${SITE_REPO_PATH}" commit -m "Update AI Assistant plugin classes (Spring AI)"
-      echo "${AI_OK} Committed plugin classes in site sandbox."
-    fi
-  else
-    echo "${AI_WARN} Warning: ${SITE_REPO_PATH} is not a git repo; skipping commit."
-  fi
-fi
-
 SECRETS_EXAMPLE="${PLUGIN_PATH}/docs/examples/aiassistant-config/secrets.json"
 SECRETS_DEST="${SITE_REPO_PATH}/config/studio/scripts/aiassistant/config/secrets.json"
 if [[ -f "${SECRETS_EXAMPLE}" ]]; then

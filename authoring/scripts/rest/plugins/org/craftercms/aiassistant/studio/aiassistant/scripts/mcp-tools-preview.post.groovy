@@ -1,6 +1,6 @@
 import jakarta.servlet.http.HttpServletResponse
 import plugins.org.craftercms.aiassistant.studio.http.AiHttpProxy
-import plugins.org.craftercms.aiassistant.contrib.tool.mcp.StudioAiMcpClient
+import plugins.org.craftercms.aiassistant.studio.contrib.tool.mcp.StudioAiMcpClient
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 
 /**
@@ -24,7 +24,7 @@ if (!siteId) {
 
 def ops = new StudioToolOperations(request, applicationContext, params)
 
-if (!plugins.org.craftercms.aiassistant.contrib.tool.builtin.http.OutboundHttpPolicy.globallyEnabled()) {
+if (!plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.http.OutboundHttpPolicy.globallyEnabled()) {
   return [ok: false, message: 'Outbound HTTP is disabled (aiassistant.httpFetch.enabled=false); MCP preview is unavailable.']
 }
 

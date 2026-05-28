@@ -27,7 +27,7 @@ One endpoint: **agent ID + full prompt in, streamed response out**. The UI does 
 - **`claude`:** Spring AI **`AnthropicChatModel`** tool loop (not the tools-loop RestClient path).
 - **`script:{id}`:** Site Groovy under **`config/studio/scripts/aiassistant/llm/{id}/`** returns a **`StudioAiLlmRuntime`** bundle; capabilities depend on the script.
 - **Prompt length:** Bounded only by **your** chat host / provider limits and orchestration timeouts (**[studio-aiassistant-jvm-parameters.md](../using-and-extending/studio-aiassistant-jvm-parameters.md)**). There is **no** separate hosted SaaS prompt compaction path.
-- **Note**: The REST scripts depend on `authoring/scripts/classes` (`AiOrchestration`, …). Marketplace/copy may not copy the classes folder to the site; if the stream fails with “unable to resolve class”, copy `authoring/scripts/classes` to the site’s `config/studio/scripts/classes` manually after install.
+- **Note**: REST scripts depend on Groovy under `authoring/scripts/classes/plugins/<plugin-id-path>/` (this plugin: `…/org/craftercms/aiassistant/studio/`). `copy-plugin` / marketplace copy deploys that tree; if the stream fails with “unable to resolve class”, re-run plugin copy from a current plugin tree.
 - **Studio plugin classpath**: Classes under `scripts/classes` compile in a **restricted** Groovy environment. **`groovy.util.XmlSlurper`** is not available there — use **JDK** `javax.xml.parsers.DocumentBuilderFactory` / `org.w3c.dom` for XML parsing (see `AiOrchestrationTools.extractFormFieldIdsFromFormDefinitionXml`).
 
 ## UI
@@ -40,4 +40,4 @@ One endpoint: **agent ID + full prompt in, streamed response out**. The UI does 
 - **LLM / keys**: **[llm-configuration.md](../using-and-extending/llm-configuration.md)**
 - **Stream endpoint**: `authoring/scripts/rest/plugins/org/craftercms/aiassistant/studio/aiassistant/ai/stream.post.groovy`
 - **Chat endpoint**: `authoring/scripts/rest/plugins/org/craftercms/aiassistant/studio/aiassistant/ai/agent/chat.post.groovy`
-- **Classes** (required for Spring AI + tools): `authoring/scripts/classes/plugins/org/craftercms/aiassistant/` — `AiOrchestration.groovy`, etc. If marketplace/copy does not deploy these, copy this folder to the site’s `config/studio/scripts/classes` manually after install.
+- **Classes** (required for Spring AI + tools): `authoring/scripts/classes/plugins/org/craftercms/aiassistant/studio/` — `AiOrchestration.groovy`, etc. Deployed by plugin copy into `config/studio/scripts/classes/plugins/org/craftercms/aiassistant/studio/`.

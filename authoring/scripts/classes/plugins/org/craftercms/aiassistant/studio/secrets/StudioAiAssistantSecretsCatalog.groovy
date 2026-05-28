@@ -1,6 +1,6 @@
 package plugins.org.craftercms.aiassistant.studio.secrets
 
-import plugins.org.craftercms.aiassistant.spi.llm.StudioAiLlmKind
+import plugins.org.craftercms.aiassistant.studio.spi.llm.StudioAiLlmKind
 
 /**
  * Well-known secret keys for vendor LLM credentials and related defaults.

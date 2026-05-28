@@ -376,7 +376,7 @@ async function callPluginScriptJson<T>(siteId: string, scriptPath: string, body:
   - Missing `siteId` query param (required by Studio’s plugin script controller).
 - **500 pluginId null / unable to resolve class**:
   - Script path doesn’t include plugin id segments (use Trello pattern).
-  - `authoring/scripts/classes` wasn’t copied + committed into `{siteRepo}/config/studio/scripts/classes`.
+  - Groovy classes are missing under `{siteRepo}/config/studio/scripts/classes/plugins/<plugin-id-path>/` (re-run plugin copy from a current plugin tree).
 
 #### User-authored **Tools** (Site Groovy, Survives Plugin Reinstall)
 
@@ -386,7 +386,7 @@ async function callPluginScriptJson<T>(siteId: string, scriptPath: string, body:
 {siteRepo}/config/studio/scripts/aiassistant/user-tools/
 ```
 
-- **Why here:** Under `config/studio/scripts/` with an `aiassistant/` segment, it is clearly **Studio script territory**, not `static-assets` (which plugin installs often refresh). Keep **plugin-shipped** REST scripts under `config/studio/scripts/rest/plugins/...` as today; keep **author-maintained** tool implementations in `user-tools/` so reinstall/copy-plugin does not replace them (`scripts/install-plugin.sh` only copies `authoring/scripts/classes` → `config/studio/scripts/classes` and does not remove sibling directories under `config/studio/scripts/`).
+- **Why here:** Under `config/studio/scripts/` with an `aiassistant/` segment, it is clearly **Studio script territory**, not `static-assets` (which plugin installs often refresh). Keep **plugin-shipped** REST scripts under `config/studio/scripts/rest/plugins/...` as today; keep **author-maintained** tool implementations in `user-tools/` so reinstall/copy-plugin does not replace them.
 - **Naming:** Use **tools** for executable code; reserve **skills** for prompt- or retrieval-oriented behavior (e.g. expert markdown / embeddings) so docs and `ui.xml` stay unambiguous.
 
 **Convention (AI Assistant — custom LLM):** `config/studio/scripts/aiassistant/llm/{id}/runtime.groovy` (or `llm.groovy`) implements **`StudioAiLlmRuntime`** or a **Map** with **`buildSessionBundle`** for **`&lt;llm&gt;script:{id}&lt;/llm&gt;`**. Same install survivability as **user-tools/** (sibling under `config/studio/scripts/aiassistant/`). See **`docs/using-and-extending/llm-configuration.md`**, **`docs/using-and-extending/script-llm-bring-your-own-backend.md`**, and examples under **`docs/examples/aiassistant-llm/`** (`demo/`, **`byo-llm/`** as the sample id for a **tools-loop** custom host, `groq/`).
@@ -517,11 +517,11 @@ Edits belong in **`sources/`**. Most paths under **`authoring/static-assets/`** 
 
 | What | Canonical location (edit here) | Produced under `authoring/static-assets/...` |
 |------|-------------------------------|-----------------------------------------------|
-| React plugin bundle (Helper, FormControl, chat, ICE, etc.) | `sources/index.tsx`, `sources/src/**/*.tsx`, `sources/src/**/*.ts` | `plugins/org/craftercms/aiassistant/studio/aiassistant/components/index.js` (**bundled**). Also **copied** to `org/craftercms/aiassistant/components/index.js` for legacy `ui.xml` paths. **Do not hand-edit those `index.js` files.** |
+| React plugin bundle (Helper, FormControl, chat, ICE, etc.) | `sources/index.tsx`, `sources/src/**/*.tsx`, `sources/src/**/*.ts` | `plugins/org/craftercms/aiassistant/studio/aiassistant/components/index.js` (**bundled**). **Do not hand-edit that `index.js`.** |
 | Form engine control (assistant panel, agent list, `cqLoadAgentsForSite`, etc.) | **`sources/control/ai-assistant/main.js`** | **Copied** (not compiled) to `plugins/.../studio/control/ai-assistant/main.js` at end of `yarn package`. |
-| Image-from-URL datasource | `sources/datasource/aiassistant-img-from-url/main.js` | Copied to `plugins/.../studio/datasource/aiassistant-img-from-url/` and legacy `org/craftercms/aiassistant/datasource/aiassistant-img-from-url/`. |
+| Image-from-URL datasource | `sources/datasource/aiassistant-img-from-url/main.js` | `plugins/.../studio/datasource/aiassistant-img-from-url/main.js` (copied at package time). |
 
-**Workflow:** Change **`sources/`** → run **`yarn package`** from **`sources/`** → install or copy `authoring/static-assets/` to the site. Treat **`authoring/static-assets/plugins/.../aiassistant/components/index.js`** and the duplicate under **`org/craftercms/aiassistant/components/`** as **generated**.
+**Workflow:** Change **`sources/`** → run **`yarn package`** from **`sources/`** → install or copy the plugin (`copy-plugin` / marketplace copy). Treat shipped **`authoring/static-assets/plugins/org/craftercms/aiassistant/studio/**` as **generated** (except hand-maintained `sources/control/ai-assistant/main.js`).
 
 ---
 
@@ -532,7 +532,7 @@ Edits belong in **`sources/`**. Most paths under **`authoring/static-assets/`** 
 - **API:** `POST /studio/api/2/marketplace/copy` with body e.g. `{ "siteId": "new-demo", "path": "/absolute/path/to/ai-assistant-plugin" }` (substitute your site id and the absolute path to this repository). Use the same auth (e.g. Bearer token) as for Studio.
 - **CLI:** e.g. `crafter-cli copy-plugin -e <env> -s <siteId> --path /absolute/path/to/ai-assistant-plugin`.
 
-Installation copies `authoring/static-assets/*` into the site’s `config/studio/static-assets/plugins/<pluginId-path>/` and runs the descriptor’s **installation** steps to merge into `config/studio/ui.xml`. The **scripts** that Studio runs for plugin REST endpoints are typically copied from `authoring/scripts/rest`. The **`authoring/scripts/classes`** folder may not be copied by marketplace/copy; this plugin requires it for Spring AI and tools. If after install the stream fails with “unable to resolve class”, copy `authoring/scripts/classes` to the site’s `config/studio/scripts/classes` manually.
+Installation copies `authoring/static-assets/*` into the site’s `config/studio/static-assets/plugins/<pluginId-path>/` and runs the descriptor’s **installation** steps to merge into `config/studio/ui.xml`. REST scripts copy from `authoring/scripts/rest/plugins/<pluginId-path>/`. **Groovy classes** copy from `authoring/scripts/classes/plugins/<pluginId-path>/` only (Studio `copyPlugin` uses the plugin id as a path suffix — e.g. `org.craftercms.aiassistant.studio` → `plugins/org/craftercms/aiassistant/studio/`). This plugin keeps all shipped classes under that folder (`engine/`, `contrib/`, `spi/`, `studio/`, …). If you see “unable to resolve class” after copy, re-run **`copy-plugin` / marketplace copy** from a tree where classes live under `authoring/scripts/classes/plugins/org/craftercms/aiassistant/studio/` — do not copy sibling folders manually.
 
 ### Where Studio Reads `ui.xml` From (and Why Commits Matter)
 
@@ -602,7 +602,7 @@ Get the token by logging into Studio, opening DevTools → Application → Cooki
 
 **Disposable site + plugin install (local / self-hosted CI):** Copy `scripts/test/integration/create-site.json.example` to `scripts/test/integration/create-site.json` (gitignored), set a **unique** `siteId`, adjust `blueprintId` / `blueprintVersion` if needed (`GET /studio/api/2/sites/available_blueprints`). Then run `./scripts/test/integration/e2e-site-lifecycle.sh` — it creates the site, runs `install-plugin.sh`, runs **`scripts/test/functional/rest-contracts.sh`**, then deletes the site. Use `--keep-site` to leave the site up for debugging, or `./scripts/test/integration/e2e-site-lifecycle.sh --teardown-only <siteId>` to delete a leftover test site. `install-plugin.sh` must use a `CRAFTER_DATA` path on the **same** authoring node where Studio created the site.
 
-The install script **copies and commits** `authoring/scripts/classes` into the site’s `config/studio/scripts/classes`. Edit the hardcoded `CRAFTER_DATA` at the top of `scripts/install-plugin.sh` to match your Crafter authoring data path (e.g. `.../crafter-authoring/data`).
+The install script runs **`yarn package`** then marketplace **copy** (same as `copy-plugin` for classes and static assets). Edit the hardcoded `CRAFTER_DATA` at the top of `scripts/install-plugin.sh` only when seeding **`secrets.json`** into a local sandbox path.
 
 ### After Install
 

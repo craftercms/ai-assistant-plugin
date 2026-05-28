@@ -6,7 +6,7 @@ This directory is **for people working on the plugin repo** (local install, smok
 |------|------|
 | **`test/run-all.sh`** | **Single “all tests” script:** `bash -n`, offline **`REST_CONTRACTS_SELFTEST=1`** on **`rest-contracts.sh`**, **`yarn package`** in `sources/`, then live **`rest-contracts.sh`** (JWT + JSON contracts via **`node`** / python3 / jq; `RUN_ALL_SKIP_STUDIO=1` skips Studio). Back-compat: **`test/integration/smoke.sh`** runs the same live script. |
 | **`test/`** | **Automated testing harness only** — shell integration tests against a real Studio. **Not** packaged into the Crafter plugin zip; **does not** install or start any server-side “test services” inside Studio. See `test/README.md` and `test/NOT_SHIPPED_WITH_PLUGIN`. |
-| **`install-plugin.sh`** | Copies plugin into a site via Studio API + optional local `authoring/scripts/classes` sync. Edit `CRAFTER_DATA` inside the script for your install. |
+| **`install-plugin.sh`** | Packages (`yarn package`) and installs into a site via Studio marketplace copy API (+ optional `secrets.json` seed). Edit `CRAFTER_DATA` for local sandbox paths. Groovy classes deploy only through copy (same as `copy-plugin`). |
 | **`studio-api.sh`** | Bearer `curl` helper for ad hoc Studio REST calls (same JWT as install). |
 | **`lib/studio-auth.sh`** | Shared token loading (`CRAFTER_STUDIO_TOKEN` or `scripts/.studio-token`). |
 | **`coderabbit-review.sh`** | Optional CodeRabbit CLI review — uncommitted diffs under **`sources/`** and **`authoring/scripts/`** only. Run from repo root: **`./scripts/coderabbit-review.sh`** (not part of **`test/run-all.sh`**). |

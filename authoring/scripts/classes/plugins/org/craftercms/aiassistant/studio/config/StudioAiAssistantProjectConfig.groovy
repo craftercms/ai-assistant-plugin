@@ -4,7 +4,7 @@ import groovy.json.JsonSlurper
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
-import plugins.org.craftercms.aiassistant.engine.routing.subrouting.AuthoringIntentRecipeEngine
+import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentRecipeEngine
 
 import java.util.ArrayList
 import java.util.Collections
@@ -292,7 +292,7 @@ private StudioAiAssistantProjectConfig() {}
   }
 
   /**
-   * When {@code true}: apply {@link plugins.org.craftercms.aiassistant.engine.context.AuthoringPreviewContext#intentRecipeRouterEligibilitySkipReason}
+   * When {@code true}: apply {@link plugins.org.craftercms.aiassistant.studio.engine.context.AuthoringPreviewContext#intentRecipeRouterEligibilitySkipReason}
    * before recipe match (short-message / no-CMS-signal / long-paste gates). When {@code false} (default when omitted): every
    * non-empty turn runs intent recipe routing so custom recipes and multi-intent requests are not blocked early.
    */
@@ -463,7 +463,7 @@ private StudioAiAssistantProjectConfig() {}
     return intentRecipeConfirmationLlmRefineEnabled(cfg)
   }
 
-  /** Max output tokens for {@link plugins.org.craftercms.aiassistant.engine.routing.subrouting.AuthoringIntentRecipeLlmRefiner}. */
+  /** Max output tokens for {@link plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentRecipeLlmRefiner}. */
   static int intentRecipeConfirmationLlmRefineMaxOutTokens(Map cfg) {
     Map m = intentRecipeRoutingSection(cfg)
     String key = m.containsKey('confirmationLlmRefineMaxOutTokens') ?
@@ -497,9 +497,9 @@ private StudioAiAssistantProjectConfig() {}
     return intentRecipeConfirmationLlmRefineReadTimeoutMs(cfg)
   }
 
-  /** @see plugins.org.craftercms.aiassistant.contrib.tool.builtin.integrations.SerpApiWebSearchProjectSettings#WIRE */
+  /** @see plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.integrations.SerpApiWebSearchProjectSettings#WIRE */
   static final String SERP_API_WEB_SEARCH_WIRE =
-    plugins.org.craftercms.aiassistant.contrib.tool.builtin.integrations.SerpApiWebSearchProjectSettings.WIRE
+    plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.integrations.SerpApiWebSearchProjectSettings.WIRE
 
   private static final Set<String> WEB_SEARCH_WIRE_NAMES =
     Collections.unmodifiableSet(new LinkedHashSet<>(['WebSearch', SERP_API_WEB_SEARCH_WIRE]))

@@ -68,10 +68,6 @@ function fixMaterialUiUtilsCommonjsArtifact() {
 
 const studioPluginRoot = '../authoring/static-assets/plugins/org/craftercms/aiassistant/studio';
 const basePluginDir = `${studioPluginRoot}/aiassistant`;
-// Some sites / older ui.xml still resolve `org.craftercms` → this path; keep it in sync or ICE loses `DialogContent`.
-const legacyComponentsDir = '../authoring/static-assets/org/craftercms/aiassistant/components';
-const legacyDatasourceDir =
-  '../authoring/static-assets/org/craftercms/aiassistant/datasource/aiassistant-img-from-url';
 
 module.exports = {
   context: 'this',
@@ -111,20 +107,8 @@ module.exports = {
       hook: 'closeBundle',
       targets: [
         {
-          src: `${basePluginDir}/components/index.js`,
-          dest: legacyComponentsDir
-        },
-        {
-          src: 'datasource/aiassistant-img-from-url/main.js',
-          dest: `${basePluginDir}/datasource/aiassistant-img-from-url`
-        },
-        {
           src: 'datasource/aiassistant-img-from-url/main.js',
           dest: `${studioPluginRoot}/datasource/aiassistant-img-from-url`
-        },
-        {
-          src: 'datasource/aiassistant-img-from-url/main.js',
-          dest: legacyDatasourceDir
         },
         // Canonical source: ./control/ai-assistant/main.js (hand-maintained). Do not edit authoring/.../main.js only.
         {

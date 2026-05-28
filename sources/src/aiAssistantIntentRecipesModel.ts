@@ -3,7 +3,7 @@
  * {@code /config/studio/scripts/aiassistant/config/intent-recipes.json} until authors save custom recipes;
  * the configuration UI merges this in-memory catalog with an optional site file.
  */
-import bundledCatalog from '../../authoring/scripts/classes/plugins/org/craftercms/aiassistant/engine/routing/authoring-intent-recipes-default.json';
+import bundledCatalog from '../../authoring/scripts/classes/plugins/org/craftercms/aiassistant/studio/engine/routing/authoring-intent-recipes-default.json';
 import { STUDIO_AI_BUILTIN_TOOL_IDS, STUDIO_AI_MCP_ALL_TOKEN } from './studioAiOrchestrationToolIds';
 
 /** Studio {@code studio} module path (tools.json {@code customRecipesPath} default). */

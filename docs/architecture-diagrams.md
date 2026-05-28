@@ -357,7 +357,7 @@ flowchart LR
   subgraph install["Install on site"]
     CopyPlugin["Marketplace copy / crafter-cli copy-plugin"]
     SitePath["site/config/studio/static-assets/plugins/…"]
-    SiteClasses["site/config/studio/scripts/classes/…\n(if not copied — manual)"]
+    SiteClasses["site/config/studio/scripts/classes/plugins/…"]
   end
 
   Sources --> build
@@ -372,7 +372,7 @@ flowchart LR
 |-----------|------------------|
 | `sources/src/**`, `sources/index.tsx` | `authoring/.../components/index.js` (generated) |
 | `sources/control/ai-assistant/main.js` | `authoring/.../control/ai-assistant/main.js` (copied on package) |
-| `authoring/scripts/classes/**` | — (ship with plugin; may need manual copy to site) |
+| `authoring/scripts/classes/plugins/<plugin-id-path>/**` | `config/studio/scripts/classes/plugins/<plugin-id-path>/` (via copy-plugin) |
 
 ---
 

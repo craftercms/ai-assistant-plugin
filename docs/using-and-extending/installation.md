@@ -21,8 +21,8 @@ From repo root (with `CRAFTER_DATA` and `CRAFTER_STUDIO_TOKEN` set when using th
 | Method | Notes |
 |--------|--------|
 | **Studio Marketplace UI** | **Project Tools → Plugin Management** — search for the plugin and install it into the current site (same flow as [Studio UI](#studio-ui) above). |
-| [CrafterCMS CLI](https://docs.craftercms.org/en/4.1/by-role/common/crafter-cli.html) `copy-plugin` | Point `--path` at this repository |
-| Marketplace **`/studio/api/2/marketplace/copy`** | POST JSON `siteId` + `path` to the plugin directory |
+| [CrafterCMS CLI](https://docs.craftercms.org/en/4.1/by-role/common/crafter-cli.html) `copy-plugin` | Point `--path` at this repository. Copies **`authoring/scripts/classes/plugins/<plugin-id-path>/`** (for this plugin, everything under `…/aiassistant/studio/`), not sibling folders. |
+| Marketplace **`/studio/api/2/marketplace/copy`** | POST JSON `siteId` + `path` to the plugin directory (same class layout as CLI). |
 
 Example **`copy`** body (replace site and path):
 

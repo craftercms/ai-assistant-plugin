@@ -4,14 +4,14 @@ import java.util.LinkedHashSet
 import java.util.Set
 import groovy.json.JsonOutput
 import org.slf4j.LoggerFactory
-import plugins.org.craftercms.aiassistant.engine.context.AuthoringPreviewContext
+import plugins.org.craftercms.aiassistant.studio.engine.context.AuthoringPreviewContext
 import plugins.org.craftercms.aiassistant.studio.http.AiHttpProxy
-import plugins.org.craftercms.aiassistant.contrib.agents.AiAssistantCentralAgentsMerge
-import plugins.org.craftercms.aiassistant.engine.turn.AiOrchestration
-import plugins.org.craftercms.aiassistant.engine.prompt.ToolPromptsSiteContext
+import plugins.org.craftercms.aiassistant.studio.contrib.agents.AiAssistantCentralAgentsMerge
+import plugins.org.craftercms.aiassistant.studio.engine.turn.AiOrchestration
+import plugins.org.craftercms.aiassistant.studio.engine.prompt.ToolPromptsSiteContext
 import plugins.org.craftercms.aiassistant.studio.config.StudioAiAssistantProjectConfig
-import plugins.org.craftercms.aiassistant.engine.rag.ExpertSkillVectorRegistry
-import plugins.org.craftercms.aiassistant.secrets.StudioAiAssistantSecretsContext
+import plugins.org.craftercms.aiassistant.studio.engine.rag.ExpertSkillVectorRegistry
+import plugins.org.craftercms.aiassistant.studio.secrets.StudioAiAssistantSecretsContext
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 
 /**

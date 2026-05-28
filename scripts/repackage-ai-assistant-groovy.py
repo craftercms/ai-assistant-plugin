@@ -12,8 +12,8 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-ROOT = REPO / "authoring/scripts/classes/plugins/org/craftercms/aiassistant"
-BASE_PKG = "plugins.org.craftercms.aiassistant"
+ROOT = REPO / "authoring/scripts/classes/plugins/org/craftercms/aiassistant/studio"
+BASE_PKG = "plugins.org.craftercms.aiassistant.studio"
 
 # (relative path under ROOT, new relative path under ROOT)
 MOVES: list[tuple[str, str]] = [

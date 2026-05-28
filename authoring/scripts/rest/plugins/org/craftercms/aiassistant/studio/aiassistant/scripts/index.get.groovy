@@ -1,9 +1,9 @@
 import org.slf4j.LoggerFactory
-import plugins.org.craftercms.aiassistant.engine.context.SiteProjectContext
-import plugins.org.craftercms.aiassistant.contrib.imagegen.StudioAiScriptImageGenLoader
-import plugins.org.craftercms.aiassistant.engine.prompt.ToolPromptsOverrideCatalog
+import plugins.org.craftercms.aiassistant.studio.engine.context.SiteProjectContext
+import plugins.org.craftercms.aiassistant.studio.contrib.imagegen.StudioAiScriptImageGenLoader
+import plugins.org.craftercms.aiassistant.studio.engine.prompt.ToolPromptsOverrideCatalog
 import plugins.org.craftercms.aiassistant.studio.secrets.StudioAiAssistantSecretsService
-import plugins.org.craftercms.aiassistant.contrib.tool.site.StudioAiUserSiteTools
+import plugins.org.craftercms.aiassistant.studio.contrib.tool.site.StudioAiUserSiteTools
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 
 /**

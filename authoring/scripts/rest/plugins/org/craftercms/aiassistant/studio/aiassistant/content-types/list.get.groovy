@@ -1,5 +1,5 @@
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
-import plugins.org.craftercms.aiassistant.contrib.tool.builtin.cms.internal.CmsListStudioContentTypes
+import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.CmsListStudioContentTypes
 
 String siteId = (params?.siteId ?: request.getParameter('siteId'))?.toString()?.trim()
 if (!siteId) {

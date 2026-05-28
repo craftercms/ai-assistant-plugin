@@ -10,7 +10,7 @@ import re
 import sys
 
 REPO = Path(__file__).resolve().parents[1]
-ROOT = REPO / "authoring/scripts/classes/plugins/org/craftercms/aiassistant"
+ROOT = REPO / "authoring/scripts/classes/plugins/org/craftercms/aiassistant/studio"
 REST = REPO / "authoring/scripts/rest"
 
 

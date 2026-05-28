@@ -157,7 +157,7 @@ If the worker throws or the model response cannot be parsed as JSON, **`state.la
 
 ##### Implementation Pointers (Groovy)
 
-- `authoring/scripts/classes/plugins/org/craftercms/aiassistant/engine/autonomous/` — registry, state store, supervisor, worker, scope guard, id builder, schedule probe, **`AutonomousAssistantRuntimeHooks`** (Spring context + auth for worker threads), **`AutonomousSiteDigestBuilder`** (authoring OpenSearch digest for prompts).
+- `authoring/scripts/classes/plugins/org/craftercms/aiassistant/studio/engine/autonomous/` — registry, state store, supervisor, worker, scope guard, id builder, schedule probe, **`AutonomousAssistantRuntimeHooks`** (Spring context + auth for worker threads), **`AutonomousSiteDigestBuilder`** (authoring OpenSearch digest for prompts).
 - `authoring/scripts/rest/plugins/org/craftercms/aiassistant/studio/aiassistant/autonomous/assistants/` — `sync.post`, `status.get`, `control.post`.
 
 ### Assistant Popover (Floating Chat Shell)

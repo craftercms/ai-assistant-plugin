@@ -5,12 +5,12 @@ import java.util.LinkedHashMap
 import org.springframework.security.core.Authentication
 import org.springframework.security.core.GrantedAuthority
 import org.springframework.security.core.context.SecurityContextHolder
-import plugins.org.craftercms.aiassistant.engine.autonomous.AutonomousAgentIdBuilder
-import plugins.org.craftercms.aiassistant.engine.autonomous.AutonomousAssistantRegistry
-import plugins.org.craftercms.aiassistant.engine.autonomous.AutonomousAssistantStateStore
-import plugins.org.craftercms.aiassistant.engine.autonomous.AutonomousAssistantRuntimeHooks
-import plugins.org.craftercms.aiassistant.engine.autonomous.AutonomousAssistantStatus
-import plugins.org.craftercms.aiassistant.engine.autonomous.AutonomousAssistantSupervisor
+import plugins.org.craftercms.aiassistant.studio.engine.autonomous.AutonomousAgentIdBuilder
+import plugins.org.craftercms.aiassistant.studio.engine.autonomous.AutonomousAssistantRegistry
+import plugins.org.craftercms.aiassistant.studio.engine.autonomous.AutonomousAssistantStateStore
+import plugins.org.craftercms.aiassistant.studio.engine.autonomous.AutonomousAssistantRuntimeHooks
+import plugins.org.craftercms.aiassistant.studio.engine.autonomous.AutonomousAssistantStatus
+import plugins.org.craftercms.aiassistant.studio.engine.autonomous.AutonomousAssistantSupervisor
 import plugins.org.craftercms.aiassistant.studio.http.AiHttpProxy
 
 def body = AiHttpProxy.parseJsonBody(request)

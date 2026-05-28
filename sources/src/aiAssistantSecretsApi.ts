@@ -82,7 +82,7 @@ export async function fetchAiAssistantSecretsIndex(siteId: string): Promise<AiAs
     catalogWarning = `${serverError} Showing built-in provider keys; save may fail until the plugin is updated on Studio.`;
   } else if (!serverKnown?.length) {
     catalogWarning =
-      'Server secrets catalog not available yet (update plugin and copy authoring/scripts/classes). Built-in provider keys are shown below — click Save secrets to write secrets.json.';
+      'Server secrets catalog not available yet (reinstall the plugin on this site). Built-in provider keys are shown below — click Save secrets to write secrets.json.';
   }
 
   return {

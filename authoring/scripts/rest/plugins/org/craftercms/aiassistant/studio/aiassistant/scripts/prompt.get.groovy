@@ -1,7 +1,7 @@
-import plugins.org.craftercms.aiassistant.engine.prompt.ToolPromptsBuiltinDefaults
-import plugins.org.craftercms.aiassistant.engine.prompt.ToolPromptsLoader
-import plugins.org.craftercms.aiassistant.engine.prompt.ToolPromptsOverrideCatalog
-import plugins.org.craftercms.aiassistant.engine.prompt.ToolPromptsSiteContext
+import plugins.org.craftercms.aiassistant.studio.engine.prompt.ToolPromptsBuiltinDefaults
+import plugins.org.craftercms.aiassistant.studio.engine.prompt.ToolPromptsLoader
+import plugins.org.craftercms.aiassistant.studio.engine.prompt.ToolPromptsOverrideCatalog
+import plugins.org.craftercms.aiassistant.studio.engine.prompt.ToolPromptsSiteContext
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 
 /**
