@@ -108,7 +108,7 @@ flowchart TB
   end
 
   subgraph orchestration["Orchestration (JVM)"]
-    Recipes["Intent recipe prelude\n(optional)"]
+    Recipes["Router.route\n(intent recipe prelude, optional)"]
     Orch["AiOrchestration"]
     Tools["StudioAiToolRegistry\nAiOrchestrationTools.build\n+ StudioToolOperations"]
     Stream --> Recipes
@@ -150,8 +150,8 @@ flowchart TB
   subgraph studioConfig["config/studio/"]
     UiXml["ui.xml\n(Helper · Autonomous · TinyMCE)"]
     Agents["ai-assistant/agents.json\nchat + autonomous rows"]
-    Secrets["ai-assistant/secrets.json"]
-    StudioUi["ai-assistant/studio-ui.json"]
+    Secrets["scripts/aiassistant/config/secrets.json"]
+    StudioUi["scripts/aiassistant/config/studio-ui.json"]
   end
 
   subgraph siteScripts["config/studio/scripts/aiassistant/"]
@@ -179,9 +179,9 @@ flowchart TB
 | Artifact | Purpose |
 |----------|---------|
 | **`agents.json`** | Chat agents (`mode: chat`) and autonomous agents (`mode: autonomous`); **`agentId`**, **`llm`**, models, tools policy, prompts |
-| **`secrets.json`** | Site credential slots (`${env:…}`, `${enc:…}`); resolve at runtime only stored rows — **`${secret:…}`** in MCP/agents; **`serpapi_api_key`** for **SerpApiWebSearch** |
+| **`secrets.json`** (`scripts/aiassistant/config/`) | Site credential slots (`${env:…}`, `${enc:…}`); resolve at runtime only stored rows — **`${secret:…}`** in MCP/agents; **`serpapi_api_key`** for **SerpApiWebSearch** |
 | **`ui.xml`** | Registers **Helper**, optional **AutonomousAssistants**, **TinyMCE** external plugin URL |
-| **`studio-ui.json`** | Toolbar/sidebar visibility, XB image scope, bulk form-control helpers |
+| **`studio-ui.json`** (`scripts/aiassistant/config/`) | Toolbar/sidebar visibility, XB image scope, bulk form-control helpers |
 | **`tools.json`** | Built-in tool allow/deny, **`builtInToolSettings`** (e.g. **SerpApiWebSearch** defaults), MCP **`mcpEnabled`** + **`mcpServers`**, intent recipe routing flags |
 | **`intent-recipes.json`** | Pre-tools workflow recipes (phases, **`toolsLoopForceTool`**, **`{{studio.today-7D}}`** hints; site override of plugin defaults) |
 | **Site scripts** | User tools, script LLMs, image generators, prompt markdown overrides |
@@ -234,11 +234,11 @@ flowchart LR
   end
 
   subgraph paths["Saved under config/studio/"]
-    P1["ai-assistant/studio-ui.json\n+ bulk form-definition edits"]
+    P1["scripts/aiassistant/config/studio-ui.json\n+ bulk form-definition edits"]
     P2["ai-assistant/agents.json"]
     P3["scripts/aiassistant/intent-recipes.json\n+ tools.json flags"]
     P4["scripts/aiassistant/config/tools.json\nllm/ · imagegen/ · user-tools/"]
-    P5["ai-assistant/secrets.json"]
+    P5["scripts/aiassistant/config/secrets.json"]
     P6["scripts/aiassistant/prompts/*.md"]
   end
 
@@ -327,7 +327,7 @@ flowchart TD
   Body --> Merge["AiAssistantCentralAgentsMerge\nfill missing llm/model from agents.json"]
   Merge --> Norm["StudioAiLlmKind.normalize"]
   Norm --> IR{intentRecipeRouting.enabled?}
-  IR -->|yes| Prelude["AuthoringIntentRecipeEngine\nmatch · prefetch · prelude"]
+  IR -->|yes| Prelude["Router.route\nmatch · prefetch · prelude\n(AuthoringIntentRecipeEngine inside)"]
   IR -->|no| Orch
   Prelude --> Orch["AiOrchestration.chatStreamWithSpringAi"]
   Orch --> Branch{llm transport}
@@ -460,10 +460,11 @@ Experimental path: same tool catalog as chat, different trigger and persistence.
 ```mermaid
 flowchart LR
   Widget["AutonomousAssistants widget"] --> Sync["POST …/autonomous/assistants/sync"]
-  Sync --> Registry["In-memory agent registry\n+ supervisor threads"]
+  Sync --> Hooks["AutonomousAssistantRuntimeHooks\n(Spring + security context)"]
+  Hooks --> Registry["In-memory agent registry\n+ supervisor threads"]
   Registry --> Tick["~10s supervisor tick"]
   Tick --> Worker["AutonomousAssistantWorker"]
-  Worker --> Orch["AiOrchestration\n(tools-loop + JSON contract)"]
+  Worker --> Orch["AiOrchestration.llmHeadlessNativeToolsCompletion\n(tools-loop + JSON contract;\nno intent recipes / Router)"]
   Widget --> Status["GET …/status"]
   Widget --> Control["POST …/control\nstart · stop · …"]
 ```
