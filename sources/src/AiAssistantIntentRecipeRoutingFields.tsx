@@ -27,8 +27,8 @@ export default function AiAssistantIntentRecipeRoutingFields(props: AiAssistantI
         Intent recipe routing
       </Typography>
       <Typography variant="body2" color="text.secondary" paragraph>
-        Optional pre-tools router: classifies the author message, runs read-only prefetch steps from a matched recipe,
-        then prepends guidance to the main tools loop.
+        Optional pre-tools LLM router: chooses chat-only, a single tool, a matched recipe (with prefetch), or defers to
+        the plan loop. Recipe match hints are synonyms for the router catalog only.
       </Typography>
       <Stack spacing={2}>
         <FormControlLabel
@@ -55,17 +55,6 @@ export default function AiAssistantIntentRecipeRoutingFields(props: AiAssistantI
           disabled={!value.enabled}
           helperText="Router must meet this confidence to apply a recipe (default 0.55)."
         />
-        <FormControlLabel
-          control={
-            <Switch
-              checked={value.requestClarificationOnUnmatched}
-              onChange={(_, c) => patch({ requestClarificationOnUnmatched: c })}
-              size="small"
-              disabled={!value.enabled}
-            />
-          }
-          label="Tools-off clarification when unmatched"
-        />
         <TextField
           label="Custom recipes path (optional)"
           value={value.customRecipesPath}
@@ -86,17 +75,6 @@ export default function AiAssistantIntentRecipeRoutingFields(props: AiAssistantI
             />
           }
           label="Eligibility gate (filter short / non-CMS messages before routing)"
-        />
-        <FormControlLabel
-          control={
-            <Switch
-              checked={value.wholeTurnJsonRouterEnabled}
-              onChange={(_, c) => patch({ wholeTurnJsonRouterEnabled: c })}
-              size="small"
-              disabled={!value.enabled}
-            />
-          }
-          label="Whole-turn JSON router"
         />
         <TextField
           label="Prefetch max steps (optional)"

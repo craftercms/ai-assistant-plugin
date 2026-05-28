@@ -1,8 +1,8 @@
 {
   "version": 1,
   "chatDefaults": {
-    "prefixEmoji": "🥗",
-    "fallbackEmoji": "📋",
+    "prefixEmoji": "\ud83e\udd57",
+    "fallbackEmoji": "\ud83d\udccb",
     "lineSuffix": "workflow"
   },
   "routingEngineSteps": [
@@ -11,35 +11,60 @@
       "when": "anchoredSiteXml",
       "as": "pageItem",
       "tool": "GetContent",
-      "args": { "siteId": "$siteId", "path": "$contentPath" }
+      "args": {
+        "siteId": "$siteId",
+        "path": "$contentPath"
+      }
     },
     {
       "routingPass": "initial",
       "when": "anchoredSiteXml",
       "as": "pageForm",
       "tool": "GetContentTypeFormDefinition",
-      "args": { "siteId": "$siteId", "contentPath": "$contentPath" }
+      "args": {
+        "siteId": "$siteId",
+        "contentPath": "$contentPath"
+      }
     },
     {
       "routingPass": "after_refine",
       "when": "anchoredSiteXml",
       "as": "pageItem",
       "tool": "GetContent",
-      "args": { "siteId": "$siteId", "path": "$contentPath" }
+      "args": {
+        "siteId": "$siteId",
+        "path": "$contentPath"
+      }
     }
   ],
   "routingRecipeFamilies": {
-    "researchWeb": ["web_research"],
-    "researchSite": ["site_content_research"],
-    "researchLlm": ["llm_research"],
-    "researchAny": ["web_research", "site_content_research", "llm_research"]
+    "researchWeb": [
+      "web_research"
+    ],
+    "researchSite": [
+      "site_content_research"
+    ],
+    "researchLlm": [
+      "llm_research"
+    ],
+    "researchAny": [
+      "web_research",
+      "site_content_research",
+      "llm_research"
+    ]
   },
   "multiGoalDefer": {
     "minDistinctGroups": 2,
     "groups": {
-      "generalKnowledge": ["llm_research"],
-      "webResearch": ["web_research"],
-      "siteContentResearch": ["site_content_research"],
+      "generalKnowledge": [
+        "llm_research"
+      ],
+      "webResearch": [
+        "web_research"
+      ],
+      "siteContentResearch": [
+        "site_content_research"
+      ],
       "cmsAuthoring": [
         "new_content_item",
         "modify_page_content",
@@ -73,14 +98,8 @@
     {
       "id": "web_research",
       "title": "Web search (news & current events)",
-      "chatEmoji": "🔎",
+      "chatEmoji": "\ud83d\udd0e",
       "toolsLoopForceTool": "WebSearch",
-      "deterministicMatch": {
-        "priority": 90,
-        "routerReason": "deterministic_web_research",
-        "authorFromMatchHints": true,
-        "respectDontMatchHints": true
-      },
       "description": "Author wants fresh information from the public web: latest news, headlines, what happened today, or current facts that need citations. Not CMS repository work.",
       "matchHints": [
         "latest news",
@@ -110,11 +129,13 @@
         "this page",
         "summarize this page"
       ],
-      "toolsLoopAllowlist": ["WebSearch"],
+      "toolsLoopAllowlist": [
+        "WebSearch"
+      ],
       "phases": {
         "context": [
           "Call WebSearch in the first tool round with a focused query built from the author's exact words.",
-          "If the author pasted a specific http(s) URL, you may use FetchHttpUrl for that URL only — not instead of WebSearch for open-ended news."
+          "If the author pasted a specific http(s) URL, you may use FetchHttpUrl for that URL only \u2014 not instead of WebSearch for open-ended news."
         ],
         "action": [
           "Summarize findings in clear prose with source titles and URLs from the tool result. Do not invent links."
@@ -127,14 +148,8 @@
     {
       "id": "site_content_research",
       "title": "Site content search",
-      "chatEmoji": "📚",
+      "chatEmoji": "\ud83d\udcda",
       "toolsLoopForceTool": "ResearchSiteContent",
-      "deterministicMatch": {
-        "priority": 89,
-        "routerReason": "deterministic_site_content_research",
-        "authorFromMatchHints": true,
-        "respectDontMatchHints": true
-      },
       "description": "Author wants to find or summarize existing pages and components in the Crafter CMS site named by Working CMS site metadata or the current Studio site (indexed authoring search + content lookup), including when there is no open-preview repository anchor on this turn. Not the open web and not a write.",
       "matchHints": [
         "search the site",
@@ -167,13 +182,15 @@
         "this page about",
         "page is about"
       ],
-      "toolsLoopAllowlist": ["ResearchSiteContent"],
+      "toolsLoopAllowlist": [
+        "ResearchSiteContent"
+      ],
       "phases": {
         "context": [
           "Call ResearchSiteContent in the first tool round with siteId and a focused query from the author's words."
         ],
         "action": [
-          "Answer from hits: cite repository paths and titles; use contentExcerpt and indexSnippet — do not invent paths."
+          "Answer from hits: cite repository paths and titles; use contentExcerpt and indexSnippet \u2014 do not invent paths."
         ],
         "confirmation": [
           "Offer GetContent on specific paths if the author wants to edit; do not WriteContent unless they ask to change content."
@@ -183,36 +200,8 @@
     {
       "id": "llm_research",
       "title": "General knowledge (LLM)",
-      "chatEmoji": "💡",
-      "deterministicMatch": [
-        {
-          "priority": 91,
-          "routerReason": "deterministic_chat_artifact_followup",
-          "when": "chatArtifactFollowup"
-        },
-        {
-          "priority": 89,
-          "routerReason": "deterministic_creative_llm_only",
-          "when": "creativeLlmOnly"
-        },
-        {
-          "priority": 88,
-          "routerReason": "deterministic_llm_research",
-          "authorFromMatchHints": true,
-          "respectDontMatchHints": true,
-          "when": {
-            "not": {
-              "allOf": [
-                "anchoredSiteXml",
-                {
-                  "authorContainsAny": ["this page", "the page", "summarize this page"]
-                }
-              ]
-            }
-          }
-        }
-      ],
-      "description": "Author wants explanation, comparison, research, or background from model knowledge — not live web headlines and not editing the repository.",
+      "chatEmoji": "\ud83d\udca1",
+      "description": "Author wants explanation, comparison, research, or background from model knowledge \u2014 not live web headlines and not editing the repository.",
       "matchHints": [
         "explain",
         "what is",
@@ -251,7 +240,7 @@
       "phases": {
         "action": [
           "Answer from general knowledge in clear prose (bullets ok). Do not call CMS repository tools on this turn.",
-          "When they ask to **draft** or **write** a post/article **in chat** (no create/new page/new item in the repo), compose that draft as markdown prose in the same reply after any research or comparison — **not** ListStudioContentTypes / WriteContent.",
+          "When they ask to **draft** or **write** a post/article **in chat** (no create/new page/new item in the repo), compose that draft as markdown prose in the same reply after any research or comparison \u2014 **not** ListStudioContentTypes / WriteContent.",
           "If the question needs live/current data, say so and suggest the author ask for a web search instead."
         ],
         "confirmation": [
@@ -262,15 +251,8 @@
     {
       "id": "open_page_inquiry",
       "title": "Describe this page (read-only)",
-      "chatEmoji": "📖",
+      "chatEmoji": "\ud83d\udcd6",
       "toolsLoopForceTool": "GetContent",
-      "deterministicMatch": {
-        "priority": 93,
-        "routerReason": "deterministic_open_page_inquiry",
-        "requiresAnchoredSiteXml": true,
-        "authorFromMatchHints": true,
-        "respectDontMatchHints": true
-      },
       "description": "Author wants a summary or explanation of the page or component currently open in Studio (anchored /site/.../*.xml). Read repository XML and answer in prose. Not a write, not site-wide search, not open web.",
       "matchHints": [
         "tell me about this page",
@@ -278,6 +260,9 @@
         "what would you say",
         "how would you describe",
         "describe this page",
+        "summarize this page",
+        "summarize",
+        "summary of this page",
         "page is about",
         "explain this page",
         "what do you think"
@@ -294,8 +279,11 @@
         "search the web",
         "latest news"
       ],
-      "toolsLoopAllowlist": ["GetContent", "GetPreviewHtml"],
-      "matchedUserPrelude": "[Studio — read-only page inquiry] Summarize what this anchored page is about using prefetch or GetContent XML. Answer in clear prose only. Do not WriteContent, update_template, or chase CSS/FTL paths unless the author asks to change something.",
+      "toolsLoopAllowlist": [
+        "GetContent",
+        "GetPreviewHtml"
+      ],
+      "matchedUserPrelude": "[Studio \u2014 read-only page inquiry] Summarize what this anchored page is about using prefetch or GetContent XML. Answer in clear prose only. Do not WriteContent, update_template, or chase CSS/FTL paths unless the author asks to change something.",
       "phases": {
         "context": {
           "hints": [
@@ -306,7 +294,10 @@
             {
               "as": "pageItem",
               "tool": "GetContent",
-              "args": { "siteId": "$siteId", "path": "$contentPath" }
+              "args": {
+                "siteId": "$siteId",
+                "path": "$contentPath"
+              }
             }
           ]
         },
@@ -321,19 +312,7 @@
     {
       "id": "modify_page_content",
       "title": "Modify page or component content",
-      "chatEmoji": "✏️",
-      "deterministicMatch": [
-        {
-          "priority": 60,
-          "routerReason": "deterministic_concrete_field_edit",
-          "when": "concreteFieldEdit"
-        },
-        {
-          "priority": 55,
-          "routerReason": "deterministic_external_content_field_edit",
-          "when": "externalContentFieldEdit"
-        }
-      ],
+      "chatEmoji": "\u270f\ufe0f",
       "description": "Change copy, tone, grammar, or field values on a page or component XML item. If the user provides the page URL, Title or Internal name then they may not be talking about the current page - resolve the page path first.",
       "matchHints": [
         "update",
@@ -358,24 +337,30 @@
         "context": {
           "hints": [
             "Prefetch binds pageItem (item XML) and pageForm (form definition) for this turn.",
-            "If the author gives a page URL, title, or internal name, resolve the correct repository path before GetContent — they may not mean the item currently open in Studio.",
+            "If the author gives a page URL, title, or internal name, resolve the correct repository path before GetContent \u2014 they may not mean the item currently open in Studio.",
             "Load the target item with GetContent (and GetContentTypeFormDefinition with contentPath when the form model matters)."
           ],
           "engineSteps": [
             {
               "as": "pageItem",
               "tool": "GetContent",
-              "args": { "siteId": "$siteId", "path": "$contentPath" }
+              "args": {
+                "siteId": "$siteId",
+                "path": "$contentPath"
+              }
             },
             {
               "as": "pageForm",
               "tool": "GetContentTypeFormDefinition",
-              "args": { "siteId": "$siteId", "contentPath": "$contentPath" }
+              "args": {
+                "siteId": "$siteId",
+                "contentPath": "$contentPath"
+              }
             }
           ]
         },
         "action": [
-          "Use update_content or GetContent → revise XML → WriteContent; preserve <page>/<component> structure and node-selector shapes. After a write, prefer {{current.pageItem}} over {{initial.pageItem}} for the edited XML snapshot."
+          "Use update_content or GetContent \u2192 revise XML \u2192 WriteContent; preserve <page>/<component> structure and node-selector shapes. After a write, prefer {{current.pageItem}} over {{initial.pageItem}} for the edited XML snapshot."
         ],
         "confirmation": [
           "When an Engine preview URL exists, use GetPreviewHtml after substantive writes affecting rendered output."
@@ -385,17 +370,14 @@
     {
       "id": "revert_content_version",
       "title": "Revert to previous version",
-      "chatEmoji": "↩️",
-      "deterministicMatch": {
-        "priority": 70,
-        "routerReason": "deterministic_revert_content_version",
-        "skipPrefetch": true,
-        "when": {
-          "allOf": ["anchoredSiteXml", "repositoryVersionRevert"]
-        },
-        "respectDontMatchHints": true
-      },
-      "matchHints": ["revert", "undo", "rollback", "restore version", "previous version"],
+      "chatEmoji": "\u21a9\ufe0f",
+      "matchHints": [
+        "revert",
+        "undo",
+        "rollback",
+        "restore version",
+        "previous version"
+      ],
       "dontMatchHints": [
         "summarize",
         "summary",
@@ -408,24 +390,25 @@
         "news"
       ],
       "phases": {
-        "context": ["Confirm siteId and anchored repository path from Studio context."],
-        "action": ["Use revert_change on the anchored /site/.../*.xml item when the author wants to roll back."],
-        "confirmation": ["Summarize the reverted version from the tool result."]
+        "context": [
+          "Confirm siteId and anchored repository path from Studio context."
+        ],
+        "action": [
+          "Use revert_change on the anchored /site/.../*.xml item when the author wants to roll back."
+        ],
+        "confirmation": [
+          "Summarize the reverted version from the tool result."
+        ]
       }
     },
     {
       "id": "generate_image",
       "title": "Generate image (bitmap)",
-      "chatEmoji": "🖼️",
+      "chatEmoji": "\ud83d\uddbc\ufe0f",
       "toolsLoopForceTool": "GenerateImage",
-      "toolsLoopExcludeTools": ["GenerateTextNoTools"],
-      "deterministicMatch": {
-        "priority": 100,
-        "routerReason": "deterministic_image_only",
-        "authorFromMatchHints": true,
-        "respectDontMatchHints": true,
-        "when": "imageOnlyGenerate"
-      },
+      "toolsLoopExcludeTools": [
+        "GenerateTextNoTools"
+      ],
       "description": "Author wants a new AI-generated image, illustration, art, logo, or picture",
       "matchHints": [
         "generate",
@@ -452,7 +435,9 @@
         "news on",
         "current events"
       ],
-      "toolsLoopAllowlist": ["GenerateImage"],
+      "toolsLoopAllowlist": [
+        "GenerateImage"
+      ],
       "toolsLoopAllowlistBypassIfAuthorMentions": [
         "WriteContent",
         "write content",
@@ -470,16 +455,25 @@
           "Call GenerateImage in the first tool round with a concrete prompt; optional size/quality only when the author specified them."
         ],
         "confirmation": [
-          "Wrap up in short prose only — the bitmap appears in the Studio chat image strip, not markdown image syntax."
+          "Wrap up in short prose only \u2014 the bitmap appears in the Studio chat image strip, not markdown image syntax."
         ]
       }
     },
     {
       "id": "template_display_change",
       "title": "Template / display (FTL) change",
-      "chatEmoji": "🧩",
+      "chatEmoji": "\ud83e\udde9",
       "description": "Author explicitly wants layout, FreeMarker, listing markup, dates formatting in code, or how the page renders.",
-      "matchHints": ["template", "ftl", "freemarker", "render", "layout", "listing", "cards", "display"],
+      "matchHints": [
+        "template",
+        "ftl",
+        "freemarker",
+        "render",
+        "layout",
+        "listing",
+        "cards",
+        "display"
+      ],
       "phases": {
         "context": [
           "GetContent on page/component XML; read display-template; follow node-selector and component references from the page XML to component templates when the shell is not the listing."
@@ -487,20 +481,16 @@
         "action": [
           "Read templates with GetContent or analyze_template (read-only) before update_template; persist with WriteContent on .ftl paths."
         ],
-        "confirmation": ["GetPreviewHtml when preview URL is available."]
+        "confirmation": [
+          "GetPreviewHtml when preview URL is available."
+        ]
       }
     },
     {
       "id": "publish_site",
       "title": "Publish entire site / first go-live",
-      "chatEmoji": "🌐",
-      "deterministicMatch": {
-        "priority": 94,
-        "routerReason": "deterministic_publish_site_bulk",
-        "authorFromMatchHints": true,
-        "respectDontMatchHints": true
-      },
-      "description": "Author wants to publish the whole site, everything, or first-time go-live — not a read-only page summary and not a single item unless they narrowed scope after first publish.",
+      "chatEmoji": "\ud83c\udf10",
+      "description": "Author wants to publish the whole site, everything, or first-time go-live \u2014 not a read-only page summary and not a single item unless they narrowed scope after first publish.",
       "matchHints": [
         "publish entire site",
         "publish everything",
@@ -526,29 +516,39 @@
           "Call publish_content with publishScope=all (PublishService.publishAll) for entire site / first publish. Use publishScope=bulk and bulkRootPath=/site only when publish all is unavailable and bulk go-live is appropriate. Do not pass only the open preview contentPath for entire-site requests."
         ],
         "confirmation": [
-          "Report publishScope, initialPublish flag, and path counts from the tool result — never claim entire site published if publishScope was item or only one path was deployed."
+          "Report publishScope, initialPublish flag, and path counts from the tool result \u2014 never claim entire site published if publishScope was item or only one path was deployed."
         ]
       }
     },
     {
       "id": "publish_item",
       "title": "Publish or go live",
-      "chatEmoji": "🚀",
+      "chatEmoji": "\ud83d\ude80",
       "description": "Author wants to publish one item, a list of paths, or go live without sitewide / first-publish scope.",
-      "matchHints": ["publish", "go live", "deploy", "push to live", "release"],
+      "matchHints": [
+        "publish",
+        "go live",
+        "deploy",
+        "push to live",
+        "release"
+      ],
       "phases": {
-        "context": ["Confirm siteId, publishingTarget, and scope: single path, paths array, or bulk subtree — not entire site unless author asked."],
+        "context": [
+          "Confirm siteId, publishingTarget, and scope: single path, paths array, or bulk subtree \u2014 not entire site unless author asked."
+        ],
         "action": [
           "publish_content: publishScope=item with path/contentPath for one item; publishScope=paths with paths/contentPaths array for a list (one deploy); publishScope=bulk with bulkRootPath for subtree. Avoid discovery reads when context already has paths."
         ],
-        "confirmation": ["Summarize publishScope, path(s), and tool outcome — do not claim entire site if only one path or a short list was published."]
+        "confirmation": [
+          "Summarize publishScope, path(s), and tool outcome \u2014 do not claim entire site if only one path or a short list was published."
+        ]
       }
     },
     {
       "id": "new_content_item_from_chat_draft",
       "title": "Create item from prior chat draft",
-      "chatEmoji": "📝",
-      "description": "Turn 2 after prior assistant prose in chat: persist **[Prior conversation]** as a **new** repository item. Author may say “make a post”, “save this”, “thanks — publish it”, etc. — the word **draft** is not required. **Not** generic “new page” with no prior assistant article; **not** research-only chat.",
+      "chatEmoji": "\ud83d\udcdd",
+      "description": "Turn 2 after prior assistant prose in chat: persist **[Prior conversation]** as a **new** repository item. Author may say \u201cmake a post\u201d, \u201csave this\u201d, \u201cthanks \u2014 publish it\u201d, etc. \u2014 the word **draft** is not required. **Not** generic \u201cnew page\u201d with no prior assistant article; **not** research-only chat.",
       "dontMatchHints": [
         "research",
         "versus",
@@ -582,7 +582,9 @@
         "ContentExists",
         "WriteContent"
       ],
-      "toolsLoopRequireSuccessfulTools": ["WriteContent"],
+      "toolsLoopRequireSuccessfulTools": [
+        "WriteContent"
+      ],
       "toolsLoopWriteVerification": "createFromChatDraft",
       "writeVerification": {
         "repairRootObjectIds": true,
@@ -595,27 +597,30 @@
           "lastModifiedDate_dt"
         ]
       },
-      "matchedUserPrelude": "[Studio — create **new** repository item from prior chat draft]\n\n**Goal:** One successful **WriteContent** with a **full** `<component>` or `<page>` XML document. Required envelope: `<content-type>`, `<file-name>`, `<merge-strategy>`, `<objectId>`, `<objectGroupId>`, `<internal-name>`. **Not** a fragment or markdown-only body.\n\n**Generate XML — do not copy siblings:** **GetContentTypeFormDefinition** for the resolved type and every nested type on the form. Follow **Project authoring context** when it defines element order and nested-component XML for this site. **Do not** **GetContent** an existing item to copy structure, field values, or body text.\n\n**Copy (from [Prior conversation] only — verbatim):** Read the last **Assistant** reply for title, body, and slug. Do not summarize or rephrase. Map into form fields using **GetContentTypeFormDefinition** — the server does not extract title/body for you. New UUIDs for **objectId** / **objectGroupId**.\n\n**Path:** **ListStudioContentTypes** → match type. **quickCreatePath** from form definition. Choose **file-name** / slug from the title you read; **ContentExists** on that **new** path — expect **false**. **ResearchSiteContent** only for reference targets (bios, taxonomy keys).\n\n**Nested fields:** Per form defs and **Project authoring context** (inline components, RTE `*_html`, node-selectors).\n\nIf **[Prior conversation]** has no saveable article in the last assistant reply, stop and ask the author to regenerate the draft.\n\n**Images:** Omit or leave empty required image-picker fields — **WriteContent** fills placeholders. **GenerateImage** only when the author asked for art.\n",
+      "matchedUserPrelude": "[Studio \u2014 create **new** repository item from prior chat draft]\n\n**Goal:** One successful **WriteContent** with a **full** `<component>` or `<page>` XML document. Required envelope: `<content-type>`, `<file-name>`, `<merge-strategy>`, `<objectId>`, `<objectGroupId>`, `<internal-name>`. **Not** a fragment or markdown-only body.\n\n**Generate XML \u2014 do not copy siblings:** **GetContentTypeFormDefinition** for the resolved type and every nested type on the form. Follow **Project authoring context** when it defines element order and nested-component XML for this site. **Do not** **GetContent** an existing item to copy structure, field values, or body text.\n\n**Copy (from [Prior conversation] only \u2014 verbatim):** Read the last **Assistant** reply for title, body, and slug. Do not summarize or rephrase. Map into form fields using **GetContentTypeFormDefinition** \u2014 the server does not extract title/body for you. New UUIDs for **objectId** / **objectGroupId**.\n\n**Path:** **ListStudioContentTypes** \u2192 match type. **quickCreatePath** from form definition. Choose **file-name** / slug from the title you read; **ContentExists** on that **new** path \u2014 expect **false**. **ResearchSiteContent** only for reference targets (bios, taxonomy keys).\n\n**Nested fields:** Per form defs and **Project authoring context** (inline components, RTE `*_html`, node-selectors).\n\nIf **[Prior conversation]** has no saveable article in the last assistant reply, stop and ask the author to regenerate the draft.\n\n**Images:** Omit or leave empty required image-picker fields \u2014 **WriteContent** fills placeholders. **GenerateImage** only when the author asked for art.\n",
       "phases": {
         "context": {
           "hints": [
-            "Turn 2: persist prior-turn draft as a **new** file. The Studio preview anchor is context only — not the write target.",
-            "Draft prose is the last **Assistant** reply in **[Prior conversation]** (any headings/labels the author used). Copy verbatim — do not summarize, rephrase, or invent body or title text."
+            "Turn 2: persist prior-turn draft as a **new** file. The Studio preview anchor is context only \u2014 not the write target.",
+            "Draft prose is the last **Assistant** reply in **[Prior conversation]** (any headings/labels the author used). Copy verbatim \u2014 do not summarize, rephrase, or invent body or title text."
           ],
           "engineSteps": [
             {
               "tool": "ListStudioContentTypes",
-              "args": { "siteId": "$siteId", "searchable": false }
+              "args": {
+                "siteId": "$siteId",
+                "searchable": false
+              }
             }
           ]
         },
         "action": [
           "If **[Prior conversation]** has no full article in the last **Assistant** reply, tell the author to regenerate the draft in chat before **WriteContent**.",
           "**GetContentTypeFormDefinition** for the resolved type and every nested type referenced on the parent form.",
-          "**ContentExists** on the planned new path (expect **false**). **ResearchSiteContent** only when you need a reference path or allowed taxonomy keys — not to load another item’s XML as a template.",
-          "Build **contentXml** from form definitions + **Project authoring context**: complete root envelope, new UUIDs, nested inline/referenced components per field types. Put the **full verbatim** prior draft in the correct RTE `*_html` field(s) — every paragraph, no edits. Do not copy another item’s field values or rewrite the draft.",
-          "**Images:** Omit or leave empty every required **image-picker** field in **WriteContent** — the server applies the sample placeholder on write. **GenerateImage** only when the author asked for art.",
-          "**WriteContent** once to the **new** path under **quickCreatePath**. Server **write verification** rejects incomplete **contentXml** — fix tool errors and retry; do not finish until **WriteContent** returns ok."
+          "**ContentExists** on the planned new path (expect **false**). **ResearchSiteContent** only when you need a reference path or allowed taxonomy keys \u2014 not to load another item\u2019s XML as a template.",
+          "Build **contentXml** from form definitions + **Project authoring context**: complete root envelope, new UUIDs, nested inline/referenced components per field types. Put the **full verbatim** prior draft in the correct RTE `*_html` field(s) \u2014 every paragraph, no edits. Do not copy another item\u2019s field values or rewrite the draft.",
+          "**Images:** Omit or leave empty every required **image-picker** field in **WriteContent** \u2014 the server applies the sample placeholder on write. **GenerateImage** only when the author asked for art.",
+          "**WriteContent** once to the **new** path under **quickCreatePath**. Server **write verification** rejects incomplete **contentXml** \u2014 fix tool errors and retry; do not finish until **WriteContent** returns ok."
         ],
         "confirmation": [
           "Report repository path, slug, and that body came from the prior chat draft (not a cloned sibling)."
@@ -625,36 +630,8 @@
     {
       "id": "new_content_item",
       "title": "Create new page or component",
-      "chatEmoji": "📄",
-      "deterministicMatch": {
-        "priority": 45,
-        "routerReason": "deterministic_new_content_item",
-        "respectDontMatchHints": true,
-        "when": {
-          "allOf": [
-            "currentTurnCmsTooling",
-            "anchoredSiteXml",
-            "noPriorMaterializableAssistant",
-            {
-              "anyOf": [
-                {
-                  "authorMatchesRegex": "(?i)\\b(new\\s+page|new\\s+article|new\\s+post|add\\s+a\\s+(?:new\\s+)?page)\\b"
-                },
-                {
-                  "allOf": [
-                    { "authorMatchesRegex": "(?i)\\b(create|add)\\b" },
-                    { "authorMatchesRegex": "(?i)\\b(new\\s+)?(page|article|component|item|post)s?\\b" }
-                  ]
-                },
-                {
-                  "authorMatchesRegex": "(?i)\\bwrite\\s+(?:a\\s+)?new\\s+(page|post|article|component|item)\\b"
-                }
-              ]
-            }
-          ]
-        }
-      },
-      "description": "Author asks to **create** a new repository item (new URL or new component in Studio) **without** copying a prior assistant reply. **Not** “looks great — make a post” after chat prose — use **new_content_item_from_chat_draft**. **Not** chat-only research prose — **llm_research** (tools off).",
+      "chatEmoji": "\ud83d\udcc4",
+      "description": "Author asks to **create** a new repository item (new URL or new component in Studio) **without** copying a prior assistant reply. **Not** \u201clooks great \u2014 make a post\u201d after chat prose \u2014 use **new_content_item_from_chat_draft**. **Not** chat-only research prose \u2014 **llm_research** (tools off).",
       "dontMatchHints": [
         "research",
         "versus",
@@ -669,8 +646,15 @@
         "create a post from",
         "create a blog from"
       ],
-      "matchHints": ["create", "new page", "new article", "new post", "add a page", "write a new"],
-      "matchedUserPrelude": "[Studio — create new repository item] Resolve **contentTypeId** with **ListStudioContentTypes** (exact catalog match on the author’s type phrase). **GetContentTypeFormDefinition** for that id. **GetContent** on one existing item of that type **before** **WriteContent** to learn XML shape (field ids, nesting, dates, objectId style) — map **new** copy from the author message; **do not** copy another item’s title, body, taxonomy, images, or bios unless the author asked to duplicate that item.",
+      "matchHints": [
+        "create",
+        "new page",
+        "new article",
+        "new post",
+        "add a page",
+        "write a new"
+      ],
+      "matchedUserPrelude": "[Studio \u2014 create new repository item] Resolve **contentTypeId** with **ListStudioContentTypes** (exact catalog match on the author\u2019s type phrase). **GetContentTypeFormDefinition** for that id. **GetContent** on one existing item of that type **before** **WriteContent** to learn XML shape (field ids, nesting, dates, objectId style) \u2014 map **new** copy from the author message; **do not** copy another item\u2019s title, body, taxonomy, images, or bios unless the author asked to duplicate that item.",
       "phases": {
         "context": {
           "hints": [
@@ -679,29 +663,29 @@
           "engineSteps": [
             {
               "tool": "ListStudioContentTypes",
-              "args": { "siteId": "$siteId", "searchable": false }
+              "args": {
+                "siteId": "$siteId",
+                "searchable": false
+              }
             }
           ]
         },
         "action": [
           "Resolve **contentTypeId** via **ListStudioContentTypes** (exact catalog match). **GetContentTypeFormDefinition** for **quickCreatePath** and required fields.",
-          "Before **WriteContent**, **GetContent** one existing item with the same `<content-type>` for **structure only** (element names, inline layout, date/objectId format). Populate fields with **new** author copy — not sibling field values.",
-          "Required image-picker without art instructions: **GeneratePlaceholderImage** → **`dataUrl`** in **WriteContent** (or omit for default placeholder). **GenerateImage** only when the author explicitly asked for specific generated art.",
+          "Before **WriteContent**, **GetContent** one existing item with the same `<content-type>` for **structure only** (element names, inline layout, date/objectId format). Populate fields with **new** author copy \u2014 not sibling field values.",
+          "Required image-picker without art instructions: **GeneratePlaceholderImage** \u2192 **`dataUrl`** in **WriteContent** (or omit for default placeholder). **GenerateImage** only when the author explicitly asked for specific generated art.",
           "**WriteContent** at a new path under **quickCreatePath**; optional **GetPreviewHtml** in confirmation."
         ],
-        "confirmation": ["Tell the author how to preview the new route; optional GetPreviewHtml."]
+        "confirmation": [
+          "Tell the author how to preview the new route; optional GetPreviewHtml."
+        ]
       }
     },
     {
       "id": "translate_content_item",
       "title": "Translate or localize content",
-      "chatEmoji": "🌐",
-      "deterministicMatch": {
-        "priority": 65,
-        "routerReason": "deterministic_translate_intent",
-        "when": "translateIntent"
-      },
-      "description": "Author explicitly asks to translate or localize page/component copy into another language. Use TranslateContentItem or TranslateContentBatch (with ListContentTranslationScope for full-page scope) — not update_content or same-language rewrite via GetContent→WriteContent.",
+      "chatEmoji": "\ud83c\udf10",
+      "description": "Author explicitly asks to translate or localize page/component copy into another language. Use TranslateContentItem or TranslateContentBatch (with ListContentTranslationScope for full-page scope) \u2014 not update_content or same-language rewrite via GetContent\u2192WriteContent.",
       "matchHints": [
         "translate",
         "translation",
@@ -726,18 +710,24 @@
       "phases": {
         "context": {
           "hints": [
-            "When the author means full page / everything visible / this page copy: ListContentTranslationScope once on the anchored contentPath, then TranslateContentBatch (same target language for every path) or TranslateContentItem per path — never call ListContentTranslationScope twice in one turn without a write in between.",
+            "When the author means full page / everything visible / this page copy: ListContentTranslationScope once on the anchored contentPath, then TranslateContentBatch (same target language for every path) or TranslateContentItem per path \u2014 never call ListContentTranslationScope twice in one turn without a write in between.",
             "When scope is only the open repository item: TranslateContentItem on that contentPath is enough; skip ListContentTranslationScope unless they expand scope mid-task.",
             "GetContentTypeFormDefinition only when you need unknown field ids."
           ],
           "engineSteps": [
             {
               "tool": "GetContent",
-              "args": { "siteId": "$siteId", "path": "$contentPath" }
+              "args": {
+                "siteId": "$siteId",
+                "path": "$contentPath"
+              }
             },
             {
               "tool": "GetContentTypeFormDefinition",
-              "args": { "siteId": "$siteId", "contentPath": "$contentPath" }
+              "args": {
+                "siteId": "$siteId",
+                "contentPath": "$contentPath"
+              }
             }
           ]
         },

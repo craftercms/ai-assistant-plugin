@@ -1,5 +1,5 @@
 import plugins.org.craftercms.aiassistant.studio.config.StudioAiAssistantProjectConfig
-import plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentRecipeCatalog
+import plugins.org.craftercms.aiassistant.engine.routing.subrouting.AuthoringIntentRecipeCatalog
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 
 /**

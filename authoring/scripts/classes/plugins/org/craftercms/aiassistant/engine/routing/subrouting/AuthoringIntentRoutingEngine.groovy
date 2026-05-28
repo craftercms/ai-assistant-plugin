@@ -1,4 +1,4 @@
-package plugins.org.craftercms.aiassistant.engine.routing
+package plugins.org.craftercms.aiassistant.engine.routing.subrouting
 
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory

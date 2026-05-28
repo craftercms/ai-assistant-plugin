@@ -1,4 +1,4 @@
-package plugins.org.craftercms.aiassistant.engine.routing
+package plugins.org.craftercms.aiassistant.engine.routing.subrouting
 
 import plugins.org.craftercms.aiassistant.studio.config.StudioAiAssistantProjectConfig
 import plugins.org.craftercms.aiassistant.contrib.tool.site.StudioAiUserSiteTools

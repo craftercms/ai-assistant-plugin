@@ -1,4 +1,4 @@
-package plugins.org.craftercms.aiassistant.engine.routing
+package plugins.org.craftercms.aiassistant.engine.routing.subrouting
 
 import java.time.Instant
 import java.time.ZoneId

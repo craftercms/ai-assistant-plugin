@@ -53,11 +53,6 @@ class AuthoringPreviewContext {
     return s == 'true' || s == '1' || s == 'yes'
   }
 
-  /** Request body / ui.xml {@code authoringIntentExpansion} flag. */
-  static boolean parseAuthoringIntentExpansion(Object raw) {
-    return isTruthy(raw)
-  }
-
   /**
    * Request body {@code enableTools}: absent/null/empty → {@code true} (OpenAI tools on, legacy default).
    * Explicit {@code false}, {@code "false"}, {@code "0"}, {@code "no"} → {@code false}.
@@ -587,7 +582,7 @@ Use these when the author asks about "today", "now", freshness, or dated content
         detection = (Map) o
       }
     }
-    return plugins.org.craftercms.aiassistant.engine.routing.PriorConversationDraftExtract
+    return plugins.org.craftercms.aiassistant.engine.routing.subrouting.PriorConversationDraftExtract
       .priorConversationContainsActionableContent(prior, detection, projectCfg)
   }
 
@@ -632,7 +627,7 @@ Use these when the author asks about "today", "now", freshness, or dated content
     if (!prior) {
       return false
     }
-    if (!plugins.org.craftercms.aiassistant.engine.routing.PriorConversationDraftExtract
+    if (!plugins.org.craftercms.aiassistant.engine.routing.subrouting.PriorConversationDraftExtract
         .priorConversationHasMaterializableAssistantReply(prior)) {
       return false
     }
@@ -869,17 +864,6 @@ ${asstLine}"""
   )
 
   /**
-   * Broad visual / reference language — used for **longer** prompts when a URL/host is present (see
-   * {@link #isAuthoringIntentExpansionCandidate}); **short** prompts use length alone (still require repository tooling signal).
-   */
-  private static final Pattern AUTHORING_INTENT_EXPANSION_VISUAL = Pattern.compile(
-    '(?i)(\\blook\\s+like\\b|\\bsimilar\\s+to\\b|\\bmatch(?:es)?\\b|\\bresemble\\b|\\bfeel\\s+like\\b|\\bstyled?\\s+like\\b|\\bsame\\s+(look|style)\\b|\\bvisual\\s+(transform|overhaul|refresh|redesign)\\b|\\bredesign\\b|\\bbranding\\b|\\bmockup\\b|\\btheme\\b|\\b(css|stylesheet|scss|less)\\b.*\\b(template|templates?|ftl|layout|site|page)\\b|\\b(template|templates?|ftl|layout)\\b.*\\b(css|stylesheet|theme)\\b)'
-  )
-
-  /** Author-visible text (after stripping Studio blocks) this long or shorter is treated as likely underspecified. */
-  private static final int AUTHORING_INTENT_EXPANSION_SHORT_VISIBLE_MAX_CHARS = 320
-
-  /**
    * Author names the **open** Studio item in their own words ({@code this page}, {@code the component}, …)
    * while the wire prompt carries a {@code Repository path: /site/.../*.xml} anchor.
    */
@@ -896,6 +880,8 @@ ${asstLine}"""
       'how\\s+would\\s+you\\s+(?:describe|characterize|summarize)\\s+(?:this|the)\\s+page\\b|' +
       'tell\\s+me\\s+about\\s+(?:this|the)\\s+page\\b|' +
       'describe\\s+(?:this|the)\\s+page\\b|' +
+      'summarize\\s+(?:this|the)\\s+page\\b|' +
+      '(?:give|provide)\\s+(?:me\\s+)?(?:a\\s+)?(?:summary|overview)\\s+of\\s+(?:this|the)\\s+page\\b|' +
       '(?:this|the)\\s+page\\b.{0,96}\\b(?:about|for|mean|purpose|topic|describe|explain|overview)\\b|' +
       'page\\s+is\\s+about\\b)'
   )
@@ -996,11 +982,11 @@ ${asstLine}"""
       return true
     }
     return (v =~ /(?is)\b(this|the)\s+page\b/).find() &&
-      (v =~ /(?i)\b(about|think|purpose|mean|describe|explain|overview|topic)\b/).find()
+      (v =~ /(?i)\b(about|think|purpose|mean|describe|explain|overview|topic|summarize|summary)\b/).find()
   }
 
   /**
-   * Routing context for {@link plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentRecipeCatalog} matchers.
+   * Routing context for {@link plugins.org.craftercms.aiassistant.engine.routing.subrouting.AuthoringIntentRecipeCatalog} matchers.
    */
   static Map intentRecipeRoutingContext(String cand) {
     String wire = (cand ?: '').toString()
@@ -1053,7 +1039,7 @@ This site has **never** been published to the delivery tier. For first go-live o
       return false
     }
     Map ctx = intentRecipeRoutingContext(fullOrUserPrompt)
-    if (plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentRecipeCatalog
+    if (plugins.org.craftercms.aiassistant.engine.routing.subrouting.AuthoringIntentRecipeCatalog
       .authorVisibleSuggestsConfiguredResearch(recipes, ctx, routingCfg)) {
       return true
     }
@@ -1120,21 +1106,6 @@ This site has **never** been published to the delivery tier. For first go-live o
     return v && ANCHORED_FIELD_PLACEMENT.matcher(v).find()
   }
 
-  /**
-   * Author-visible slice for intent-expansion length/URL gates.
-   * When prior conversation is present, uses only the current {@code Current request:} line.
-   */
-  private static String intentExpansionVisibleSlice(String fullPrompt) {
-    def prior = extractPriorConversationBody(fullPrompt)?.trim()
-    if (prior) {
-      String current = extractAuthorCurrentRequestVisible(fullPrompt)?.trim()
-      if (current) {
-        return stripStudioInjectedPromptBlocks(current)?.trim() ?: current
-      }
-    }
-    return stripStudioInjectedPromptBlocks((fullPrompt ?: '').toString())?.trim() ?: ''
-  }
-
   /** Undo / revert / restore a prior repository version (not a generative rewrite). */
   static boolean authorVisibleSuggestsRevertIntent(String visible) {
     def v = (visible ?: '').toString().trim()
@@ -1197,8 +1168,7 @@ This site has **never** been published to the delivery tier. For first go-live o
   }
 
   /**
-   * When non-null, intent recipe routing / expansion is skipped for this turn (stable codes for Studio logs).
-   * See {@link #isAuthoringIntentExpansionCandidate}.
+   * When non-null, intent recipe routing is skipped for this turn (stable codes for Studio logs).
    */
   static String intentRecipeRouterEligibilitySkipReason(String fullPrompt) {
     return intentRecipeRouterEligibilitySkipReason(fullPrompt, null, null)
@@ -1206,7 +1176,7 @@ This site has **never** been published to the delivery tier. For first go-live o
 
   /**
    * @param recipes merged intent recipe catalog (required for research-family checks)
-   * @param routingCfg {@link plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentRecipeCatalog#loadMergedCatalogRoutingConfig}
+   * @param routingCfg {@link plugins.org.craftercms.aiassistant.engine.routing.subrouting.AuthoringIntentRecipeCatalog#loadMergedCatalogRoutingConfig}
    */
   static String intentRecipeRouterEligibilitySkipReason(String fullPrompt, List<Map> recipes, Map routingCfg) {
     if (authorCurrentRequestLooksLikeImageOnlyGenerate(fullPrompt)) {
@@ -1278,44 +1248,7 @@ This site has **never** been published to the delivery tier. For first go-live o
     if (authorCurrentRequestLooksLikePriorTurnFollowUp(fullPrompt)) {
       return null
     }
-    String expansionVisible = intentExpansionVisibleSlice(fullPrompt) ?: v
-    if (expansionVisible.length() <= AUTHORING_INTENT_EXPANSION_SHORT_VISIBLE_MAX_CHARS) {
-      return null
-    }
-    if (authorCurrentRequestLooksLikeImageOnlyGenerate(fullPrompt)) {
-      return null
-    }
-    String currentOnlyForGate = extractAuthorCurrentRequestVisible(fullPrompt)?.trim()
-    if (currentOnlyForGate && authorVisibleSuggestsIntentRecipeResearch(currentOnlyForGate, recipes, routingCfg)) {
-      return null
-    }
-    if (!authorVisibleContainsHttpOrLikelyExternalHost(expansionVisible)) {
-      return 'long_message_no_url_for_expansion_gate'
-    }
-    if (!AUTHORING_INTENT_EXPANSION_VISUAL.matcher(expansionVisible).find()) {
-      return 'long_message_url_without_visual_reference_phrase'
-    }
     return null
-  }
-
-  /**
-   * Eligible for the server’s **pre-tools** intent-expansion completion: either **short** author-visible text
-   * (usually a one-liner too terse for reliable tool planning) or a **longer** message that combines a URL/host with
-   * reference / visual language.
-   */
-  static boolean isAuthoringIntentExpansionCandidate(String fullPrompt) {
-    return intentRecipeRouterEligibilitySkipReason(fullPrompt) == null
-  }
-
-  /**
-   * Same as {@link #isAuthoringIntentExpansionCandidate(String)} unless project config disables the eligibility gate
-   * ({@code intentRecipeRouting.eligibilityGateEnabled} false / omitted — default): then any non-empty prompt is eligible.
-   */
-  static boolean isAuthoringIntentExpansionCandidate(String fullPrompt, Map projectCfg) {
-    if (projectCfg != null && !StudioAiAssistantProjectConfig.intentRecipeEligibilityGateEnabled(projectCfg)) {
-      return (fullPrompt ?: '').toString().trim().length() > 0
-    }
-    return isAuthoringIntentExpansionCandidate(fullPrompt)
   }
 
   /**

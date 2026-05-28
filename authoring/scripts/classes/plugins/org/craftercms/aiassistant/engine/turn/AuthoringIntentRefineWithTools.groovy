@@ -14,8 +14,8 @@ import java.util.Map
 import java.util.Set
 
 /**
- * Bounded native-tool completions for **pre-plan** intent routing refine steps (clarify/enrich, expansion,
- * JSON whole-turn router, plan-defer probe). Read/lookup/site-user tools only — no repository writes.
+ * Bounded native-tool completions for **pre-plan** intent routing refine steps (JSON whole-turn router,
+ * plan-defer probe). Read/lookup/site-user tools only — no repository writes.
  */
 final class AuthoringIntentRefineWithTools {
 

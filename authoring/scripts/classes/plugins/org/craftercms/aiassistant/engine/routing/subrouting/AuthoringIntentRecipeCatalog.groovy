@@ -1,4 +1,4 @@
-package plugins.org.craftercms.aiassistant.engine.routing
+package plugins.org.craftercms.aiassistant.engine.routing.subrouting
 
 import groovy.json.JsonSlurper
 import org.slf4j.Logger
@@ -6,6 +6,9 @@ import org.slf4j.LoggerFactory
 import plugins.org.craftercms.aiassistant.engine.context.AuthoringPreviewContext
 import plugins.org.craftercms.aiassistant.studio.config.StudioAiAssistantProjectConfig
 import plugins.org.craftercms.aiassistant.engine.catalog.AiOrchestrationTools
+import plugins.org.craftercms.aiassistant.engine.catalog.StudioAiToolRegistry
+import plugins.org.craftercms.aiassistant.spi.tool.AbstractStudioAiTool
+import plugins.org.craftercms.aiassistant.spi.tool.StudioAiToolContext
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 
 import java.net.URL
@@ -988,40 +991,7 @@ private AuthoringIntentRecipeCatalog() {}
    * @return list of maps with {@code stepId}, {@code summary}, {@code recipeId}, {@code routerReason}
    */
   static List<Map> matchRecipesForPlanSteps(List<Map> recipes, Map baseCtx, List<Map> planSteps) {
-    if (recipes == null || recipes.isEmpty() || planSteps == null || planSteps.isEmpty()) {
-      return Collections.emptyList()
-    }
-
-    Map base = baseCtx instanceof Map ? new LinkedHashMap<>((Map) baseCtx) : [:]
-
-    List<Map> out = new ArrayList<>()
-    for (Map step : planSteps) {
-      if (!(step instanceof Map)) {
-        continue
-      }
-
-      String summary = step.summary?.toString()?.trim()
-
-      if (!summary) {
-        continue
-      }
-
-      Map ctx = new LinkedHashMap<>(base)
-      ctx.routerVisible = summary
-      Map hit = findDeterministicRecipeMatch(recipes, ctx)
-
-      if (hit == null) {
-        continue
-      }
-      out.add([
-        stepId      : step.id,
-        summary     : summary,
-        recipeId    : hit.recipeId?.toString()?.trim(),
-        routerReason: hit.routerReason?.toString()
-      ])
-    }
-
-    return out
+    return Collections.emptyList()
   }
 
   /**
@@ -1232,29 +1202,83 @@ private AuthoringIntentRecipeCatalog() {}
         .append(dont)
         .append(" |\n")
     }
-    sb.append('\nIf **none** of the rows fit, return `"recipeId": null`.')
+    sb.append('\nPrefer **mode `recipe`** with a row id when one row clearly fits; otherwise **mode `plan`** or **mode `tool`**.')
     sb
   }
 
   /**
-   * Drops recipes whose {@code dontMatchHints} appear in the author-visible message (substring, case-insensitive).
+   * Markdown table of site + built-in tools for the LLM intent router (weaker tier than recipes).
    */
+  static String toRouterToolsCatalogMarkdown(StudioToolOperations ops, Map cfg) {
+    StringBuilder sb = new StringBuilder()
+    sb.append('| toolName | kind | description (short) | match if | do not match if |\n')
+    sb.append('|----------|------|----------------------|----------|----------------|\n')
+    int rows = 0
+    if (ops != null) {
+      try {
+        StudioAiToolContext ctx = StudioAiToolContext.forRecipeEngine(ops)
+        for (AbstractStudioAiTool tool : StudioAiToolRegistry.coreTools()) {
+          if (tool == null || !tool.enabled(ctx)) {
+            continue
+          }
+          String wire = tool.wireName()?.trim()
+          if (!wire) {
+            continue
+          }
+          String desc = escMdCell(trimDesc(tool.description(ctx)?.toString() ?: '', 140))
+          Map hintCells = builtInRouterToolHintCells(wire)
+          String match = escMdCell((hintCells.match ?: '').toString())
+          String dont = escMdCell((hintCells.dont ?: '').toString())
+          sb.append('| `')
+            .append(escMdCell(wire))
+            .append('` | built-in | ')
+            .append(desc)
+            .append(' | ')
+            .append(match)
+            .append(' | ')
+            .append(dont)
+            .append(" |\n")
+          rows++
+        }
+      } catch (Throwable ignoredCore) {
+      }
+      List<Map> siteTools = AuthoringIntentSiteToolCatalog.loadSiteTools(ops)
+      for (Map entry : siteTools ?: []) {
+        if (!(entry instanceof Map)) {
+          continue
+        }
+        String id = entry.id?.toString()?.trim()
+        if (!id) {
+          continue
+        }
+        String desc = escMdCell(trimDesc(entry.description?.toString() ?: '', 120))
+        String match = escMdCell(formatHintListForRouterCell(hintStringList(entry.get('matchHints')), 80))
+        String dont = escMdCell(formatHintListForRouterCell(hintStringList(entry.get('dontMatchHints')), 80))
+        sb.append('| `')
+          .append(escMdCell(id))
+          .append('` | site | ')
+          .append(desc)
+          .append(' | ')
+          .append(match)
+          .append(' | ')
+          .append(dont)
+          .append(" |\n")
+        rows++
+      }
+    }
+    if (rows == 0) {
+      return '(no tools in catalog)'
+    }
+    sb.append('\nUse **mode `tool`** only when a single tool row fits and no recipe row fits.')
+    sb.toString()
+  }
+
+  /** Full recipe list for the LLM router (hint columns are semantic signals, not server substring gates). */
   static List<Map> filterRecipesEligibleForRouter(List<Map> recipes, String authorVisible) {
     if (recipes == null || recipes.isEmpty()) {
       return recipes ?: []
     }
-
-    if (!authorVisible?.trim()) {
-      return recipes
-    }
-
-    List<Map> out = new ArrayList<>()
-    for (Map r : recipes) {
-      if (!recipeExcludedByDontMatchHints(r, authorVisible)) {
-        out.add(r)
-      }
-    }
-    out
+    return new ArrayList<>(recipes)
   }
 
   /** True when any {@code dontMatchHints} phrase appears in the author-visible message. */
@@ -2333,6 +2357,43 @@ private AuthoringIntentRecipeCatalog() {}
   /** True when {@code toolName} appears in the OpenAI {@code tools[]} wire list for this session. */
   static boolean isToolRegisteredOnWire(List wireTools, String toolName) {
     return wireToolsIncludeNamedTool(wireTools, toolName)
+  }
+
+  /** Whether a built-in wire tool is enabled for this Studio session (image model, tools.json, etc.). */
+  static boolean isBuiltInWireToolEnabled(StudioToolOperations ops, String wireName) {
+    String want = (wireName ?: '').toString().trim()
+    if (!want || ops == null) {
+      return false
+    }
+    try {
+      StudioAiToolContext ctx = StudioAiToolContext.forRecipeEngine(ops)
+      for (AbstractStudioAiTool tool : StudioAiToolRegistry.coreTools()) {
+        if (tool == null || !want.equals(tool.wireName()?.trim())) {
+          continue
+        }
+        return tool.enabled(ctx)
+      }
+    } catch (Throwable ignored) {
+    }
+    return false
+  }
+
+  /** Router catalog hints for built-in tools (site-agnostic). */
+  private static Map builtInRouterToolHintCells(String wire) {
+    String w = (wire ?: '').toString().trim()
+    if ('GenerateImage'.equals(w)) {
+      return [
+        match: 'author wants specific generated art, illustration, picture, logo, or "image of …"',
+        dont : 'only a required empty image-picker needs a sample; no creative image described'
+      ]
+    }
+    if ('GeneratePlaceholderImage'.equals(w)) {
+      return [
+        match: 'required image-picker field needs a sample placeholder; author did not ask for specific art',
+        dont : 'create/draw/generate/make an image; illustration of; picture of; creative art request'
+      ]
+    }
+    return [match: '', dont: '']
   }
 
   /**

@@ -151,7 +151,7 @@ class AiOrchestrationTools {
   /**
    * Reads content type id from page/component XML: {@code <content-type>} (any prefix / case), else {@code display-template} path heuristic.
    */
-  /** Used by {@link plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentRecipeEngine} to mirror GetContentTypeFormDefinition resolution. */
+  /** Used by {@link plugins.org.craftercms.aiassistant.engine.routing.subrouting.AuthoringIntentRecipeEngine} to mirror GetContentTypeFormDefinition resolution. */
   static String extractContentTypeIdFromItemXml(String xml) {
     if (!xml?.trim()) return null
     def relaxed = (xml =~ /(?is)<(?:[\w.-]+:)?content-type\s*>\s*([^<]+?)\s*<\/(?:[\w.-]+:)?content-type\s*>/)
@@ -179,7 +179,7 @@ class AiOrchestrationTools {
    * Sandbox repository path from built-in tool arguments. Prefer {@code path}; also accept {@code contentPath}
    * (same key as {@code update_content} / authoring context) and a few other aliases models send.
    */
-  /** Used by {@link plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentRecipeEngine} for GetContent-style path keys. */
+  /** Used by {@link plugins.org.craftercms.aiassistant.engine.routing.subrouting.AuthoringIntentRecipeEngine} for GetContent-style path keys. */
   static String repoPathFromToolInput(Map input) {
     if (input == null) return ''
     def s = input.path?.toString()?.trim()

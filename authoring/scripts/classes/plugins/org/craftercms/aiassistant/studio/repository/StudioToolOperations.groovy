@@ -314,7 +314,7 @@ class StudioToolOperations {
 
   /**
    * Snapshot of site id, preview/form repo path, content type id, and Engine preview URL for
-   * {@link plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentRecipeEngine}. REST scripts set
+   * {@link plugins.org.craftercms.aiassistant.engine.routing.subrouting.AuthoringIntentRecipeEngine}. REST scripts set
    * {@code aiassistant.*} request attributes on the servlet thread before orchestration runs.
    */
   Map recipeEngineAuthoringBindings() {

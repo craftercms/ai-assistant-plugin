@@ -207,11 +207,6 @@ try {
       promptAssemblyTelemetry.serverInjectedChars,
       promptAssemblyTelemetry.stepDeltas ?: [:]
     )
-    def authoringIntentExpansion = AuthoringPreviewContext.parseAuthoringIntentExpansion(body?.authoringIntentExpansion)
-    try {
-      request.setAttribute('aiassistant.authoringIntentExpansion', Boolean.valueOf(authoringIntentExpansion))
-    } catch (Throwable ignoredAie) {
-    }
     def orchestration = new AiOrchestration(request, response, applicationContext, params, pluginConfig)
     return orchestration.chatProxy(agentId, promptForOrchestration, chatId, llm, llmModel, llmApiKey, imageModel, formEngineClientForward, formEngineItemPathRaw, enableTools, imageGenerator, llmSecretKey)
   } finally {

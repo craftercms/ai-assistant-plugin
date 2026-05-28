@@ -120,7 +120,7 @@ private StudioAiToolRegistry() {}
   }
 
   /**
-   * Wire names allowed for {@link plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentRecipeEngine} prefetch.
+   * Wire names allowed for {@link plugins.org.craftercms.aiassistant.engine.routing.subrouting.AuthoringIntentRecipeEngine} prefetch.
    * Includes legacy {@code ListContentTranslationScope} alias.
    */
   static Set<String> recipeEngineReadOnlyWireNames() {
@@ -151,7 +151,7 @@ private StudioAiToolRegistry() {}
   }
 
   /**
-   * Wire names allowed for {@link plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentRecipeEngine}
+   * Wire names allowed for {@link plugins.org.craftercms.aiassistant.engine.routing.subrouting.AuthoringIntentRecipeEngine}
    * confirmation-phase steps (after Action chat work).
    */
   static Set<String> recipeEngineConfirmationWireNames() {

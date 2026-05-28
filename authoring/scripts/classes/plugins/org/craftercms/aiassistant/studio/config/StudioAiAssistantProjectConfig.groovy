@@ -4,7 +4,7 @@ import groovy.json.JsonSlurper
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
-import plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentRecipeEngine
+import plugins.org.craftercms.aiassistant.engine.routing.subrouting.AuthoringIntentRecipeEngine
 
 import java.util.ArrayList
 import java.util.Collections
@@ -463,7 +463,7 @@ private StudioAiAssistantProjectConfig() {}
     return intentRecipeConfirmationLlmRefineEnabled(cfg)
   }
 
-  /** Max output tokens for {@link plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentRecipeLlmRefiner}. */
+  /** Max output tokens for {@link plugins.org.craftercms.aiassistant.engine.routing.subrouting.AuthoringIntentRecipeLlmRefiner}. */
   static int intentRecipeConfirmationLlmRefineMaxOutTokens(Map cfg) {
     Map m = intentRecipeRoutingSection(cfg)
     String key = m.containsKey('confirmationLlmRefineMaxOutTokens') ?

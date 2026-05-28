@@ -1,4 +1,4 @@
-package plugins.org.craftercms.aiassistant.engine.routing
+package plugins.org.craftercms.aiassistant.engine.routing.subrouting
 
 import org.dom4j.Document
 import org.dom4j.DocumentException
@@ -113,7 +113,9 @@ private ToolsLoopWriteVerification() {}
     repairNodeSelectorFromPrefetch(root, plan, verificationConfig, repairs)
     repairImagePickerCopiedFromSibling(ops, siteId, root, plan, verificationConfig, repairs)
     repairFileNameMatchesPath(root, normalizedPath, repairs)
-    repairHeadlineFromPageTitle(root, repairs)
+    if (plan.repairHeadlineFromPageTitle) {
+      repairHeadlineFromPageTitle(root, plan.headlineSourceFieldId, plan.headlineTargetFieldId, repairs)
+    }
 
     List<String> errors = []
     validateFileNameMatchesPath(root, normalizedPath, errors)
@@ -183,6 +185,9 @@ private ToolsLoopWriteVerification() {}
     List<Map> nodeSelectorFields = []
     List<Map> deriveRootFieldsFromBody = []
     List<Map> imagePickerFields = []
+    boolean repairHeadlineFromPageTitle = false
+    String headlineSourceFieldId = ''
+    String headlineTargetFieldId = ''
 
     /**
      * From.
@@ -220,6 +225,14 @@ private ToolsLoopWriteVerification() {}
       p.deriveRootFieldsFromBody = normalizeDeriveRootFields(c)
 
       p.imagePickerFields = normalizeImagePickerFields(c)
+      p.repairHeadlineFromPageTitle = boolConfig(c, 'repairHeadlineFromPageTitle', false)
+      if (p.repairHeadlineFromPageTitle) {
+        p.headlineSourceFieldId = (c.headlineSourceFieldId ?: 'pageTitle_s').toString().trim()
+        p.headlineTargetFieldId = (c.headlineTargetFieldId ?: 'headline_s').toString().trim()
+        if (!p.headlineSourceFieldId || !p.headlineTargetFieldId) {
+          p.repairHeadlineFromPageTitle = false
+        }
+      }
       return p
     }
 
@@ -914,16 +927,21 @@ private ToolsLoopWriteVerification() {}
    * @param root Caller-supplied input.
    * @param repairs Caller-supplied input.
    */
-  private static void repairHeadlineFromPageTitle(Element root, List<String> repairs) {
-    if (textTrim(root, 'headline_s')) {
+  private static void repairHeadlineFromPageTitle(
+    Element root,
+    String sourceFieldId,
+    String targetFieldId,
+    List<String> repairs
+  ) {
+    if (textTrim(root, targetFieldId)) {
       return
     }
-    String pageTitle = textTrim(root, 'pageTitle_s')
-    if (!pageTitle) {
+    String source = textTrim(root, sourceFieldId)
+    if (!source) {
       return
     }
-    setChildText(root, 'headline_s', pageTitle)
-    repairs.add('Filled <headline_s> from <pageTitle_s>')
+    setChildText(root, targetFieldId, source)
+    repairs.add("Filled <${targetFieldId}> from <${sourceFieldId}> (writeVerification.repairHeadlineFromPageTitle)")
   }
 
   /**

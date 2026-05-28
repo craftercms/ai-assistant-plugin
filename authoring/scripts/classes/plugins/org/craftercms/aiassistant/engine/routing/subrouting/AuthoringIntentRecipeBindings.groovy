@@ -1,4 +1,4 @@
-package plugins.org.craftercms.aiassistant.engine.routing
+package plugins.org.craftercms.aiassistant.engine.routing.subrouting
 
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -156,6 +156,11 @@ private AuthoringIntentRecipeBindings() {}
 
     Map<String, Map> initial = initialBindingsFromRequest(ops)
     if (!initial) {
+      updateCurrentArtifact(
+        ops,
+        'lastWrite',
+        [path: path, contentPath: path, contentXml: xml.trim(), source: 'WriteContent']
+      )
       return
     }
 
@@ -341,7 +346,7 @@ private AuthoringIntentRecipeBindings() {}
     for (String part : dotPath.split('\\.')) {
       String p = part?.trim()
       if (!p || !(cur instanceof Map)) {
-        return cur instanceof Map ? '' : cur
+        return ''
       }
 
       cur = ((Map) cur).get(p)

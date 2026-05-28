@@ -67,10 +67,8 @@ const INTENT_RECIPE_ROUTING_KNOWN_KEYS = new Set([
   'enabled',
   'engineEnabled',
   'minConfidence',
-  'requestClarificationOnUnmatched',
   'customRecipesPath',
   'eligibilityGateEnabled',
-  'wholeTurnJsonRouterEnabled',
   'engineMaxSteps',
   'engineMaxTotalChars',
   'engineMaxFieldChars'
@@ -80,12 +78,9 @@ export interface IntentRecipeRoutingFormState {
   enabled: boolean;
   engineEnabled: boolean;
   minConfidence: string;
-  requestClarificationOnUnmatched: boolean;
   customRecipesPath: string;
   /** When true, short / non-CMS messages may skip recipe routing (server default: off). */
   eligibilityGateEnabled: boolean;
-  /** When true, use whole-turn JSON router pass (server default: off). */
-  wholeTurnJsonRouterEnabled: boolean;
   /** Prefetch engine step cap (empty = server default, typically 8). */
   engineMaxSteps: string;
   /** Prefetch total character cap (empty = server default). */
@@ -101,10 +96,8 @@ export function defaultIntentRecipeRoutingFormState(): IntentRecipeRoutingFormSt
     enabled: true,
     engineEnabled: true,
     minConfidence: '0.55',
-    requestClarificationOnUnmatched: false,
     customRecipesPath: '',
     eligibilityGateEnabled: false,
-    wholeTurnJsonRouterEnabled: false,
     engineMaxSteps: '',
     engineMaxTotalChars: '',
     engineMaxFieldChars: '',
@@ -175,10 +168,8 @@ function parseIntentRecipeRoutingFromUnknown(raw: unknown): IntentRecipeRoutingF
     enabled: 'enabled' in o ? Boolean(o.enabled) : true,
     engineEnabled: 'engineEnabled' in o ? Boolean(o.engineEnabled) : true,
     minConfidence: minC,
-    requestClarificationOnUnmatched: Boolean(o.requestClarificationOnUnmatched),
     customRecipesPath: o.customRecipesPath != null ? String(o.customRecipesPath).trim() : '',
     eligibilityGateEnabled: Boolean(o.eligibilityGateEnabled),
-    wholeTurnJsonRouterEnabled: Boolean(o.wholeTurnJsonRouterEnabled),
     engineMaxSteps: numField('engineMaxSteps'),
     engineMaxTotalChars: numField('engineMaxTotalChars'),
     engineMaxFieldChars: numField('engineMaxFieldChars'),
@@ -194,18 +185,12 @@ function intentRecipeRoutingToJsonObject(state: IntentRecipeRoutingFormState): R
   if (Number.isFinite(mc)) {
     obj.minConfidence = mc;
   }
-  if (state.requestClarificationOnUnmatched) {
-    obj.requestClarificationOnUnmatched = true;
-  }
   const path = state.customRecipesPath.trim();
   if (path) {
     obj.customRecipesPath = path;
   }
   if (state.eligibilityGateEnabled) {
     obj.eligibilityGateEnabled = true;
-  }
-  if (state.wholeTurnJsonRouterEnabled) {
-    obj.wholeTurnJsonRouterEnabled = true;
   }
   const maxSteps = strictIntegerFormField(state.engineMaxSteps);
   if (maxSteps) {
@@ -470,9 +455,7 @@ export function serializeToolsPolicyToJson(state: ToolsPolicyFormState): string 
   if (
     state.intentRecipeRouting.enabled ||
     state.intentRecipeRouting.engineEnabled ||
-    state.intentRecipeRouting.requestClarificationOnUnmatched ||
     state.intentRecipeRouting.eligibilityGateEnabled ||
-    state.intentRecipeRouting.wholeTurnJsonRouterEnabled ||
     state.intentRecipeRouting.customRecipesPath.trim() ||
     state.intentRecipeRouting.engineMaxSteps.trim() ||
     state.intentRecipeRouting.engineMaxTotalChars.trim() ||

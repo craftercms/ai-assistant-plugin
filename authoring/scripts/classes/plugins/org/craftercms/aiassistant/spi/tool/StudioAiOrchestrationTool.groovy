@@ -25,13 +25,13 @@ interface StudioAiOrchestrationTool {
   String pipelineStage()
 
   /**
-   * When {@code true}, {@link plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentRecipeEngine}
+   * When {@code true}, {@link plugins.org.craftercms.aiassistant.engine.routing.subrouting.AuthoringIntentRecipeEngine}
    * may invoke this tool during recipe prefetch (no LLM tool-call).
    */
   boolean recipeEngineReadOnly()
 
   /**
-   * When {@code true}, {@link plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentRecipeEngine}
+   * When {@code true}, {@link plugins.org.craftercms.aiassistant.engine.routing.subrouting.AuthoringIntentRecipeEngine}
    * may invoke this tool on the JVM after Action-phase chat work ({@code phases.confirmation} {@code engineSteps}).
    */
   boolean recipeEngineConfirmationStep()

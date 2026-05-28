@@ -4,10 +4,12 @@
     {
       "id": "recipe_1779227205002",
       "title": "Propose DCO blog idea (Slack)",
-      "chatEmoji": "💡",
+      "chatEmoji": "\ud83d\udca1",
       "chatLineSuffix": "workflow",
       "toolsLoopAuthorUrlExclusive": true,
-      "toolsLoopAllowlist": ["FetchHttpUrl"],
+      "toolsLoopAllowlist": [
+        "FetchHttpUrl"
+      ],
       "toolsLoopExcludeTools": [
         "WriteContent",
         "update_content",
@@ -22,38 +24,6 @@
       ],
       "toolsLoopFetchHttpUrlWireMaxChars": 8000,
       "toolsLoopMaxFetchHttpUrlCalls": 1,
-      "deterministicMatch": [
-        {
-          "priority": 92,
-          "routerReason": "deterministic_draft_dco_blog",
-          "respectDontMatchHints": true,
-          "when": {
-            "allOf": [
-              { "authorMatchesRegex": "(?i)https?://[^\\s<>\"\\)\\]\\u00a0]+" },
-              {
-                "anyOf": [
-                  { "authorMatchesRegex": "(?i)\\bdraft\\b[^\\n]{0,120}\\b(?:blog|article|post)\\b" },
-                  { "authorMatchesRegex": "(?i)\\b(?:blog|article|post)\\b[^\\n]{0,80}\\bdraft\\b" },
-                  { "authorMatchesRegex": "(?i)\\bsummariz(?:e|ing)\\b[^\\n]{0,120}\\b(?:blog|article|post|topics)\\b" },
-                  { "authorMatchesRegex": "(?i)\\bfrom\\s+this\\s*:\\s*https?://" }
-                ]
-              },
-              {
-                "authorContainsNone": [
-                  "create a new",
-                  "save to repository",
-                  "make a post",
-                  "create a post",
-                  "save the draft",
-                  "WriteContent",
-                  "make a post from this draft",
-                  "post from this draft"
-                ]
-              }
-            ]
-          }
-        }
-      ],
       "matchHints": [
         "draft a blog",
         "draft blog",
@@ -72,7 +42,7 @@
         "make a post from this draft",
         "post from this draft"
       ],
-      "matchedUserPrelude": "[Studio — Propose DCO blog (author URL)]\n1. **FetchHttpUrl** once on the author’s pasted URL only — no **ResearchSiteContent**, **WebSearch**, or **SerpApiWebSearch**.\n2. In your **last** assistant message (after tools finish), you **must** include a **## Draft body** section with:\n   - `Author voice: **…**` (from project / site author context)\n   - `*Draft title:*` …\n   - `*Outline:*` (bullets — one per topic the author named)\n   - `*Draft blog:*` then the **full article** (at least 6 paragraphs), grounded in the fetch\n3. Cover **every** topic the author listed — do not substitute unrelated generic filler unrelated to those topics.\n4. Also include **## root** (short pitch) and **## craftercmsAlignment** (bullets). Put the long article **only** under **## Draft body** / `*Draft blog:*`, not only in Slack-bound fields.\n5. **Do not** call **SlackPostMessage** in **tool_calls** — confirmation runs Slack on the server.\n",
+      "matchedUserPrelude": "[Studio \u2014 Propose DCO blog (author URL)]\n1. **FetchHttpUrl** once on the author\u2019s pasted URL only \u2014 no **ResearchSiteContent**, **WebSearch**, or **SerpApiWebSearch**.\n2. In your **last** assistant message (after tools finish), you **must** include a **## Draft body** section with:\n   - `Author voice: **\u2026**` (from project / site author context)\n   - `*Draft title:*` \u2026\n   - `*Outline:*` (bullets \u2014 one per topic the author named)\n   - `*Draft blog:*` then the **full article** (at least 6 paragraphs), grounded in the fetch\n3. Cover **every** topic the author listed \u2014 do not substitute unrelated generic filler unrelated to those topics.\n4. Also include **## root** (short pitch) and **## craftercmsAlignment** (bullets). Put the long article **only** under **## Draft body** / `*Draft blog:*`, not only in Slack-bound fields.\n5. **Do not** call **SlackPostMessage** in **tool_calls** \u2014 confirmation runs Slack on the server.\n",
       "phases": {
         "context": [
           "Author pasted a source URL and named specific topics. Treat those topics as mandatory sections in the draft."
@@ -85,39 +55,50 @@
         ],
         "confirmation": {
           "hints": [
-            "**draft** for Slack is copied from **## Draft body** in the assistant turn (passthrough). Short Slack fields come from **llmRefine** JSON. Five **SlackPostMessage** steps use **$slackOutbound.*** — do not call them in **tool_calls**."
+            "**draft** for Slack is copied from **## Draft body** in the assistant turn (passthrough). Short Slack fields come from **llmRefine** JSON. Five **SlackPostMessage** steps use **$slackOutbound.*** \u2014 do not call them in **tool_calls**."
           ],
           "engineSteps": [
             {
               "llmRefine": "dcoBlogSlackOutbound",
               "as": "slackOutbound",
               "outputFormat": "json",
-              "outputKeys": ["root", "craftercmsAlignment", "pitch", "sources"],
+              "outputKeys": [
+                "root",
+                "craftercmsAlignment",
+                "pitch",
+                "sources"
+              ],
               "passthroughFromSource": {
-                "draft": ["Draft body", "draft"]
+                "draft": [
+                  "Draft body",
+                  "draft"
+                ]
               },
               "passthroughFallbackMaxOutTokens": {
                 "draft": 8192
               },
               "passthroughFallbackHints": {
                 "draft": [
-                  "**draft** (own Slack thread reply): Start `✏️ Draft · voice: **…**` (one voice from project context, bold). Then `*Draft title:*`, `*Outline:*` (one bullet per topic the author named in their request), then `*Draft blog:*` followed by the **full** article (8+ paragraphs) grounded in the fetched page.",
-                  "Use only facts supported by the author request and the fetched URL. **Forbidden:** generic filler unrelated to the author’s named topics."
+                  "**draft** (own Slack thread reply): Start `\u270f\ufe0f Draft \u00b7 voice: **\u2026**` (one voice from project context, bold). Then `*Draft title:*`, `*Outline:*` (one bullet per topic the author named in their request), then `*Draft blog:*` followed by the **full** article (8+ paragraphs) grounded in the fetched page.",
+                  "Use only facts supported by the author request and the fetched URL. **Forbidden:** generic filler unrelated to the author\u2019s named topics."
                 ]
               },
               "userPreamble": "From the assistant turn below, produce **four** Slack mrkdwn bodies: **root**, **craftercmsAlignment**, **pitch**, **sources** only. (**draft** is copied separately from **## Draft body**.) Today is **{{studio.today}}**.\n\n",
               "hints": [
-                "**root**: `💡 New Blog Pitch:` + title; `✍️ Author voice:`; `📋 Summary:` one paragraph on why this topic now.",
-                "**craftercmsAlignment**: `🔝 CrafterCMS alignment` with ✅ / ⚠️ bullets (honest).",
-                "**pitch**: hook, audience, angle, why now — one label per line.",
-                "**sources**: `🔗 Sources` with the author URL and any citations from research.",
-                "Do not put the full article in root — long copy belongs in **draft** passthrough only."
+                "**root**: `\ud83d\udca1 New Blog Pitch:` + title; `\u270d\ufe0f Author voice:`; `\ud83d\udccb Summary:` one paragraph on why this topic now.",
+                "**craftercmsAlignment**: `\ud83d\udd1d CrafterCMS alignment` with \u2705 / \u26a0\ufe0f bullets (honest).",
+                "**pitch**: hook, audience, angle, why now \u2014 one label per line.",
+                "**sources**: `\ud83d\udd17 Sources` with the author URL and any citations from research.",
+                "Do not put the full article in root \u2014 long copy belongs in **draft** passthrough only."
               ]
             },
             {
               "tool": "SlackPostMessage",
               "as": "slackRoot",
-              "args": { "text": "$slackOutbound.root", "iconEmoji": ":bulb:" }
+              "args": {
+                "text": "$slackOutbound.root",
+                "iconEmoji": ":bulb:"
+              }
             },
             {
               "tool": "SlackPostMessage",
@@ -158,8 +139,8 @@
     {
       "id": "new_content_item_from_chat_draft",
       "title": "Create DCO post from prior chat",
-      "chatEmoji": "📝",
-      "description": "Turn 2: save the prior assistant article from chat as a new `/component/post` (e.g. “make a post”, “save this” — no “draft” wording required). See **Project authoring context** for XML shape.",
+      "chatEmoji": "\ud83d\udcdd",
+      "description": "Turn 2: save the prior assistant article from chat as a new `/component/post` (e.g. \u201cmake a post\u201d, \u201csave this\u201d \u2014 no \u201cdraft\u201d wording required). See **Project authoring context** for XML shape.",
       "toolsLoopAllowlist": [
         "ContentExists",
         "WriteContent"
@@ -176,13 +157,18 @@
         "SlackPostMessage",
         "FetchHttpUrl"
       ],
-      "toolsLoopRequireSuccessfulTools": ["ContentExists", "WriteContent"],
+      "toolsLoopRequireSuccessfulTools": [
+        "ContentExists",
+        "WriteContent"
+      ],
       "toolsLoopForceTool": "ContentExists",
       "toolsLoopWriteVerification": "createFromChatDraft",
       "writeVerification": {
         "repairRootObjectIds": true,
         "repairInlineObjectIds": true,
-        "inlineComponent": { "collectionFieldId": "content_o" },
+        "inlineComponent": {
+          "collectionFieldId": "content_o"
+        },
         "requireDistinctInlineObjectIds": true,
         "repairRootDates": true,
         "requireRootDates": true,
@@ -194,7 +180,10 @@
         ],
         "minBodyTextChars": 200,
         "bodyTextFieldId": "content_html",
-        "requiredRootFields": ["pageDescription_s", "blurb_t"],
+        "requiredRootFields": [
+          "pageDescription_s",
+          "blurb_t"
+        ],
         "deriveRootFieldsFromBody": [
           {
             "fieldId": "pageDescription_s",
@@ -215,7 +204,12 @@
             "minItems": 1,
             "requireExistingPath": true,
             "requireUuidStyleRepositoryFilename": true,
-            "forbiddenPathSubstrings": ["unknown", "{", "placeholder", "some-bio"]
+            "forbiddenPathSubstrings": [
+              "unknown",
+              "{",
+              "placeholder",
+              "some-bio"
+            ]
           }
         ],
         "imagePickerFields": [
@@ -229,11 +223,24 @@
       "toolsLoopPrefetchSupplement": "createFromChatDraft",
       "prefetchSupplementConfig": {
         "contentTypeId": "/component/post",
-        "priorDraftSectionHeadings": ["Draft body", "draft"],
-        "priorDraftInlineMarkers": ["*Draft blog:*"],
-        "priorTitleInlineMarkers": ["*Draft title:*"],
-        "priorAuthorVoiceInlineMarkers": ["Author voice:", "Author voice"],
-        "nodeSelectorCandidateBindings": ["authorBios", "authorBioPaths"],
+        "priorDraftSectionHeadings": [
+          "Draft body",
+          "draft"
+        ],
+        "priorDraftInlineMarkers": [
+          "*Draft blog:*"
+        ],
+        "priorTitleInlineMarkers": [
+          "*Draft title:*"
+        ],
+        "priorAuthorVoiceInlineMarkers": [
+          "Author voice:",
+          "Author voice"
+        ],
+        "nodeSelectorCandidateBindings": [
+          "authorBios",
+          "authorBioPaths"
+        ],
         "nodeSelectorCatalogFilter": {
           "pathPrefix": "/site/components/bio/",
           "contentTypeId": "/component/bio"
@@ -243,63 +250,64 @@
           "contentTypeId": "/component/bio",
           "includePriorAuthorLabelQuery": true,
           "includeFirstTokenOfPriorAuthorLabel": true,
-          "literalQueries": ["author"]
+          "literalQueries": [
+            "author"
+          ]
         },
         "priorDerivedRootFieldsFromDraft": [
-          { "fieldId": "pageDescription_s", "maxLength": 250 },
-          { "fieldId": "blurb_t", "maxLength": 150 }
+          {
+            "fieldId": "pageDescription_s",
+            "maxLength": 250
+          },
+          {
+            "fieldId": "blurb_t",
+            "maxLength": 150
+          }
         ],
         "toolsLoopFastPath": true
       },
-      "deterministicMatch": [
-        {
-          "priority": 88,
-          "routerReason": "deterministic_dco_post_from_chat_draft",
-          "respectDontMatchHints": true,
-          "when": {
-            "allOf": [
-              {
-                "anyOf": [
-                  { "authorMatchesRegex": "(?i)\\b(?:make|create|save)\\b[^\\n]{0,80}\\b(?:post|article)\\b" },
-                  { "authorMatchesRegex": "(?i)\\b(?:good|great|thanks|perfect)\\b[^\\n]{0,60}\\b(?:make|save)\\b[^\\n]{0,40}\\bpost\\b" },
-                  { "authorMatchesRegex": "(?i)\\bpost\\s+from\\s+(?:this|the)\\s+draft\\b" }
-                ]
-              },
-              { "priorConversationContainsActionableContent": true }
-            ]
-          }
-        }
-      ],
-      "matchedUserPrelude": "[Studio — create repository item from prior chat draft — fast path]\n\n**Prefetch (done):** form defs, taxonomy XML, bio catalog, sibling XML shape, **suggestedNewItemPath**, server **ContentExists** on that path.\n\n**API tool_calls only (required):** Do **not** use markdown `functions.WriteContent(...)` or fenced JSON stubs. Round 1: native **tool_calls** → **ContentExists** with `path` = **suggestedNewItemPath** from prefetch JSON (or your chosen slug if exists=true). Round 2: native **tool_calls** → **WriteContent** with the **same** `contentPath` and full **contentXml** from **[Prior conversation]** + prefetch.\n\n**Mandatory in contentXml:** verbatim draft title/body; required SEO fields per project context; node-selector paths only from prefetch catalog (UUID `.xml` filenames).\n\n**Topics / tags:** From prefetch `taxonomyTopics` / `taxonomyTags`, assign keys that reasonably match the draft — omit when nothing fits; never copy sibling topics/tags verbatim. For taxonomy items use `<value_smv>` (not `<value>`), mirroring sibling `/component/post` shape.\n\n**Path rule:** `contentPath` and `<file-name>` must share the same basename. If **ContentExists** is **true** on the suggested slug, pick a new slug where exists=false and use it in **both** places.\n\n**Tools loop:** **ContentExists** then **WriteContent** once — **no** GetContentTypeFormDefinition, ResearchSiteContent, or ListStudioContentTypes (prefetch already ran them).\n",
+      "matchedUserPrelude": "[Studio \u2014 create repository item from prior chat draft \u2014 fast path]\n\n**Prefetch (done):** form defs, taxonomy XML, bio catalog, sibling XML shape, **suggestedNewItemPath**, server **ContentExists** on that path.\n\n**API tool_calls only (required):** Do **not** use markdown `functions.WriteContent(...)` or fenced JSON stubs. Round 1: native **tool_calls** \u2192 **ContentExists** with `path` = **suggestedNewItemPath** from prefetch JSON (or your chosen slug if exists=true). Round 2: native **tool_calls** \u2192 **WriteContent** with the **same** `contentPath` and full **contentXml** from **[Prior conversation]** + prefetch.\n\n**Mandatory in contentXml:** verbatim draft title/body; required SEO fields per project context; node-selector paths only from prefetch catalog (UUID `.xml` filenames).\n\n**Topics / tags:** From prefetch `taxonomyTopics` / `taxonomyTags`, assign keys that reasonably match the draft \u2014 omit when nothing fits; never copy sibling topics/tags verbatim. For taxonomy items use `<value_smv>` (not `<value>`), mirroring sibling `/component/post` shape.\n\n**Path rule:** `contentPath` and `<file-name>` must share the same basename. If **ContentExists** is **true** on the suggested slug, pick a new slug where exists=false and use it in **both** places.\n\n**Tools loop:** **ContentExists** then **WriteContent** once \u2014 **no** GetContentTypeFormDefinition, ResearchSiteContent, or ListStudioContentTypes (prefetch already ran them).\n",
       "phases": {
         "context": {
           "hints": [
-            "Title and body: last **Assistant** reply in **[Prior conversation]** — copy verbatim (see project context).",
+            "Title and body: last **Assistant** reply in **[Prior conversation]** \u2014 copy verbatim (see project context).",
             "Prefetch bindings: `postForm`, `richTextForm`, `taxonomyTopics`, `taxonomyTags`, `authorBios` (**ResearchSiteContent** under `/site/components/bio/`).",
-            "Match **Author voice:** to a prefetch bio row by **displayName** (Studio internal-name from search). Copy that row's full `.xml` path into `authorBio_o` — UUID file names only; never `sara.xml` or other invented slugs.",
-            "`pageDescription_s` and `blurb_t`: first sentence of `*Draft blog:*` (meta ≤250 chars, blurb ≤150 chars).",
-            "Topics/tags: from prefetch `taxonomyTopics` / `taxonomyTags`, pick keys that reasonably match the draft title+body. Omit the field if nothing fits — do not copy sibling topics/tags or pad with unrelated keys. Use `<value_smv>` for taxonomy item labels (not `<value>`)."
+            "Match **Author voice:** to a prefetch bio row by **displayName** (Studio internal-name from search). Copy that row's full `.xml` path into `authorBio_o` \u2014 UUID file names only; never `sara.xml` or other invented slugs.",
+            "`pageDescription_s` and `blurb_t`: first sentence of `*Draft blog:*` (meta \u2264250 chars, blurb \u2264150 chars).",
+            "Topics/tags: from prefetch `taxonomyTopics` / `taxonomyTags`, pick keys that reasonably match the draft title+body. Omit the field if nothing fits \u2014 do not copy sibling topics/tags or pad with unrelated keys. Use `<value_smv>` for taxonomy item labels (not `<value>`)."
           ],
           "engineSteps": [
             {
               "tool": "GetContentTypeFormDefinition",
               "as": "postForm",
-              "args": { "siteId": "$siteId", "contentTypeId": "/component/post" }
+              "args": {
+                "siteId": "$siteId",
+                "contentTypeId": "/component/post"
+              }
             },
             {
               "tool": "GetContentTypeFormDefinition",
               "as": "richTextForm",
-              "args": { "siteId": "$siteId", "contentTypeId": "/component/rich_text" }
+              "args": {
+                "siteId": "$siteId",
+                "contentTypeId": "/component/rich_text"
+              }
             },
             {
               "tool": "GetContent",
               "as": "taxonomyTopics",
-              "args": { "siteId": "$siteId", "path": "/site/taxonomy/topics.xml" }
+              "args": {
+                "siteId": "$siteId",
+                "path": "/site/taxonomy/topics.xml"
+              }
             },
             {
               "tool": "GetContent",
               "as": "taxonomyTags",
-              "args": { "siteId": "$siteId", "path": "/site/taxonomy/tags.xml" }
+              "args": {
+                "siteId": "$siteId",
+                "path": "/site/taxonomy/tags.xml"
+              }
             },
             {
               "tool": "ListPagesAndComponents",
@@ -323,12 +331,12 @@
           ]
         },
         "action": [
-          "Read the **last Assistant** reply in **[Prior conversation]** for title and full article body. If that reply has no saveable article, stop — do not **WriteContent**.",
+          "Read the **last Assistant** reply in **[Prior conversation]** for title and full article body. If that reply has no saveable article, stop \u2014 do not **WriteContent**.",
           "From prefetch only: map **authorBio_o** from `authorBios` + **Author voice:** (real `.xml` path); **categories_o** / **tags_o** from taxonomy prefetch when they reasonably match the draft (omit if none), and write taxonomy labels as `<value_smv>` entries; **pageDescription_s** from the draft opening sentence; XML shape from `postForm`, `richTextForm`, sibling + project context.",
-          "Build **contentXml** (verbatim draft). **ContentExists** on your new path (must be **false**) → **WriteContent** once. Write verification rejects incomplete XML — fix and retry."
+          "Build **contentXml** (verbatim draft). **ContentExists** on your new path (must be **false**) \u2192 **WriteContent** once. Write verification rejects incomplete XML \u2014 fix and retry."
         ],
         "confirmation": [
-          "Confirm path. In Studio, **Content** must match the prior assistant draft length — not a shortened rewrite."
+          "Confirm path. In Studio, **Content** must match the prior assistant draft length \u2014 not a shortened rewrite."
         ]
       }
     }

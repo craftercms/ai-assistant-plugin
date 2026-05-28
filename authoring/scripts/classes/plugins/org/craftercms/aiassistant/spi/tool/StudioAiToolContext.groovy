@@ -135,7 +135,7 @@ private StudioAiToolContext(Builder b) {
   }
 
   /**
-   * Context for {@link plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentRecipeEngine}
+   * Context for {@link plugins.org.craftercms.aiassistant.engine.routing.subrouting.AuthoringIntentRecipeEngine}
    * prefetch and confirmation {@code engineSteps}. Loads site {@code tools.json} so built-in tools
    * see {@code builtInToolSettings} defaults (e.g. {@code defaultChannel}) like the main tools loop.
    */

@@ -1,7 +1,6 @@
 import { Autocomplete, Stack, TextField } from '@mui/material';
 import type { IntentRecipe } from './aiAssistantIntentRecipesModel';
 import AiAssistantIntentRecipeEmojiField from './AiAssistantIntentRecipeEmojiField';
-import { AiAssistantIntentRecipeRoutingRulesSection } from './AiAssistantIntentRecipeMatchRulesField';
 import AiAssistantIntentRecipeToolsLoopFields from './AiAssistantIntentRecipeToolsLoopFields';
 
 export interface AiAssistantIntentRecipeGeneralFieldsProps {
@@ -80,7 +79,6 @@ export default function AiAssistantIntentRecipeGeneralFields(props: AiAssistantI
           />
         )}
       />
-      <AiAssistantIntentRecipeRoutingRulesSection recipe={recipe} onChange={onChange} />
       <AiAssistantIntentRecipeToolsLoopFields recipe={recipe} onChange={onChange} />
       <Autocomplete
         multiple

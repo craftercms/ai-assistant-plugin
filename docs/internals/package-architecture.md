@@ -40,7 +40,7 @@ studio/        # repository ops, config, secrets, http proxy
 | Path | Role |
 |------|------|
 | `engine/turn/` | `AiOrchestration`, tools loop, SSE, plan, chat-completions wire |
-| `engine/routing/` | Intent recipes (`AuthoringIntentRecipeEngine`, catalog, router) |
+| `engine/routing/` | Intent routing facade (`Router`); implementations in `engine/routing/subrouting/` |
 | `engine/catalog/` | Per-request tool list assembly (`AiOrchestrationTools#build` → `StudioAiToolRegistry`), translate subgraph helpers, LLM/image resolvers |
 | `engine/policy/` | Tools-loop wire policy |
 | `engine/prompt/` | Tool prompt loading and overrides |

@@ -11,13 +11,11 @@ import plugins.org.craftercms.aiassistant.spi.llm.StudioAiRuntimeBuildRequest
 import plugins.org.craftercms.aiassistant.engine.turn.plan.PlanOrchestration
 import plugins.org.craftercms.aiassistant.engine.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.engine.rag.PluginRagVectorRegistry
-import plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentRecipeBindings
-import plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentRecipeCatalog
-import plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentRecipeEngine
-import plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentRecipePlanCompiler
-import plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentRecipeRouter
-import plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentRoutingEngine
-import plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentSiteToolCatalog
+import plugins.org.craftercms.aiassistant.engine.routing.Router
+import plugins.org.craftercms.aiassistant.engine.routing.subrouting.AuthoringIntentRecipeBindings
+import plugins.org.craftercms.aiassistant.engine.routing.subrouting.AuthoringIntentRecipeCatalog
+import plugins.org.craftercms.aiassistant.engine.routing.subrouting.AuthoringIntentRecipeEngine
+import plugins.org.craftercms.aiassistant.engine.routing.subrouting.AuthoringIntentRecipePlanCompiler
 import plugins.org.craftercms.aiassistant.engine.turn.chatcompletions.ChatCompletionsToolWire
 import plugins.org.craftercms.aiassistant.engine.catalog.AiOrchestrationTools
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
@@ -1254,38 +1252,6 @@ For **content XML** (pages/components): do not invent a new element tree — pre
   }
 
   /**
-   * Reads servlet attributes / preview flags describing authoringIntentExpansion toggles.
-   * Combines StudioAiAssistantProjectConfig server defaults when unset.
-   * Determines whether compact intent envelopes run before tools loops.
-   */
-  private boolean requestAuthoringIntentExpansionEnabled() {
-    try {
-      def v = request?.getAttribute('aiassistant.authoringIntentExpansion')
-      if (v != null) {
-        return AuthoringPreviewContext.parseAuthoringIntentExpansion(v)
-      }
-    } catch (Throwable ignored) {
-    }
-    return false
-  }
-
-  /**
-   * After pass-1 recipe routing fails: allow LLM intent expansion + rematch when the turn is an expansion
-   * candidate (unless the request explicitly disables {@code authoringIntentExpansion}).
-   */
-  private boolean effectiveAuthoringIntentExpansionRematchEnabled(String bodyPrompt, StudioToolOperations ops = null) {
-    try {
-      def v = request?.getAttribute('aiassistant.authoringIntentExpansion')
-      if (v != null) {
-        return AuthoringPreviewContext.parseAuthoringIntentExpansion(v)
-      }
-    } catch (Throwable ignored) {
-    }
-    Map cfg = ops != null ? StudioAiAssistantProjectConfig.load(ops) : Collections.emptyMap()
-    return AuthoringPreviewContext.isAuthoringIntentExpansionCandidate((bodyPrompt ?: '').toString(), cfg)
-  }
-
-  /**
    * Pulls nested maps from tools-loop session bundles describing recipe router budgets.
    * Returns immutable-ish defaults when bundle lacks recipe metadata.
    * Feeds AuthoringIntentRecipeRouter guards without Groovy casts leaking outward.
@@ -1738,7 +1704,12 @@ For **content XML** (pages/components): do not invent a new element tree — pre
    * did not trigger {@code toolsLoopAllowlistBypassIfAuthorMentions}.
    */
   private static List effectiveToolsForIntentRecipe(List tools, Map intentTel, String authorVisible, String agentId) {
-    if (!(intentTel instanceof Map) || !'matched'.equals(intentTel.get('outcome')?.toString())) {
+    if (!(intentTel instanceof Map)) {
+      return tools
+    }
+    String outcome = intentTel.get('outcome')?.toString() ?: ''
+    boolean routerTool = 'router_tool'.equals(outcome) || 'tool'.equals(intentTel.routingMode?.toString())
+    if (!'matched'.equals(outcome) && !routerTool) {
       return tools
     }
     Object allowObj = intentTel.get('toolsLoopAllowlist')
@@ -1763,6 +1734,20 @@ For **content XML** (pages/components): do not invent a new element tree — pre
       String n = o?.toString()?.trim()
       if (n) {
         allowNames.add(n)
+      }
+    }
+    if (allowNames.contains('GeneratePlaceholderImage') &&
+      !allowNames.contains('GenerateImage') &&
+      AuthoringPreviewContext.authorVisibleSuggestsIntentRecipeGenerateImage(authorVisible ?: '')) {
+      List genOnly = filterToolCallbacksAllowlist(tools, ['GenerateImage'] as Set)
+      if (genOnly != null && !genOnly.isEmpty()) {
+        log.info(
+          'Tools-loop: router chose GeneratePlaceholderImage but author requested generated art — using GenerateImage agentId={}',
+          agentId
+        )
+        allowNames.remove('GeneratePlaceholderImage')
+        allowNames.add('GenerateImage')
+        intentTel.put('toolsLoopAllowlist', new ArrayList<>(allowNames))
       }
     }
     List filtered = filterToolCallbacksAllowlist(tools, allowNames)
@@ -1900,7 +1885,39 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
         ((springAi.intentRecipeRoutingTelemetry instanceof Map) ?
           (Map) springAi.intentRecipeRoutingTelemetry :
           null)
-    if (!(tel instanceof Map) || !'matched'.equals(tel.get('outcome')?.toString())) {
+    if (!(tel instanceof Map)) {
+      return
+    }
+    String routingMode = tel.routingMode?.toString()?.trim()?.toLowerCase() ?: ''
+    if ('chat_only'.equals(routingMode) || Boolean.TRUE.equals(tel.toolsLoopDisable)) {
+      springAi.useTools = false
+      log.info('Tools-loop: intent router chat_only — tools off agentId={}', springAi.agentId ?: '')
+      return
+    }
+    Object routerAllow = tel.toolsLoopAllowlist
+    if (('tool'.equals(routingMode) || 'router_tool'.equals(tel.outcome?.toString())) &&
+      routerAllow instanceof List && !((List) routerAllow).isEmpty() &&
+      springAi.tools instanceof List) {
+      Set<String> allowNames = new LinkedHashSet<>()
+      for (Object o : (List) routerAllow) {
+        String n = o?.toString()?.trim()
+        if (n) {
+          allowNames.add(n)
+        }
+      }
+      List toolsBefore = (List) springAi.tools
+      List filtered = filterToolCallbacksAllowlist(toolsBefore, allowNames)
+      if (filtered != null && !filtered.isEmpty()) {
+        springAi.tools = filtered
+        log.info(
+          'Tools-loop: intent router tool mode allowlist ({} of {} tools) agentId={}',
+          filtered.size(),
+          toolsBefore?.size() ?: 0,
+          springAi.agentId ?: ''
+        )
+      }
+    }
+    if (!'matched'.equals(tel.get('outcome')?.toString())) {
       return
     }
     Object fetchCap = tel.get('toolsLoopFetchHttpUrlWireMaxChars')
@@ -2032,20 +2049,13 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
   }
 
   /**
-   * Author line for outcome-phrase parsing — not recipe prefetch, expansion bullets, or Studio metadata.
+   * Author line for outcome-phrase parsing — not recipe prefetch or Studio metadata blocks.
    */
   private static String authorVisibleTailForOutcomePhrase(String authorVisible) {
     if (!authorVisible?.trim()) {
       return ''
     }
     String v = authorVisible.trim()
-    int expIdx = v.indexOf(AUTHORING_INTENT_EXPANSION_BLOCK_HEADER)
-    if (expIdx >= 0) {
-      int sep = v.indexOf('\n---\n\n', expIdx)
-      if (sep >= 0) {
-        v = v.substring(sep + 5).trim()
-      }
-    }
     try {
       v = AuthoringPreviewContext.stripStudioInjectedPromptBlocks(v) ?: v
     } catch (Throwable ignored) {
@@ -2127,7 +2137,7 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
     return found
   }
 
-  /** True when the author already named a concrete field-level edit (skip pre-tools intent expansion). */
+  /** True when the author already named a concrete field-level edit. */
   private static boolean authorRequestIsConcreteFieldEdit(String authorVisible) {
     String tail = authorVisibleTailForOutcomePhrase(authorVisible)
     if (!tail) {
@@ -3821,137 +3831,6 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
     ]
   }
 
-  /**
-   * Runs {@link AuthoringIntentRoutingEngine#runPass} and merges results onto the tools-loop session bundle.
-   * Called at {@code initial}, {@code after_refine}, and {@code before_router} inside
-   * {@link #intentRecipeRoutingMatchPass}.
-   */
-  private static void runIntentRoutingEnginePass(
-    StudioToolOperations ops,
-    Map cfg,
-    Map detCtx,
-    Map toolsLoopSessionBundle,
-    String passId
-  ) {
-    if (ops == null || !(cfg instanceof Map) || !(detCtx instanceof Map)) {
-      return
-    }
-    Map pfb = AuthoringIntentRoutingEngine.runPass(ops, cfg, detCtx, passId)
-    AuthoringIntentRoutingEngine.mergePassIntoSessionBundle(toolsLoopSessionBundle, pfb, passId)
-  }
-
-  /**
-   * Copies {@code routingEngineTelemetry} from the session bundle into intent-recipe SSE telemetry when present.
-   */
-  private static void putRoutingEngineTelemetryIfPresent(Map tel, Map toolsLoopSessionBundle) {
-    if (!(tel instanceof Map) || !(toolsLoopSessionBundle instanceof Map)) {
-      return
-    }
-    Object rt = toolsLoopSessionBundle.routingEngineTelemetry
-    if (rt instanceof Map && !((Map) rt).isEmpty()) {
-      tel.put('routingEngineTelemetry', rt)
-      tel.put('routingEngineRan', Boolean.TRUE)
-    }
-  }
-
-  /** Site {@code registry.json} hint matches for the current author-visible turn text. */
-  private static List intentRoutingSiteToolMatches(StudioToolOperations ops, Map cfg, String authorVisible) {
-    if (ops == null || !(cfg instanceof Map)) {
-      return []
-    }
-    if (!StudioAiAssistantProjectConfig.intentRecipeSiteToolRoutingEnabled(cfg)) {
-      return []
-    }
-    return AuthoringIntentSiteToolCatalog.findDeterministicSiteToolMatches(
-      AuthoringIntentSiteToolCatalog.loadSiteTools(ops),
-      authorVisible
-    )
-  }
-
-  /** Rebuilds minimal site-tool match maps from {@code matchedSiteToolIds} on a routing pass result. */
-  private static List siteToolMatchesFromPassFields(Map pass) {
-    if (!(pass instanceof Map)) {
-      return []
-    }
-    Object ids = pass.matchedSiteToolIds
-    if (!(ids instanceof List) || ((List) ids).isEmpty()) {
-      return []
-    }
-    List out = []
-    for (Object o : (List) ids) {
-      String id = o?.toString()?.trim()
-      if (id) {
-        out.add([toolId: id] as Map)
-      }
-    }
-    out
-  }
-
-  /** Adds site-tool routing flags and matched ids to intent-recipe SSE / session-debug telemetry. */
-  private static void putSiteToolRoutingTelemetry(Map tel, List toolMatches, Map cfg) {
-    if (!(tel instanceof Map)) {
-      return
-    }
-    boolean enabled = cfg instanceof Map &&
-      StudioAiAssistantProjectConfig.intentRecipeSiteToolRoutingEnabled((Map) cfg)
-    tel.put('siteToolRoutingEnabled', enabled)
-    List matches = toolMatches instanceof List ? toolMatches : []
-    tel.put('siteToolMatchCount', matches.size())
-    tel.put('matchedSiteToolIds', AuthoringIntentSiteToolCatalog.siteToolMatchIds(matches))
-    tel.put('siteToolRoutingRan', enabled && !matches.isEmpty())
-  }
-
-  /**
-   * Defers whole-turn recipe bind when site tool {@code matchHints} compete with recipe matches (no JVM tool runs).
-   *
-   * @return completed {@code out} for {@link #intentRecipeRoutingMatchPass}, or {@code null} to continue recipe routing
-   */
-  private static Map intentRoutingDeferOutcomeForSiteTools(
-    Map out,
-    List detMatches,
-    List toolMatches,
-    String catalogMd,
-    Map toolsLoopSessionBundle
-  ) {
-    if (!(toolMatches instanceof List) || toolMatches.isEmpty()) {
-      return null
-    }
-    List<String> toolIds = AuthoringIntentSiteToolCatalog.siteToolMatchIds(toolMatches)
-    if (detMatches.size() == 1) {
-      log.info(
-        'Intent recipe routing: recipe {} competes with {} site tool hint match(es) — defer to plan loop',
-        detMatches[0].recipeId,
-        toolMatches.size()
-      )
-      out.deferToPlanLoop = true
-      out.matchPass = 'recipe_site_tool_competition_defer_plan'
-      out.competingRecipeId = detMatches[0].recipeId?.toString()
-      out.deterministicMatchCount = detMatches.size()
-      out.siteToolMatchCount = toolMatches.size()
-      out.matchedSiteToolIds = toolIds
-      out.catalogMd = catalogMd
-      out.routingEngineWirePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
-      return out
-    }
-    if (detMatches.isEmpty()) {
-      String pass = toolMatches.size() > 1 ? 'ambiguous_site_tools_defer_plan' : 'site_tool_defer_plan'
-      log.info(
-        'Intent recipe routing: {} site tool hint match(es), no recipe — defer to plan loop (matchPass={})',
-        toolMatches.size(),
-        pass
-      )
-      out.deferToPlanLoop = true
-      out.matchPass = pass
-      out.siteToolMatchCount = toolMatches.size()
-      out.matchedSiteToolIds = toolIds
-      out.deterministicMatchCount = 0
-      out.catalogMd = catalogMd
-      out.routingEngineWirePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
-      return out
-    }
-    return null
-  }
-
   /** Copies {@code refineToolsTelemetry} from the session bundle into intent-recipe SSE telemetry when present. */
   private static void putRefineToolsTelemetryIfPresent(Map tel, Map toolsLoopSessionBundle) {
     if (!(tel instanceof Map) || !(toolsLoopSessionBundle instanceof Map)) {
@@ -3964,15 +3843,23 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
     }
   }
 
+  /** Bridge for {@link plugins.org.craftercms.aiassistant.engine.routing.Router}. */
+  static String extractAuthorFieldLabelPhraseForRouting(String authorVisible) {
+    return extractAuthorFieldLabelPhrase(authorVisible)
+  }
+
+  /** Bridge for {@link plugins.org.craftercms.aiassistant.engine.routing.Router}. */
+  static boolean authorNeedsExternalContentForRouting(String authorVisible) {
+    return authorRequestNeedsExternalContentResolution(authorVisible)
+  }
+
+  /** Bridge for {@link plugins.org.craftercms.aiassistant.engine.routing.Router}. */
+  static void putRefineToolsTelemetryIfPresentForRouting(Map tel, Map toolsLoopSessionBundle) {
+    putRefineToolsTelemetryIfPresent(tel, toolsLoopSessionBundle)
+  }
+
   /**
-   * Intent-routing refine completion: bounded native-tool loop via {@link AuthoringIntentRefineWithTools} when
-   * enabled, else {@link #toolsLoopSimpleCompletionAssistantText}. Used for clarify/enrich, expansion, JSON router,
-   * and plan-defer probe — not for JVM {@code routingEngineSteps} (see {@link #runIntentRoutingEnginePass}).
-   *
-   * @param workerPhasePrefix log/SSE phase label (e.g. {@code AuthoringIntentClarifyEnrich})
-   * @param toolsLoopSessionBundle session bundle (tools list, telemetry, routing wire prefix)
-   * @param cfg merged project config from the bundle
-   * @return assistant text (may be empty on failure)
+   * Intent refine / router LLM call: {@link AuthoringIntentRefineWithTools} when enabled, else simple completion.
    */
   private static String authoringIntentRefineCompletionOrSimple(
     String apiKey,
@@ -4014,1204 +3901,8 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
     )
   }
 
-  private static final String AUTHORING_INTENT_EXPANSION_BLOCK_HEADER =
-    '[Studio — expanded authoring intent (model-generated for this turn; execute with tools)]'
-
-  private static final String AUTHORING_INTENT_EXPANSION_RECIPE_REMATCH_BLOCK_HEADER =
-    '[Studio — expanded intent aligned to recipe catalog (pass-2 routing)]'
-
   /**
-   * LLM intent-expansion bullets only (no wire prefix). Empty when expansion should not run or failed.
-   */
-  static String generateAuthoringIntentExpansionText(
-    String bodyPromptForCandidate,
-    String apiKey,
-    String model,
-    String wireBaseUrl,
-    Map toolsLoopSessionBundle
-  ) {
-    def cand = (bodyPromptForCandidate ?: '').toString()
-    if (!cand.trim()) {
-      return ''
-    }
-    Map expansionCfg = intentRecipeProjectConfigFromToolsLoopBundle(toolsLoopSessionBundle)
-    if (!AuthoringPreviewContext.isAuthoringIntentExpansionCandidate(cand, expansionCfg)) {
-      return ''
-    }
-    boolean needsExternal = authorRequestNeedsExternalContentResolution(cand)
-    if (!needsExternal &&
-      authorRequestIsConcreteFieldEdit(cand) &&
-      isUsableHotpathOutcomePhrase(extractAuthoringOutcomePhrase(cand), cand)) {
-      log.debug('generateAuthoringIntentExpansionText: skip — concrete field-level edit with explicit outcome text')
-      return ''
-    }
-    def key = (apiKey ?: '').toString().trim()
-    if (!key) {
-      return ''
-    }
-    if (aiAssistantPipelineCancelEffective()) {
-      return ''
-    }
-    def mdl = (model ?: '').toString().trim()
-    if (!mdl) {
-      log.warn('generateAuthoringIntentExpansionText: missing model id, skipping expansion')
-      return ''
-    }
-    try {
-      String userMsg = authoringIntentRefineUserMessage(
-        '## Author message (this turn)\n\n' + authoringIntentRefineCurrentTurnVisible(cand),
-        cand
-      )
-      Map cfg = intentRecipeProjectConfigFromToolsLoopBundle(toolsLoopSessionBundle)
-      String expanded = authoringIntentRefineCompletionOrSimple(
-        key,
-        mdl,
-        ToolPrompts.getLlm_AUTHORING_INTENT_EXPANSION_SYSTEM(),
-        userMsg,
-        1024,
-        120_000,
-        'AuthoringIntentExpansion',
-        wireBaseUrl,
-        toolsLoopSessionBundle,
-        cfg
-      )
-      expanded = (expanded ?: '').toString().trim()
-      if (!expanded || expanded.length() > 6_000) {
-        return ''
-      }
-      return expanded
-    } catch (InterruptedException ie) {
-      Thread.currentThread().interrupt()
-      return ''
-    } catch (Throwable t) {
-      log.warn('generateAuthoringIntentExpansionText skipped: {}', t.message)
-      return ''
-    }
-  }
-
-  /**
-   * Pass-2 expansion when pass-1 recipe routing missed: restate author goal toward a catalog {@code recipeId}
-   * (see {@link ToolPrompts#getLlm_AUTHORING_INTENT_EXPANSION_RECIPE_REMATCH_SYSTEM}).
-   */
-  /** Prepends {@link AuthoringPreviewContext#formatLastPriorTurnMemoryBlock} when the wire prompt has prior turns. */
-  private static String authoringIntentRefineUserMessage(String body, String wirePrompt) {
-    String memory = AuthoringPreviewContext.formatLastPriorTurnMemoryBlock((wirePrompt ?: '').toString())
-    String main = (body ?: '').toString().trim()
-    if (!memory?.trim()) {
-      return main
-    }
-    if (!main) {
-      return memory.trim()
-    }
-    return memory.trim() + '\n\n' + main
-  }
-
-  /**
-   * User message for the JSON recipe router: full {@code [Prior conversation]} block (when present) plus
-   * current turn — not only {@link AuthoringPreviewContext#formatLastPriorTurnMemoryBlock} (last pair, often truncated).
-   */
-  /**
-   * {@code open_page_inquiry} requires a servlet-bound repository path; without one, defer to plan loop
-   * so the tools loop can resolve content on the working site (see cross-site metadata).
-   */
-  private static boolean shouldDeferOpenPageInquiryWithoutBindingAnchor(Map pass, StudioToolOperations ops) {
-    if (!Boolean.TRUE.equals(pass?.matched) || ops == null) {
-      return false
-    }
-    String rid = (pass.recipeId ?: pass.recipe?.id ?: '').toString().trim()
-    if (!'open_page_inquiry'.equals(rid)) {
-      return false
-    }
-    String path = ops.recipeEngineAuthoringBindings()?.contentPath?.toString()?.trim()
-    String lower = path?.toLowerCase(Locale.ROOT) ?: ''
-    return !(lower.startsWith('/site/') && lower.endsWith('.xml'))
-  }
-
-  /**
-   * Builds intent recipe router user message for tool or orchestration output.
-   * @return Text result, or empty or null when unavailable.
-   */
-  private static String buildIntentRecipeRouterUserMessage(
-    String catalogMd,
-    String currentTurnVisible,
-    String priorConversationBody,
-    Map cfg,
-    String orchestrationWireForSiteContext = null
-  ) {
-    StringBuilder sb = new StringBuilder()
-    sb.append('## Recipe catalog\n\n').append((catalogMd ?: '').toString().trim())
-    Map siteCtx = AuthoringPreviewContext.parseWorkingSiteFromOrchestrationWire(
-      (orchestrationWireForSiteContext ?: '').toString()
-    )
-    if (Boolean.TRUE.equals(siteCtx.crossSiteWorking)) {
-      String work = (siteCtx.workingSiteId ?: '').toString().trim()
-      String session = (siteCtx.studioSessionSiteId ?: '').toString().trim()
-      sb.append('\n\n## Studio site context\n\n')
-      sb.append("Working CMS site id for this turn: \"${work}\". Studio UI session site: \"${session}\". ")
-      sb.append('There is no open-preview repository anchor for the session site on this turn. ')
-      sb.append('Prior conversation may describe the session site only — choose a recipe that reads the working site ')
-      sb.append('(e.g. site content search with ResearchSiteContent), not read-only open-page inquiry, unless bindings include a path on the working site.\n')
-    }
-    String prior = (priorConversationBody ?: '').toString().trim()
-    if (prior) {
-      int maxPrior = StudioAiAssistantProjectConfig.intentRecipeEngineMaxTotalChars(cfg)
-      maxPrior = maxPrior > 0 ? Math.min(48000, maxPrior) : 24000
-      if (prior.length() > maxPrior) {
-        prior = '…[prior conversation truncated for router]\n' + prior.substring(prior.length() - maxPrior)
-      }
-      sb.append('\n\n## Prior conversation\n\n').append(prior)
-    }
-    sb.append('\n\n## Author message (this turn)\n\n').append((currentTurnVisible ?: '').toString().trim())
-    return sb.toString().trim()
-  }
-
-  /**
-   * Authoring intent refine current turn visible.
-   * @param wirePrompt Caller-supplied input.
-   * @return Text result, or empty or null when unavailable.
-   */
-  private static String authoringIntentRefineCurrentTurnVisible(String wirePrompt) {
-    String cand = (wirePrompt ?: '').toString()
-    String current = AuthoringPreviewContext.extractAuthorCurrentRequestVisible(cand)?.trim()
-    if (current) {
-      return current
-    }
-    return AuthoringPreviewContext.stripStudioInjectedPromptBlocks(cand)?.trim() ?: ''
-  }
-
-  /**
-   * Parse authoring intent tightened line.
-   * @param raw Caller-supplied input.
-   * @return Text result, or empty or null when unavailable.
-   */
-  static String parseAuthoringIntentTightenedLine(String raw) {
-    String s = (raw ?: '').toString().trim()
-    if (!s) {
-      return ''
-    }
-    def lineMatch = (s =~ /(?is)^\s*Tightened\s+intent\s*:\s*(.+)\s*$/)
-    if (lineMatch.find()) {
-      return lineMatch.group(1)?.toString()?.trim() ?: ''
-    }
-    for (String line : s.split(/\r?\n/)) {
-      String t = (line ?: '').trim()
-      if (t) {
-        return t
-      }
-    }
-    return ''
-  }
-
-  /**
-   * LLM restates the author's current-turn goal for a second deterministic match pass (disambiguate or enrich).
-   * May call read/lookup tools via {@link AuthoringIntentRefineWithTools} when refine tools are enabled.
-   *
-   * @param routingEngineWirePrefix prefetch markdown from prior {@link AuthoringIntentRoutingEngine} passes (may be empty)
-   * @return tightened one-line intent, or empty when skipped/failed
-   */
-  static String generateAuthoringIntentRoutingClarifyText(
-    List<Map> candidateRows,
-    String recipeCatalogMarkdown,
-    boolean enrichMode,
-    String routerVisible,
-    String wirePrompt,
-    String apiKey,
-    String model,
-    String wireBaseUrl,
-    Map toolsLoopSessionBundle,
-    String routingEngineWirePrefix = ''
-  ) {
-    String visible = (routerVisible ?: '').toString().trim()
-    if (!visible) {
-      return ''
-    }
-    def key = (apiKey ?: '').toString().trim()
-    if (!key) {
-      return ''
-    }
-    if (aiAssistantPipelineCancelEffective()) {
-      return ''
-    }
-    def mdl = (model ?: '').toString().trim()
-    if (!mdl) {
-      log.warn('generateAuthoringIntentRoutingClarifyText: missing model id, skipping')
-      return ''
-    }
-    String catalogMd = (recipeCatalogMarkdown ?: '').toString().trim()
-    if (!catalogMd) {
-      catalogMd = '(no recipes configured)'
-    }
-    String tableSection
-    if (enrichMode) {
-      tableSection = '## Recipe catalog (no single pattern matched)\n\n' + catalogMd
-    } else {
-      String tableMd = AuthoringIntentRecipeCatalog.formatAmbiguousDeterministicMatchesMarkdown(candidateRows ?: [])
-      tableSection = '## Pattern-matched workflows (ambiguous — more than one)\n\n' + tableMd
-    }
-    String routingPrefix = (routingEngineWirePrefix ?: '').toString()
-    String userMsg = routingPrefix +
-      authoringIntentRefineUserMessage(
-        tableSection + '\n\n## Author message (this turn only)\n\n' + visible,
-        wirePrompt
-      )
-    String system = enrichMode ?
-      ToolPrompts.getLlm_AUTHORING_INTENT_CLARIFY_ENRICH_SYSTEM() :
-      ToolPrompts.getLlm_AUTHORING_INTENT_TIGHTEN_DISAMBIGUATION_SYSTEM()
-    String phase = enrichMode ? 'AuthoringIntentClarifyEnrich' : 'AuthoringIntentTighten'
-    Map cfg = intentRecipeProjectConfigFromToolsLoopBundle(toolsLoopSessionBundle)
-    try {
-      String raw = authoringIntentRefineCompletionOrSimple(
-        key,
-        mdl,
-        system,
-        userMsg,
-        256,
-        120_000,
-        phase,
-        wireBaseUrl,
-        toolsLoopSessionBundle,
-        cfg
-      )
-      String tightened = parseAuthoringIntentTightenedLine(raw)
-      if (!tightened || tightened.length() > 2_000) {
-        return ''
-      }
-      return tightened
-    } catch (InterruptedException ie) {
-      Thread.currentThread().interrupt()
-      return ''
-    } catch (Throwable t) {
-      log.warn('generateAuthoringIntentRoutingClarifyText skipped: {}', t.message)
-      return ''
-    }
-  }
-
-  /**
-   * When deterministic routing matches multiple recipes, LLM restates the author's current-turn goal; orchestration
-   * retries deterministic signals on that text.
-   */
-  static String generateAuthoringIntentTighteningText(
-    List<Map> ambiguousMatches,
-    String routerVisible,
-    String wirePrompt,
-    String apiKey,
-    String model,
-    String wireBaseUrl,
-    Map toolsLoopSessionBundle
-  ) {
-    if (ambiguousMatches == null || ambiguousMatches.size() < 2) {
-      return ''
-    }
-    return generateAuthoringIntentRoutingClarifyText(
-      ambiguousMatches,
-      '',
-      false,
-      routerVisible,
-      wirePrompt,
-      apiKey,
-      model,
-      wireBaseUrl,
-      toolsLoopSessionBundle
-    )
-  }
-
-  /**
-   * Generate authoring intent expansion text for recipe rematch.
-   * @return Text result, or empty or null when unavailable.
-   */
-  static String generateAuthoringIntentExpansionTextForRecipeRematch(
-    String bodyPromptForCandidate,
-    String recipeCatalogMarkdown,
-    String apiKey,
-    String model,
-    String wireBaseUrl,
-    Map toolsLoopSessionBundle
-  ) {
-    def cand = (bodyPromptForCandidate ?: '').toString()
-    if (!cand.trim()) {
-      return ''
-    }
-    Map expansionCfg = intentRecipeProjectConfigFromToolsLoopBundle(toolsLoopSessionBundle)
-    if (!AuthoringPreviewContext.isAuthoringIntentExpansionCandidate(cand, expansionCfg)) {
-      return ''
-    }
-    def key = (apiKey ?: '').toString().trim()
-    if (!key) {
-      return ''
-    }
-    if (aiAssistantPipelineCancelEffective()) {
-      return ''
-    }
-    def mdl = (model ?: '').toString().trim()
-    if (!mdl) {
-      log.warn('generateAuthoringIntentExpansionTextForRecipeRematch: missing model id, skipping')
-      return ''
-    }
-    String catalogMd = (recipeCatalogMarkdown ?: '').toString().trim()
-    if (!catalogMd) {
-      catalogMd = '(no recipes configured)'
-    }
-    String userRematch = authoringIntentRefineUserMessage(
-      '## Recipe catalog\n\n' +
-        catalogMd +
-        '\n\n## Author message (this turn)\n\n' +
-        authoringIntentRefineCurrentTurnVisible(cand),
-      cand
-    )
-    Map cfg = intentRecipeProjectConfigFromToolsLoopBundle(toolsLoopSessionBundle)
-    try {
-      String expanded = authoringIntentRefineCompletionOrSimple(
-        key,
-        mdl,
-        ToolPrompts.getLlm_AUTHORING_INTENT_EXPANSION_RECIPE_REMATCH_SYSTEM(),
-        userRematch,
-        768,
-        120_000,
-        'AuthoringIntentExpansionRecipeRematch',
-        wireBaseUrl,
-        toolsLoopSessionBundle,
-        cfg
-      )
-      expanded = (expanded ?: '').toString().trim()
-      if (!expanded || expanded.length() > 6_000) {
-        return ''
-      }
-      if (!expanded.toLowerCase(Locale.ROOT).contains('recipe match hint:')) {
-        log.info(
-          'AuthoringIntentExpansionRecipeRematch: output missing Recipe match hint line — still using for pass-2 router'
-        )
-      }
-      return expanded
-    } catch (InterruptedException ie) {
-      Thread.currentThread().interrupt()
-      return ''
-    } catch (Throwable t) {
-      log.warn('generateAuthoringIntentExpansionTextForRecipeRematch skipped: {}', t.message)
-      return ''
-    }
-  }
-
-  /**
-   * Format authoring intent expansion wire prefix.
-   * @param expansionText Caller-supplied input.
-   * @return Text result, or empty or null when unavailable.
-   */
-  static String formatAuthoringIntentExpansionWirePrefix(String expansionText) {
-    return formatAuthoringIntentExpansionWirePrefix(expansionText, false)
-  }
-
-  /**
-   * Format authoring intent expansion wire prefix.
-   * @param expansionText Caller-supplied input.
-   * @param recipeRematch Caller-supplied input.
-   * @return Text result, or empty or null when unavailable.
-   */
-  static String formatAuthoringIntentExpansionWirePrefix(String expansionText, boolean recipeRematch) {
-    String exp = (expansionText ?: '').toString().trim()
-    if (!exp) {
-      return ''
-    }
-    String header = Boolean.TRUE.equals(recipeRematch) ?
-      AUTHORING_INTENT_EXPANSION_RECIPE_REMATCH_BLOCK_HEADER :
-      AUTHORING_INTENT_EXPANSION_BLOCK_HEADER
-    return header + '\n' + exp + '\n\n---\n\n'
-  }
-
-  /**
-   * Optional **pre-tools** expansion prefix (legacy callers). Prefer {@link #intentRecipeRoutingPrelude} rematch path.
-   */
-  static String maybePrependAuthoringIntentExpansionBlock(
-    String bodyPromptForCandidate,
-    String userMessageAfterGuard,
-    String apiKey,
-    String model,
-    String wireBaseUrl,
-    Map toolsLoopSessionBundle,
-    boolean authoringIntentExpansionEnabled = false
-  ) {
-    def guard = (userMessageAfterGuard ?: '').toString()
-    if (!authoringIntentExpansionEnabled || !guard.trim()) {
-      return guard
-    }
-    String expanded = generateAuthoringIntentExpansionText(bodyPromptForCandidate, apiKey, model, wireBaseUrl, toolsLoopSessionBundle)
-    if (!expanded) {
-      return guard
-    }
-    if (guard.contains('[Studio — recipe engine prefetch]') || guard.contains('[Studio — matched authoring intent recipe]')) {
-      return guard
-    }
-    return formatAuthoringIntentExpansionWirePrefix(expanded) + guard
-  }
-
-  /**
-   * Maybe log plan step deterministic recipe matches.
-   */
-  private static void maybeLogPlanStepDeterministicRecipeMatches(
-    List recipes,
-    Map toolsLoopSessionBundle,
-    String assistantContent
-  ) {
-    if (!(toolsLoopSessionBundle instanceof Map) || recipes == null || recipes.isEmpty()) {
-      return
-    }
-    Map tel = (Map) toolsLoopSessionBundle.get('intentRecipeRoutingTelemetry')
-    if (!(tel instanceof Map) || !Boolean.TRUE.equals(tel.get('deferToPlanLoop'))) {
-      return
-    }
-    List<Map> steps = PlanOrchestration.parseOrchestrationSteps((assistantContent ?: '').toString())
-    if (steps.isEmpty()) {
-      return
-    }
-    String wireCand = toolsLoopSessionBundle.intentRecipeRoutingWireCand?.toString() ?: ''
-    Map ctx = [cand: wireCand]
-    List<Map> hits = AuthoringIntentRecipeCatalog.matchRecipesForPlanSteps(recipes, ctx, steps)
-    if (hits.isEmpty()) {
-      return
-    }
-    log.info(
-      'Intent recipe routing: plan-step deterministic hints (deferToPlanLoop): {}',
-      hits.collect { "${it.stepId ?: '?'}:${it.recipeId}" }.join(', ')
-    )
-    toolsLoopSessionBundle.planStepRecipeMatches = hits
-    String stepHints = AuthoringIntentRecipeCatalog.formatPlanStepRecipeHintsWire(hits)
-    if (stepHints?.trim()) {
-      toolsLoopSessionBundle.planStepRecipeHintsWire = stepHints
-    }
-  }
-
-  /**
-   * Intent recipe rematch router visible.
-   * @param expansionText Caller-supplied input.
-   * @param originalRouterVisible Caller-supplied input.
-   * @return Text result, or empty or null when unavailable.
-   */
-  private static String intentRecipeRematchRouterVisible(String expansionText, String originalRouterVisible) {
-    String exp = (expansionText ?: '').toString().trim()
-    String orig = (originalRouterVisible ?: '').toString().trim()
-    if (!exp) {
-      return orig
-    }
-    if (!orig) {
-      return exp
-    }
-    return exp + '\n\n' + orig
-  }
-
-  /** Catalog {@code routingRecipeFamilies} / {@code multiGoalDefer} stashed on the tools-loop session bundle. */
-  private static Map routingCfgFromBundle(Map toolsLoopSessionBundle) {
-    if (!(toolsLoopSessionBundle instanceof Map)) {
-      return [:]
-    }
-    Object rc = toolsLoopSessionBundle.get('intentCatalogRoutingCfg')
-    return rc instanceof Map ? (Map) rc : [:]
-  }
-
-  /**
-   * When a single recipe matched but catalog {@code multiGoalDefer} sees multiple goal groups, prefer plan defer
-   * over whole-turn {@code matched} (safety net if match pass or stale sandbox JSON missed defer).
-   */
-  private static Map intentRecipeRoutingApplyMultiGoalDeferIfNeeded(
-    Map pass,
-    List recipes,
-    Map detCtx,
-    Map routingCfg,
-    String routerVisible,
-    Map toolsLoopSessionBundle
-  ) {
-    if (!(pass instanceof Map) || !Boolean.TRUE.equals(pass.matched)) {
-      return pass
-    }
-    if (!AuthoringIntentRecipeCatalog.authorSuggestsMultiGoalDefer(recipes, detCtx, routingCfg)) {
-      return pass
-    }
-    List<String> groupsHit = AuthoringIntentRecipeCatalog.multiGoalDeferGroupsHit(recipes, detCtx, routingCfg)
-    log.info(
-      'Intent recipe routing: multi-goal override — defer to plan loop instead of matched recipeId={} (groupsHit={})',
-      pass.recipeId,
-      groupsHit
-    )
-    Map out = new LinkedHashMap(pass)
-    out.matched = false
-    out.deferToPlanLoop = true
-    out.ambiguousMultiRecipe = true
-    out.matchPass = 'multi_goal_defer_plan'
-    out.suppressedDeterministicRecipeId = pass.recipeId?.toString()?.trim()
-    out.multiGoalDeferGroupsHit = groupsHit
-    if (!out.catalogMd?.toString()?.trim()) {
-      List routerRecipes = AuthoringIntentRecipeCatalog.filterRecipesEligibleForRouter(recipes, routerVisible)
-      out.catalogMd = AuthoringIntentRecipeCatalog.toRouterCatalogMarkdown(routerRecipes)
-    }
-    out.routingEngineWirePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
-    return out
-  }
-
-  /**
-   * One routing pass: JVM {@code routingEngineSteps} ({@code initial}) → recipe + site-tool hint matches → clarify/enrich
-   * LLM refine tools → JVM {@code after_refine} + retest → optional JSON router after {@code before_router}.
-   * A single recipe binds only when no competing site-tool {@code matchHints} hit; recipe + tool competition defers to plan.
-   *
-   * @param detCtx routing context built in {@link #intentRecipeRoutingPrelude}
-   * @param routerVisible author-visible text for matchers and refine steps
-   * @param toolsLoopSessionBundle mutable bundle for routing/refine telemetry and wire prefixes
-   * @return map with {@code matched} (boolean), match fields when true, or {@code deferToPlanLoop} / router fields
-   */
-  private static Map intentRecipeRoutingMatchPass(
-    List recipes,
-    Map cfg,
-    Map detCtx,
-    String routerVisible,
-    String apiKey,
-    String model,
-    String wireBaseUrl,
-    Map toolsLoopSessionBundle,
-    String authorFieldLabelEarly,
-    Map routingCfg
-  ) {
-    Map out = [matched: false]
-    String visible = (routerVisible ?: '').toString().trim()
-    Map routeCtx = detCtx instanceof Map ? new LinkedHashMap(detCtx) : [:]
-    routeCtx.routerVisible = visible
-    String wireForMemory = (routeCtx.cand ?: '').toString()
-    StudioToolOperations routeOps = routeCtx.ops instanceof StudioToolOperations ?
-      (StudioToolOperations) routeCtx.ops :
-      null
-    runIntentRoutingEnginePass(
-      routeOps,
-      cfg,
-      routeCtx,
-      toolsLoopSessionBundle,
-      AuthoringIntentRoutingEngine.PASS_INITIAL
-    )
-    List detMatches = AuthoringIntentRecipeCatalog.findDeterministicRecipeMatches(recipes, routeCtx)
-    List toolMatches = intentRoutingSiteToolMatches(routeOps, cfg, visible)
-    List routerRecipes = AuthoringIntentRecipeCatalog.filterRecipesEligibleForRouter(recipes, visible)
-    String catalogMd = AuthoringIntentRecipeCatalog.toRouterCatalogMarkdown(routerRecipes)
-    Map siteToolDefer = intentRoutingDeferOutcomeForSiteTools(out, detMatches, toolMatches, catalogMd, toolsLoopSessionBundle)
-    if (siteToolDefer != null) {
-      return siteToolDefer
-    }
-    Map routeRoutingCfg = routingCfg instanceof Map ? routingCfg : routingCfgFromBundle(toolsLoopSessionBundle)
-    if (detMatches.size() == 1) {
-      if (AuthoringIntentRecipeCatalog.authorSuggestsMultiGoalDefer(recipes, routeCtx, routeRoutingCfg)) {
-        log.info(
-          'Intent recipe routing: multi-goal turn — defer to plan loop (suppressed single match recipeId={})',
-          detMatches[0].recipeId
-        )
-        out.deferToPlanLoop = true
-        out.ambiguousMultiRecipe = true
-        out.matchPass = 'multi_goal_defer_plan'
-        out.suppressedDeterministicRecipeId = detMatches[0].recipeId?.toString()?.trim()
-        out.multiGoalDeferGroupsHit =
-          AuthoringIntentRecipeCatalog.multiGoalDeferGroupsHit(recipes, routeCtx, routeRoutingCfg)
-        out.catalogMd = catalogMd
-        out.deterministicMatchCount = 1
-        out.siteToolMatchCount = toolMatches.size()
-        out.matchedSiteToolIds = AuthoringIntentSiteToolCatalog.siteToolMatchIds(toolMatches)
-        out.routingEngineWirePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
-        return out
-      }
-      Map detMatch = detMatches[0]
-      out.matched = true
-      out.recipe = detMatch.recipe
-      out.recipeId = detMatch.recipeId?.toString()?.trim()
-      out.confidence = 1.0d
-      out.routerReason = detMatch.routerReason?.toString()
-      out.skipRecipePrefetch = Boolean.TRUE.equals(detMatch.skipPrefetch)
-      out.toolsLoopPrefetchSupplement = AuthoringIntentRecipeCatalog.toolsLoopPrefetchSupplementFromMatch(detMatch)
-      out.toolsLoopPrefetchSupplementConfig = AuthoringIntentRecipeCatalog.toolsLoopPrefetchSupplementConfigFromMatch(detMatch)
-      out.toolsLoopRequireSuccessfulTools = AuthoringIntentRecipeCatalog.toolsLoopRequireSuccessfulToolsFromMatch(detMatch)
-      String preludeOverride = AuthoringIntentRecipeCatalog.matchedUserPreludeFromMatch(detMatch)
-      if (preludeOverride) {
-        out.matchedUserPreludeOverride = preludeOverride
-      }
-      out.matchPass = 'deterministic'
-      out.deterministicMatchCount = 1
-      out.siteToolMatchCount = 0
-      return out
-    }
-    boolean intentClarified = false
-    String routerVisibleBeforeClarify = visible
-    if (detMatches.size() != 1) {
-      List ambiguousCandidates =
-        AuthoringIntentRecipeCatalog.findAmbiguousRecipeCandidates(recipes, routeCtx, visible)
-      List clarifyRows = detMatches.size() > 1 ?
-        detMatches :
-        (ambiguousCandidates.size() > 1 ? ambiguousCandidates : [])
-      if (detMatches.isEmpty() &&
-        AuthoringIntentRecipeCatalog.authorVisibleSuggestsDraftContentFromAuthorUrl(routerVisibleBeforeClarify)) {
-        Map authorUrlDraft =
-          AuthoringIntentRecipeCatalog.resolveSingleAuthorUrlDraftDeterministicMatch(recipes, routeCtx)
-        if (authorUrlDraft != null) {
-          detMatches = [authorUrlDraft]
-          log.info(
-            'Intent recipe routing: author-url draft fast-path (recipeId={}, reason={}) — skipping enrich/refine tools',
-            authorUrlDraft.recipeId,
-            authorUrlDraft.routerReason
-          )
-        }
-      }
-      boolean enrichMode = detMatches.isEmpty() && clarifyRows.isEmpty()
-      if (enrichMode &&
-        AuthoringIntentRecipeCatalog.authorVisibleSuggestsDraftContentFromAuthorUrl(routerVisibleBeforeClarify)) {
-        log.warn(
-          'Intent recipe routing: draft-from-author-url signals on current turn but zero deterministic matches — check site intent-recipes.json (toolsLoopAuthorUrlExclusive, deterministicMatch) and plugin Groovy deploy'
-        )
-      }
-      if (enrichMode || clarifyRows.size() > 1) {
-        log.info(
-          'Intent recipe routing: clarify/enrich before retest (detMatches={}, enrichMode={})',
-          detMatches.size(),
-          enrichMode
-        )
-        String routingPrefixForRefine = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
-        String clarified = generateAuthoringIntentRoutingClarifyText(
-          clarifyRows,
-          catalogMd,
-          enrichMode,
-          visible,
-          wireForMemory,
-          apiKey,
-          model,
-          wireBaseUrl,
-          toolsLoopSessionBundle,
-          routingPrefixForRefine
-        )
-        if (clarified?.trim()) {
-          intentClarified = true
-          visible = AuthoringIntentRecipeCatalog.mergeAuthorHttpUrlsIntoRouterVisible(
-            routerVisibleBeforeClarify,
-            clarified.trim()
-          )
-          routeCtx.routerVisible = visible
-          routerRecipes = AuthoringIntentRecipeCatalog.filterRecipesEligibleForRouter(recipes, visible)
-          catalogMd = AuthoringIntentRecipeCatalog.toRouterCatalogMarkdown(routerRecipes)
-          runIntentRoutingEnginePass(
-            routeOps,
-            cfg,
-            routeCtx,
-            toolsLoopSessionBundle,
-            AuthoringIntentRoutingEngine.PASS_AFTER_REFINE
-          )
-          detMatches = AuthoringIntentRecipeCatalog.findDeterministicRecipeMatches(recipes, routeCtx)
-          toolMatches = intentRoutingSiteToolMatches(routeOps, cfg, visible)
-          log.info(
-            'Intent recipe routing: retest after clarify/enrich (detMatches={}, siteTools={}, clarifiedChars={})',
-            detMatches.size(),
-            toolMatches.size(),
-            visible.length()
-          )
-        }
-      }
-    }
-    out.intentClarified = intentClarified
-    out.intentTightened = intentClarified
-    out.deterministicMatchCount = detMatches.size()
-    siteToolDefer = intentRoutingDeferOutcomeForSiteTools(out, detMatches, toolMatches, catalogMd, toolsLoopSessionBundle)
-    if (siteToolDefer != null) {
-      return siteToolDefer
-    }
-    if (detMatches.size() == 1) {
-      if (AuthoringIntentRecipeCatalog.authorSuggestsMultiGoalDefer(recipes, routeCtx, routeRoutingCfg)) {
-        log.info(
-          'Intent recipe routing: multi-goal turn after clarify — defer to plan loop (suppressed recipeId={})',
-          detMatches[0].recipeId
-        )
-        out.deferToPlanLoop = true
-        out.ambiguousMultiRecipe = true
-        out.matchPass = 'multi_goal_defer_plan'
-        out.suppressedDeterministicRecipeId = detMatches[0].recipeId?.toString()?.trim()
-        out.catalogMd = catalogMd
-        out.siteToolMatchCount = toolMatches.size()
-        out.matchedSiteToolIds = AuthoringIntentSiteToolCatalog.siteToolMatchIds(toolMatches)
-        out.routingEngineWirePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
-        return out
-      }
-      Map detMatch = detMatches[0]
-      out.matched = true
-      out.recipe = detMatch.recipe
-      out.recipeId = detMatch.recipeId?.toString()?.trim()
-      out.confidence = 1.0d
-      out.routerReason = detMatch.routerReason?.toString()
-      out.skipRecipePrefetch = Boolean.TRUE.equals(detMatch.skipPrefetch)
-      out.toolsLoopPrefetchSupplement = AuthoringIntentRecipeCatalog.toolsLoopPrefetchSupplementFromMatch(detMatch)
-      out.toolsLoopPrefetchSupplementConfig = AuthoringIntentRecipeCatalog.toolsLoopPrefetchSupplementConfigFromMatch(detMatch)
-      out.toolsLoopRequireSuccessfulTools = AuthoringIntentRecipeCatalog.toolsLoopRequireSuccessfulToolsFromMatch(detMatch)
-      String preludeOverrideAfterClarify = AuthoringIntentRecipeCatalog.matchedUserPreludeFromMatch(detMatch)
-      if (preludeOverrideAfterClarify) {
-        out.matchedUserPreludeOverride = preludeOverrideAfterClarify
-      }
-      out.matchPass = intentClarified ? 'deterministic_after_clarify' : 'deterministic'
-      return out
-    }
-    if (detMatches.size() > 1) {
-      log.info(
-        'Intent recipe routing: {} deterministic matches after clarify — defer to plan loop (no whole-turn recipe)',
-        detMatches.size()
-      )
-      out.deferToPlanLoop = true
-      out.ambiguousMultiRecipe = true
-      out.matchPass = 'ambiguous_multi_defer_plan'
-      out.catalogMd = catalogMd
-      out.siteToolMatchCount = toolMatches.size()
-      out.matchedSiteToolIds = AuthoringIntentSiteToolCatalog.siteToolMatchIds(toolMatches)
-      out.routingEngineWirePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
-      return out
-    }
-    String priorForRouter = AuthoringPreviewContext.extractPriorConversationBody(wireForMemory)?.trim()
-    boolean llmRouterWhenPrior =
-      StudioAiAssistantProjectConfig.intentRecipeLlmRouterWhenPriorConversation(cfg) &&
-        priorForRouter
-    boolean runJsonRouter =
-      StudioAiAssistantProjectConfig.intentRecipeWholeTurnJsonRouterEnabled(cfg) || llmRouterWhenPrior
-    if (!runJsonRouter) {
-      log.info(
-        'Intent recipe routing: no deterministic match after clarify — defer to plan loop (wholeTurnJsonRouterEnabled=false, llmRouterWhenPriorConversation={})',
-        llmRouterWhenPrior
-      )
-      out.deferToPlanLoop = true
-      out.matchPass = 'no_deterministic_defer_plan'
-      out.catalogMd = catalogMd
-      out.routingEngineWirePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
-      return out
-    }
-    if (llmRouterWhenPrior &&
-      !StudioAiAssistantProjectConfig.intentRecipeWholeTurnJsonRouterEnabled(cfg)) {
-      log.info(
-        'Intent recipe routing: JSON recipe router (prior-conversation follow-up, priorAssistantChars={})',
-        plugins.org.craftercms.aiassistant.engine.routing.PriorConversationDraftExtract
-          .lastAssistantBlockText(priorForRouter)?.length() ?: 0
-      )
-    }
-    runIntentRoutingEnginePass(
-      routeOps,
-      cfg,
-      routeCtx,
-      toolsLoopSessionBundle,
-      AuthoringIntentRoutingEngine.PASS_BEFORE_ROUTER
-    )
-    String routingPrefixForRouter = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
-    String userRouter = routingPrefixForRouter + buildIntentRecipeRouterUserMessage(
-      catalogMd,
-      visible,
-      priorForRouter,
-      cfg,
-      wireForMemory
-    )
-    String rawJson = authoringIntentRefineCompletionOrSimple(
-      apiKey,
-      model,
-      ToolPrompts.getLlm_AUTHORING_INTENT_RECIPE_ROUTER_SYSTEM(),
-      userRouter,
-      256,
-      120_000,
-      'IntentRecipeRouter',
-      wireBaseUrl,
-      toolsLoopSessionBundle,
-      cfg
-    )
-    Map decision = AuthoringIntentRecipeRouter.parseRouterJson(rawJson)
-    double minC = StudioAiAssistantProjectConfig.intentRecipeMinConfidence(cfg)
-    double conf = 0.0d
-    try {
-      def c = decision.get('confidence')
-      if (c instanceof Number) {
-        conf = ((Number) c).doubleValue()
-      }
-    } catch (Throwable ignoredConf) {
-      conf = 0.0d
-    }
-    String rid = decision.recipeId?.toString()?.trim()
-    Map recipe = rid ? AuthoringIntentRecipeCatalog.findRecipeById(recipes, rid) : null
-    if (recipe != null && AuthoringIntentRecipeCatalog.recipeExcludedByDontMatchHints(recipe, visible)) {
-      recipe = null
-      rid = null
-    }
-    if (recipe != null && conf >= minC) {
-      toolMatches = intentRoutingSiteToolMatches(routeOps, cfg, visible)
-      if (!toolMatches.isEmpty()) {
-        log.info(
-          'Intent recipe routing: JSON router chose {} but {} site tool hint match(es) — defer to plan loop',
-          rid,
-          toolMatches.size()
-        )
-        out.deferToPlanLoop = true
-        out.matchPass = 'router_recipe_site_tool_competition_defer_plan'
-        out.routerRecipeId = rid
-        out.routerConfidence = conf
-        out.siteToolMatchCount = toolMatches.size()
-        out.matchedSiteToolIds = AuthoringIntentSiteToolCatalog.siteToolMatchIds(toolMatches)
-        out.catalogMd = catalogMd
-        out.routingEngineWirePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
-        out.routerDecision = decision
-        return out
-      }
-      out.matched = true
-      out.recipe = recipe
-      out.recipeId = rid
-      out.confidence = conf
-      out.minConfidence = minC
-      out.routerReason = decision.reason?.toString()
-      out.skipRecipePrefetch = false
-      out.matchPass = 'router'
-      out.catalogMd = catalogMd
-      AuthoringIntentRecipeCatalog.copyRecipeToolsLoopPolicyToRoutingPass(out, recipe)
-      return out
-    }
-    Map fbDet = AuthoringIntentRecipeCatalog.findDeterministicRecipeMatch(recipes, routeCtx)
-    if (fbDet != null) {
-      toolMatches = intentRoutingSiteToolMatches(routeOps, cfg, visible)
-      if (!toolMatches.isEmpty()) {
-        log.info(
-          'Intent recipe routing: deterministic fallback {} competes with site tools — defer to plan loop',
-          fbDet.recipeId
-        )
-        out.deferToPlanLoop = true
-        out.matchPass = 'recipe_site_tool_competition_defer_plan'
-        out.competingRecipeId = fbDet.recipeId?.toString()
-        out.siteToolMatchCount = toolMatches.size()
-        out.matchedSiteToolIds = AuthoringIntentSiteToolCatalog.siteToolMatchIds(toolMatches)
-        out.catalogMd = catalogMd
-        out.routingEngineWirePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
-        out.routerDecision = decision
-        out.routerConfidence = conf
-        return out
-      }
-      out.matched = true
-      out.recipe = fbDet.recipe
-      out.recipeId = fbDet.recipeId?.toString()?.trim()
-      out.confidence = 1.0d
-      out.minConfidence = minC
-      out.routerReason = fbDet.routerReason?.toString()
-      out.skipRecipePrefetch = Boolean.TRUE.equals(fbDet.skipPrefetch)
-      out.toolsLoopPrefetchSupplement = AuthoringIntentRecipeCatalog.toolsLoopPrefetchSupplementFromMatch(fbDet)
-      out.toolsLoopPrefetchSupplementConfig = AuthoringIntentRecipeCatalog.toolsLoopPrefetchSupplementConfigFromMatch(fbDet)
-      out.toolsLoopRequireSuccessfulTools = AuthoringIntentRecipeCatalog.toolsLoopRequireSuccessfulToolsFromMatch(fbDet)
-      String preludeOverrideAfterRouter = AuthoringIntentRecipeCatalog.matchedUserPreludeFromMatch(fbDet)
-      if (preludeOverrideAfterRouter) {
-        out.matchedUserPreludeOverride = preludeOverrideAfterRouter
-      }
-      out.matchPass = 'deterministic_after_router'
-      out.catalogMd = catalogMd
-      out.routerDecision = decision
-      out.routerConfidence = conf
-      return out
-    }
-    out.deferToPlanLoop = true
-    out.minConfidence = minC
-    out.catalogMd = catalogMd
-    out.routerDecision = decision
-    out.routerConfidence = conf
-    out.routerRecipeId = rid
-    out.routerRecipeFound = recipe != null
-    out.matchPass = 'no_match_defer_plan'
-    return out
-  }
-
-  /**
-   * Stable summary for maintainers / session debug logs (also emitted as SSE {@code intent-recipe-routing}).
-   * When {@code cfg} is null, routing/engine flags are recorded as {@code false}.
-   */
-  private static Map intentRecipeAttachTelemetry(StudioToolOperations ops, Map cfg, Map result, String outcome, Map extra = null) {
-    Map tel = new LinkedHashMap()
-    boolean routing = false
-    boolean engine = false
-    if (cfg != null) {
-      routing = StudioAiAssistantProjectConfig.intentRecipeRoutingEnabled(cfg)
-      engine = StudioAiAssistantProjectConfig.intentRecipeEngineEnabled(cfg)
-    }
-    tel.put('intentRecipeRoutingEnabled', routing)
-    tel.put('intentRecipeEngineEnabled', engine)
-    tel.put('outcome', (outcome ?: 'unknown').toString())
-    if (extra != null && !extra.isEmpty()) {
-      extra.each { k, v ->
-        if (v != null) {
-          tel.put(k.toString(), v)
-        }
-      }
-    }
-    tel.put('intentMatched', 'matched'.equals((outcome ?: '').toString()))
-    if (!tel.containsKey('prefetchSteps')) {
-      tel.put('prefetchSteps', [])
-    }
-    if (!tel.containsKey('prefetchEnvelopeTruncated')) {
-      tel.put('prefetchEnvelopeTruncated', false)
-    }
-    if (!tel.containsKey('prefetchRan')) {
-      tel.put('prefetchRan', false)
-    }
-    result.put('intentRecipeRoutingTelemetry', tel)
-    return result
-  }
-
-  /**
-   * Optional pre-tools **intent recipe** routing: deterministic match → clarify/enrich LLM → retest. Exactly one
-   * deterministic hit binds the whole turn. Zero or multiple hits defer to the tools-loop **## Plan** (JSON whole-turn
-   * router only when {@code wholeTurnJsonRouterEnabled} is true). When pass 1 defers and {@code allowExpansionRematch},
-   * CMS-biased intent expansion may run pass 2. Matched or unmatched outcomes may prepend the expansion wire block once.
-   * <p>Eligibility matches {@link AuthoringPreviewContext#intentRecipeRouterEligibilitySkipReason}.</p>
-   *
-   * @return keys: {@code clarificationOnly} (Boolean), {@code userTextForToolsLoop} (String), {@code clarificationUserText} (String body for tools-off clarification when clarificationOnly), {@code intentRecipeRoutingTelemetry} (Map with at least {@code outcome})
-   */
-  private static Map intentRecipeRoutingAttachMatchedRecipe(
-    StudioToolOperations ops,
-    Map cfg,
-    Map result,
-    String userTextAfterGuard,
-    Map recipe,
-    String rid,
-    double conf,
-    double minC,
-    String routerReason,
-    String fullWirePrompt,
-    String visible,
-    String authorFieldLabelOverride = null,
-    boolean skipRecipePrefetch = false,
-    String expansionWirePrefix = '',
-    String toolsLoopPrefetchSupplement = '',
-    Map toolsLoopPrefetchSupplementConfig = null,
-    List toolsLoopRequireSuccessfulTools = null,
-    String matchedUserPreludeOverride = null,
-    Closure recipePrefetchProgressListener = null
-  ) {
-    Map pfb = skipRecipePrefetch ?
-      [
-        markdown                : '',
-        prefetchSteps           : [],
-        prefetchEnvelopeTruncated: false,
-        initialBindings         : [:]
-      ] :
-      AuthoringIntentRecipeEngine.runPrefetchBlock(ops, recipe, cfg, null, recipePrefetchProgressListener)
-    String prefetch = (pfb.markdown ?: '').toString()
-    List pfbSteps = pfb.prefetchSteps instanceof List ? (List) pfb.prefetchSteps : []
-    boolean prefetchEnvTrunc = Boolean.TRUE.equals(pfb.prefetchEnvelopeTruncated)
-    boolean prefetchRan = prefetch.trim().length() > 0
-    Map hotpathMeta = AuthoringIntentRecipeEngine.buildPrefetchHotpathDirective(ops, prefetch)
-    String hotpathDirective = (hotpathMeta?.directive ?: '').toString()
-    boolean prefetchSkipRedundantGetForListedPath = Boolean.TRUE.equals(hotpathMeta?.duplicateGetContentBanned)
-    String authorFieldLabel = (authorFieldLabelOverride ?: extractAuthorFieldLabelPhrase(visible ?: '')).toString()
-    Map fieldHot = 'open_page_inquiry'.equals(rid) ?
-      [directive: '', resolvedFieldId: '', resolvedFieldLabel: ''] :
-      AuthoringIntentRecipeEngine.buildSimpleFieldEditHotpathExtras(prefetch, authorFieldLabel)
-    hotpathDirective = hotpathDirective + (fieldHot?.directive ?: '').toString()
-    if ('open_page_inquiry'.equals(rid)) {
-      if (prefetchSkipRedundantGetForListedPath) {
-        hotpathDirective =
-          '[Studio — read-only page inquiry: Recipe-engine prefetch already includes successful **GetContent** with full **contentXml** for the anchored path. ' +
-          'Answer in prose from that XML. Do **not** call **GetContent** again on this path. Do **not** WriteContent unless the author explicitly asks to edit.\n\n'
-      } else {
-        hotpathDirective = ''
-      }
-    }
-    String prefetchSupplementId = (toolsLoopPrefetchSupplement ?: '').toString().trim()
-    List<String> requireSuccessfulTools = []
-    if (toolsLoopRequireSuccessfulTools instanceof List) {
-      for (Object o : (List) toolsLoopRequireSuccessfulTools) {
-        String n = o?.toString()?.trim()
-        if (n) {
-          requireSuccessfulTools.add(n)
-        }
-      }
-    }
-    Map recipeForToolsLoopPolicy = recipe instanceof Map ? (Map) recipe : [:]
-    if (!prefetchSupplementId && recipeForToolsLoopPolicy) {
-      prefetchSupplementId = AuthoringIntentRecipeCatalog.toolsLoopPrefetchSupplementFromMatch([recipe: recipeForToolsLoopPolicy])
-    }
-    if (requireSuccessfulTools.isEmpty() && recipeForToolsLoopPolicy) {
-      requireSuccessfulTools.addAll(
-        AuthoringIntentRecipeCatalog.toolsLoopRequireSuccessfulToolsFromMatch([recipe: recipeForToolsLoopPolicy])
-      )
-    }
-    Map supplementResult = [:]
-    Map supplementConfig = toolsLoopPrefetchSupplementConfig instanceof Map ?
-      new LinkedHashMap<>(toolsLoopPrefetchSupplementConfig) :
-      [:]
-    if (supplementConfig.isEmpty() && recipeForToolsLoopPolicy) {
-      supplementConfig.putAll(
-        AuthoringIntentRecipeCatalog.toolsLoopPrefetchSupplementConfigFromMatch([recipe: recipeForToolsLoopPolicy])
-      )
-    }
-    if (prefetchSupplementId &&
-      !AuthoringIntentRecipeCatalog.collectPrefetchEngineSteps(recipe).isEmpty() &&
-      prefetch.trim()) {
-      supplementConfig.put('recipeContextPrefetchMarkdown', prefetch)
-    }
-    if (pfb.initialBindings instanceof Map && !((Map) pfb.initialBindings).isEmpty()) {
-      supplementConfig.put('prefetchInitialBindings', pfb.initialBindings)
-    }
-    if (recipePrefetchProgressListener instanceof Closure) {
-      supplementConfig.put('recipePrefetchProgressListener', recipePrefetchProgressListener)
-    }
-    if (prefetchSupplementId) {
-      String prefetchWirePrompt = (fullWirePrompt ?: visible ?: '').toString()
-      supplementResult = AuthoringIntentRecipeEngine.runPrefetchSupplement(
-        prefetchSupplementId,
-        ops,
-        cfg,
-        prefetchWirePrompt,
-        supplementConfig
-      )
-      String supplementMarkdown = (supplementResult?.markdown ?: '').toString()
-      if (supplementMarkdown.trim()) {
-        prefetch = prefetch + supplementMarkdown
-        prefetchRan = true
-      }
-      if (supplementResult?.prefetchSteps instanceof List) {
-        List mergedSteps = new ArrayList<>(pfbSteps)
-        mergedSteps.addAll((List) supplementResult.prefetchSteps)
-        pfbSteps = mergedSteps
-      }
-      hotpathDirective = hotpathDirective +
-        AuthoringIntentRecipeEngine.buildPrefetchSupplementHotpath(prefetchSupplementId, prefetchWirePrompt, supplementResult)
-      if ('createFromChatDraft'.equals(prefetchSupplementId) && supplementResult?.suggestedNewItemPath) {
-        String priorForPrefill = AuthoringPreviewContext.extractPriorConversationBody(prefetchWirePrompt)
-        result.createFromChatDraftPrefill = [
-          path                     : (supplementResult.suggestedNewItemPath ?: '').toString().trim(),
-          siblingPath              : (supplementResult.siblingPath ?: '').toString().trim(),
-          resolvedContentTypeId    : (supplementResult.resolvedContentTypeId ?: '').toString().trim(),
-          draftExtractReady        : Boolean.TRUE.equals(supplementResult.draftExtractReady),
-          priorConversationChars   : priorForPrefill?.length() ?: 0,
-          prefetchSupplementConfig : supplementResult.prefetchSupplementConfig instanceof Map ?
-            supplementResult.prefetchSupplementConfig :
-            supplementConfig
-        ]
-      }
-    }
-    boolean newItemNeedsSiblingShape =
-      'new_content_item'.equals(rid) || 'createFromChatDraft'.equals(prefetchSupplementId)
-    Map newContentItemSiblingHot = newItemNeedsSiblingShape ?
-      AuthoringIntentRecipeEngine.buildNewContentItemSiblingReadDirective(prefetch) :
-      [directive: '', siblingGetContentPresent: Boolean.TRUE]
-    if (newItemNeedsSiblingShape) {
-      hotpathDirective = hotpathDirective + (newContentItemSiblingHot?.directive ?: '').toString()
-    }
-    String prefetchResolvedFieldId = (fieldHot?.resolvedFieldId ?: '').toString().trim()
-    String prefetchResolvedFieldLabel = (fieldHot?.resolvedFieldLabel ?: '').toString().trim()
-    Map<String, Map> recipeInitialBindings = pfb.initialBindings instanceof Map ?
-      (Map<String, Map>) pfb.initialBindings :
-      [:]
-    Map<String, Map> recipeCurrentBindings = AuthoringIntentRecipeBindings.deepCopyBindingMap(recipeInitialBindings)
-    String prelude =
-      AuthoringIntentRecipeCatalog.formatMatchedRecipePrelude(
-        recipe,
-        rid,
-        conf,
-        routerReason,
-        recipeInitialBindings,
-        recipeCurrentBindings,
-        visible
-      )
-    String orchPrelude = AuthoringIntentRecipeCatalog.matchedUserPrelude(recipe)
-    String preludeOverride = (matchedUserPreludeOverride ?: '').toString().trim()
-    if (preludeOverride) {
-      orchPrelude = preludeOverride
-    }
-    if (orchPrelude) {
-      prelude = orchPrelude + '\n\n' + prelude
-    }
-    String catalogSiteId = ''
-    try {
-      catalogSiteId = ops?.resolveEffectiveSiteId('')?.toString()?.trim() ?: ''
-    } catch (Throwable ignoredSite) {
-    }
-    Map execPlan = AuthoringIntentRecipePlanCompiler.compile(recipe)
-    Map matchedTelExtra = new LinkedHashMap<>()
-    matchedTelExtra.putAll(AuthoringIntentRecipeCatalog.orchestrationTelemetryExtras(recipe))
-    matchedTelExtra.putAll(AuthoringIntentRecipeCatalog.authorUrlExclusiveTelemetryOverlay(recipe, visible ?: ''))
-    matchedTelExtra.putAll(
-      AuthoringIntentRecipeCatalog.prefetchSupplementTelemetryOverlay(
-        prefetchSupplementId,
-        supplementResult,
-        requireSuccessfulTools
-      )
-    )
-    matchedTelExtra.executionPlanStepCount = execPlan.steps instanceof List ? ((List) execPlan.steps).size() : 0
-    matchedTelExtra.confirmationServerStepsPending =
-      AuthoringIntentRecipePlanCompiler.hasConfirmationServerSteps(execPlan)
-    matchedTelExtra.putAll([
-      recipeId                                     : rid,
-      recipeTitle                                  : (recipe?.title?.toString()?.trim() ?: rid),
-      confidence                                   : conf,
-      minConfidence                                : minC,
-      recipeFoundInCatalog                         : true,
-      prefetchRan                                  : prefetchRan,
-      prefetchSteps                                : pfbSteps,
-      prefetchEnvelopeTruncated                    : prefetchEnvTrunc,
-      prefetchSkipRedundantGetContentForListedPath : prefetchSkipRedundantGetForListedPath,
-      prefetchResolvedFieldId                      : prefetchResolvedFieldId,
-      prefetchResolvedFieldLabel                   : prefetchResolvedFieldLabel,
-      routerReason                                 : (routerReason ?: '').toString().trim(),
-      siteId                                       : catalogSiteId,
-      recipeChatLine                               : AuthoringIntentRecipeCatalog.formatIntentRecipeChatLine(recipe, catalogSiteId)
-    ])
-    if ('open_page_inquiry'.equals(rid) && prefetchSkipRedundantGetForListedPath && !prefetchEnvTrunc) {
-      matchedTelExtra.toolsLoopDisable = Boolean.TRUE
-    }
-    if (newItemNeedsSiblingShape &&
-      !Boolean.TRUE.equals(newContentItemSiblingHot?.siblingGetContentPresent) &&
-      !Boolean.TRUE.equals(supplementResult?.siblingGetContentPresent) &&
-      !Boolean.TRUE.equals(matchedTelExtra.toolsLoopSiblingGetContentRequired)) {
-      matchedTelExtra.newContentItemSiblingGetContentRequired = Boolean.TRUE
-    }
-    String writeVerificationId =
-      AuthoringIntentRecipeCatalog.toolsLoopWriteVerificationFromMatch([recipe: recipeForToolsLoopPolicy])
-    Map writeVerificationConfig =
-      AuthoringIntentRecipeCatalog.writeVerificationConfigFromMatch([recipe: recipeForToolsLoopPolicy])
-    if (writeVerificationId) {
-      matchedTelExtra.toolsLoopWriteVerification = writeVerificationId
-    }
-    if (!writeVerificationConfig.isEmpty()) {
-      matchedTelExtra.toolsLoopWriteVerificationConfig = writeVerificationConfig
-    } else if (writeVerificationId) {
-      log.warn(
-        'Tools-loop: recipe {} has toolsLoopWriteVerification={} but empty writeVerification map — verification will only apply generic repairs',
-        rid ?: '(unknown)',
-        writeVerificationId
-      )
-    }
-    if (AuthoringIntentRecipeEngine.prefetchIncludesFormDefinitions(prefetch)) {
-      matchedTelExtra.toolsLoopFormDefsPrefetched = Boolean.TRUE
-    }
-    if (Boolean.TRUE.equals(supplementResult?.toolsLoopFastPath) ||
-      Boolean.TRUE.equals(supplementConfig?.toolsLoopFastPath) ||
-      (Boolean.TRUE.equals(matchedTelExtra.toolsLoopFormDefsPrefetched) &&
-        !AuthoringIntentRecipeCatalog.collectPrefetchEngineSteps(recipe).isEmpty() &&
-        prefetchRan)) {
-      matchedTelExtra.toolsLoopFastPath = Boolean.TRUE
-    }
-    result.recipeExecutionPlan = execPlan
-    String inquiryHint = ''
-    String rr = (routerReason ?: '').toString()
-    if ('open_page_inquiry'.equals(rid) || rr.contains('open_page_inquiry')) {
-      inquiryHint =
-        '[Studio — open page inquiry (read-only): Answer what this anchored page is about using prefetch/GetContent XML. ' +
-        'Summarize for the author in plain prose. Do **not** WriteContent, update_template, or read CSS/FTL unless they ask to change something.]\n\n'
-    }
-    String externalHint = ''
-    if (rr.contains('external_content') ||
-      authorRequestNeedsExternalContentResolution(userTextAfterGuard ?: '') ||
-      authorRequestNeedsExternalContentResolution(visible ?: '')) {
-      externalHint =
-        '[Studio — the author asked to **look up / fetch** text (e.g. song lyrics) and place it in a CMS field. ' +
-        'Resolve the full lyrics or requested copy first (model knowledge or FetchHttpUrl). ' +
-        'Do **not** write the instruction sentence, song title alone, or “lyrics of …” meta-text as the field value. ' +
-        'Then GetContent → WriteContent the full resolved HTML/text on the anchored path.]\n\n'
-    }
-    String expPrefix = (expansionWirePrefix ?: '').toString()
-    result.userTextForToolsLoop = expPrefix + inquiryHint + prefetch + hotpathDirective + externalHint + prelude + (userTextAfterGuard ?: '')
-    if (expPrefix.trim()) {
-      matchedTelExtra.intentExpansionRematch = Boolean.TRUE
-    }
-    return intentRecipeAttachTelemetry(ops, cfg, result, 'matched', matchedTelExtra)
-  }
-
-  /**
-   * Pre-tools intent recipe routing: one or two {@link #intentRecipeRoutingMatchPass} calls (optional expansion rematch),
-   * JVM {@link AuthoringIntentRoutingEngine} prefetch, LLM refine tools, then matched-recipe attach or plan-defer wiring.
-   *
-   * @param bodyPrompt full wire prompt (cand) for context extraction
-   * @param userTextAfterGuard author-visible user text after policy guards (may be rewritten on match / no-match)
-   * @param allowExpansionRematch when true, pass-2 expansion runs if pass-1 defers without ambiguous multi-match
-   * @return {@code userTextForToolsLoop}, optional {@code clarificationOnly}, and {@code intentRecipeRoutingTelemetry}
+   * Pre-tools intent routing — delegates to {@link plugins.org.craftercms.aiassistant.engine.routing.Router#route}.
    */
   static Map intentRecipeRoutingPrelude(
     String bodyPrompt,
@@ -5221,449 +3912,34 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
     String wireBaseUrl,
     Map toolsLoopSessionBundle,
     StudioToolOperations ops,
-    boolean allowExpansionRematch = false,
     Closure recipePrefetchProgressListener = null
   ) {
-    Map result = [
-      clarificationOnly     : false,
-      userTextForToolsLoop   : (userTextAfterGuard ?: '').toString(),
-      clarificationUserText: ''
-    ]
-    Map cfg = null
-    try {
-      if (ops == null) {
-        return intentRecipeAttachTelemetry(ops, null, result, 'skipped_ops_null')
-      }
-      cfg = StudioAiAssistantProjectConfig.load(ops)
-      String cand = (bodyPrompt ?: '').toString()
-      if (!StudioAiAssistantProjectConfig.intentRecipeRoutingEnabled(cfg)) {
-        if (cand.trim() && AuthoringPreviewContext.intentRecipeRouterEligibilitySkipReason(cand) == null) {
-          log.debug(
-            'Intent recipe routing skipped: intentRecipeRouting.enabled is not true in site tools.json — enable under Project Tools → AI Assistant → Tools and MCP → Intent recipe routing.'
-          )
-        }
-        return intentRecipeAttachTelemetry(ops, cfg, result, 'skipped_disabled')
-      }
-      if (!cand.trim()) {
-        return intentRecipeAttachTelemetry(ops, cfg, result, 'skipped_empty_prompt')
-      }
-      String key = (apiKey ?: '').toString().trim()
-      if (!key) {
-        log.warn('Intent recipe routing skipped: empty tools-loop API key (cannot call IntentRecipeRouter).')
-        return intentRecipeAttachTelemetry(ops, cfg, result, 'skipped_no_api_key')
-      }
-      if (aiAssistantPipelineCancelEffective()) {
-        return intentRecipeAttachTelemetry(ops, cfg, result, 'skipped_cancelled')
-      }
-      String mdl = (model ?: '').toString().trim()
-      if (!mdl) {
-        log.warn('Intent recipe routing skipped: empty resolved chat model (cannot call IntentRecipeRouter).')
-        return intentRecipeAttachTelemetry(ops, cfg, result, 'skipped_no_model')
-      }
-      List recipes = AuthoringIntentRecipeCatalog.loadRecipes(ops, cfg)
-      Map routingCfg = AuthoringIntentRecipeCatalog.loadMergedCatalogRoutingConfig(ops, cfg)
-      if (toolsLoopSessionBundle instanceof Map) {
-        toolsLoopSessionBundle.intentCatalogRoutingCfg = routingCfg
-      }
-      int recipeCatalogSize = recipes != null ? recipes.size() : 0
-      boolean catalogHasOpenPageInquiry =
-        AuthoringIntentRecipeCatalog.findRecipeById(recipes, 'open_page_inquiry') != null
-      boolean eligibilityGate = StudioAiAssistantProjectConfig.intentRecipeEligibilityGateEnabled(cfg)
-      Map catalogTel = [
-        eligibilityGateEnabled   : eligibilityGate,
-        recipeCatalogSize        : recipeCatalogSize,
-        catalogHasOpenPageInquiry: catalogHasOpenPageInquiry
-      ]
-      if (recipes == null || recipes.isEmpty()) {
-        log.warn('Intent recipe routing skipped: recipe catalog is empty after bundled + site custom merge.')
-        Map workSiteCtx = AuthoringPreviewContext.parseWorkingSiteFromOrchestrationWire((cand ?: '').toString())
-        StringBuilder emptyCatalog = new StringBuilder()
-        emptyCatalog.append(
-          '[Studio — intent recipe catalog is empty (bundled JSON not loaded, site override removed all recipes, or custom JSON invalid). **tools are still available** — use normal CMS judgement **with strict content-vs-code discipline**:\n'
-        )
-        if (Boolean.TRUE.equals(workSiteCtx.crossSiteWorking)) {
-          String workId = (workSiteCtx.workingSiteId ?: '').toString().trim()
-          emptyCatalog.append(
-            '- **Working CMS site** for this turn is **"' + workId + '"** (Studio session site differs). **Do not** answer from prior conversation as repository truth — call **ResearchSiteContent** or **GetContent** with **siteId="' +
-              workId + '"** on that site before summarizing or describing content.\n'
-          )
-        }
-        emptyCatalog.append(
-          '- When **Current content item repository path** or **Request anchor** is **`/site/.../*.xml`** and the author asks to change **copy, field values, or tone** without naming **FTL**, **template**, or **CSS**: **GetContent** then **WriteContent** (or **update_content** then **WriteContent**) on **that same repository .xml path** — preserve **`<page>` / `<component>`** structure and existing field tag names from the file you read; map labels to element ids via **GetContentTypeFormDefinition** when needed.\n' +
-          '- **Do not** call **update_template** for that scenario; **do not** **WriteContent** a **`.ftl`** path with page/component XML bodies; **do not** invent **`/static-assets/styles.css`** or other asset paths unless the author explicitly asked for stylesheet/asset work **or** **GetContent** on the item you edit already referenced that exact path and the task requires editing that file.\n' +
-          '- If copy still looks wrong after XML saves, **analyze_template** / **GetContent** on **display-template** is **read-only diagnosis** — explain findings; **do not** patch FTL for a **content-only** goal.\n\n'
-        )
-        result.userTextForToolsLoop = emptyCatalog.toString() + (userTextAfterGuard ?: '')
-        return intentRecipeAttachTelemetry(
-          ops,
-          cfg,
-          result,
-          'skipped_no_recipes',
-          [recipeCatalogEmpty: true] + catalogTel
-        )
-      }
-      if (eligibilityGate) {
-        String eligibilitySkip =
-          AuthoringPreviewContext.intentRecipeRouterEligibilitySkipReason(cand, recipes, routingCfg)
-        if (eligibilitySkip != null) {
-          log.info(
-            'Intent recipe routing skipped: eligibility gate (reason={}) — routing and prefetch do not run. Disable with intentRecipeRouting.eligibilityGateEnabled false in tools.json.',
-            eligibilitySkip
-          )
-          Map skipTel = new LinkedHashMap(catalogTel)
-          skipTel.eligibilitySkipReason = eligibilitySkip
-          return intentRecipeAttachTelemetry(ops, cfg, result, 'skipped_eligibility', skipTel)
-        }
-      } else {
-        log.debug('Intent recipe routing: eligibility gate disabled — match pass runs for non-empty prompt')
-      }
-      String visible = cand
-      try {
-        visible = AuthoringPreviewContext.stripStudioInjectedPromptBlocks(cand)
-      } catch (Throwable ignored) {
-        visible = cand
-      }
-      visible = (visible ?: '').trim()
-      if (!visible) {
-        log.warn('Intent recipe routing skipped: author-visible text empty after strip (unexpected after eligibility pass).')
-        return intentRecipeAttachTelemetry(ops, cfg, result, 'skipped_visible_empty')
-      }
-      String clientAuthorBlock = AuthoringPreviewContext.extractOrchestrationClientAuthorBlock(cand)?.trim()
-      String currentAuthorVisible = AuthoringPreviewContext.extractAuthorCurrentRequestVisible(cand)?.trim()
-      if (!currentAuthorVisible) {
-        currentAuthorVisible = visible
-      }
-      String routerVisible = clientAuthorBlock ?: currentAuthorVisible
-      String authorFieldLabelEarly = extractAuthorFieldLabelPhrase(cand)
-      if (!authorFieldLabelEarly) {
-        authorFieldLabelEarly = extractAuthorFieldLabelPhrase(routerVisible)
-      }
-      boolean concreteField =
-        authorRequestIsConcreteFieldEdit(cand) || authorRequestIsConcreteFieldEdit(routerVisible)
-      Closure<Boolean> anchoredSiteXml = {
-        Map bindEarly = ops.recipeEngineAuthoringBindings()
-        String anchorEarly = (bindEarly?.contentPath ?: '').toString().trim()
-        return anchorEarly &&
-          anchorEarly.toLowerCase(Locale.ROOT).startsWith('/site/') &&
-          anchorEarly.toLowerCase(Locale.ROOT).endsWith('.xml')
-      }
-      Map detCtx = [
-        cand                          : cand,
-        routerVisible                 : routerVisible,
-        projectCfg                    : cfg,
-        ops                           : ops,
-        evaluateTranslateIntent       : { -> authorRequestLooksLikeTranslateIntent(cand, routerVisible) },
-        evaluateConcreteFieldEdit     : {
-          anchoredSiteXml.call() &&
-            intentRecipeDeterministicMatchForFieldEdit(cand, routerVisible, authorFieldLabelEarly, concreteField)
-        },
-        evaluateExternalContentFieldEdit: {
-          if (!anchoredSiteXml.call()) {
-            return false
-          }
-          if (!(authorRequestNeedsExternalContentResolution(cand) ||
-            authorRequestNeedsExternalContentResolution(routerVisible))) {
-            return false
-          }
-          String label = authorFieldLabelEarly ?: extractAuthorFieldLabelPhrase(cand) ?: extractAuthorFieldLabelPhrase(routerVisible)
-          return (label ?: '').trim().length() > 0
-        }
-      ]
-      Map pass1 = intentRecipeRoutingMatchPass(
-        recipes,
-        cfg,
-        detCtx,
-        routerVisible,
-        key,
-        mdl,
-        wireBaseUrl,
-        toolsLoopSessionBundle,
-        authorFieldLabelEarly,
-        routingCfg
-      )
-      String expansionWirePrefix = ''
-      Map activePass = pass1
-      boolean expansionBiasOk =
-        AuthoringPreviewContext.authorCurrentRequestSuggestsCmsTooling(cand) ||
-          AuthoringPreviewContext.anchoredSiteXmlFieldPlacementIntentForAuthorText(
-            cand,
-            currentAuthorVisible ?: ''
-          )
-      boolean deferPlanAfterPass1 =
-        Boolean.TRUE.equals(pass1.deferToPlanLoop) || Boolean.TRUE.equals(pass1.ambiguousMultiRecipe)
-      if (!Boolean.TRUE.equals(pass1.matched) && !deferPlanAfterPass1 && allowExpansionRematch && expansionBiasOk) {
-        List routerRecipesForExpansion =
-          AuthoringIntentRecipeCatalog.filterRecipesEligibleForRouter(recipes, routerVisible)
-        String catalogMdForExpansion =
-          AuthoringIntentRecipeCatalog.toRouterCatalogMarkdown(routerRecipesForExpansion)
-        String expansionText = generateAuthoringIntentExpansionTextForRecipeRematch(
-          cand,
-          catalogMdForExpansion,
-          key,
-          mdl,
-          wireBaseUrl,
-          toolsLoopSessionBundle
-        )
-        if (!expansionText?.trim()) {
-          expansionText = generateAuthoringIntentExpansionText(cand, key, mdl, wireBaseUrl, toolsLoopSessionBundle)
-        }
-        if (expansionText?.trim()) {
-          expansionWirePrefix = formatAuthoringIntentExpansionWirePrefix(expansionText, true)
-          String rematchVisible = intentRecipeRematchRouterVisible(expansionText, routerVisible)
-          log.info(
-            'Intent recipe routing: pass-1 no match — running intent expansion + pass-2 rematch (rematchVisibleChars={})',
-            rematchVisible.length()
-          )
-          Map pass2 = intentRecipeRoutingMatchPass(
-            recipes,
-            cfg,
-            detCtx,
-            rematchVisible,
-            key,
-            mdl,
-            wireBaseUrl,
-            toolsLoopSessionBundle,
-            authorFieldLabelEarly,
-            routingCfg
-          )
-          if (Boolean.TRUE.equals(pass2.matched)) {
-            log.info('Intent recipe routing: pass-2 matched after expansion (matchPass={})', pass2.matchPass)
-            activePass = pass2
-          } else {
-            log.info('Intent recipe routing: pass-2 still no match after expansion')
-            activePass = pass2
-          }
-        }
-      }
-      activePass = intentRecipeRoutingApplyMultiGoalDeferIfNeeded(
-        activePass,
-        recipes,
-        detCtx,
-        routingCfg,
-        routerVisible,
-        toolsLoopSessionBundle
-      )
-      if (Boolean.TRUE.equals(activePass.matched)) {
-        if (shouldDeferOpenPageInquiryWithoutBindingAnchor(activePass, ops)) {
-          log.info(
-            'Intent recipe routing: open_page_inquiry without anchored repository path — defer to plan loop (working site may differ from session)'
-          )
-          activePass.matched = false
-          activePass.deferToPlanLoop = true
-          activePass.matchPass = 'open_page_no_anchor_defer_plan'
-        }
-      }
-      if (Boolean.TRUE.equals(activePass.matched)) {
-        double minC = activePass.minConfidence instanceof Number ?
-          ((Number) activePass.minConfidence).doubleValue() :
-          StudioAiAssistantProjectConfig.intentRecipeMinConfidence(cfg)
-        log.info(
-          'Intent recipe routing matched recipeId={} confidence={} matchPass={} expansionRematch={}',
-          activePass.recipeId,
-          activePass.confidence,
-          activePass.matchPass,
-          expansionWirePrefix ? 'yes' : 'no'
-        )
-        Map matchedRoute = intentRecipeRoutingAttachMatchedRecipe(
-          ops,
-          cfg,
-          result,
-          userTextAfterGuard,
-          activePass.recipe as Map,
-          activePass.recipeId?.toString()?.trim(),
-          activePass.confidence instanceof Number ? ((Number) activePass.confidence).doubleValue() : 1.0d,
-          minC,
-          activePass.routerReason?.toString(),
-          cand,
-          routerVisible,
-          authorFieldLabelEarly,
-          Boolean.TRUE.equals(activePass.skipRecipePrefetch),
-          expansionWirePrefix,
-          activePass.toolsLoopPrefetchSupplement?.toString(),
-          activePass.toolsLoopPrefetchSupplementConfig instanceof Map ?
-            (Map) activePass.toolsLoopPrefetchSupplementConfig :
-            null,
-          activePass.toolsLoopRequireSuccessfulTools instanceof List ?
-            (List) activePass.toolsLoopRequireSuccessfulTools :
-            null,
-          (activePass.matchedUserPreludeOverride ?: '').toString().trim() ?:
-            AuthoringIntentRecipeCatalog.matchedUserPreludeFromMatch(activePass),
-          recipePrefetchProgressListener
-        )
-        if (matchedRoute.intentRecipeRoutingTelemetry instanceof Map) {
-          Map matchedTel = (Map) matchedRoute.intentRecipeRoutingTelemetry
-          matchedTel.putAll(catalogTel)
-          putRefineToolsTelemetryIfPresent(matchedTel, toolsLoopSessionBundle)
-          putRoutingEngineTelemetryIfPresent(matchedTel, toolsLoopSessionBundle)
-        }
-        return matchedRoute
-      }
-      Map decision = activePass.routerDecision instanceof Map ? (Map) activePass.routerDecision : [:]
-      double minC = activePass.minConfidence instanceof Number ?
-        ((Number) activePass.minConfidence).doubleValue() :
-        StudioAiAssistantProjectConfig.intentRecipeMinConfidence(cfg)
-      double conf = activePass.routerConfidence instanceof Number ? ((Number) activePass.routerConfidence).doubleValue() : 0.0d
-      String rid = activePass.routerRecipeId?.toString()?.trim() ?: ''
-      boolean recipeFound = Boolean.TRUE.equals(activePass.routerRecipeFound)
-      String catalogMd = activePass.catalogMd?.toString() ?: ''
-      log.info(
-        'Intent recipe routing: no confident match after pass-1{} — recipeId={}, confidence={}, minConfidence={}, expansionRematch={}',
-        expansionWirePrefix ? ' + pass-2' : '',
-        rid ?: '(null)',
-        conf,
-        minC,
-        expansionWirePrefix ? 'attempted' : 'no'
-      )
-      if (StudioAiAssistantProjectConfig.intentRecipeRequestClarificationOnUnmatched(cfg)) {
-        result.clarificationOnly = true
-        result.clarificationUserText =
-          expansionWirePrefix +
-            '## Recipe catalog (titles for disambiguation)\n\n' +
-            catalogMd +
-            '\n\n## Author message\n\n' +
-            routerVisible +
-            '\n\n---\n\n[Studio — intent recipe router: no confident match. reason: ' +
-            (decision.reason?.toString()?.trim() ?: 'n/a') +
-            ']\n'
-        return intentRecipeAttachTelemetry(
-          ops,
-          cfg,
-          result,
-          'clarification_only',
-          [
-            recipeId                 : rid,
-            confidence               : conf,
-            minConfidence            : minC,
-            recipeFoundInCatalog     : recipeFound,
-            routerReason             : (decision.reason?.toString()?.trim() ?: ''),
-            intentExpansionRematch   : expansionWirePrefix ? Boolean.TRUE : Boolean.FALSE
-          ]
-        )
-      }
-      String noMatchHint
-      boolean deferPlan =
-        Boolean.TRUE.equals(activePass.deferToPlanLoop) || Boolean.TRUE.equals(activePass.ambiguousMultiRecipe)
-      Map planDeferCatalogTel = [:]
-      if (deferPlan) {
-        noMatchHint = ToolPrompts.getLlm_AUTHORING_INTENT_ROUTING_DEFER_PLAN_HINT()
-        if (AuthoringIntentRecipeCatalog.authorSuggestsMultiGoalDefer(
-          recipes,
-          AuthoringPreviewContext.intentRecipeRoutingContext(cand),
-          routingCfg
-        )) {
-          noMatchHint = ToolPrompts.getLlm_AUTHORING_MULTI_GOAL_COMPLEX_HINT() + noMatchHint
-        }
-        String catalogForProbe = activePass.catalogMd?.toString()?.trim()
-        if (!catalogForProbe) {
-          List routerRecipesProbe =
-            AuthoringIntentRecipeCatalog.filterRecipesEligibleForRouter(recipes, routerVisible)
-          catalogForProbe = AuthoringIntentRecipeCatalog.toRouterCatalogMarkdown(routerRecipesProbe)
-        }
-        String probeBlock = AuthoringIntentRefineWithTools.formatPlanDeferProbeBlock(
-          routerVisible,
-          catalogForProbe,
-          key,
-          mdl,
+    return Router.route(
+      bodyPrompt,
+      userTextAfterGuard,
+      apiKey,
+      model,
+      wireBaseUrl,
+      toolsLoopSessionBundle,
+      ops,
+      recipePrefetchProgressListener,
+      { Map projectCfg, String systemPrompt, String userMessage ->
+        return authoringIntentRefineCompletionOrSimple(
+          apiKey,
+          model,
+          systemPrompt,
+          userMessage,
+          512,
+          120_000,
+          'IntentRecipeRouter',
           wireBaseUrl,
           toolsLoopSessionBundle,
-          cfg
+          projectCfg
         )
-        String deferCatalogBlock =
-          AuthoringIntentRecipeCatalog.formatPlanDeferOrchestrationContextBlock(
-            recipes,
-            routerVisible,
-            ops,
-            cfg,
-            activePass.catalogMd?.toString(),
-            toolsLoopSessionBundle
-          )
-        if (probeBlock?.trim()) {
-          deferCatalogBlock = probeBlock + (deferCatalogBlock ?: '')
-        }
-        planDeferCatalogTel =
-          AiOrchestrationTools.planDeferCatalogTelemetry(ops, cfg, deferCatalogBlock ?: '', toolsLoopSessionBundle)
-        if (deferCatalogBlock?.trim()) {
-          noMatchHint += '\n\n' + deferCatalogBlock
-        }
-        if (Boolean.TRUE.equals(planDeferCatalogTel.planDeferCatalogSent)) {
-          log.info(
-            'Intent recipe routing: plan-defer catalog injected for planner (chars={}, wiredTools={}, siteUserTools={}, InvokeSiteUserTool={}, siteUserToolIds={})',
-            planDeferCatalogTel.planDeferCatalogChars,
-            planDeferCatalogTel.planDeferWiredToolCount,
-            planDeferCatalogTel.planDeferSiteUserToolCount,
-            planDeferCatalogTel.planDeferInvokeSiteUserToolWired,
-            planDeferCatalogTel.planDeferSiteUserToolIds
-          )
-        } else {
-          log.warn(
-            'Intent recipe routing: deferToPlanLoop but plan-defer catalog not injected (blockChars={}, hasMarker={})',
-            planDeferCatalogTel.planDeferCatalogChars,
-            planDeferCatalogTel.planDeferCatalogHasMarker
-          )
-        }
-        if (AuthoringPreviewContext.authorVisibleSuggestsOpenPageInquiryForAuthorText(
-          cand,
-          currentAuthorVisible ?: ''
-        )) {
-          noMatchHint +=
-            '[Studio — read-only page inquiry: The author asked about **this anchored page**. **Simple** tier — call **GetContent** on the **Repository path** (or use prefetch XML), then answer in prose. **Do not** use **WebSearch** or general web research for this turn. **Do not** WriteContent unless they ask to edit.]\n\n'
-        }
-      } else if (AuthoringPreviewContext.authorCurrentRequestSuggestsCmsTooling(cand)) {
-        noMatchHint =
-          AuthoringPreviewContext.authorRefersToAnchoredOpenStudioItemForAuthorText(
-            cand,
-            currentAuthorVisible ?: ''
-          ) ?
-            '[Studio — open Studio item (read-only likely): The author refers to **this page** / **this component** on **this turn**. Call **GetContent** on the anchored **`/site/.../*.xml`** path first, then answer from the XML. Do **not** WriteContent unless they ask to change something.]\n\n' :
-            '[Studio — recipe intent router: no confident recipe match; **this turn** asks for CMS work. For **/site/.../*.xml** copy or field-only asks (no explicit FTL/CSS/template wording), use **GetContent**/**WriteContent** on those XML paths — not **update_template** or guessed asset paths unless the author asked for stylesheet/template work.]\n\n'
-      } else if (AuthoringPreviewContext.extractAnchoredRepositoryPath(cand)?.trim()) {
-        noMatchHint =
-          '[Studio — recipe intent router: no confident CMS workflow on **this message**. **Repository path** metadata describes which item is open in Studio — it is **not** by itself a request to read or write the repository. For chat-only work (stories, Q&A, revising a prior assistant reply), answer in prose and **do not** call GetContent or WriteContent unless **this turn** explicitly asks to read or edit repository content.]\n\n'
-      } else {
-        noMatchHint =
-          '[Studio — recipe intent router: no confident recipe match; proceed with normal judgement and only use tools when **this turn** clearly requires repository work.]\n\n'
       }
-      String routingEnginePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
-      result.userTextForToolsLoop = expansionWirePrefix + routingEnginePrefix + noMatchHint + (userTextAfterGuard ?: '')
-      result.intentRecipeRoutingWireCand = cand
-      Map noMatchTel = [
-        recipeId               : rid,
-        confidence             : conf,
-        minConfidence          : minC,
-        recipeFoundInCatalog   : recipeFound,
-        routerReason           : (decision.reason?.toString()?.trim() ?: ''),
-        intentExpansionRematch : expansionWirePrefix ? Boolean.TRUE : Boolean.FALSE,
-        deferToPlanLoop        : deferPlan ? Boolean.TRUE : Boolean.FALSE,
-        matchPass              : activePass.matchPass?.toString()
-      ]
-      noMatchTel.putAll(catalogTel)
-      if (!planDeferCatalogTel.isEmpty()) {
-        noMatchTel.putAll(planDeferCatalogTel)
-      }
-      if (activePass.multiGoalDeferGroupsHit instanceof List) {
-        noMatchTel.multiGoalDeferGroupsHit = activePass.multiGoalDeferGroupsHit
-      }
-      if (activePass.siteToolMatchCount != null) {
-        noMatchTel.put('siteToolMatchCount', activePass.siteToolMatchCount)
-      }
-      if (activePass.matchedSiteToolIds != null) {
-        noMatchTel.put('matchedSiteToolIds', activePass.matchedSiteToolIds)
-      }
-      if (activePass.competingRecipeId != null) {
-        noMatchTel.put('competingRecipeId', activePass.competingRecipeId?.toString())
-      }
-      putSiteToolRoutingTelemetry(noMatchTel, siteToolMatchesFromPassFields(activePass), cfg)
-      putRefineToolsTelemetryIfPresent(noMatchTel, toolsLoopSessionBundle)
-      putRoutingEngineTelemetryIfPresent(noMatchTel, toolsLoopSessionBundle)
-      return intentRecipeAttachTelemetry(ops, cfg, result, 'no_match', noMatchTel)
-    } catch (InterruptedException ie) {
-      Thread.currentThread().interrupt()
-      return intentRecipeAttachTelemetry(ops, cfg, result, 'skipped_interrupted')
-    } catch (Throwable t) {
-      log.warn('intentRecipeRoutingPrelude skipped: {}', t.message)
-      return intentRecipeAttachTelemetry(ops, cfg, result, 'error', [errorMessage: (t.message ?: t.toString())])
-    }
+    )
   }
+
 
   /**
    * Headless native-tools chat completion (no servlet {@code AiOrchestration}): same Studio {@code tools[]} + execution loop as
@@ -5689,7 +3965,6 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       )
     }
     String ut = (userText ?: '').toString()
-    ut = maybePrependAuthoringIntentExpansionBlock(ut, ut, apiKey, model, wireBaseUrl, toolsLoopSessionBundle, false)
     String userForTools = ToolPrompts.getLlm_USER_MESSAGE_TOOLS_POLICY_PREFIX() + ut
     Prompt prompt = new Prompt([
       new SystemMessage((systemText ?: '').toString()),
@@ -5741,6 +4016,42 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       }
     }
     last
+  }
+
+  /**
+   * When routing deferred to the plan loop, match **## Plan** steps to catalog recipes and stash hints on the session bundle.
+   */
+  private static void maybeLogPlanStepDeterministicRecipeMatches(
+    List recipes,
+    Map toolsLoopSessionBundle,
+    String assistantContent
+  ) {
+    if (!(toolsLoopSessionBundle instanceof Map) || recipes == null || recipes.isEmpty()) {
+      return
+    }
+    Map tel = (Map) toolsLoopSessionBundle.get('intentRecipeRoutingTelemetry')
+    if (!(tel instanceof Map) || !Boolean.TRUE.equals(tel.get('deferToPlanLoop'))) {
+      return
+    }
+    List<Map> steps = PlanOrchestration.parseOrchestrationSteps((assistantContent ?: '').toString())
+    if (steps.isEmpty()) {
+      return
+    }
+    String wireCand = toolsLoopSessionBundle.intentRecipeRoutingWireCand?.toString() ?: ''
+    Map ctx = [cand: wireCand]
+    List<Map> hits = AuthoringIntentRecipeCatalog.matchRecipesForPlanSteps(recipes, ctx, steps)
+    if (hits.isEmpty()) {
+      return
+    }
+    log.info(
+      'Intent recipe routing: plan-step recipe hints (deferToPlanLoop): {}',
+      hits.collect { "${it.stepId ?: '?'}:${it.recipeId}" }.join(', ')
+    )
+    toolsLoopSessionBundle.planStepRecipeMatches = hits
+    String stepHints = AuthoringIntentRecipeCatalog.formatPlanStepRecipeHintsWire(hits)
+    if (stepHints?.trim()) {
+      toolsLoopSessionBundle.planStepRecipeHintsWire = stepHints
+    }
   }
 
   /** One-shot prepend of per-step recipe hints after **## Plan** is parsed on defer-to-plan turns. */
@@ -6480,7 +4791,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       return false
     }
     String verificationId = intentTelLoop.get('toolsLoopWriteVerification')?.toString()?.trim() ?: ''
-    if (plugins.org.craftercms.aiassistant.engine.routing.ToolsLoopWriteVerification.isActiveVerificationId(verificationId)) {
+    if (plugins.org.craftercms.aiassistant.engine.routing.subrouting.ToolsLoopWriteVerification.isActiveVerificationId(verificationId)) {
       return true
     }
     String supplement = intentTelLoop.get('toolsLoopPrefetchSupplement')?.toString()?.trim() ?: ''
@@ -6560,7 +4871,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       if (!siteId) {
         siteId = ops.resolveEffectiveSiteId('')
       }
-      Map prep = plugins.org.craftercms.aiassistant.engine.routing.ToolsLoopWriteVerification.verifyAndPrepare(
+      Map prep = plugins.org.craftercms.aiassistant.engine.routing.subrouting.ToolsLoopWriteVerification.verifyAndPrepare(
         ops,
         siteId,
         path,
@@ -7028,7 +5339,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
         keyOrder = new ArrayList<>(payload.keySet())
       }
       sb.append(
-        plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentRecipeLlmRefiner
+        plugins.org.craftercms.aiassistant.engine.routing.subrouting.AuthoringIntentRecipeLlmRefiner
           .buildAuthorPreviewMarkdown(payload, keyOrder)
       )
     } else if (preview) {
@@ -7086,10 +5397,10 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     Map payloadForFollowUp = block.confirmationPayload instanceof Map ? (Map) block.confirmationPayload : [:]
     String draftForFollowUp = (payloadForFollowUp.draft ?: '').toString().trim()
     if (draftForFollowUp) {
-      String draftHeading = plugins.org.craftercms.aiassistant.engine.routing.PriorConversationDraftExtract
+      String draftHeading = plugins.org.craftercms.aiassistant.engine.routing.subrouting.PriorConversationDraftExtract
         .followUpHeadingForPayloadKey(llmRefineStep instanceof Map ? (Map) llmRefineStep : [:], 'draft')
       if (!draftHeading) {
-        List<String> configured = plugins.org.craftercms.aiassistant.engine.routing.PriorConversationDraftExtract
+        List<String> configured = plugins.org.craftercms.aiassistant.engine.routing.subrouting.PriorConversationDraftExtract
           .confirmationFollowUpSectionHeadings(recipe, [:])
         draftHeading = configured && !configured.isEmpty() ? configured[0] : 'draft'
       }
@@ -7108,11 +5419,11 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
    * follow-up turns that create repository items from prior chat prose.
    */
   private static void appendRecipeTurnSectionsForFollowUpChat(StringBuilder sb, String sourceMd, Map recipe = null) {
-    List<String> headings = plugins.org.craftercms.aiassistant.engine.routing.PriorConversationDraftExtract
+    List<String> headings = plugins.org.craftercms.aiassistant.engine.routing.subrouting.PriorConversationDraftExtract
       .confirmationFollowUpSectionHeadings(recipe, [:])
     boolean any = false
     for (String heading : headings) {
-      String body = plugins.org.craftercms.aiassistant.engine.routing.RecipeMarkdownSections
+      String body = plugins.org.craftercms.aiassistant.engine.routing.subrouting.RecipeMarkdownSections
         .extractSection(sourceMd, heading)?.trim()
       if (!body) {
         continue
@@ -7418,7 +5729,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     if (pol.wireOutputMode == plugins.org.craftercms.aiassistant.engine.policy.ToolsLoopWirePolicy.WIRE_COMPACT_FETCH_HTTP) {
       int bodyCap = fetchHttpUrlWireMaxCharsFromBundle(toolsLoopSessionBundle)
       if (bodyCap <= 0) {
-        bodyCap = plugins.org.craftercms.aiassistant.engine.routing.AuthoringIntentRecipeCatalog.DEFAULT_WEB_RESEARCH_FETCH_HTTP_WIRE_MAX_CHARS
+        bodyCap = AuthoringIntentRecipeCatalog.DEFAULT_WEB_RESEARCH_FETCH_HTTP_WIRE_MAX_CHARS
       }
       return compactFetchHttpUrlToolWire(s, bodyCap)
     }
@@ -8967,8 +7278,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           (springAi.resolvedChatModel ?: resolveChatModel(chatModel)),
           StudioAiLlmKind.toolsLoopChatBaseUrlFromBundle(springAi),
           springAi,
-          springAi.studioOps,
-          effectiveAuthoringIntentExpansionRematchEnabled(bodyPrompt, springAi.studioOps)
+          springAi.studioOps
         )
         if (route?.intentRecipeRoutingTelemetry instanceof Map) {
           springAi.intentRecipeRoutingTelemetry = route.intentRecipeRoutingTelemetry
@@ -8977,20 +7287,6 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           springAi.intentRecipeRoutingWireCand = route.intentRecipeRoutingWireCand.toString()
         }
         applyIntentRecipeRouteEffects(springAi, route)
-        if (route.clarificationOnly) {
-          String clar = toolsLoopSimpleCompletionAssistantText(
-            StudioAiLlmKind.toolsLoopChatApiKeyFromBundle(springAi),
-            (springAi.resolvedChatModel ?: resolveChatModel(chatModel)),
-            ToolPrompts.getLlm_INTENT_CLARIFICATION_ONLY_SYSTEM(),
-            route.clarificationUserText?.toString() ?: '',
-            400,
-            120_000,
-            'IntentRecipeClarification',
-            StudioAiLlmKind.toolsLoopChatBaseUrlFromBundle(springAi),
-            springAi
-          )
-          return [ok: true, response: [content: clar, message: clar]]
-        }
         userText = route.userTextForToolsLoop?.toString() ?: (springAi.useTools ? userText : bodyPrompt)
       }
       Prompt authoringChatPrompt = null
@@ -10032,7 +8328,6 @@ SerpApi and other tools may still work when only the chat host is blocked. From 
           StudioAiLlmKind.toolsLoopChatBaseUrlFromBundle(springAi),
           springAi,
           springAi.studioOps,
-          effectiveAuthoringIntentExpansionRematchEnabled(bodyPrompt, springAi.studioOps),
           toolProgressListener
         )
         if (route?.intentRecipeRoutingTelemetry instanceof Map) {
@@ -10043,26 +8338,6 @@ SerpApi and other tools may still work when only the chat host is blocked. From 
           springAi.intentRecipeRoutingWireCand = route.intentRecipeRoutingWireCand.toString()
         }
         applyIntentRecipeRouteEffects(springAi, route)
-        if (route.clarificationOnly) {
-          Prompt clarifyPrompt = new Prompt([
-            new SystemMessage(ToolPrompts.getLlm_INTENT_CLARIFICATION_ONLY_SYSTEM()),
-            new UserMessage(route.clarificationUserText?.toString() ?: '')
-          ])
-          AtomicBoolean clarTerminal = new AtomicBoolean(false)
-          try {
-            writeToolsOffViaChatCompletionEntity(
-              out,
-              StudioAiLlmKind.toolsLoopChatApiKeyFromBundle(springAi),
-              (springAi.resolvedChatModel ?: resolveChatModel(chatModel)),
-              clarifyPrompt,
-              agentId,
-              StudioAiLlmKind.toolsLoopChatBaseUrlFromBundle(springAi)
-            )
-          } finally {
-            ensureSseTerminalCompletedIfNeeded(out, toolTimingCtx, clarTerminal, 'intent recipe clarification-only')
-          }
-          return null
-        }
         userText = route.userTextForToolsLoop?.toString() ?: (springAi.useTools ? userText : bodyPrompt)
       }
       def toolRequiredIntent = springAi.useTools && isToolRequiredIntent(bodyPrompt)

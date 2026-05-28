@@ -6,6 +6,8 @@ Companion to **[`chat-and-tools-runtime.md`](chat-and-tools-runtime.md)** and **
 
 **Configuration:** Project Tools → AI Assistant → **Recipes** tab (`tools.json` → `intentRecipeRouting` flags + site **`intent-recipes.json`** catalog). Bundled defaults ship in the plugin JAR: `authoring/scripts/classes/plugins/org/craftercms/aiassistant/engine/routing/authoring-intent-recipes-default.json`. Site overrides: `config/studio/scripts/aiassistant/intent-recipes.json` (path configurable via **custom recipes path**). Admin overview: **[configuration-guide.md §9.0](../using-and-extending/configuration-guide.md#cg-9-0)**. **Broader architecture:** [Architecture & diagrams](../architecture-diagrams.md#logical-architecture-design) (recipe prelude in the orchestration layer).
 
+**Code entry point:** `plugins.org.craftercms.aiassistant.engine.routing.Router.route(...)` — orchestration calls that method only; catalog, prefetch engine, JSON parse, and recipe bind live under `engine/routing/subrouting/`.
+
 ---
 
 ## Design principle

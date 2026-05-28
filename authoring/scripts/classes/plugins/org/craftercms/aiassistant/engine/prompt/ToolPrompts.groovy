@@ -943,66 +943,6 @@ If the bundle exceeds ~280k characters, the tool fails — narrow **maxDepth**/s
   }
 
   /**
-   * Inner system prompt for the server’s optional **pre-tools** intent-expansion completion (see
-   * {@code AiOrchestration#maybePrependAuthoringIntentExpansionBlock}). Output is prepended to the main tools user message.
-   */
-  static String getLlm_AUTHORING_INTENT_EXPANSION_SYSTEM() {
-    p('GENERAL_LLM_AUTHORING_INTENT_EXPANSION_SYSTEM',
-      '''You help Crafter Studio authors whose message is **underspecified** for safe tool execution: **one-liners**, **short** asks, or vague “make it like …” / “match …” language — often with a reference URL **or** a bare host like **google.com** (no {@code https://} required). When they ask **what this page is about** / **what do you think this page is about** and Studio metadata already names **contentPath**, bullets must tell the follow-up model to **GetContent** on that path first and summarize from XML — **not** to answer from memory or refuse for “lack of access.”
-
-When **Recent turn memory** (previous user + assistant) is included, use it for follow-ups like “make it shorter” or “use that in the hero” — do not treat the current line in isolation.
-
-Output **only** a **markdown bullet list** (each line starts with `- ` or `* `). **4–10 bullets**, each one sentence when possible, **under ~900 words** total. No title line, no preamble (“Here is…”), no JSON, no fenced code blocks with full stylesheets.
-
-Each bullet should be **actionable for a follow-up model that has native built-in tools**: name **visitor-visible** outcomes (typography, color, spacing, header/footer/sections, hero, cards), and which **repo layers** typically apply in CrafterCMS (**page/component XML** fields, **`/templates/web/…` FTL**, **`/static-assets/…` CSS**). **Do not** claim any file was read or written.
-
-**Selector realism:** Warn against copying **third-party hashed class names** (e.g. `.css-…`) unless this project’s DOM actually uses them; prefer goals tied to **this** site’s real structure (often visible from preview / FTL wrappers).
-
-**Crafter node-selectors:** Tell the follow-up model **not** to “restyle” by rewriting **`header_o`** / **`sections_o`** **`<item>`** nodes with only **key/value** — dropping **`<include>`** (when the repo uses it) **breaks** rendering (**often HTTP 500**). Theme work: **FTL** + **`/static-assets/`** CSS + **component** XML; **GetContent** before assuming a CSS path exists.
-
-**Copyright / ethics:** Do **not** instruct copying proprietary article body text, logos, or photos from the reference site — **visual structure and styling direction only**.
-
-End with **one** bullet that names **how the author can verify** success in Studio preview (e.g. obvious change to chrome + one interior section), without naming API tools.'''
-    )
-  }
-
-  /**
-   * Pass-2 **recipe rematch** expansion (after intent router pass 1 missed). User message carries the recipe catalog
-   * table + author text. Output is fed back into the JSON recipe router — must align to a {@code recipeId}, not a generic edit plan.
-   */
-  static String getLlm_AUTHORING_INTENT_EXPANSION_RECIPE_REMATCH_SYSTEM() {
-    p('GENERAL_LLM_AUTHORING_INTENT_EXPANSION_RECIPE_REMATCH_SYSTEM',
-      '''You help Crafter Studio when **pass-1 intent recipe routing did not match** any workflow. Your job is to **restate the author's goal in terms of one row from the recipe catalog** the user message includes — so a **strict JSON classifier** on the next step can pick the right `recipeId`.
-
-You receive:
-- Optional **Recent turn memory** (previous user message + assistant reply).
-- A **markdown table** of `recipeId`, title, description, **match if** / **do not match if** columns.
-- The **author message** for **this turn** (may include **Repository path:** / **contentPath** anchor blocks).
-
-When **Recent turn memory** is present, use it to interpret terse follow-ups ("make it shorter", "put that in the hero", etc.) before picking a recipe row.
-
-**Output format (required):**
-1) **First line exactly:** `Recipe match hint: <recipeId> — <read-only|edit> — <one short sentence why this row fits>` where `<recipeId>` is **exactly** an id from the table (never invent ids).
-2) Then **3–8 markdown bullets** (`- `) that clarify **mode** and **first tools** for that recipe only.
-
-**How to pick the row (use table descriptions, not keyword games alone):**
-- **Anchored `/site/.../*.xml`** + author asks what **this / the page** is about, means, covers, or wants your **interpretation/summary** with **no** edit verbs → **`open_page_inquiry`** (read-only: GetContent on anchored path or use prefetch XML; answer in prose; **no** WriteContent / template/CSS work unless they ask to change something). Do **not** treat this as “exploratory chitchat” or **`llm_research`** when Studio already named a repository path.
-- **Find/summarize content across the site** (search site, what pages about X) → **`site_content_research`**.
-- **Latest news / web headlines** → **`web_research`**.
-- **General knowledge** with **no** repo anchor and **no** “this page” → **`llm_research`**.
-- **Translate / localize** → **`translate_content_item`**.
-- **Generate image only** → **`generate_image`**.
-- **Explicit copy/field edit** on anchored XML → **`modify_page_content`** as **edit**.
-
-**Read-only vs edit:** When the author only wants understanding (about / describe / what would you say / summarize this page), bullets must say **read-only** and forbid WriteContent. When they want changes, say **edit** and name the field or area if known.
-
-**Do not:** output JSON; invent recipe ids; default to CSS/FTL/theme bullets for read-only page questions; claim files were read; write a generic “implementation plan” unrelated to the table.
-
-Keep total output under **~600 words**.'''
-    )
-  }
-
-  /**
    * Loads GENERAL_LLM_PLAN_GATE_ASSISTANT_ACK markdown via `p(...)`.
    * Shapes assistant acknowledgements after PlanGate retries.
    * Pairs with user-role companion prompts defined beside plan workflows.
@@ -1036,59 +976,7 @@ Reply again with that **## Plan** plus **tool_calls** in the same assistant mess
   }
 
   /**
-   * When more than one deterministic recipe signal matches, restate what the author wants **this turn only** so
-   * pattern matching can be retried (no recipe id selection).
-   */
-  static String getLlm_AUTHORING_INTENT_TIGHTEN_DISAMBIGUATION_SYSTEM() {
-    p(
-      'GENERAL_LLM_AUTHORING_INTENT_TIGHTEN_DISAMBIGUATION_SYSTEM',
-      '''More than one Crafter Studio **workflow pattern** matched the author's **current message**. Your job is to state what they want **this turn only** in one clear sentence — you are **not** picking a recipe id.
-
-You receive:
-- Optional **Recent turn memory** (previous user message + assistant reply).
-- A table of **recipeId** / title rows that all matched simple pattern rules.
-- The **author message** for **this turn** (may include Studio **Repository path:** metadata).
-
-Rules:
-- When **Recent turn memory** is present, use it to resolve follow-ups like "make it shorter", "use that", "put it in the hero", "the story you wrote" — combine memory + this turn into one clear goal.
-- When memory is absent, use only the current message.
-- If they want **creative writing**, fiction, jokes, brainstorming, or general knowledge **unrelated** to reading or editing the open CMS item, say that explicitly (e.g. "Write a short fictional story about …") — **do not** reinterpret as "describe or summarize the open page."
-- If they ask what **this page** / the open item is about, or want a read-only summary of anchored **`/site/.../*.xml`**, say that explicitly.
-- If they want to **edit copy or a field** on the anchored item, say that explicitly.
-- When Studio anchors **`/site/.../*.xml`** and they say **create** or **generate** a title/headline but mean copy **for this open page** (not a new URL or new content item), state **edit the anchored page's title or hero** — not **create a new page or component**.
-- Do **not** invent repository paths, field ids, or tool names.
-
-Output **exactly one line** (no bullets, no JSON):
-Tightened intent: <one sentence>'''
-    )
-  }
-
-  /**
-   * When **no** deterministic recipe pattern matched, restate the author's **current-turn** goal for a second match pass.
-   */
-  static String getLlm_AUTHORING_INTENT_CLARIFY_ENRICH_SYSTEM() {
-    p(
-      'GENERAL_LLM_AUTHORING_INTENT_CLARIFY_ENRICH_SYSTEM',
-      '''No Crafter Studio **workflow pattern** matched the author's **current message** on the first pass. State what they want **this turn only** in one clear sentence — you are **not** picking a recipe id.
-
-You receive:
-- Optional **Recent turn memory** (previous user message + assistant reply).
-- A **recipe catalog** table (titles and ids for context only).
-- The **author message** for **this turn** (may include Studio **Repository path:** metadata).
-
-Rules:
-- When **Recent turn memory** is present, use it for follow-ups ("make it shorter", "that story", "put it in the hero").
-- If the turn has **multiple distinct goals** (e.g. research on the web **and** edit a CMS field), say that explicitly in one sentence listing each goal — the server will use **## Plan** with one step per goal.
-- Creative writing, fiction, jokes, or revising a prior chat reply: say that explicitly — **do not** reinterpret as "describe the open page" unless they asked about the page.
-- Do **not** invent repository paths, field ids, or tool names.
-
-Output **exactly one line** (no bullets, no JSON):
-Tightened intent: <one sentence>'''
-    )
-  }
-
-  /**
-   * Appended to clarify/enrich, expansion, JSON router, and plan-defer refine system prompts when the server runs a
+   * Appended to JSON router and plan-defer refine system prompts when the server runs a
    * bounded tools loop ({@code AuthoringIntentRefineWithTools}).
    */
   static String getLlm_AUTHORING_INTENT_REFINE_TOOLS_APPENDIX() {
@@ -1099,7 +987,7 @@ You **may** call wired **read/lookup** tools (e.g. **GetContent**, **GetContentT
 When the user message includes **`[Studio — intent routing prefetch (...)]`** JSON blocks, treat them as **already-run** read-only tool results (same as recipe engine prefetch) — do not repeat the same calls unless the author asks for fresh data.
 **Repository writes** (WriteContent, publish, revert, template/CSS mutators, GenerateImage, translate write-backs) are **not** available in this phase.
 
-After any tool calls, your **final** assistant message must still follow the **output rules** in the system prompt above (e.g. exactly one line `Tightened intent: …`, or `Recipe match hint:` lines, or **JSON only** for the recipe router).
+After any tool calls, your **final** assistant message must still follow the **output rules** in the system prompt above (**JSON only** for the recipe router).
 Do **not** end on tool output alone — always finish with the required final format.'''
     )
   }
@@ -1128,46 +1016,38 @@ Do **not** claim you wrote repository content. Do **not** invent tool names not 
   static String getLlm_AUTHORING_INTENT_RECIPE_ROUTER_SYSTEM() {
     p(
       'GENERAL_LLM_AUTHORING_INTENT_RECIPE_ROUTER_SYSTEM',
-      '''You are a **strict classifier** for Crafter Studio authoring. You **do not** invent repository paths. You may use read/lookup tools only when the routing-refine tools appendix is present; otherwise classify from the catalog and author text alone.
+      '''You are the **intent router** for Crafter Studio authoring. Classify **this turn** (and **Recent turn memory** when present). You do **not** invent repository paths. Classify from the catalogs and author text only.
 
-You receive a **markdown table** of recipe rows (`recipeId`, title, description, optional **match if** / **do not match if** keyword columns), optional **Recent turn memory** (previous user + assistant), and the **author message for this turn** (may include Studio context).
+You receive:
+1. **Recipe catalog** — workflows (stronger than individual tools).
+2. **Tool catalog** — built-in wire tools and site user tools (weaker than recipes).
+3. Optional **Recent turn memory** (prior user + assistant turns).
+4. **Author message (this turn)** — author wording only; Studio metadata lines are context, not the request.
 
-When **Recent turn memory** is present, use it to resolve follow-ups ("make it shorter", "that story", "put it in the field", "looks great — make a post") before classifying. The author **does not** need to say **draft** — approval + save/create/post/page intent with substantial prior assistant prose is enough.
+**Hints:** **match if** and **do not match if** columns are **intent signals**, not literal substring rules. Treat them as **synonyms and paraphrases** the author might use. **do not match if** forbids that row when the author clearly means that negative case.
 
-**Persist prior chat as new repository content:** When **Recent turn memory** shows a long prior **assistant** reply and **this turn** asks to save/create/make a new item in the CMS, prefer the matched intent recipe whose prefetch supplement is **`createFromChatDraft`** (prior prose copied verbatim) over generic **`new_content_item`** (sibling shape only). Use **`new_content_item`** only when the author wants a **blank** new item with **no** prior assistant prose to copy.
+**Recipes beat tools:** When a recipe row clearly fits, use **mode `recipe`**. Use **mode `tool`** only when no recipe fits but one wire tool is the obvious single step. Use **mode `plan`** for multiple goals, unclear scope, or several tools/recipes in one turn.
 
-Reply with **JSON only** (no markdown fences, no prose). Shape:
-{"recipeId":"<exact id from table or null>","confidence":0.0-1.0,"reason":"one short sentence"}
+**Generated bitmap vs placeholder:** When the author asks to **create / draw / generate / make an image** (or **picture / illustration of …**) with a **specific subject**, use **`recipe`** **`generate_image`** when that row exists, or **`tool`** **`GenerateImage`**. Use **`GeneratePlaceholderImage`** only when a **required image-picker** needs a grey sample and the author did **not** ask for specific generated art.
+
+**Summarize / describe anchored page (read-only):** When Studio metadata anchors **`/site/.../*.xml`** and the author wants a **summary, overview, or explanation** of **this page** (not edit, rewrite, translate, or publish), use **`recipe`** **`open_page_inquiry`**. Do **not** use **`modify_page_content`** for summarize-only turns — that recipe writes XML.
+
+**Modes (pick exactly one):**
+- **`chat_only`** — Answer in prose only; **no** repository tools this turn (greetings, general Q&A, creative writing, revising prior chat text, explanations). Studio anchor metadata alone does **not** require CMS tools.
+- **`recipe`** — One catalog recipe runs the turn (`recipeId` required). High confidence when description + hints fit.
+- **`tool`** — One wire tool is enough (`toolName` required; must appear in the tool catalog).
+- **`plan`** — Multi-step work: emit **## Plan** in the main assistant and use tools across steps.
+
+**Follow-ups:** Use prior memory for short replies ("make it shorter", "looks great — save that", "draft a post") without requiring the same keywords as turn 1.
+
+Reply with **JSON only** (no markdown fences, no prose):
+{"mode":"chat_only|recipe|tool|plan","recipeId":null,"toolName":null,"confidence":0.0,"reason":"one short sentence"}
 
 Rules:
-- **recipeId** must be **exactly** one of the ids in the table **or** JSON **null** if none fits.
-- If the author message contains a phrase from a row's **do not match if** column (substring, any language casing), you **must not** return that row's `recipeId` — pick another row or **null**.
-- **match if** keywords are positive signals only; missing keywords does **not** forbid a match when the description clearly fits.
-- **confidence** (0–1): the server compares it to the site’s **minConfidence** (often **0.55**); **below threshold = no recipe applied**. Use **high confidence** when the author clearly fits a row. Use **low confidence** only for **pure chitchat**, **unrelated** asks, **no CMS/repo work**, or **ambiguous between two table rows** — **not** for a clear one-line content edit. **Single-row catalog:** when the table has **exactly one** row and the author asks for **normal Studio authoring** (copy, title, field, tone, grammar, page, component, update, edit, rewrite — not greeting-only), return **that `recipeId`** with **confidence ≥ 0.85** unless clearly **off-topic** for CMS work (then `recipeId: null` with low confidence).
-- Prefer **null** when the author only greets or asks a generic CMS question with **no** clear workflow from the table.
-- If the author message begins with **`Recipe match hint:`** naming a `recipeId` from the table (from pass-2 expansion), return **that** `recipeId` with **confidence ≥ 0.85** unless a **do not match if** phrase forbids it — the hint is a strong signal, not a separate author ask.
-- **Read-only page inquiry:** When Studio anchors **`/site/.../*.xml`** and the author asks what **this page** is about (any phrasing: “what is”, “what would you say”, “describe”, “tell me about”) with **no** edit/translate/publish/image verbs, **`open_page_inquiry`** is the correct row — **not** `modify_page_content`, **not** `null`, and **not** “unrelated to CMS workflows”.
-- **Anchor metadata alone:** A **Repository path** line in Studio context does **not** mean **`modify_page_content`**. Do **not** choose CMS edit workflows when **this turn** is creative writing, fiction, jokes, or revising a **prior chat reply** (e.g. “make this story shorter”) — use **`llm_research`** (tools off) even if an anchor is present.
-- Do **not** output any key besides recipeId, confidence, reason.'''
-    )
-  }
-
-  /**
-   * Tools-off clarification turn when **`intentRecipeRouting.requestClarificationOnUnmatched`** is true and the router
-   * found no confident recipe.
-   */
-  static String getLlm_INTENT_CLARIFICATION_ONLY_SYSTEM() {
-    p(
-      'GENERAL_LLM_INTENT_CLARIFICATION_ONLY_SYSTEM',
-      '''You are in Crafter Studio. **Native built-in tools are disabled for this reply** — do **not** claim you ran GetContent, WriteContent, or other repository tools.
-
-The site **intent recipe router** could not match the author's message to a known workflow with enough confidence.
-
-Reply in **plain prose** (no JSON, no tool_calls):
-1) **One short clarifying question** that helps disambiguate what they want.
-2) Optionally list **2–4 short bullets** naming workflow types they might mean, using **only** the **titles** from the recipe table in the user message (do not invent new workflow names beyond that table).
-
-Keep the whole reply under **~180 words**.'''
+- **confidence** (0–1): compared to site **minConfidence** (often 0.55) for **recipe** mode only.
+- **recipeId**: exact id from the recipe table when **mode** is **recipe**; otherwise **null**.
+- **toolName**: exact wire name from the tool table when **mode** is **tool**; otherwise **null**.
+- Do **not** output keys besides mode, recipeId, toolName, confidence, reason.'''
     )
   }
 }
