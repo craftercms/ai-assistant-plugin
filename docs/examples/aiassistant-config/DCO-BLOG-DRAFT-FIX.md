@@ -75,7 +75,7 @@ Author voice: **…**
 
 On **dco**, `/component/post` stores the article inside **`content_o`** as an **inline** `/component/rich_text` with **`content_html`** — not a top-level `<rich_text><content_html>` under `content_o`.
 
-Deploy **[`context/site-authoring.md`](context/site-authoring.md)** to:
+Deploy **[`sites/dco/context/site-authoring.md`](sites/dco/context/site-authoring.md)** to:
 
 `config/studio/scripts/aiassistant/context/site-authoring.md`
 
@@ -91,7 +91,7 @@ and the site override **`new_content_item_from_chat_draft`** in [`sites/dco/scri
 </content_o>
 ```
 
-**Right (generate per [`context/site-authoring.md`](context/site-authoring.md)):**
+**Right (generate per [`sites/dco/context/site-authoring.md`](sites/dco/context/site-authoring.md)):**
 
 - **Two UUIDs** (post ≠ inline rich_text)
 - `<item datasource="richTextSections" inline="true">` — attributes, not `<datasource>` child elements
@@ -153,7 +153,7 @@ Your debug log showed **`recipeId`: `new_content_item_from_chat_draft`** but **`
 | Step | Action |
 |------|--------|
 | 1 | Copy [`sites/dco/scripts/aiassistant/config/intent-recipes.json`](sites/dco/scripts/aiassistant/config/intent-recipes.json) → site `config/studio/scripts/aiassistant/config/intent-recipes.json` (merge by **`id`**: `new_content_item_from_chat_draft`). |
-| 2 | Copy [`context/site-authoring.md`](context/site-authoring.md) → `config/studio/scripts/aiassistant/context/site-authoring.md`. |
+| 2 | Copy [`sites/dco/context/site-authoring.md`](sites/dco/context/site-authoring.md) → `config/studio/scripts/aiassistant/context/site-authoring.md`. |
 | 3 | Commit/push site sandbox; reload Studio / **AI Assistant → Recipes → Save**. |
 | 4 | Delete or rename a half-written post if prefetch **ContentExists** is **true** on the suggested slug (e.g. `.../the-future-of-ai-innovations-from-google-i-o-2026.xml`) and you want a clean create. |
 

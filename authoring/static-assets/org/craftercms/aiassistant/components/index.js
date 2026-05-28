@@ -31962,7 +31962,8 @@ function AiAssistantChat(props) {
                         setMessages((prev) => prev.map((m) => m.id === assistantId
                             ? {
                                 ...m,
-                                pipelineHeartbeat: { elapsedSec, nextInSec, hint }
+                                // Ignore/clear stale heartbeat rows that arrive after terminal completion.
+                                pipelineHeartbeat: m.isStreaming ? { elapsedSec, nextInSec, hint } : undefined
                             }
                             : m));
                         return;
@@ -74787,6 +74788,23 @@ const AI_ASSISTANT_PROJECT_CONTEXT_MARKDOWN_STUB = `# Project authoring context
 Markdown here is appended to every AI Assistant chat turn for this site when non-empty. It is not the author's request — use it for stable site facts: content-type paths, folder conventions, naming rules, and workflows.
 
 `;
+/**
+ * Suggested prompt authors can paste into an agent to analyze the site and draft project context markdown.
+ * Shown on Project Tools → Context and Prompts with a one-click copy control.
+ */
+const AI_ASSISTANT_PROJECT_CONTEXT_GENERATION_PROMPT = `Analyze the site content, structure, and form definitions, and recommend a context prompt I can use to improve AI agent results for this site.
+
+- If it is a website, note that pages are stored under \`/site/website/{path}/{slug}/index.xml\`.
+- Where specific content types are used to create pages or components within specific areas of the information architecture, call them out.
+- If a generic page type exists, call it out. Also indicate that when a more specific type exists for a given use case, based on its name, the more specific type should be used instead.
+- If the site is multilingual, explain how languages are organized.
+- List key details about the information architecture, such as date structures in paths.
+- If the site has \`/site/taxonomy/*\` items, such as \`/site/taxonomy/categories.xml\`, generate a markdown table of taxonomies:
+  - One row per item, listing the file.
+  - Include the content types that use each item.
+- Create a graph of the information architecture that shows paths and purpose.
+
+Respond with the insights for this site in the shape of a skill. Include specific details, not recommendations or a prompt. Be specific and cite examples. You do not need to list every content type in the system. The objective is to identify and call out non-obvious, non-trivial, project-specific structures and rules.`;
 /** Starter markdown when creating a site override for {@code config/studio/scripts/aiassistant/prompts/&lt;KEY&gt;.md}. */
 function aiAssistantToolPromptMarkdownStub(key) {
     return `# ${key}
@@ -75062,7 +75080,16 @@ function AiAssistantScriptsSandboxConfiguration(props) {
     const [editorStudioPath, setEditorStudioPath] = useState('');
     const [editorBody, setEditorBody] = useState('');
     const [editorStub, setEditorStub] = useState('');
+    const [projectContextCopyHint, setProjectContextCopyHint] = useState(null);
+    const projectContextCopyHintTimerRef = useRef(null);
     const [savingEditor, setSavingEditor] = useState(false);
+    useEffect(() => {
+        return () => {
+            if (projectContextCopyHintTimerRef.current != null) {
+                window.clearTimeout(projectContextCopyHintTimerRef.current);
+            }
+        };
+    }, []);
     const [addOpen, setAddOpen] = useState(null);
     const [addId, setAddId] = useState('');
     const [addScript, setAddScript] = useState('');
@@ -75385,6 +75412,17 @@ function AiAssistantScriptsSandboxConfiguration(props) {
     const openProjectContextEditor = () => {
         void loadFileForEditor('Project context', AI_ASSISTANT_PROJECT_CONTEXT_STUDIO_PATH, AI_ASSISTANT_PROJECT_CONTEXT_MARKDOWN_STUB);
     };
+    const copyProjectContextGenerationPrompt = async () => {
+        const ok = await copyTextToClipboard(AI_ASSISTANT_PROJECT_CONTEXT_GENERATION_PROMPT);
+        setProjectContextCopyHint(ok ? 'Copied prompt to clipboard' : 'Could not copy — select the text below and copy manually');
+        if (projectContextCopyHintTimerRef.current != null) {
+            window.clearTimeout(projectContextCopyHintTimerRef.current);
+        }
+        projectContextCopyHintTimerRef.current = window.setTimeout(() => {
+            setProjectContextCopyHint(null);
+            projectContextCopyHintTimerRef.current = null;
+        }, 2500);
+    };
     const removeProjectContext = () => {
         void deleteRepoFile(`/config/studio${AI_ASSISTANT_PROJECT_CONTEXT_STUDIO_PATH}`, 'Remove project context for this site? AI Assistant will stop injecting site-authoring facts until you add the file again.');
     };
@@ -75602,9 +75640,19 @@ function AiAssistantScriptsSandboxConfiguration(props) {
                                 }, onAgentSkillsRagChange: (agentSkillsRag) => {
                                     setToolsPolicy((prev) => ({ ...prev, agentSkillsRag }));
                                     setToolsPolicyDirty(true);
-                                } })] })) : null, (showToolsBuiltIn || showToolsUser) && showPrompts ? jsx$1(Divider, { sx: { my: 4 } }) : null, showPrompts ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["Project context (", jsx$1("code", { children: "scripts/aiassistant/context/site-authoring.md" }), "):"] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Non-empty markdown is injected on every orchestration turn (labeled Studio project context). Use it for content-type paths, folder conventions, and site-specific workflows \u2014 not for one-off author requests." }), jsxs(Stack$1, { direction: "row", spacing: 1, sx: { mb: 3 }, flexWrap: "wrap", alignItems: "center", children: [jsx$1(Typography, { variant: "body2", color: "text.secondary", children: projectContext?.hasContent
+                                } })] })) : null, (showToolsBuiltIn || showToolsUser) && showPrompts ? jsx$1(Divider, { sx: { my: 4 } }) : null, showPrompts ? (jsxs(Fragment, { children: [jsx$1(Typography, { variant: "subtitle1", gutterBottom: true, children: "Project context" }), jsxs(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: ["Improve your agents' ability to understand this site with project-specific details. Non-empty markdown at ", jsx$1("code", { children: "scripts/aiassistant/context/site-authoring.md" }), " is injected on every orchestration turn (labeled Studio project context)."] }), jsxs(Stack$1, { direction: "row", spacing: 1, sx: { mb: 2 }, flexWrap: "wrap", alignItems: "center", children: [jsx$1(Typography, { variant: "body2", color: "text.secondary", children: projectContext?.hasContent
                                             ? `Configured (${projectContext.byteLength} bytes)`
-                                            : 'Not configured — built-in tool prompts only' }), jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: () => openProjectContextEditor(), children: "Edit" }), jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), disabled: !projectContext?.hasContent, onClick: () => removeProjectContext(), children: "Remove" })] }), jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["Tool prompt overrides (", jsx$1("code", { children: "scripts/aiassistant/prompts/" }), "):"] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Non-empty markdown for a key replaces the plugin default (see ToolPromptsLoader). Remove the file to use the built-in text again. Click a row to read the default and the site file side by side." }), jsx$1(TableContainer, { sx: { maxHeight: 420, border: 1, borderColor: 'divider', borderRadius: 1 }, children: jsxs(Table$1, { size: "small", stickyHeader: true, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Key" }), jsx$1(TableCell, { children: "Status" }), jsx$1(TableCell, { align: "right", children: "Actions" })] }) }), jsx$1(TableBody, { children: toolPromptOverrides.length === 0 ? (jsx$1(TableRow, { children: jsx$1(TableCell, { colSpan: 3, children: jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No prompt keys returned from the server." }) }) })) : (toolPromptOverrides.map((row) => (jsxs(TableRow, { hover: true, selected: promptReadOpen && promptReadKey === row.key, sx: { cursor: 'pointer' }, onClick: () => openPromptRead(row.key), children: [jsx$1(TableCell, { children: jsx$1("code", { children: row.key }) }), jsx$1(TableCell, { children: row.hasOverride ? `Site override (${row.byteLength} bytes)` : 'Built-in default' }), jsxs(TableCell, { align: "right", children: [jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: (ev) => {
+                                            : 'Not configured — built-in tool prompts only' }), jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: () => openProjectContextEditor(), children: "Edit" }), jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), disabled: !projectContext?.hasContent, onClick: () => removeProjectContext(), children: "Remove" })] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Use the prompt below (or similar) in an agent to analyze this site and draft context for the editor." }), jsx$1(Typography, { variant: "caption", color: "text.secondary", sx: { display: 'block', mb: 0.75, fontWeight: 600 }, children: "Example prompt" }), jsxs(Paper, { elevation: 0, sx: (theme) => ({
+                                    position: 'relative',
+                                    mb: projectContextCopyHint ? 0.5 : 3,
+                                    px: 1.5,
+                                    py: 1.25,
+                                    pr: 4.5,
+                                    borderRadius: 1.5,
+                                    border: 1,
+                                    borderColor: 'divider',
+                                    bgcolor: theme.palette.mode === 'dark' ? theme.palette.grey[900] : theme.palette.grey[50]
+                                }), children: [jsx$1(Tooltip, { title: "Copy prompt", children: jsx$1(IconButton, { size: "small", "aria-label": "Copy example prompt", onClick: () => void copyProjectContextGenerationPrompt(), sx: { position: 'absolute', top: 4, right: 4 }, children: jsx$1(ContentCopyRounded, { fontSize: "small" }) }) }), jsx$1(Typography, { variant: "body2", component: "div", sx: { whiteSpace: 'pre-wrap', lineHeight: 1.55, fontSize: '0.8125rem' }, children: AI_ASSISTANT_PROJECT_CONTEXT_GENERATION_PROMPT })] }), projectContextCopyHint ? (jsx$1(Typography, { variant: "caption", color: "text.secondary", sx: { display: 'block', mb: 3 }, children: projectContextCopyHint })) : null, jsxs(Typography, { variant: "subtitle1", gutterBottom: true, children: ["Tool prompt overrides (", jsx$1("code", { children: "scripts/aiassistant/prompts/" }), "):"] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Non-empty markdown for a key replaces the plugin default (see ToolPromptsLoader). Remove the file to use the built-in text again. Click a row to read the default and the site file side by side." }), jsx$1(TableContainer, { sx: { maxHeight: 420, border: 1, borderColor: 'divider', borderRadius: 1 }, children: jsxs(Table$1, { size: "small", stickyHeader: true, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Key" }), jsx$1(TableCell, { children: "Status" }), jsx$1(TableCell, { align: "right", children: "Actions" })] }) }), jsx$1(TableBody, { children: toolPromptOverrides.length === 0 ? (jsx$1(TableRow, { children: jsx$1(TableCell, { colSpan: 3, children: jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No prompt keys returned from the server." }) }) })) : (toolPromptOverrides.map((row) => (jsxs(TableRow, { hover: true, selected: promptReadOpen && promptReadKey === row.key, sx: { cursor: 'pointer' }, onClick: () => openPromptRead(row.key), children: [jsx$1(TableCell, { children: jsx$1("code", { children: row.key }) }), jsx$1(TableCell, { children: row.hasOverride ? `Site override (${row.byteLength} bytes)` : 'Built-in default' }), jsxs(TableCell, { align: "right", children: [jsx$1(Button, { size: "small", startIcon: jsx$1(EditRounded, {}), onClick: (ev) => {
                                                                     ev.stopPropagation();
                                                                     void openToolPromptOverride(row.key);
                                                                 }, children: "Override" }), jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), disabled: !row.hasOverride, onClick: (ev) => {
@@ -76659,11 +76707,15 @@ function projectToolsTabLabel(t) {
 function integrationsSandboxPanel(sub) {
     return sub;
 }
+/** Inline in Project Tools / full-page site tools — no nested modal over the Studio shell. */
+function useInlineProjectToolsShell(props) {
+    return typeof props.onMinimize === 'function' || props.mountMode === 'page';
+}
 /**
  * Tabbed configuration body (tabs + panels + unsaved guard). Used inside {@link AiAssistantProjectToolsConfiguration}.
  */
 function AiAssistantProjectToolsConfigurationPanel(props) {
-    const { defaultTab = 'ui' } = props;
+    const { defaultTab = 'ui', onMinimize } = props;
     const initialTabs = useMemo(() => resolveProjectToolsTabs(defaultTab), [defaultTab]);
     const [tab, setTab] = useState(initialTabs.tab);
     const [integrationsSub, setIntegrationsSub] = useState(initialTabs.integrationsSub);
@@ -76760,7 +76812,7 @@ function AiAssistantProjectToolsConfigurationPanel(props) {
             minHeight: 0,
             alignSelf: 'stretch',
             ...(toolFullscreen ? { bgcolor: 'background.default' } : {})
-        }, children: [jsxs(Stack$2, { direction: "row", alignItems: "stretch", sx: { flexShrink: 0, borderBottom: 1, borderColor: 'divider' }, children: [jsxs(Tabs$1, { value: tab, onChange: handleTabsChange, variant: "scrollable", scrollButtons: "auto", allowScrollButtonsMobile: true, sx: { flex: '1 1 auto', minWidth: 0 }, children: [jsx$1(Tab$1, { label: "UI", value: "ui", "data-aiassistant-project-tools-tab": "ui" }), jsx$1(Tab$1, { label: "Agents", value: "agents", "data-aiassistant-project-tools-tab": "agents" }), jsx$1(Tab$1, { label: "Recipes", value: "recipes", "data-aiassistant-project-tools-tab": "recipes" }), jsx$1(Tab$1, { label: "Integrations", value: "integrations", "data-aiassistant-project-tools-tab": "integrations" }), jsx$1(Tab$1, { label: "Secrets", value: "secrets", "data-aiassistant-project-tools-tab": "secrets" }), jsx$1(Tab$1, { label: "Context and Prompts", value: "prompts", "data-aiassistant-project-tools-tab": "prompts" })] }), jsx$1(Box$1, { sx: { display: 'flex', alignItems: 'center', flexShrink: 0, borderLeft: 1, borderColor: 'divider', px: 0.5 }, children: jsx$1(Tooltip$1, { title: toolFullscreen ? 'Exit fullscreen' : 'Fullscreen', children: jsx$1(IconButton$1, { size: "small", "aria-label": toolFullscreen ? 'Exit fullscreen' : 'Enter fullscreen', onClick: () => toggleToolFullscreen(), children: toolFullscreen ? jsx$1(FullscreenExitRounded, {}) : jsx$1(FullscreenRounded, {}) }) }) })] }), jsxs(Box$1, { sx: {
+        }, children: [jsxs(Stack$2, { direction: "row", alignItems: "stretch", sx: { flexShrink: 0, borderBottom: 1, borderColor: 'divider' }, children: [jsxs(Tabs$1, { value: tab, onChange: handleTabsChange, variant: "scrollable", scrollButtons: "auto", allowScrollButtonsMobile: true, sx: { flex: '1 1 auto', minWidth: 0 }, children: [jsx$1(Tab$1, { label: "UI", value: "ui", "data-aiassistant-project-tools-tab": "ui" }), jsx$1(Tab$1, { label: "Agents", value: "agents", "data-aiassistant-project-tools-tab": "agents" }), jsx$1(Tab$1, { label: "Recipes", value: "recipes", "data-aiassistant-project-tools-tab": "recipes" }), jsx$1(Tab$1, { label: "Integrations", value: "integrations", "data-aiassistant-project-tools-tab": "integrations" }), jsx$1(Tab$1, { label: "Secrets", value: "secrets", "data-aiassistant-project-tools-tab": "secrets" }), jsx$1(Tab$1, { label: "Context and Prompts", value: "prompts", "data-aiassistant-project-tools-tab": "prompts" })] }), jsxs(Box$1, { sx: { display: 'flex', alignItems: 'center', flexShrink: 0, borderLeft: 1, borderColor: 'divider', px: 0.5 }, children: [onMinimize ? (jsx$1(Tooltip$1, { title: "Minimize project tools", children: jsx$1(IconButton$1, { size: "small", "aria-label": "Minimize project tools", onClick: () => onMinimize(), children: jsx$1(RemoveRounded, { fontSize: "small" }) }) })) : null, jsx$1(Tooltip$1, { title: toolFullscreen ? 'Exit fullscreen' : 'Fullscreen', children: jsx$1(IconButton$1, { size: "small", "aria-label": toolFullscreen ? 'Exit fullscreen' : 'Enter fullscreen', onClick: () => toggleToolFullscreen(), children: toolFullscreen ? jsx$1(FullscreenExitRounded, {}) : jsx$1(FullscreenRounded, {}) }) })] })] }), jsxs(Box$1, { sx: {
                     flex: '1 1 auto',
                     minHeight: 0,
                     overflow: 'auto',
@@ -76770,12 +76822,22 @@ function AiAssistantProjectToolsConfigurationPanel(props) {
 /**
  * Single Project Tools surface: **UI** (`studio-ui.json` + bulk), **Agents** (`agents.json`), **Recipes** (intent router + site overrides),
  * **Integrations** (sub-tabs: **LLMs**, **Image Generators**, **Tools**, **MCP**), **Secrets** (site API keys), **Context and Prompts** (project context markdown + tool prompt overrides).
- * Opens in a **large dialog** when the Project Tools entry mounts so authors stay focused and get more space than the default tool pane.
+ * Inside **Project Tools** ({@code EmbeddedSiteTools} / {@code WidgetDialog}), renders inline so the Studio shell minimize
+ * control works. Legacy / isolated mounts use a large modal with its own minimize bar.
  * Primary widget id: {@link projectToolsAiAssistantConfigWidgetId}. Legacy ids still mount this component with a fixed default tab.
  */
 function AiAssistantProjectToolsConfiguration(props) {
+    const inlineShell = useInlineProjectToolsShell(props);
     const [shellOpen, setShellOpen] = useState(true);
-    return (jsxs(Fragment, { children: [jsxs(Dialog$1, { open: shellOpen, onClose: () => setShellOpen(false), maxWidth: false, fullWidth: true, scroll: "paper", PaperProps: {
+    const [shellMinimized, setShellMinimized] = useState(false);
+    if (inlineShell) {
+        return jsx$1(AiAssistantProjectToolsConfigurationPanel, { ...props });
+    }
+    const shellTitle = 'AI Assistant Configuration';
+    return (jsxs(Fragment, { children: [jsxs(Dialog$1, { open: shellOpen && !shellMinimized, onClose: () => {
+                    setShellOpen(false);
+                    setShellMinimized(false);
+                }, maxWidth: false, fullWidth: true, scroll: "paper", keepMounted: shellMinimized, PaperProps: {
                     sx: {
                         width: { xs: '100%', sm: 'min(96vw, 1680px)' },
                         height: { xs: '100%', sm: 'calc(100vh - 32px)' },
@@ -76792,14 +76854,22 @@ function AiAssistantProjectToolsConfiguration(props) {
                             gap: 1,
                             pr: 1,
                             py: 1.5
-                        }, children: [jsx$1(Typography$1, { component: "div", variant: "h6", children: "AI Assistant Configuration" }), jsx$1(Tooltip$1, { title: "Close", children: jsx$1(IconButton$1, { "aria-label": "Close", size: "small", onClick: () => setShellOpen(false), children: jsx$1(CloseRounded, { fontSize: "small" }) }) })] }), jsx$1(DialogContent$1, { sx: {
+                        }, children: [jsx$1(Typography$1, { component: "div", variant: "h6", children: shellTitle }), jsxs(Stack$2, { direction: "row", spacing: 0.25, alignItems: "center", children: [jsx$1(Tooltip$1, { title: "Minimize", children: jsx$1(IconButton$1, { "aria-label": "Minimize", size: "small", onClick: () => setShellMinimized(true), children: jsx$1(RemoveRounded, { fontSize: "small" }) }) }), jsx$1(Tooltip$1, { title: "Close", children: jsx$1(IconButton$1, { "aria-label": "Close", size: "small", onClick: () => {
+                                                setShellOpen(false);
+                                                setShellMinimized(false);
+                                            }, children: jsx$1(CloseRounded, { fontSize: "small" }) }) })] })] }), jsx$1(DialogContent$1, { sx: {
                             flex: '1 1 auto',
                             minHeight: 0,
                             p: 0,
                             display: 'flex',
                             flexDirection: 'column',
                             overflow: 'hidden'
-                        }, children: jsx$1(AiAssistantProjectToolsConfigurationPanel, { ...props }) })] }), !shellOpen ? (jsxs(Box$1, { sx: { p: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5 }, children: [jsx$1(Typography$1, { variant: "body2", color: "text.secondary", children: "AI Assistant configuration is closed." }), jsx$1(Button$1, { variant: "contained", onClick: () => setShellOpen(true), children: "Open AI Assistant configuration" })] })) : null] }));
+                        }, children: jsx$1(AiAssistantProjectToolsConfigurationPanel, { ...props }) })] }), typeof document !== 'undefined' && shellOpen && shellMinimized
+                ? createPortal(jsx$1(MinimizedBar, { open: true, title: shellTitle, onMaximize: () => setShellMinimized(false) }), document.body)
+                : null, !shellOpen ? (jsxs(Box$1, { sx: { p: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5 }, children: [jsx$1(Typography$1, { variant: "body2", color: "text.secondary", children: "AI Assistant configuration is closed." }), jsx$1(Button$1, { variant: "contained", onClick: () => {
+                            setShellOpen(true);
+                            setShellMinimized(false);
+                        }, children: "Open AI Assistant configuration" })] })) : null] }));
 }
 /** Legacy widget id `craftercms.components.aiassistant.CentralAgentsConfiguration` — opens Agents tab. */
 function AiAssistantProjectToolsConfigurationAgentsTab() {

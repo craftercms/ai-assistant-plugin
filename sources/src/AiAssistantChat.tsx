@@ -2434,7 +2434,8 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                 m.id === assistantId
                   ? {
                       ...m,
-                      pipelineHeartbeat: { elapsedSec, nextInSec, hint }
+                      // Ignore/clear stale heartbeat rows that arrive after terminal completion.
+                      pipelineHeartbeat: m.isStreaming ? { elapsedSec, nextInSec, hint } : undefined
                     }
                   : m
               )

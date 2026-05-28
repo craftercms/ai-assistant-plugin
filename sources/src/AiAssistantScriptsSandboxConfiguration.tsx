@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useActiveSiteId from '@craftercms/studio-ui/hooks/useActiveSiteId';
 import { writeConfiguration } from '@craftercms/studio-ui/services/configuration';
 import { firstValueFrom } from 'rxjs';
@@ -11,6 +11,7 @@ import FullscreenRounded from '@mui/icons-material/FullscreenRounded';
 import RefreshRounded from '@mui/icons-material/RefreshRounded';
 import SaveRounded from '@mui/icons-material/SaveRounded';
 import FormatListBulletedRounded from '@mui/icons-material/FormatListBulletedRounded';
+import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
 import {
   Alert,
   Box,
@@ -23,7 +24,9 @@ import {
   DialogTitle,
   Divider,
   IconButton,
+  Paper,
   Stack,
+  Tooltip,
   Table,
   TableBody,
   TableCell,
@@ -40,10 +43,12 @@ import {
   AI_ASSISTANT_LLM_RUNTIME_GROOVY_STUB,
   AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB,
   AI_ASSISTANT_USER_TOOL_GROOVY_STUB,
+  AI_ASSISTANT_PROJECT_CONTEXT_GENERATION_PROMPT,
   AI_ASSISTANT_PROJECT_CONTEXT_MARKDOWN_STUB,
   AI_ASSISTANT_PROJECT_CONTEXT_STUDIO_PATH,
   aiAssistantToolPromptMarkdownStub
 } from './aiAssistantScriptStubs';
+import { copyTextToClipboard } from './aiAssistantIntentRecipesModel';
 import AiAssistantRagPolicyFields from './AiAssistantRagPolicyFields';
 import AiAssistantToolsMcpForm from './AiAssistantToolsMcpForm';
 import {
@@ -155,7 +160,17 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
   const [editorStudioPath, setEditorStudioPath] = useState('');
   const [editorBody, setEditorBody] = useState('');
   const [editorStub, setEditorStub] = useState('');
+  const [projectContextCopyHint, setProjectContextCopyHint] = useState<string | null>(null);
+  const projectContextCopyHintTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const [savingEditor, setSavingEditor] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (projectContextCopyHintTimerRef.current != null) {
+        window.clearTimeout(projectContextCopyHintTimerRef.current);
+      }
+    };
+  }, []);
 
   const [addOpen, setAddOpen] = useState<'imagegen' | 'llm' | 'tool' | null>(null);
   const [addId, setAddId] = useState('');
@@ -477,6 +492,18 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
 
   const openProjectContextEditor = () => {
     void loadFileForEditor('Project context', AI_ASSISTANT_PROJECT_CONTEXT_STUDIO_PATH, AI_ASSISTANT_PROJECT_CONTEXT_MARKDOWN_STUB);
+  };
+
+  const copyProjectContextGenerationPrompt = async () => {
+    const ok = await copyTextToClipboard(AI_ASSISTANT_PROJECT_CONTEXT_GENERATION_PROMPT);
+    setProjectContextCopyHint(ok ? 'Copied prompt to clipboard' : 'Could not copy — select the text below and copy manually');
+    if (projectContextCopyHintTimerRef.current != null) {
+      window.clearTimeout(projectContextCopyHintTimerRef.current);
+    }
+    projectContextCopyHintTimerRef.current = window.setTimeout(() => {
+      setProjectContextCopyHint(null);
+      projectContextCopyHintTimerRef.current = null;
+    }, 2500);
   };
 
   const removeProjectContext = () => {
@@ -974,13 +1001,14 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
           {showPrompts ? (
             <>
           <Typography variant="subtitle1" gutterBottom>
-            Project context (<code>scripts/aiassistant/context/site-authoring.md</code>):
+            Project context
           </Typography>
           <Typography variant="body2" color="text.secondary" paragraph>
-            Non-empty markdown is injected on every orchestration turn (labeled Studio project context). Use it for
-            content-type paths, folder conventions, and site-specific workflows — not for one-off author requests.
+            Improve your agents&apos; ability to understand this site with project-specific details. Non-empty markdown
+            at <code>scripts/aiassistant/context/site-authoring.md</code> is injected on every orchestration turn
+            (labeled Studio project context).
           </Typography>
-          <Stack direction="row" spacing={1} sx={{ mb: 3 }} flexWrap="wrap" alignItems="center">
+          <Stack direction="row" spacing={1} sx={{ mb: 2 }} flexWrap="wrap" alignItems="center">
             <Typography variant="body2" color="text.secondary">
               {projectContext?.hasContent
                 ? `Configured (${projectContext.byteLength} bytes)`
@@ -999,6 +1027,49 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
               Remove
             </Button>
           </Stack>
+          <Typography variant="body2" color="text.secondary" paragraph>
+            Use the prompt below (or similar) in an agent to analyze this site and draft context for the editor.
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75, fontWeight: 600 }}>
+            Example prompt
+          </Typography>
+          <Paper
+            elevation={0}
+            sx={(theme) => ({
+              position: 'relative',
+              mb: projectContextCopyHint ? 0.5 : 3,
+              px: 1.5,
+              py: 1.25,
+              pr: 4.5,
+              borderRadius: 1.5,
+              border: 1,
+              borderColor: 'divider',
+              bgcolor: theme.palette.mode === 'dark' ? theme.palette.grey[900] : theme.palette.grey[50]
+            })}
+          >
+            <Tooltip title="Copy prompt">
+              <IconButton
+                size="small"
+                aria-label="Copy example prompt"
+                onClick={() => void copyProjectContextGenerationPrompt()}
+                sx={{ position: 'absolute', top: 4, right: 4 }}
+              >
+                <ContentCopyRounded fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Typography
+              variant="body2"
+              component="div"
+              sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.55, fontSize: '0.8125rem' }}
+            >
+              {AI_ASSISTANT_PROJECT_CONTEXT_GENERATION_PROMPT}
+            </Typography>
+          </Paper>
+          {projectContextCopyHint ? (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 3 }}>
+              {projectContextCopyHint}
+            </Typography>
+          ) : null}
 
           <Typography variant="subtitle1" gutterBottom>
             Tool prompt overrides (<code>scripts/aiassistant/prompts/</code>):

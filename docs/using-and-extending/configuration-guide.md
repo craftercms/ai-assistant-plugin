@@ -453,7 +453,7 @@ config/studio/scripts/aiassistant/context/site-authoring.md
 | **Not** | Per-key tool prompt overrides (`prompts/<KEY>.md`); not the author's message. |
 | **Injection** | Labeled `--- Studio project context (metadata; not the author's request) ---` via `SiteProjectContext` in `AuthoringPreviewContext.assembleOrchestrationPrompt`. |
 | **UI** | **Project Tools → Context and Prompts** — **Project context** section is first; then tool prompt overrides. |
-| **Example** | `docs/examples/aiassistant-config/context/site-authoring.md` (seeded by `scripts/install-plugin.sh` when missing). |
+| **Examples** | Site-specific only — e.g. DCO: `docs/examples/aiassistant-config/sites/dco/context/site-authoring.md`. **Not** seeded on install; see `docs/examples/aiassistant-config/context/README.md`. |
 
 ---
 

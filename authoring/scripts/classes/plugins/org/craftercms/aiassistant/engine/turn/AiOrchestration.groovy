@@ -4502,6 +4502,43 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
   }
 
   /**
+   * Detects model prose that *describes* tool use ({@code tool_calls} wording or registered tool wire names)
+   * without emitting executable tool calls.
+   */
+  private static boolean looksLikePseudoToolCallNarration(String assistantText, Map<String, FunctionToolCallback> byName) {
+    String text = (assistantText ?: '').toString()
+    if (!text.trim()) {
+      return false
+    }
+    String lower = text.toLowerCase(Locale.ROOT)
+    boolean mentionsToolCalls = lower.contains('tool_calls') || lower.contains('tool calls')
+    if (!(byName instanceof Map) || byName.isEmpty()) {
+      return mentionsToolCalls
+    }
+    boolean mentionsKnownTool = false
+    for (String wireName : byName.keySet()) {
+      String w = (wireName ?: '').toString().trim()
+      if (!w) {
+        continue
+      }
+      String quoted = Pattern.quote(w)
+      if ((text =~ /(?s)(?:`$quoted`|\b$quoted\b)/).find()) {
+        mentionsKnownTool = true
+        break
+      }
+    }
+    return mentionsToolCalls || mentionsKnownTool
+  }
+
+  /** Author-safe fallback when no tool actually ran but assistant prose listed tool calls. */
+  private static String pseudoToolNarrationFallbackMessage() {
+    return (
+      "I outlined a tool plan, but no tools were actually executed in this turn.\n\n" +
+        "If you want me to proceed, reply with **\"proceed\"** and I will run the required tools and report concrete results."
+      )
+  }
+
+  /**
    * Before appending an assistant {@code message} to {@code wireMessages}, replace any known huge {@code data:image}
    * URLs (same bytes as a prior {@code GenerateImage} tool result) with {@link ChatCompletionsToolWire#STUDIO_AI_INLINE_IMAGE_REF_PREFIX} refs
    * so follow-up {@code POST /v1/chat/completions} requests stay within context limits.
@@ -6629,6 +6666,17 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       }
       aiAssistantToolWorkerDiagPhase("native_tool_loop_round_${round}_final_assistant_message_no_more_tools")
       assistantAccum = assistantTextFromChoiceMessageMap(msgCopy)
+      if (!toolsRan && looksLikePseudoToolCallNarration(assistantAccum, byName)) {
+        log.warn(
+          'Tools-loop: detected pseudo tool-call narration without executed tools; replacing final assistant text with fallback agentId={} round={}',
+          agentId,
+          round
+        )
+        if (toolsLoopSessionBundle instanceof Map) {
+          toolsLoopSessionBundle.pseudoToolNarrationBlocked = Boolean.TRUE
+        }
+        assistantAccum = pseudoToolNarrationFallbackMessage()
+      }
       finished = true
       break
     }

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type SyntheticEvent } from 'react';
+import { createPortal } from 'react-dom';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import FullscreenExitRounded from '@mui/icons-material/FullscreenExitRounded';
 import FullscreenRounded from '@mui/icons-material/FullscreenRounded';
+import RemoveRounded from '@mui/icons-material/RemoveRounded';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
@@ -14,6 +16,7 @@ import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
+import MinimizedBar from '@craftercms/studio-ui/components/MinimizedBar';
 import AiAssistantCentralAgentsConfiguration, {
   type AiAssistantCentralAgentsCatalogHandle
 } from './AiAssistantCentralAgentsConfiguration';
@@ -103,13 +106,23 @@ function integrationsSandboxPanel(sub: AiAssistantIntegrationsSubTab): AiAssista
 export interface AiAssistantProjectToolsConfigurationProps {
   /** Initial tab; used for legacy Project Tools widget ids that map to this shell. */
   defaultTab?: AiAssistantProjectToolsTab;
+  /** From Studio {@code SiteTools} / {@code WidgetDialog} — minimizes the Project Tools shell. */
+  onMinimize?: () => void;
+  onMaximize?: () => void;
+  mountMode?: string;
+  embedded?: boolean;
+}
+
+/** Inline in Project Tools / full-page site tools — no nested modal over the Studio shell. */
+function useInlineProjectToolsShell(props: AiAssistantProjectToolsConfigurationProps): boolean {
+  return typeof props.onMinimize === 'function' || props.mountMode === 'page';
 }
 
 /**
  * Tabbed configuration body (tabs + panels + unsaved guard). Used inside {@link AiAssistantProjectToolsConfiguration}.
  */
 function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectToolsConfigurationProps) {
-  const { defaultTab = 'ui' } = props;
+  const { defaultTab = 'ui', onMinimize } = props;
   const initialTabs = useMemo(() => resolveProjectToolsTabs(defaultTab), [defaultTab]);
   const [tab, setTab] = useState(initialTabs.tab);
   const [integrationsSub, setIntegrationsSub] = useState<AiAssistantIntegrationsSubTab>(initialTabs.integrationsSub);
@@ -257,6 +270,13 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
           <Tab label="Context and Prompts" value="prompts" data-aiassistant-project-tools-tab="prompts" />
         </Tabs>
         <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0, borderLeft: 1, borderColor: 'divider', px: 0.5 }}>
+          {onMinimize ? (
+            <Tooltip title="Minimize project tools">
+              <IconButton size="small" aria-label="Minimize project tools" onClick={() => onMinimize()}>
+                <RemoveRounded fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          ) : null}
           <Tooltip title={toolFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
             <IconButton
               size="small"
@@ -364,20 +384,33 @@ function AiAssistantProjectToolsConfigurationPanel(props: AiAssistantProjectTool
 /**
  * Single Project Tools surface: **UI** (`studio-ui.json` + bulk), **Agents** (`agents.json`), **Recipes** (intent router + site overrides),
  * **Integrations** (sub-tabs: **LLMs**, **Image Generators**, **Tools**, **MCP**), **Secrets** (site API keys), **Context and Prompts** (project context markdown + tool prompt overrides).
- * Opens in a **large dialog** when the Project Tools entry mounts so authors stay focused and get more space than the default tool pane.
+ * Inside **Project Tools** ({@code EmbeddedSiteTools} / {@code WidgetDialog}), renders inline so the Studio shell minimize
+ * control works. Legacy / isolated mounts use a large modal with its own minimize bar.
  * Primary widget id: {@link projectToolsAiAssistantConfigWidgetId}. Legacy ids still mount this component with a fixed default tab.
  */
 export default function AiAssistantProjectToolsConfiguration(props: AiAssistantProjectToolsConfigurationProps) {
+  const inlineShell = useInlineProjectToolsShell(props);
   const [shellOpen, setShellOpen] = useState(true);
+  const [shellMinimized, setShellMinimized] = useState(false);
+
+  if (inlineShell) {
+    return <AiAssistantProjectToolsConfigurationPanel {...props} />;
+  }
+
+  const shellTitle = 'AI Assistant Configuration';
 
   return (
     <>
       <Dialog
-        open={shellOpen}
-        onClose={() => setShellOpen(false)}
+        open={shellOpen && !shellMinimized}
+        onClose={() => {
+          setShellOpen(false);
+          setShellMinimized(false);
+        }}
         maxWidth={false}
         fullWidth
         scroll="paper"
+        keepMounted={shellMinimized}
         PaperProps={{
           sx: {
             width: { xs: '100%', sm: 'min(96vw, 1680px)' },
@@ -401,13 +434,31 @@ export default function AiAssistantProjectToolsConfiguration(props: AiAssistantP
           }}
         >
           <Typography component="div" variant="h6">
-            AI Assistant Configuration
+            {shellTitle}
           </Typography>
-          <Tooltip title="Close">
-            <IconButton aria-label="Close" size="small" onClick={() => setShellOpen(false)}>
-              <CloseRounded fontSize="small" />
-            </IconButton>
-          </Tooltip>
+          <Stack direction="row" spacing={0.25} alignItems="center">
+            <Tooltip title="Minimize">
+              <IconButton
+                aria-label="Minimize"
+                size="small"
+                onClick={() => setShellMinimized(true)}
+              >
+                <RemoveRounded fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Close">
+              <IconButton
+                aria-label="Close"
+                size="small"
+                onClick={() => {
+                  setShellOpen(false);
+                  setShellMinimized(false);
+                }}
+              >
+                <CloseRounded fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
         </DialogTitle>
         <DialogContent
           sx={{
@@ -423,12 +474,29 @@ export default function AiAssistantProjectToolsConfiguration(props: AiAssistantP
         </DialogContent>
       </Dialog>
 
+      {typeof document !== 'undefined' && shellOpen && shellMinimized
+        ? createPortal(
+            <MinimizedBar
+              open
+              title={shellTitle}
+              onMaximize={() => setShellMinimized(false)}
+            />,
+            document.body
+          )
+        : null}
+
       {!shellOpen ? (
         <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5 }}>
           <Typography variant="body2" color="text.secondary">
             AI Assistant configuration is closed.
           </Typography>
-          <Button variant="contained" onClick={() => setShellOpen(true)}>
+          <Button
+            variant="contained"
+            onClick={() => {
+              setShellOpen(true);
+              setShellMinimized(false);
+            }}
+          >
             Open AI Assistant configuration
           </Button>
         </Box>

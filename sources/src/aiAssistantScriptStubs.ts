@@ -93,6 +93,24 @@ Markdown here is appended to every AI Assistant chat turn for this site when non
 
 `;
 
+/**
+ * Suggested prompt authors can paste into an agent to analyze the site and draft project context markdown.
+ * Shown on Project Tools → Context and Prompts with a one-click copy control.
+ */
+export const AI_ASSISTANT_PROJECT_CONTEXT_GENERATION_PROMPT = `Analyze the site content, structure, and form definitions, and recommend a context prompt I can use to improve AI agent results for this site.
+
+- If it is a website, note that pages are stored under \`/site/website/{path}/{slug}/index.xml\`.
+- Where specific content types are used to create pages or components within specific areas of the information architecture, call them out.
+- If a generic page type exists, call it out. Also indicate that when a more specific type exists for a given use case, based on its name, the more specific type should be used instead.
+- If the site is multilingual, explain how languages are organized.
+- List key details about the information architecture, such as date structures in paths.
+- If the site has \`/site/taxonomy/*\` items, such as \`/site/taxonomy/categories.xml\`, generate a markdown table of taxonomies:
+  - One row per item, listing the file.
+  - Include the content types that use each item.
+- Create a graph of the information architecture that shows paths and purpose.
+
+Respond with the insights for this site in the shape of a skill. Include specific details, not recommendations or a prompt. Be specific and cite examples. You do not need to list every content type in the system. The objective is to identify and call out non-obvious, non-trivial, project-specific structures and rules.`;
+
 /** Starter markdown when creating a site override for {@code config/studio/scripts/aiassistant/prompts/&lt;KEY&gt;.md}. */
 export function aiAssistantToolPromptMarkdownStub(key: string): string {
   return `# ${key}
