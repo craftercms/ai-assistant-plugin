@@ -155,11 +155,15 @@ private AutonomousAssistantWorker() {}
         if (imageModel) {
           imageModel = AiOrchestration.normalizeImagesApiModelId(imageModel)
         }
+        def toolSecurityCtx = StudioToolOperations.captureSecurityContextCopy()
+        if (toolSecurityCtx == null) {
+          toolSecurityCtx = AutonomousAssistantRuntimeHooks.capturedSecurityContext()
+        }
         StudioToolOperations studioOps = new StudioToolOperations(
           null,
           app,
           [siteId: (siteId ?: '').toString(), crafterSite: (siteId ?: '').toString()],
-          null
+          toolSecurityCtx
         )
         Map projectToolCfg = StudioAiAssistantProjectConfig.load(studioOps)
         List<Map> exNorm = ExpertSkillVectorRegistry.normalizeRequestExpertSkills(definition?.get('skills'), projectToolCfg)

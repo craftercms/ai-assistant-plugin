@@ -125,7 +125,8 @@ final class StudioAiUserSiteTools {
 
   /**
    * Runs the Groovy source for {@code toolId} when listed in {@code registry.json}.
-   * Binding: {@code studio} ({@link StudioToolOperations}), {@code args} ({@link Map}), {@code toolId}, {@code siteId}, {@code log}.
+   * Binding: {@code studio} ({@link StudioToolOperations}, including {@link StudioToolOperations#fetchHttpUrl}),
+   * {@code args} ({@link Map}), {@code toolId}, {@code siteId}, {@code log}.
    *
    * @return a {@link Map} suitable for Spring AI tool results (include {@code ok} boolean when possible)
    */

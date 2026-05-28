@@ -76,9 +76,10 @@ import {
 } from './autonomousApi';
 import {
   effectiveStudioSiteId,
+  fetchStudioUiConfigAsync,
   getStudioUiConfigEpochSnapshot,
   subscribeStudioUiConfigChanged,
-  syncReadStudioUiConfig
+  type AiAssistantStudioUiConfig
 } from './aiAssistantStudioUiConfig';
 
 export interface AiAssistantAutonomousAssistantsProps {
@@ -1773,7 +1774,23 @@ function AiAssistantAutonomousAssistantsGated(props: Readonly<AiAssistantAutonom
     () => getStudioUiConfigEpochSnapshot(siteKey),
     () => 0
   );
-  const cfg = useMemo(() => syncReadStudioUiConfig(siteKey), [siteKey, studioUiEpoch]);
+  const [cfg, setCfg] = useState<AiAssistantStudioUiConfig | null>(null);
+  useEffect(() => {
+    if (!siteKey) {
+      setCfg(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchStudioUiConfigAsync(siteKey).then((next) => {
+      if (!cancelled) setCfg(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [siteKey, studioUiEpoch]);
+  if (!siteKey || cfg == null) {
+    return null;
+  }
   if (cfg.showAutonomousAiAssistantsInSidebar !== true) {
     return null;
   }

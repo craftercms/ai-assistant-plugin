@@ -33715,6 +33715,182 @@ function getAgentIcon(iconId) {
     return jsx$1(AiAssistantIcon, {});
 }
 
+const BASE$2 = '/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/scripts';
+function withSite$3(url, siteId) {
+    const sep = url.includes('?') ? '&' : '?';
+    return `${url}${sep}siteId=${encodeURIComponent(siteId)}`;
+}
+function unwrapPluginScriptBody$3(body) {
+    if (!body || typeof body !== 'object')
+        return body;
+    const o = body;
+    const inner = o.result;
+    if (inner && typeof inner === 'object' && !Array.isArray(inner))
+        return inner;
+    return body;
+}
+async function fetchAiAssistantPromptDetail(siteId, key) {
+    const res = await fetch(`${withSite$3(`${BASE$2}/prompt`, siteId)}&key=${encodeURIComponent(key)}`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: { ...buildStudioAuthHeaders() }
+    });
+    const raw = await res.json().catch(() => ({}));
+    const data = unwrapPluginScriptBody$3(raw);
+    if (!res.ok) {
+        return { ok: false, message: data.message ?? raw.message ?? res.statusText };
+    }
+    return data;
+}
+async function fetchAiAssistantScriptsIndex(siteId) {
+    const res = await fetch(withSite$3(`${BASE$2}/index`, siteId), {
+        method: 'GET',
+        credentials: 'include',
+        headers: { ...buildStudioAuthHeaders() }
+    });
+    const raw = await res.json().catch(() => ({}));
+    const data = unwrapPluginScriptBody$3(raw);
+    if (!res.ok) {
+        return { ok: false, message: data.message ?? raw.message ?? res.statusText };
+    }
+    return data;
+}
+async function postAiAssistantMcpToolsPreview(siteId, body) {
+    const res = await fetch(withSite$3(`${BASE$2}/mcp-tools-preview`, siteId), {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+            'Content-Type': 'application/json',
+            ...buildStudioAuthHeaders()
+        },
+        body: JSON.stringify({ siteId, ...body })
+    });
+    const raw = await res.json().catch(() => ({}));
+    const data = unwrapPluginScriptBody$3(raw);
+    if (!res.ok) {
+        return { ok: false, message: data.message ?? raw.message ?? res.statusText };
+    }
+    return data;
+}
+async function postAiAssistantScriptsMutate(siteId, payload) {
+    const res = await fetch(withSite$3(`${BASE$2}/mutate`, siteId), {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+            'Content-Type': 'application/json',
+            ...buildStudioAuthHeaders()
+        },
+        body: JSON.stringify({ siteId, ...payload })
+    });
+    const raw = await res.json().catch(() => ({}));
+    const data = unwrapPluginScriptBody$3(raw);
+    if (!res.ok) {
+        return { ok: false, message: data.message ?? raw.message ?? res.statusText };
+    }
+    return data;
+}
+/** Studio configuration path for {@code writeConfiguration} / {@code fetchConfigurationXML} (no leading slash). */
+function studioConfigRelativePath(studioModulePath) {
+    const p = (studioModulePath ?? '').trim();
+    return p.startsWith('/') ? p.slice(1) : p;
+}
+/** Sandbox repo path for {@code tools.json} (same file as Studio module {@code scripts/aiassistant/config/tools.json}). */
+const TOOLS_JSON_SANDBOX_PATH$1 = '/config/studio/scripts/aiassistant/config/tools.json';
+/** Raw UTF-8 from Studio {@code fetchContentXML} / similar payloads (string or {@code content}/{@code configuration} envelope). */
+function utf8FromStudioContentPayload(raw) {
+    if (raw == null)
+        return '';
+    if (typeof raw === 'string')
+        return raw;
+    if (typeof raw === 'object' && !Array.isArray(raw)) {
+        const o = raw;
+        const content = o.content;
+        if (typeof content === 'string')
+            return content;
+        const configuration = o.configuration;
+        if (typeof configuration === 'string')
+            return configuration;
+    }
+    return '';
+}
+/**
+ * Reads UTF-8 text for a file under {@code /config/studio/...} via content APIs when present.
+ * Does not call {@code get_configuration}, so a missing optional file does not produce Studio {@code ContentNotFoundException} logs.
+ */
+async function fetchOptionalStudioSandboxUtf8(siteId, sandboxPath) {
+    const sid = (siteId || '').trim();
+    const path = (sandboxPath || '').trim().startsWith('/') ? (sandboxPath || '').trim() : `/${(sandboxPath || '').trim()}`;
+    if (!sid || !path)
+        return '';
+    try {
+        const listings = (await firstValueFrom(fetchItemsByPath(sid, [path], { preferContent: true })));
+        if (Array.isArray(listings?.missingItems) && listings.missingItems.includes(path)) {
+            return '';
+        }
+        if (!listings?.[0]) {
+            return '';
+        }
+        const raw = await firstValueFrom(fetchContentXML(sid, path, { lock: false }).pipe(catchError(() => of(null))));
+        return utf8FromStudioContentPayload(raw).trim();
+    }
+    catch {
+        return '';
+    }
+}
+/** Full sandbox repo path for a Studio {@code studio} module relative path (e.g. {@code scripts/.../tools.json}). */
+function studioConfigSandboxRepoPath(studioConfigRelativeNoLeadingSlash) {
+    const rel = (studioConfigRelativeNoLeadingSlash || '').trim().replace(/^\/+/, '');
+    return rel ? `/config/studio/${rel}` : '';
+}
+/**
+ * Reads a site file under {@code /config/studio/<relative>} for the script sandbox editor.
+ * <ol>
+ *   <li>{@code sandbox_items_by_path}: when the path is listed as missing, return {@code ''} immediately — do
+ *       <strong>not</strong> call {@code get_configuration}. Optional files (e.g. {@code intent-recipes.json}) are
+ *       often absent while the plugin still serves bundled in-memory recipes on the server and built-in catalog in
+ *       the UI; Studio logs {@code ContentNotFoundException} at ERROR when {@code get_configuration} probes a missing path.</li>
+ *   <li>{@code get-content.json} when the path is present (does <strong>not</strong> require {@code items[0]} — that
+ *       slot can be empty right after writes while the file still exists).</li>
+ *   <li>If the listing exists but body is still empty, {@code get_configuration} via {@code fetchConfigurationXML}
+ *       (same stack as {@code write_configuration}). Do <strong>not</strong> use {@code fetchConfigurationJSON}: it
+ *       runs XML {@code deserialize} and destroys Groovy/JSON/plain text.</li>
+ * </ol>
+ */
+async function fetchStudioConfigFileUtf8(siteId, studioConfigRelativeNoLeadingSlash) {
+    const sid = (siteId || '').trim();
+    const rel = (studioConfigRelativeNoLeadingSlash || '').trim().replace(/^\/+/, '');
+    if (!sid || !rel)
+        return '';
+    const path = studioConfigSandboxRepoPath(rel);
+    try {
+        const listings = (await firstValueFrom(fetchItemsByPath(sid, [path], { preferContent: true })));
+        if (Array.isArray(listings?.missingItems) && listings.missingItems.includes(path)) {
+            return '';
+        }
+        if (!listings?.[0]) {
+            return '';
+        }
+        const raw = await firstValueFrom(fetchContentXML(sid, path, { lock: false }).pipe(catchError(() => of(null))));
+        const fromGetContent = utf8FromStudioContentPayload(raw);
+        if (fromGetContent.length > 0) {
+            return fromGetContent;
+        }
+        return tryFetchConfigurationXmlPlain(sid, rel);
+    }
+    catch {
+        return '';
+    }
+}
+async function tryFetchConfigurationXmlPlain(siteId, configPathRelative) {
+    try {
+        const s = await firstValueFrom(fetchConfigurationXML(siteId, configPathRelative, 'studio'));
+        return typeof s === 'string' ? s : '';
+    }
+    catch {
+        return '';
+    }
+}
+
 /** Relative to `config/studio/` for {@code fetchConfigurationJSON} / {@code writeConfiguration}. */
 const STUDIO_UI_CONFIG_REL_PATH = 'scripts/aiassistant/config/studio-ui.json';
 /**
@@ -33797,6 +33973,28 @@ function parseJsonConfigPayload(raw) {
         return raw;
     return null;
 }
+/** Normalize Studio content / configuration payloads into a JSON object for {@link mergeStudioUiConfig}. */
+function parseStudioUiConfigFromPayload(raw) {
+    const utf8 = utf8FromStudioContentPayload(raw).trim();
+    if (utf8) {
+        const fromText = parseJsonConfigPayload(utf8);
+        if (fromText != null)
+            return fromText;
+    }
+    return parseJsonConfigPayload(raw);
+}
+async function fetchConfigurationJsonFallback(siteId) {
+    try {
+        const xmlStr = await firstValueFrom(fetchConfigurationXML(siteId, STUDIO_UI_CONFIG_REL_PATH, 'studio'));
+        if (typeof xmlStr === 'string' && xmlStr.trim()) {
+            return JSON.parse(xmlStr);
+        }
+    }
+    catch {
+        // fall through
+    }
+    return null;
+}
 function authoringSiteIdFromWindow() {
     try {
         const w = window;
@@ -33836,7 +34034,7 @@ function syncFetchStudioUiJsonFromSandbox(siteId) {
         return null;
     try {
         const j = JSON.parse(xhr.responseText);
-        return parseJsonConfigPayload(j.response?.content);
+        return parseStudioUiConfigFromPayload(j.response?.content);
     }
     catch {
         return null;
@@ -33890,23 +34088,11 @@ async function fetchStudioUiConfigAsync(siteId) {
             cache$1.set(sid, merged);
             return merged;
         }
-        if (!listings[0]) {
-            const merged = mergeStudioUiConfig(null);
-            cache$1.set(sid, merged);
-            return merged;
-        }
+        let parsed = null;
         const raw = await firstValueFrom(fetchContentXML(sid, STUDIO_UI_CONFIG_SANDBOX_PATH, { lock: false }).pipe(catchError(() => of(null))));
-        let parsed = parseJsonConfigPayload(raw);
+        parsed = parseStudioUiConfigFromPayload(raw);
         if (parsed == null) {
-            try {
-                const xmlStr = await firstValueFrom(fetchConfigurationXML(sid, STUDIO_UI_CONFIG_REL_PATH, 'studio'));
-                if (typeof xmlStr === 'string' && xmlStr.trim()) {
-                    parsed = JSON.parse(xmlStr);
-                }
-            }
-            catch {
-                parsed = null;
-            }
+            parsed = await fetchConfigurationJsonFallback(sid);
         }
         const merged = mergeStudioUiConfig(parsed);
         cache$1.set(sid, merged);
@@ -33953,8 +34139,10 @@ function subscribeStudioUiConfigChanged(siteId, onStoreChange) {
         return () => { };
     const h = (ev) => {
         const d = ev.detail;
-        if (d?.siteId === sid)
+        if (d?.siteId === sid) {
+            invalidateStudioUiConfigCache(sid);
             onStoreChange();
+        }
     };
     window.addEventListener(STUDIO_UI_CONFIG_CHANGED_EVENT, h);
     return () => window.removeEventListener(STUDIO_UI_CONFIG_CHANGED_EVENT, h);
@@ -34615,13 +34803,13 @@ function mergeAutonomousWidgetProps(props) {
     return { ...nested, ...props };
 }
 
-const BASE$2 = '/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/autonomous/assistants';
-function withSite$3(url, siteId) {
+const BASE$1 = '/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/autonomous/assistants';
+function withSite$2(url, siteId) {
     const sep = url.includes('?') ? '&' : '?';
     return `${url}${sep}siteId=${encodeURIComponent(siteId)}`;
 }
 /** Studio plugin controller wraps the Groovy script return map under `result` (see `aiAssistantImportApi.ts`). */
-function unwrapPluginScriptBody$3(body) {
+function unwrapPluginScriptBody$2(body) {
     if (!body || typeof body !== 'object')
         return body;
     const o = body;
@@ -34631,7 +34819,7 @@ function unwrapPluginScriptBody$3(body) {
     return body;
 }
 async function syncAutonomousAssistants(siteId, agents) {
-    const res = await fetch(withSite$3(`${BASE$2}/sync`, siteId), {
+    const res = await fetch(withSite$2(`${BASE$1}/sync`, siteId), {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -34641,20 +34829,20 @@ async function syncAutonomousAssistants(siteId, agents) {
         body: JSON.stringify({ siteId, agents })
     });
     const raw = await res.json().catch(() => ({}));
-    const data = unwrapPluginScriptBody$3(raw);
+    const data = unwrapPluginScriptBody$2(raw);
     if (!res.ok) {
         return { ok: false, message: data.message ?? raw.message ?? res.statusText };
     }
     return data;
 }
 async function getAutonomousAssistantsStatus(siteId) {
-    const res = await fetch(withSite$3(`${BASE$2}/status`, siteId), {
+    const res = await fetch(withSite$2(`${BASE$1}/status`, siteId), {
         method: 'GET',
         credentials: 'include',
         headers: { ...buildStudioAuthHeaders() }
     });
     const raw = await res.json();
-    return unwrapPluginScriptBody$3(raw);
+    return unwrapPluginScriptBody$2(raw);
 }
 async function postAutonomousAssistantsControl(siteId, action, agentId, taskId, extras) {
     const payload = { siteId, action, agentId: agentId ?? '' };
@@ -34668,7 +34856,7 @@ async function postAutonomousAssistantsControl(siteId, action, agentId, taskId, 
             }
         }
     }
-    const res = await fetch(withSite$3(`${BASE$2}/control`, siteId), {
+    const res = await fetch(withSite$2(`${BASE$1}/control`, siteId), {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -34678,7 +34866,7 @@ async function postAutonomousAssistantsControl(siteId, action, agentId, taskId, 
         body: JSON.stringify(payload)
     });
     const raw = await res.json().catch(() => ({}));
-    const data = unwrapPluginScriptBody$3(raw);
+    const data = unwrapPluginScriptBody$2(raw);
     if (!res.ok) {
         return { ok: false, message: data.message ?? raw.message ?? res.statusText };
     }
@@ -35498,7 +35686,24 @@ function AiAssistantAutonomousAssistantsGated(props) {
     const siteKey = useMemo(() => effectiveStudioSiteId(activeSiteId), [activeSiteId]);
     const subscribeUi = useCallback((onStoreChange) => subscribeStudioUiConfigChanged(siteKey, onStoreChange), [siteKey]);
     const studioUiEpoch = useSyncExternalStore(subscribeUi, () => getStudioUiConfigEpochSnapshot(siteKey), () => 0);
-    const cfg = useMemo(() => syncReadStudioUiConfig(siteKey), [siteKey, studioUiEpoch]);
+    const [cfg, setCfg] = useState(null);
+    useEffect(() => {
+        if (!siteKey) {
+            setCfg(null);
+            return;
+        }
+        let cancelled = false;
+        void fetchStudioUiConfigAsync(siteKey).then((next) => {
+            if (!cancelled)
+                setCfg(next);
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [siteKey, studioUiEpoch]);
+    if (!siteKey || cfg == null) {
+        return null;
+    }
     if (cfg.showAutonomousAiAssistantsInSidebar !== true) {
         return null;
     }
@@ -36760,182 +36965,6 @@ function AiAssistantSiteOrchestrationToolsForm(props) {
                 } })) : null] }));
 }
 
-const BASE$1 = '/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/scripts';
-function withSite$2(url, siteId) {
-    const sep = url.includes('?') ? '&' : '?';
-    return `${url}${sep}siteId=${encodeURIComponent(siteId)}`;
-}
-function unwrapPluginScriptBody$2(body) {
-    if (!body || typeof body !== 'object')
-        return body;
-    const o = body;
-    const inner = o.result;
-    if (inner && typeof inner === 'object' && !Array.isArray(inner))
-        return inner;
-    return body;
-}
-async function fetchAiAssistantPromptDetail(siteId, key) {
-    const res = await fetch(`${withSite$2(`${BASE$1}/prompt`, siteId)}&key=${encodeURIComponent(key)}`, {
-        method: 'GET',
-        credentials: 'include',
-        headers: { ...buildStudioAuthHeaders() }
-    });
-    const raw = await res.json().catch(() => ({}));
-    const data = unwrapPluginScriptBody$2(raw);
-    if (!res.ok) {
-        return { ok: false, message: data.message ?? raw.message ?? res.statusText };
-    }
-    return data;
-}
-async function fetchAiAssistantScriptsIndex(siteId) {
-    const res = await fetch(withSite$2(`${BASE$1}/index`, siteId), {
-        method: 'GET',
-        credentials: 'include',
-        headers: { ...buildStudioAuthHeaders() }
-    });
-    const raw = await res.json().catch(() => ({}));
-    const data = unwrapPluginScriptBody$2(raw);
-    if (!res.ok) {
-        return { ok: false, message: data.message ?? raw.message ?? res.statusText };
-    }
-    return data;
-}
-async function postAiAssistantMcpToolsPreview(siteId, body) {
-    const res = await fetch(withSite$2(`${BASE$1}/mcp-tools-preview`, siteId), {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-            'Content-Type': 'application/json',
-            ...buildStudioAuthHeaders()
-        },
-        body: JSON.stringify({ siteId, ...body })
-    });
-    const raw = await res.json().catch(() => ({}));
-    const data = unwrapPluginScriptBody$2(raw);
-    if (!res.ok) {
-        return { ok: false, message: data.message ?? raw.message ?? res.statusText };
-    }
-    return data;
-}
-async function postAiAssistantScriptsMutate(siteId, payload) {
-    const res = await fetch(withSite$2(`${BASE$1}/mutate`, siteId), {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-            'Content-Type': 'application/json',
-            ...buildStudioAuthHeaders()
-        },
-        body: JSON.stringify({ siteId, ...payload })
-    });
-    const raw = await res.json().catch(() => ({}));
-    const data = unwrapPluginScriptBody$2(raw);
-    if (!res.ok) {
-        return { ok: false, message: data.message ?? raw.message ?? res.statusText };
-    }
-    return data;
-}
-/** Studio configuration path for {@code writeConfiguration} / {@code fetchConfigurationXML} (no leading slash). */
-function studioConfigRelativePath(studioModulePath) {
-    const p = (studioModulePath ?? '').trim();
-    return p.startsWith('/') ? p.slice(1) : p;
-}
-/** Sandbox repo path for {@code tools.json} (same file as Studio module {@code scripts/aiassistant/config/tools.json}). */
-const TOOLS_JSON_SANDBOX_PATH$1 = '/config/studio/scripts/aiassistant/config/tools.json';
-/** Raw UTF-8 from Studio {@code fetchContentXML} / similar payloads (string or {@code content}/{@code configuration} envelope). */
-function utf8FromStudioContentPayload(raw) {
-    if (raw == null)
-        return '';
-    if (typeof raw === 'string')
-        return raw;
-    if (typeof raw === 'object' && !Array.isArray(raw)) {
-        const o = raw;
-        const content = o.content;
-        if (typeof content === 'string')
-            return content;
-        const configuration = o.configuration;
-        if (typeof configuration === 'string')
-            return configuration;
-    }
-    return '';
-}
-/**
- * Reads UTF-8 text for a file under {@code /config/studio/...} via content APIs when present.
- * Does not call {@code get_configuration}, so a missing optional file does not produce Studio {@code ContentNotFoundException} logs.
- */
-async function fetchOptionalStudioSandboxUtf8(siteId, sandboxPath) {
-    const sid = (siteId || '').trim();
-    const path = (sandboxPath || '').trim().startsWith('/') ? (sandboxPath || '').trim() : `/${(sandboxPath || '').trim()}`;
-    if (!sid || !path)
-        return '';
-    try {
-        const listings = (await firstValueFrom(fetchItemsByPath(sid, [path], { preferContent: true })));
-        if (Array.isArray(listings?.missingItems) && listings.missingItems.includes(path)) {
-            return '';
-        }
-        if (!listings?.[0]) {
-            return '';
-        }
-        const raw = await firstValueFrom(fetchContentXML(sid, path, { lock: false }).pipe(catchError(() => of(null))));
-        return utf8FromStudioContentPayload(raw).trim();
-    }
-    catch {
-        return '';
-    }
-}
-/** Full sandbox repo path for a Studio {@code studio} module relative path (e.g. {@code scripts/.../tools.json}). */
-function studioConfigSandboxRepoPath(studioConfigRelativeNoLeadingSlash) {
-    const rel = (studioConfigRelativeNoLeadingSlash || '').trim().replace(/^\/+/, '');
-    return rel ? `/config/studio/${rel}` : '';
-}
-/**
- * Reads a site file under {@code /config/studio/<relative>} for the script sandbox editor.
- * <ol>
- *   <li>{@code sandbox_items_by_path}: when the path is listed as missing, return {@code ''} immediately — do
- *       <strong>not</strong> call {@code get_configuration}. Optional files (e.g. {@code intent-recipes.json}) are
- *       often absent while the plugin still serves bundled in-memory recipes on the server and built-in catalog in
- *       the UI; Studio logs {@code ContentNotFoundException} at ERROR when {@code get_configuration} probes a missing path.</li>
- *   <li>{@code get-content.json} when the path is present (does <strong>not</strong> require {@code items[0]} — that
- *       slot can be empty right after writes while the file still exists).</li>
- *   <li>If the listing exists but body is still empty, {@code get_configuration} via {@code fetchConfigurationXML}
- *       (same stack as {@code write_configuration}). Do <strong>not</strong> use {@code fetchConfigurationJSON}: it
- *       runs XML {@code deserialize} and destroys Groovy/JSON/plain text.</li>
- * </ol>
- */
-async function fetchStudioConfigFileUtf8(siteId, studioConfigRelativeNoLeadingSlash) {
-    const sid = (siteId || '').trim();
-    const rel = (studioConfigRelativeNoLeadingSlash || '').trim().replace(/^\/+/, '');
-    if (!sid || !rel)
-        return '';
-    const path = studioConfigSandboxRepoPath(rel);
-    try {
-        const listings = (await firstValueFrom(fetchItemsByPath(sid, [path], { preferContent: true })));
-        if (Array.isArray(listings?.missingItems) && listings.missingItems.includes(path)) {
-            return '';
-        }
-        if (!listings?.[0]) {
-            return '';
-        }
-        const raw = await firstValueFrom(fetchContentXML(sid, path, { lock: false }).pipe(catchError(() => of(null))));
-        const fromGetContent = utf8FromStudioContentPayload(raw);
-        if (fromGetContent.length > 0) {
-            return fromGetContent;
-        }
-        return tryFetchConfigurationXmlPlain(sid, rel);
-    }
-    catch {
-        return '';
-    }
-}
-async function tryFetchConfigurationXmlPlain(siteId, configPathRelative) {
-    try {
-        const s = await firstValueFrom(fetchConfigurationXML(siteId, configPathRelative, 'studio'));
-        return typeof s === 'string' ? s : '';
-    }
-    catch {
-        return '';
-    }
-}
-
 const SCRIPTS_BASE = '/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/scripts';
 const SECRETS_INDEX = '/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/secrets/index';
 function withSite$1(url, siteId) {
@@ -38056,6 +38085,9 @@ var recipes = [
 			"what would you say",
 			"how would you describe",
 			"describe this page",
+			"summarize this page",
+			"summarize",
+			"summary of this page",
 			"page is about",
 			"explain this page",
 			"what do you think"

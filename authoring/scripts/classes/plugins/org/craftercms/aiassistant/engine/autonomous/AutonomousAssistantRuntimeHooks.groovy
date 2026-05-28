@@ -45,6 +45,14 @@ private AutonomousAssistantRuntimeHooks() {}
   }
 
   /**
+   * Security context snapshot from the last {@link #register} on a Studio servlet thread (sync/status REST).
+   * Used by {@link plugins.org.craftercms.aiassistant.engine.autonomous.AutonomousAssistantWorker} for tool callbacks.
+   */
+  static SecurityContext capturedSecurityContext() {
+    return securityContextRef
+  }
+
+  /**
    * Runs run with captured security using Studio services and returns the tool payload.
    * @param work Caller-supplied input.
    */

@@ -7,6 +7,7 @@ import { fetchConfigurationXML } from '@craftercms/studio-ui/services/configurat
 import { fetchContentXML, fetchItemsByPath } from '@craftercms/studio-ui/services/content';
 import { firstValueFrom, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
+import { utf8FromStudioContentPayload } from './aiAssistantScriptsApi';
 
 export type ContentTypeImageAugmentationScope = 'all' | 'none' | 'selected';
 
@@ -104,6 +105,28 @@ function parseJsonConfigPayload(raw: unknown): unknown | null {
   return null;
 }
 
+/** Normalize Studio content / configuration payloads into a JSON object for {@link mergeStudioUiConfig}. */
+function parseStudioUiConfigFromPayload(raw: unknown): unknown | null {
+  const utf8 = utf8FromStudioContentPayload(raw).trim();
+  if (utf8) {
+    const fromText = parseJsonConfigPayload(utf8);
+    if (fromText != null) return fromText;
+  }
+  return parseJsonConfigPayload(raw);
+}
+
+async function fetchConfigurationJsonFallback(siteId: string): Promise<unknown | null> {
+  try {
+    const xmlStr = await firstValueFrom(fetchConfigurationXML(siteId, STUDIO_UI_CONFIG_REL_PATH, 'studio'));
+    if (typeof xmlStr === 'string' && xmlStr.trim()) {
+      return JSON.parse(xmlStr) as unknown;
+    }
+  } catch {
+    // fall through
+  }
+  return null;
+}
+
 export function authoringSiteIdFromWindow(): string | undefined {
   try {
     const w = window as unknown as { CStudioAuthoringContext?: { siteId?: string } };
@@ -141,7 +164,7 @@ function syncFetchStudioUiJsonFromSandbox(siteId: string): unknown | null {
   if (xhr.status < 200 || xhr.status >= 300) return null;
   try {
     const j = JSON.parse(xhr.responseText) as { response?: { content?: unknown } };
-    return parseJsonConfigPayload(j.response?.content);
+    return parseStudioUiConfigFromPayload(j.response?.content);
   } catch {
     return null;
   }
@@ -192,24 +215,13 @@ export async function fetchStudioUiConfigAsync(siteId: string): Promise<AiAssist
       cache.set(sid, merged);
       return merged;
     }
-    if (!listings[0]) {
-      const merged = mergeStudioUiConfig(null);
-      cache.set(sid, merged);
-      return merged;
-    }
+    let parsed: unknown | null = null;
     const raw = await firstValueFrom(
       fetchContentXML(sid, STUDIO_UI_CONFIG_SANDBOX_PATH, { lock: false }).pipe(catchError(() => of(null)))
     );
-    let parsed = parseJsonConfigPayload(raw);
+    parsed = parseStudioUiConfigFromPayload(raw);
     if (parsed == null) {
-      try {
-        const xmlStr = await firstValueFrom(fetchConfigurationXML(sid, STUDIO_UI_CONFIG_REL_PATH, 'studio'));
-        if (typeof xmlStr === 'string' && xmlStr.trim()) {
-          parsed = JSON.parse(xmlStr) as unknown;
-        }
-      } catch {
-        parsed = null;
-      }
+      parsed = await fetchConfigurationJsonFallback(sid);
     }
     const merged = mergeStudioUiConfig(parsed);
     cache.set(sid, merged);
@@ -259,7 +271,10 @@ export function subscribeStudioUiConfigChanged(siteId: string, onStoreChange: ()
   if (!sid || typeof window === 'undefined') return () => {};
   const h = (ev: Event) => {
     const d = (ev as CustomEvent<{ siteId?: string }>).detail;
-    if (d?.siteId === sid) onStoreChange();
+    if (d?.siteId === sid) {
+      invalidateStudioUiConfigCache(sid);
+      onStoreChange();
+    }
   };
   window.addEventListener(STUDIO_UI_CONFIG_CHANGED_EVENT, h as EventListener);
   return () => window.removeEventListener(STUDIO_UI_CONFIG_CHANGED_EVENT, h as EventListener);

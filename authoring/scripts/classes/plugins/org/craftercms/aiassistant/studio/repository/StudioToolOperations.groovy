@@ -3,6 +3,7 @@ package plugins.org.craftercms.aiassistant.studio.repository
 import plugins.org.craftercms.aiassistant.engine.context.AuthoringPreviewContext
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperationsSupport
 import plugins.org.craftercms.aiassistant.engine.prompt.ToolPrompts
+import plugins.org.craftercms.aiassistant.contrib.tool.builtin.http.HttpUrlFetch
 import plugins.org.craftercms.aiassistant.contrib.tool.site.StudioAiUserSiteTools
 import plugins.org.craftercms.aiassistant.engine.turn.AiOrchestration
 
@@ -248,6 +249,20 @@ class StudioToolOperations {
   /** Crafter permission checks use authenticated user from {@link SecurityContextHolder}. */
   <T> T runWithStudioSecurity(Closure<T> work) {
     return withStudioRequestSecurity(work)
+  }
+
+  /**
+   * Outbound GET with the same SSRF policy and body limits as built-in {@code FetchHttpUrl}.
+   * Exposed on the {@code studio} binding for site user-tool Groovy ({@link StudioAiUserSiteTools}).
+   *
+   * @param absoluteUrl absolute http(s) URL
+   * @param maxCharsOpt optional UTF-8 body cap; uses JVM {@code aiassistant.httpFetch.maxChars} when null
+   * @return map with {@code ok}, {@code body}, {@code statusCode}, {@code finalUrl}, {@code message}, etc.
+   */
+  Map fetchHttpUrl(String absoluteUrl, Integer maxCharsOpt = null) {
+    return withStudioRequestSecurity {
+      HttpUrlFetch.fetch(absoluteUrl, maxCharsOpt) as Map
+    }
   }
 
   private <T> T withStudioRequestSecurity(Closure<T> work) {
