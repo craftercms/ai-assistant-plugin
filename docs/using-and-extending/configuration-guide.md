@@ -58,9 +58,9 @@ Visual guides for administrators and authors (Mermaid). Full set: **[Architectur
 
 ## Screenshots — Project Tools and AI Assistant Configuration
 
-These screenshots show **Project Tools** (where you install the plugin and open **AI Assistant**) and the tabbed **AI Assistant Configuration** dialog. Paths below are relative to this file (`docs/using-and-extending/`).
+These screenshots show **Project Tools** (where you install the plugin and open **AI Assistant**), the tabbed **AI Assistant Configuration** dialog, and the **Authoring Assistant** chat on preview. Paths below are relative to this file (`docs/using-and-extending/`). Image files live under [`docs/images/ai-assistant-studio/`](../images/ai-assistant-studio/).
 
-**Note:** PNG files under `docs/images/ai-assistant-studio/` may not be checked into this repository; capture them locally after install if links 404. Current tabs are **UI**, **Agents**, **Recipes**, **Integrations** (LLMs / Image generators / Tools / MCP), **Secrets**, and **Context and Prompts** (project context markdown + per-key tool prompt overrides; older docs called some of these **Tools and MCP** / **Scripts**).
+Current configuration tabs are **UI**, **Agents**, **Recipes**, **Integrations** (LLMs / Image generators / Tools / MCP), **Secrets**, and **Context and Prompts** (project context markdown + per-key tool prompt overrides; older docs called some of these **Tools and MCP** / **Scripts**).
 
 ### Project Tools (Sidebar)
 
@@ -80,11 +80,29 @@ These screenshots show **Project Tools** (where you install the plugin and open 
 
 *Chat assistants vs autonomous agents; reload, example catalog, and save to site.*
 
-### Edit Agent
+### Edit chat assistant
 
-![Edit agent dialog for a single catalog entry](../images/ai-assistant-studio/ai-assistant-edit-agent-dialog.png)
+![Edit agent dialog for a chat assistant catalog entry](../images/ai-assistant-studio/ai-assistant-edit-agent-dialog.png)
 
-*Provider, model, image generator, built-in tools checklist, and optional quick-prompt chips.*
+*Provider, model, image generator, built-in tools checklist, and optional quick-prompt chips (chat assistants).*
+
+### Autonomous agent configuration
+
+![Autonomous Agents panel — agent configuration dialog](../images/ai-assistant-studio/autonomous-agent-configuration-dialog.png)
+
+*Read-only summary of an autonomous agent’s LLM, schedule, skills, and prompt (opened from **Autonomous Agents** in the sidebar). See [autonomous-assistants-widget.md](autonomous-assistants-widget.md).*
+
+### Recipes Tab
+
+![AI Assistant Configuration modal with the Recipes tab active](../images/ai-assistant-studio/ai-assistant-configuration-recipes-tab.png)
+
+*Built-in and site recipes: match hints, tool allowlists, phase hints (Context / Action / Confirmation), and **Edit recipe**. See [building-intent-recipes.md](building-intent-recipes.md) and [§9.0](#cg-9-0).*
+
+### Authoring Assistant (preview)
+
+![Authoring Assistant on preview — summarize this page workflow](../images/ai-assistant-studio/authoring-assistant-summarize-page.png)
+
+*Preview toolbar or form-engine chat: tool progress, plan, and summary for a recipe such as **Describe this page (read-only)**. See [helper-widget.md](helper-widget.md).*
 
 ### Integrations → Tools (and MCP sub-tab)
 

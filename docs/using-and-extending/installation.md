@@ -10,7 +10,7 @@ After install, open **Project Tools → AI Assistant** for the tabbed **AI Assis
 
 ![AI Assistant Configuration modal with the UI tab active](../images/ai-assistant-studio/ai-assistant-configuration-ui-tab.png)
 
-More tabs and captions: [Configuration guide — Screenshots](configuration-guide.md#cg-screenshots).
+More tabs (Agents, Recipes, Integrations, autonomous configuration, Authoring Assistant on preview): [Configuration guide — Screenshots](configuration-guide.md#cg-screenshots).
 
 ## Local / From-repo Install
 
