@@ -2,6 +2,8 @@
 
 **Audience:** **Crafter Studio admins** responsible for installing and configuring the assistant and its **tools** for authors—`ui.xml` widget placement, **`agents.json`**, credentials, form wiring, and optional site-script overrides.
 
+**Documentation hub:** [Admins & authors](../admins-and-authors/README.md) (start here for install-and-use). **Authors** only need an admin to enable surfaces—see [Authors](../admins-and-authors/README.md#authors-using-the-assistant). **Plugin development:** [Developers](../developers/README.md).
+
 ## Table of Contents
 
 **[Basic Configuration](#cg-basic)** — `ui.xml` widget placement + **`agents.json`**: Helper / Tools Panel / Preview / Autonomous, **`plugin`** line, secrets, form pipeline, checklist (**§1–§7**).

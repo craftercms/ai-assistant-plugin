@@ -16,7 +16,7 @@
 
 **Review rule:** Code changes that alter documented behavior without updating **`spec.md`** / the relevant companion should be **blocked in review** unless the PR states a doc-only follow-up with a tracked issue (use sparingly—prefer same-merge updates).
 
-**Audience:** Maintainers and advanced integrators. **Configuration & LLM keys:** [llm-configuration.md](../using-and-extending/llm-configuration.md). **Doc index:** [README.md](../README.md).
+**Audience:** Maintainers and advanced integrators — see **[developers documentation](../developers/README.md)**. **Site install & configuration:** **[admins & authors](../admins-and-authors/README.md)**. **Configuration & LLM keys:** [llm-configuration.md](../using-and-extending/llm-configuration.md). **Doc index:** [README.md](../README.md).
 
 ### Terminology
 

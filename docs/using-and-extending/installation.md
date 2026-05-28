@@ -1,5 +1,7 @@
 # Installing the Plugin
 
+**Documentation hub:** [Admins & authors](../admins-and-authors/README.md). **Next:** [Configuration guide](configuration-guide.md).
+
 ## Studio UI
 
 Install via **Project Tools → Plugin Management → Search & install**.

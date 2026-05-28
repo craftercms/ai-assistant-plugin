@@ -1,48 +1,40 @@
-# Documentation Index
+# Documentation
 
-**Install:** **[`using-and-extending/installation.md`](using-and-extending/installation.md)** (Studio **Plugin Management**, CLI, Marketplace **`copy`**, build-before-install). **Admins** configure and extend the plugin on a site via **[`using-and-extending/configuration-guide.md`](using-and-extending/configuration-guide.md)** (`ui.xml`, agents, keys, **Project Tools**, **`studio-ui.json`**, forms, sandbox scripts). **Official specifications** for implementers and packaging: **[`internals/spec.md`](internals/spec.md)** and **[`using-and-extending/studio-plugins-guide.md`](using-and-extending/studio-plugins-guide.md)**. Update those when behavior or packaging changes.
+## Admins & authors (primary)
 
-## Diagrams
+**Install and use the plugin on a site—no plugin source changes.**
 
-**[Architecture & diagrams](architecture-diagrams.md)** — System context, configuration model, administrator setup flow, author surfaces, build pipeline, and stream request path (Mermaid).
+→ **[Admins & authors — start here](admins-and-authors/README.md)**
 
-## By Audience
+Quick links: [Installation](using-and-extending/installation.md) · [Configuration guide](using-and-extending/configuration-guide.md) · [Screenshots](using-and-extending/configuration-guide.md#cg-screenshots)
 
-| Audience | Start Here |
-|----------|------------|
-| **Install the plugin** | [Installation](using-and-extending/installation.md) |
-| **Admins** — `ui.xml`, agents, keys, **Project Tools**, **`studio-ui.json`**, surfaces, sandbox scripts, build paths | [Configuration guide](using-and-extending/configuration-guide.md) · [Screenshots](using-and-extending/configuration-guide.md#cg-screenshots) · [Helper](using-and-extending/helper-widget.md) · [Autonomous widget](using-and-extending/autonomous-assistants-widget.md) · [Scripted tools & imagegen](using-and-extending/scripted-tools-and-imagegen.md) · [Studio plugins guide](using-and-extending/studio-plugins-guide.md) |
-| **Product / review** — mandatory outcomes for authors, admins, and integrators | [Product requirements](using-and-extending/product-requirements.md) |
-| **LLM & image backends** — wire ids, secrets, **`script:`** LLM, **pluggable `GenerateImage`** | [LLM configuration](using-and-extending/llm-configuration.md) · [Script LLM — BYO backend](using-and-extending/script-llm-bring-your-own-backend.md) · Groq script sample: `docs/examples/aiassistant-llm/groq/runtime.groovy` · [Image generation](using-and-extending/image-generation.md) · JVM tuning: [studio-aiassistant-jvm-parameters.md](using-and-extending/studio-aiassistant-jvm-parameters.md) |
-| **Extension developers** — Rollup, descriptor, classpath, sandbox script layout | [Studio plugins guide](using-and-extending/studio-plugins-guide.md) · [Using & extending index](using-and-extending/README.md) |
-| **Maintainers** — **`spec.md`** (requirements & mechanics), streaming, tools runtime, review-style invariants | [Internals](internals/README.md) · [Architecture diagrams](architecture-diagrams.md) · [Maintainer review checklist](internals/maintainer-review-checklist.md) |
-| **Plugin repo contributors** — clone, `yarn package`, policy, spec | [CONTRIBUTING.md](../CONTRIBUTING.md) |
+---
 
-## Topic → Document
+## Developers
 
-| Topic | Document |
-|-------|----------|
-| Install / copy-plugin / `install-plugin.sh` | [installation.md](using-and-extending/installation.md) |
-| Site configuration (`ui.xml`, agents, keys, **`studio-ui.json`**, forms, Project Tools) | [configuration-guide.md](using-and-extending/configuration-guide.md) · [Screenshots](using-and-extending/configuration-guide.md#cg-screenshots) |
-| Runtime UI flags, bulk form control, `studio-ui.json` | [configuration-guide.md §1e](using-and-extending/configuration-guide.md#cg-1e) · [spec.md — Studio UI flags](internals/spec.md#studio-ui-flags-studio-uijson) |
-| Helper `ui.xml` & “component not found” | [helper-widget.md](using-and-extending/helper-widget.md) |
-| Autonomous widget placement & overview | [autonomous-assistants-widget.md](using-and-extending/autonomous-assistants-widget.md) |
-| Product requirements | [product-requirements.md](using-and-extending/product-requirements.md) |
-| **`imageGenerator`**, **`imagegen/`**, tool/prompt overrides | [image-generation.md](using-and-extending/image-generation.md) · [scripted-tools-and-imagegen.md](using-and-extending/scripted-tools-and-imagegen.md) |
-| **`InvokeSiteUserTool`**, `user-tools/registry.json` | [scripted-tools-and-imagegen.md](using-and-extending/scripted-tools-and-imagegen.md) |
-| JVM / `-D` tuning (timeouts, HTTP caps, key fallbacks) | [studio-aiassistant-jvm-parameters.md](using-and-extending/studio-aiassistant-jvm-parameters.md) |
-| Debug logging (loggers, Spring AI HTTP trace JVM flag) | [internals/README.md](internals/README.md#debug-logging) · JVM reference: [studio-aiassistant-jvm-parameters.md](using-and-extending/studio-aiassistant-jvm-parameters.md) |
-| MCP client (`mcpEnabled` + `mcpServers` in `tools.json`, Streamable HTTP) | [chat-and-tools-runtime.md](internals/chat-and-tools-runtime.md#mcp-client-tools-streamable-http) |
-| Intent recipe routing (maintainer) | [intent-recipe-routing.md](internals/intent-recipe-routing.md) · admin: [configuration-guide §9.0](using-and-extending/configuration-guide.md#cg-9-0) |
-| Building custom intent recipes | Cursor skill [`.cursor/skills/building-intent-recipes/`](../.cursor/skills/building-intent-recipes/) · [doc stub](using-and-extending/building-intent-recipes.md) |
-| Recipe phase clock templates (`{{studio.today-7D}}`, …) | [configuration-guide §9.0](using-and-extending/configuration-guide.md#cg-9-0) · [intent-recipe-routing — prelude](internals/intent-recipe-routing.md#matched-recipe-prelude-text) |
-| **`SerpApiWebSearch`**, `builtInToolSettings`, `serpapi_api_key` | [configuration-guide §9.2](using-and-extending/configuration-guide.md#cg-9-2) · [spec.md — secrets](internals/spec.md) |
-| Site secrets (`secrets.json`, `${secret:}`) | [configuration-guide §4](using-and-extending/configuration-guide.md#cg-4) · [spec.md — secrets](internals/spec.md) |
-| Configuration tour (joyride) | [configuration-guide §4b](using-and-extending/configuration-guide.md#cg-joyride) |
-| REST/stream body, tools, MCP | [chat-and-tools-runtime.md](internals/chat-and-tools-runtime.md) |
-| Cross-site working site (`set site to X`, POST vs URL `siteId`) | [configuration-guide §3](using-and-extending/configuration-guide.md#cg-3) · [spec.md](internals/spec.md#working-cms-site-cross-site) · [intent-recipe-routing](internals/intent-recipe-routing.md#cross-site-working-site) |
-| Engineering contracts (`ui.xml` / stream / form / REST) | [internals/spec.md](internals/spec.md) |
-| Architecture, admin setup, author journeys, build/runtime | [architecture-diagrams.md](architecture-diagrams.md) |
-| Review-style invariants (perf, memory, SSE, Groovy pitfalls) | [internals/maintainer-review-checklist.md](internals/maintainer-review-checklist.md) |
+**Build the bundle, change Groovy orchestration, or debug wire contracts.**
 
-**Examples:** [`examples/`](examples/).
+→ **[Developers documentation](developers/README.md)**
+
+Quick links: [Studio plugins guide](using-and-extending/studio-plugins-guide.md) · [spec.md](internals/spec.md) · [Internals index](internals/README.md) · [CONTRIBUTING.md](../CONTRIBUTING.md)
+
+---
+
+## Shared
+
+| Resource | Audience |
+|----------|----------|
+| [Architecture & diagrams](architecture-diagrams.md) | Admins (setup, author journeys) and developers (layers, stream path, build) |
+| [Product requirements](using-and-extending/product-requirements.md) | Product / QA |
+| [Examples](examples/) | Admins copying site config |
+
+---
+
+## Where files live
+
+| Folder | Purpose |
+|--------|---------|
+| [`admins-and-authors/`](admins-and-authors/) | **Entry hub** for site operators and authors (guides remain in [`using-and-extending/`](using-and-extending/) for stable links) |
+| [`developers/`](developers/) | **Entry hub** for plugin engineering |
+| [`using-and-extending/`](using-and-extending/) | Site configuration guides (admin & author audience) |
+| [`internals/`](internals/) | Server contracts, routing, streaming (developer audience) |

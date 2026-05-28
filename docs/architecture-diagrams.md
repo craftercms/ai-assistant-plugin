@@ -2,6 +2,8 @@
 
 Visual reference for the **Studio AI Assistant** plugin: system context, configuration design, admin workflows, author surfaces, and developer build/runtime paths.
 
+**By audience:** [Admins & authors](admins-and-authors/README.md) (setup flow, author surfaces) · [Developers](developers/README.md) (logical layers, stream path, build pipeline).
+
 **Related deep dives:** [Intent recipe routing](internals/intent-recipe-routing.md) (pre-tools prelude) · [Stream endpoint](internals/stream-endpoint-design.md) · [Chat & tools runtime](internals/chat-and-tools-runtime.md) · [Specification](internals/spec.md) · [Configuration guide](using-and-extending/configuration-guide.md)
 
 ---

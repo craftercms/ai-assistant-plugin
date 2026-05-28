@@ -2,7 +2,9 @@
 
 Crafter Studio plugin that adds **AI-assisted authoring**: configurable **agents**, multiple **LLM** backends, optional **tools** (built-in, scripted, MCP), **pluggable image generation**, and optional **autonomous** scheduled runs.
 
-**Install:** [Installation](docs/using-and-extending/installation.md) · **Admins (configure the site):** [Configuration guide](docs/using-and-extending/configuration-guide.md) · [Screenshots](docs/using-and-extending/configuration-guide.md#cg-screenshots).
+**Documentation:** **[Admins & authors (start here)](docs/admins-and-authors/README.md)** — install, Project Tools, agents, secrets, author surfaces. [Developers](docs/developers/README.md) — build, `spec.md`, internals.
+
+**Install:** [Installation](docs/using-and-extending/installation.md) · **Configure the site:** [Configuration guide](docs/using-and-extending/configuration-guide.md) · [Screenshots](docs/using-and-extending/configuration-guide.md#cg-screenshots).
 
 **Product requirements:** [Product requirements](docs/using-and-extending/product-requirements.md).
 
@@ -46,24 +48,31 @@ Optional **autonomous** agents (experimental): scheduled runs from the sidebar w
 
 ## Documentation
 
+### Admins & authors (primary)
+
+Most sites **install and configure** the plugin without touching `sources/`. **[Full guide index →](docs/admins-and-authors/README.md)**
+
 | If you want… | Open |
-|--------------|--------|
+|--------------|------|
 | **Install or deploy the plugin** | [Installation](docs/using-and-extending/installation.md) |
-| **Configure agents, keys, `ui.xml`** | [Configuration guide](docs/using-and-extending/configuration-guide.md) |
-| **Project Tools UI (screenshots)** | [Configuration guide — Screenshots](docs/using-and-extending/configuration-guide.md#cg-screenshots) |
-| **Runtime UI flags (`studio-ui.json`) + bulk tools** | [Configuration guide — §1e](docs/using-and-extending/configuration-guide.md#cg-1e) · [spec.md](docs/internals/spec.md#studio-ui-flags-studio-uijson) |
-| **Helper widget snippet & troubleshooting** | [Helper widget](docs/using-and-extending/helper-widget.md) |
-| **Autonomous widget overview** | [Autonomous assistants widget](docs/using-and-extending/autonomous-assistants-widget.md) |
-| **LLM ids, secrets, env + `ui.xml`** | [LLM configuration](docs/using-and-extending/llm-configuration.md) |
-| **JVM-only tuning (`-D` properties)** | [Studio AI assistant JVM parameters](docs/using-and-extending/studio-aiassistant-jvm-parameters.md) |
-| **Image backends & overrides** | [Image generation](docs/using-and-extending/image-generation.md) |
-| **Integrators — Groovy `user-tools/` + `imagegen/`** | [Scripted tools & imagegen](docs/using-and-extending/scripted-tools-and-imagegen.md) |
-| **Product requirements** | [Product requirements](docs/using-and-extending/product-requirements.md) |
-| **Build paths, Rollup, `user-tools/`, script LLM paths** | [Studio plugins guide](docs/using-and-extending/studio-plugins-guide.md) |
-| **Official requirements & build specification** | [spec.md](docs/internals/spec.md) · [Studio plugins guide](docs/using-and-extending/studio-plugins-guide.md) |
-| **Behavior spec, streaming, runtime** | [Internals index](docs/internals/README.md) |
-| **Contributing (clone, build, policy, spec updates)** | [CONTRIBUTING.md](CONTRIBUTING.md) |
-| **Architecture & diagrams** (admin, author, developer) | [architecture-diagrams.md](docs/architecture-diagrams.md) |
-| **Full doc index** | [docs/README.md](docs/README.md) |
+| **Configure agents, keys, `ui.xml`, recipes, MCP** | [Configuration guide](docs/using-and-extending/configuration-guide.md) |
+| **Project Tools UI (screenshots)** | [Screenshots](docs/using-and-extending/configuration-guide.md#cg-screenshots) |
+| **Helper / form / autonomous surfaces** | [Helper widget](docs/using-and-extending/helper-widget.md) · [Form control §5](docs/using-and-extending/configuration-guide.md#cg-5) · [Autonomous widget](docs/using-and-extending/autonomous-assistants-widget.md) |
+| **LLM keys and providers** | [LLM configuration](docs/using-and-extending/llm-configuration.md) |
+
+### Developers
+
+Patch the plugin, debug Groovy, or read wire contracts. **[Full guide index →](docs/developers/README.md)**
+
+| If you want… | Open |
+|--------------|------|
+| **Build, Rollup, install paths** | [Studio plugins guide](docs/using-and-extending/studio-plugins-guide.md) |
+| **Behavior spec & contracts** | [spec.md](docs/internals/spec.md) |
+| **Streaming, tools, MCP** | [Internals index](docs/internals/README.md) |
+| **Contributing** | [CONTRIBUTING.md](CONTRIBUTING.md) |
+
+### All docs
+
+[docs/README.md](docs/README.md) · [Architecture & diagrams](docs/architecture-diagrams.md) · [Product requirements](docs/using-and-extending/product-requirements.md)
 
 Questions: [CrafterCMS Community Slack](https://craftercms.com/slack).

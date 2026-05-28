@@ -1,6 +1,8 @@
 # Contributing
 
-This repo is the **Crafter Studio AI Assistant** plugin. The steps below are for people changing **this** codebase (not for site admins configuring `ui.xml` in a project).
+This repo is the **Crafter Studio AI Assistant** plugin. The steps below are for people changing **this** codebase.
+
+**Install and configure a site without code changes?** See **[`docs/admins-and-authors/README.md`](docs/admins-and-authors/README.md)**. **Developer doc hub:** **[`docs/developers/README.md`](docs/developers/README.md)**.
 
 ## Specification & docs (required)
 
