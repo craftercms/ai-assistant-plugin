@@ -10,10 +10,14 @@ Crafter Studio plugin that adds **AI-assisted authoring**: configurable **agents
 
 Authors chat beside preview or forms; admins configure agents, recipes, tools, and integrations in **Project Tools → AI Assistant**. More screenshots: [configuration guide](docs/using-and-extending/configuration-guide.md#cg-screenshots).
 
-| Authoring (preview / form) | Admin (Project Tools) |
-|----------------------------|------------------------|
+| Authoring (preview) | Admin (Project Tools) |
+|-------------------|------------------------|
 | ![Authoring Assistant on preview — summarize this page](docs/images/ai-assistant-studio/authoring-assistant-summarize-page.png) | ![AI Assistant Configuration — Recipes tab](docs/images/ai-assistant-studio/ai-assistant-configuration-recipes-tab.png) |
-| Intent recipes drive tool rounds (e.g. describe or summarize anchored content). | Built-in and site recipes: match hints, tool policy, and phase guidance. |
+| Preview toolbar / ICE: tool progress, plan, and summary for anchored content. | Built-in and site recipes: match hints, tool policy, and phase guidance. |
+
+**Form engine** — per–content-type accordion beside the edit form ([configuration guide §5](docs/using-and-extending/configuration-guide.md#cg-5)):
+
+![Studio AI assistant on a content form](docs/images/ai-assistant-studio/authoring-assistant-form-engine.png)
 
 Optional **autonomous** agents (experimental): scheduled runs from the sidebar with prompts and LLM settings in **Agents** — see [autonomous assistants](docs/using-and-extending/autonomous-assistants-widget.md).
 

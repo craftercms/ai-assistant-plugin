@@ -102,7 +102,13 @@ Current configuration tabs are **UI**, **Agents**, **Recipes**, **Integrations**
 
 ![Authoring Assistant on preview — summarize this page workflow](../images/ai-assistant-studio/authoring-assistant-summarize-page.png)
 
-*Preview toolbar or form-engine chat: tool progress, plan, and summary for a recipe such as **Describe this page (read-only)**. See [helper-widget.md](helper-widget.md).*
+*Preview toolbar or ICE panel: tool progress, plan, and summary for a recipe such as **Describe this page (read-only)**. See [helper-widget.md](helper-widget.md).*
+
+### Authoring Assistant (form engine)
+
+![Studio AI assistant on a content form — Content assistant with tool progress](../images/ai-assistant-studio/authoring-assistant-form-engine.png)
+
+*Form-engine control on a content type: accordion agents (e.g. **Content assistant**), tool rounds against repo paths, and responses beside unsaved field values. See [§5 Form Engine Control](#cg-5) and [spec.md — content-type form assistant](../internals/spec.md).*
 
 ### Integrations → Tools (and MCP sub-tab)
 
@@ -343,6 +349,10 @@ Maintainers: step copy in `sources/src/aiAssistantJoyrideSteps.ts`; routing logi
 ### 5. Form Engine Control
 
 The AI Assistant **form control** lists chat agents from **`agents.json`** (same catalog as the Helper). Per-agent **show in panel** toggles live on the content-type field definition. See [studio-plugins-guide.md](studio-plugins-guide.md) (**Form assistant panel**) and [spec.md](../internals/spec.md) (content-type form assistant).
+
+![Studio AI assistant on a content form](../images/ai-assistant-studio/authoring-assistant-form-engine.png)
+
+*Screenshot: [Authoring Assistant (form engine)](#cg-screenshots) — accordion panel, `GetContent` tool progress, and chat beside the open form.*
 
 ---
 

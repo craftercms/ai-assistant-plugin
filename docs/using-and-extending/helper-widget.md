@@ -31,11 +31,17 @@ Deeper wiring: [spec.md](../internals/spec.md), paths: [studio-plugins-guide.md]
 
 ## Authoring Assistant in preview
 
-When the Helper is on the **preview toolbar** (or in the form-engine AI Assistant field), authors open chat beside the page. Intent recipes drive tool rounds (for example **Describe this page** / summarize anchored content):
+When the Helper is on the **preview toolbar** or ICE panel, authors open chat beside the page. Intent recipes drive tool rounds (for example **Describe this page** / summarize anchored content):
 
 ![Authoring Assistant on preview — summarize this page](../images/ai-assistant-studio/authoring-assistant-summarize-page.png)
 
-More configuration tabs and Project Tools: [configuration guide — Screenshots](configuration-guide.md#cg-screenshots).
+## Authoring Assistant on content forms
+
+The **form-engine** control (`ai-assistant` on a content type) shows the same chat agents in an accordion beside the form. Tool rounds can load related repository items while the author edits unsaved field values:
+
+![Studio AI assistant on a content form — Content assistant](../images/ai-assistant-studio/authoring-assistant-form-engine.png)
+
+Form control setup: [configuration guide §5](configuration-guide.md#cg-5). More screenshots: [configuration guide — Screenshots](configuration-guide.md#cg-screenshots).
 
 ## Hiding the Preview Toolbar Icon Without Editing `ui.xml`
 
