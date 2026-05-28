@@ -8,10 +8,13 @@ is organized so **engine** (turn runtime), **contrib** (pluggable adapters), **s
 
 ## Dependency rule
 
-```text
-REST → engine → spi
-         ↓         ↑
-       studio    contrib
+```mermaid
+flowchart BT
+  REST[REST scripts] --> engine
+  engine --> spi
+  engine --> studio
+  contrib --> spi
+  contrib --> studio
 ```
 
 - **engine** must not import concrete builtin tool classes (only registry/manifest).
@@ -20,11 +23,18 @@ REST → engine → spi
 
 ## Layout
 
-```text
-spi/           # contracts (Tool, LlmRuntime, ImageGenerator)
-engine/        # turn, routing, prompt, rag, autonomous, catalog, policy
-contrib/       # builtin tools, llm/imagegen backends, mcp, site loaders
-studio/        # repository ops, config, secrets, http proxy
+```mermaid
+flowchart TB
+  subgraph packages["Groovy packages"]
+    spi["spi — contracts"]
+    engine["engine — turn runtime"]
+    contrib["contrib — adapters"]
+    studio["studio — Crafter host"]
+  end
+  engine --> spi
+  engine --> studio
+  contrib --> spi
+  contrib --> studio
 ```
 
 ### `spi/`
@@ -85,11 +95,13 @@ Bundled default recipes: `engine/routing/authoring-intent-recipes-default.json`.
 
 Per-site extensions live in git, loaded by **contrib** loaders:
 
-```text
-/config/studio/scripts/aiassistant/
-  config/tools.json, intent-recipes.json
-  user-tools/registry.json + *.groovy
-  llm/{id}/, imagegen/{id}/
+```mermaid
+flowchart TB
+  Root["config/studio/scripts/aiassistant/"]
+  Root --> Config["config/tools.json · intent-recipes.json"]
+  Root --> UT["user-tools/registry.json + *.groovy"]
+  Root --> LLM["llm/{id}/"]
+  Root --> IMG["imagegen/{id}/"]
 ```
 
 ## Related docs

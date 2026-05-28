@@ -33,26 +33,20 @@ One **interactive** turn, tools-loop LLM, `intentRecipeRouting.enabled: true`, s
 
 ```mermaid
 flowchart TD
-  A([Author message this turn]) --> B{Prechecks OK?}
-  B -->|no| Bskip[Skip routing — tools loop or error]
-  B -->|yes| Eg{eligibilityGateEnabled?}
-  Eg -->|true + fail| BskipElig[skipped_eligibility → tools loop]
-  Eg -->|pass / off| Eng[Optional routingEngineSteps\ninitial · before_router]
-  Eng --> R[Router.matchPass\nLLM classifier JSON]
-  R --> Mode{mode + confidence}
-  Mode -->|recipe ≥ minConfidence| M[attachMatchedRecipe\nprefetch + prelude]
-  Mode -->|chat_only| CO[Tools off — prose only]
-  Mode -->|tool| ST[Single-tool allowlist]
-  Mode -->|plan / weak recipe| P[Plan defer hint +\nrecipe + tool catalog]
-  M --> H{Recipe toolsLoopDisable?}
-  H -->|yes| CO
-  H -->|no| J[Tools loop]
-  P --> J
-  ST --> J
-  Bskip --> J
-  BskipElig --> J
-  J --> Plan[## Plan + tool rounds]
-  Plan --> StepHints[Optional plan-step recipe hints\nfrom deterministic match on steps]
+  Turn([Author message this turn]) --> Pre{Prelude guards OK?}
+  Pre -->|no| Skip[skipped_* — tools loop or error]
+  Pre -->|yes| Classify[Router.matchPass]
+  Classify --> Out{Classifier outcome}
+  Out -->|matched recipe| Recipe[Prefetch + prelude]
+  Out -->|chat_only| Prose[Prose only]
+  Out -->|router_tool| OneTool[Single-tool allowlist]
+  Out -->|plan / no_match| PlanHint[Plan defer + catalog]
+  Recipe --> Loop[Tools loop]
+  OneTool --> Loop
+  PlanHint --> Loop
+  Skip --> Loop
+  Loop --> Done([Turn complete])
+  Prose --> Done
 ```
 
 **Read the diagram left to right, top to bottom.**
@@ -64,7 +58,7 @@ flowchart TD
 | **Single tool** (`mode: tool`) | Tools loop restricted to one wired tool name (`outcome: router_tool`). |
 | **Plan defer** (`mode: plan` or recipe below confidence) | **## Plan** hint + optional catalog block; tools loop plans per step (`outcome: plan` or `no_match`). |
 
-Recipe JSON still defines **`deterministicMatch`** rules — used for **plan-step hints** inside the tools loop (`matchRecipesForPlanSteps`), not as the primary whole-turn gate. The box diagram in **[Default flow](#default-flow-shipped--preview-chat-tools-loop-llms)** below matches **`Router.route`**.
+Recipe JSON still defines **`deterministicMatch`** rules — used for **plan-step hints** inside the tools loop (`matchRecipesForPlanSteps`), not as the primary whole-turn gate. The phased diagram in **[Default flow](#default-flow-shipped--preview-chat-tools-loop-llms)** matches **`Router.route`**.
 
 ---
 
@@ -88,49 +82,46 @@ This is what runs **out of the box** when intent recipe routing is on and the ag
 
 **Does not enter this prelude:** `claude` (Anthropic stack), `omitTools: true` on POST, or `intentRecipeRouting.enabled: false`.
 
-```
-                         Wire in (anchor + prior + Current request:)
-                                    │
-    ┌───────────────────────────────┴───────────────────────────────┐
-    │ A  Enter prelude                                                │
-    │    AiOrchestration.intentRecipeRoutingPrelude → Router.route    │
-    │    useToolsLoopChatRestClient + intentRecipeRouting.enabled     │
-    └───────────────────────────────┬─────────────────────────────────┘
-                                    │
-    ┌───────────────────────────────┴───────────────────────────────┐
-    │ B  Preconditions (fail fast)                                    │
-    │    ops · enabled · prompt · API key · model · catalog non-empty │
-    │    optional eligibilityGateEnabled → skipped_eligibility        │
-    └───────────────────────────────┬─────────────────────────────────┘
-                                    │
-    ┌───────────────────────────────┴───────────────────────────────┐
-    │ C  Router.matchPass (LLM classifier)                            │
-    │                                                                 │
-    │    C0  routingEngineSteps prefetch (initial, before_router)    │
-    │    C1  LLM JSON: mode chat_only | recipe | tool | plan          │
-    │    C2  Server corrections (e.g. open_page_inquiry, image gen)   │
-    │                                                                 │
-    │    recipe + confidence ≥ minConfidence → matched                │
-    │    chat_only → tools off (outcome chat_only)                    │
-    │    tool → toolsLoopAllowlist = [toolName] (outcome router_tool) │
-    │    plan / weak recipe → deferToPlanLoop + plan hint             │
-    └───────────────────────────────┬─────────────────────────────────┘
-                                    │
-    ┌───────────────────────────────┴───────────────────────────────┐
-    │ D  Apply classifier outcome                                     │
-    │                                                                 │
-    │    matched → attachMatchedRecipe (recipe engineSteps prefetch,  │
-    │              prelude on userTextForToolsLoop)                   │
-    │                                                                 │
-    │    matched + toolsLoopDisable → prose only (no tools loop)      │
-    │                                                                 │
-    │    plan / no_match → defer hint + catalog on prompt             │
-    └───────────────────────────────┬─────────────────────────────────┘
-                                    │
-    ┌───────────────────────────────┴───────────────────────────────┐
-    │ E  Native tools loop (unless toolsLoopDisable / chat_only)      │
-    │    ## Plan · tool_calls · optional plan-step recipe hints       │
-    └───────────────────────────────────────────────────────────────┘
+<a id="default-flow-phases"></a>
+
+### Prelude phases A–E (`Router.route`)
+
+```mermaid
+flowchart TD
+  Wire([Wire in: anchor + prior + Current request]) --> A
+
+  A["A · Enter prelude<br/>intentRecipeRoutingPrelude → Router.route"]
+  A --> B
+
+  B["B · Preconditions"]
+  B --> Bok{Guards pass?}
+  Bok -->|no| Bskip["skipped_*"]
+  Bok -->|yes| Begate{eligibilityGateEnabled?}
+  Begate -->|true, fail| BskipElig["skipped_eligibility"]
+  Begate -->|off or pass| C
+
+  C["C · Router.matchPass"]
+  C --> C0["routingEngineSteps: initial, before_router"]
+  C0 --> C1["LLM JSON: chat_only | recipe | tool | plan"]
+  C1 --> C2["Server corrections"]
+  C2 --> Cbranch{mode + confidence}
+
+  Cbranch -->|recipe ≥ minConfidence| D1["D · attachMatchedRecipe"]
+  Cbranch -->|chat_only| D2["D · outcome chat_only"]
+  Cbranch -->|tool| D3["D · outcome router_tool"]
+  Cbranch -->|plan / weak recipe| D4["D · plan defer + catalog"]
+
+  D1 --> D1off{toolsLoopDisable?}
+  D1off -->|yes| EndProse([Prose reply only])
+  D1off -->|no| E
+  D2 --> EndProse
+  D3 --> E
+  D4 --> E
+  Bskip --> E
+  BskipElig --> E
+
+  E["E · Native tools loop<br/>## Plan · tool_calls · plan-step hints"]
+  E --> Done([Turn complete])
 ```
 
 ### Default path — example turns (anchored page open)
@@ -167,15 +158,16 @@ Entry: `AiOrchestration.intentRecipeRoutingPrelude` → **`Router.route`** when 
 
 **Off by default.** When **on**, `Router.route` runs `AuthoringPreviewContext.intentRecipeRouterEligibilitySkipReason` after preconditions. Failures return `skipped_eligibility` and skip the classifier (tools loop still runs).
 
-```
-    B  Preconditions OK
-              │
-    ┌─────────┴─────────┐
-    │ eligibility gate  │  only if eligibilityGateEnabled: true
-    ├─ ✗ "Hi!" alone     ► skipped_eligibility → E
-    ├─ ✗ no_cms_task_signal
-    ├─ ✗ long paste w/o URL
-    └─ ✓ pass ──────────► C  Router.matchPass
+```mermaid
+flowchart TD
+  Bok["B · Preconditions OK"] --> Gate{eligibilityGateEnabled?}
+  Gate -->|false default| Classify["C · Router.matchPass"]
+  Gate -->|true| Eval{Skip reason?}
+  Eval -->|trivial_non_authoring_turn| Skip["skipped_eligibility → E tools loop"]
+  Eval -->|no_cms_task_signal| Skip
+  Eval -->|visible_exceeds_1600_chars| Skip
+  Eval -->|long_message_no_url_for_expansion_gate| Skip
+  Eval -->|pass null| Classify
 ```
 
 See **[Phase 2 — Eligibility gate](#phase-2--eligibility-gate-optional-off-by-default)** for skip reasons and examples.
@@ -214,9 +206,8 @@ Fails here mean routing never called the router LLM and never ran prefetch — r
 
 **Eligible for what?** When the gate is **enabled**, a turn is **eligible** when `intentRecipeRouterEligibilitySkipReason` returns **null** — meaning the server may run **pre-tools intent recipe routing** on that turn:
 
-- Pick a **recipe** (deterministic signals and/or JSON router LLM)
-- Run **prefetch** (e.g. `GetContent` for the anchored path)
-- Run **`Router.matchPass`** when the gate passes
+- Run **`Router.matchPass`** (LLM classifier)
+- On **`mode: recipe`**, run recipe prefetch (e.g. `GetContent` for the anchored path)
 
 It is **not** “eligible to chat” (chat always proceeds) and **not** “eligible for tools” (the **tools loop** often still runs after a skip — see optional diagram: `skipped_eligibility` → **E**).
 
