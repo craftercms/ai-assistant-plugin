@@ -4,6 +4,7 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
 import plugins.org.craftercms.aiassistant.studio.config.StudioAiSiteModuleText
+import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiSandboxClasspath
 
 import java.util.concurrent.ConcurrentHashMap
 
@@ -249,96 +250,12 @@ private ToolPromptsLoader() {}
    * @return override text, or {@code null} to use caller's {@code defaultText}
    */
   private static String tryLoadFromClasspathOrExpanded(String key) {
-    // 1) Classpath: plugins/.../prompts/KEY.md
-    def fromCp = meaningfulOverrideOrNull(readUtf8FromClasspath(CLASSPATH_PREFIX + key + '.md', ToolPromptsLoader))
+    String fromCp = meaningfulOverrideOrNull(
+      StudioAiSandboxClasspath.readUtf8FromClassLoader("${CLASSPATH_PREFIX}${key}.md")
+    )
     if (fromCp != null) {
       log.debug('Tool prompt from classpath: {} ({} chars)', key, fromCp.length())
       return fromCp
-    }
-
-    // 2) Peer to this class
-    fromCp = meaningfulOverrideOrNull(readUtf8FromClasspath(key + '.md', ToolPromptsLoader))
-    if (fromCp != null) {
-      return fromCp
-    }
-
-    // 3) Classloader package path
-    fromCp = meaningfulOverrideOrNull(readUtf8FromClassLoader((ToolPromptsLoader.class.classLoader), "${CLASSPATH_PREFIX}${key}.md"))
-    if (fromCp != null) {
-      return fromCp
-    }
-
-    // 4) Thread context classloader
-    def cl = Thread.currentThread().contextClassLoader
-    fromCp = meaningfulOverrideOrNull(readUtf8FromClassLoader(cl, "${CLASSPATH_PREFIX}${key}.md"))
-    if (fromCp != null) {
-      return fromCp
-    }
-
-    // 5) Expanded plugin: prompts/ next to this class
-    try {
-      def loc = ToolPromptsLoader.class.protectionDomain?.codeSource?.location
-      if (loc != null) {
-        def file = new File(loc.toURI())
-        if (file.isDirectory()) {
-          def promptsDir = new File(file, 'prompts')
-          def candidate = new File(promptsDir, key + '.md')
-          if (candidate.isFile()) {
-            def t = meaningfulOverrideOrNull(candidate.getText('UTF-8'))
-            if (t != null) {
-              return t
-            }
-            log.warn('Tool prompt file is blank; ignoring: key={} path={}', key, candidate.absolutePath)
-          }
-        }
-      }
-    } catch (Throwable ignored) {
-    }
-
-    null
-  }
-
-  /**
-   * Loads utf8 from classpath from configuration or input.
-   * @param path Studio or repository context for this call.
-   * @param anchor Caller-supplied input.
-   * @return Text result, or empty or null when unavailable.
-   */
-  private static String readUtf8FromClasspath(String path, Class<?> anchor) {
-    try {
-      def is = anchor.getResourceAsStream(path)
-      if (is != null) {
-        try {
-          return is.getText('UTF-8')
-        } finally {
-          try { is.close() } catch (Throwable ignored) { }
-        }
-      }
-    } catch (Throwable ignored) {
-    }
-    null
-  }
-
-  /**
-   * Loads utf8 from class loader from configuration or input.
-   * @param cl Caller-supplied input.
-   * @param path Studio or repository context for this call.
-   * @return Text result, or empty or null when unavailable.
-   */
-  private static String readUtf8FromClassLoader(ClassLoader cl, String path) {
-    if (cl == null) {
-      return null
-    }
-    try {
-      def is = cl.getResourceAsStream(path)
-      if (is != null) {
-        try {
-          return is.getText('UTF-8')
-        } finally {
-          try { is.close() } catch (Throwable ignored) { }
-        }
-      }
-    } catch (Throwable ignored) {
     }
     null
   }

@@ -193,7 +193,8 @@ private StudioToolOperationsSupport() {}
       return true
     }
     try {
-      def extra = System.getProperty('aiassistant.preview.fetch.stripCookieNames')?.toString()?.trim()
+      def extra = plugins.org.craftercms.aiassistant.studio.config.StudioAiPlatformSettings
+        .property('aiassistant.preview.fetch.stripCookieNames', '')?.trim()
       if (extra) {
         for (String part : extra.split(',')) {
           def p = part.trim().toLowerCase(Locale.ROOT)

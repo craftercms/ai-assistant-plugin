@@ -1,10 +1,11 @@
 package plugins.org.craftercms.aiassistant.studio.secrets
 
+import plugins.org.craftercms.aiassistant.studio.config.StudioAiCrafterEnv
 import plugins.org.craftercms.aiassistant.studio.spi.llm.StudioAiLlmKind
 
 /**
  * Well-known secret keys for vendor LLM credentials and related defaults.
- * New sites seed {@code secrets.json} with {@code ${env:VAR}} defaults per slot; authors may change any row (e.g. {@code ${enc:…}}).
+ * New sites seed {@code secrets.json} with {@code ${env:crafter_…}} defaults per slot; authors may change any row (e.g. {@code ${enc:…}}).
  */
 final class StudioAiAssistantSecretsCatalog {
 
@@ -24,42 +25,42 @@ private StudioAiAssistantSecretsCatalog() {}
       key          : 'openai_api_key',
       label        : 'OpenAI API key',
       provider     : StudioAiLlmKind.OPENAI_NATIVE,
-      defaultEnvVar: 'OPENAI_API_KEY',
+      defaultEnvVar: StudioAiCrafterEnv.envNameForSecretKey('openai_api_key'),
       llmKinds     : [StudioAiLlmKind.OPENAI_NATIVE]
     ],
     [
       key          : 'anthropic_api_key',
       label        : 'Anthropic Claude API key',
       provider     : StudioAiLlmKind.CLAUDE_NATIVE,
-      defaultEnvVar: 'ANTHROPIC_API_KEY',
+      defaultEnvVar: StudioAiCrafterEnv.envNameForSecretKey('anthropic_api_key'),
       llmKinds     : [StudioAiLlmKind.CLAUDE_NATIVE]
     ],
     [
       key          : 'xai_api_key',
       label        : 'xAI API key',
       provider     : StudioAiLlmKind.XAI_NATIVE,
-      defaultEnvVar: 'XAI_API_KEY',
+      defaultEnvVar: StudioAiCrafterEnv.envNameForSecretKey('xai_api_key'),
       llmKinds     : [StudioAiLlmKind.XAI_NATIVE]
     ],
     [
       key          : 'deepseek_api_key',
       label        : 'DeepSeek API key',
       provider     : StudioAiLlmKind.DEEPSEEK_NATIVE,
-      defaultEnvVar: 'DEEPSEEK_API_KEY',
+      defaultEnvVar: StudioAiCrafterEnv.envNameForSecretKey('deepseek_api_key'),
       llmKinds     : [StudioAiLlmKind.DEEPSEEK_NATIVE]
     ],
     [
       key          : 'llama_api_key',
       label        : 'Ollama / Llama API key',
       provider     : StudioAiLlmKind.LLAMA_NATIVE,
-      defaultEnvVar: 'LLAMA_API_KEY',
+      defaultEnvVar: StudioAiCrafterEnv.envNameForSecretKey('llama_api_key'),
       llmKinds     : [StudioAiLlmKind.LLAMA_NATIVE]
     ],
     [
       key          : 'gemini_api_key',
       label        : 'Google Gemini API key',
       provider     : StudioAiLlmKind.GEMINI_NATIVE,
-      defaultEnvVar: 'GEMINI_API_KEY',
+      defaultEnvVar: StudioAiCrafterEnv.envNameForSecretKey('gemini_api_key'),
       llmKinds     : [StudioAiLlmKind.GEMINI_NATIVE]
     ],
   ]
@@ -69,13 +70,13 @@ private StudioAiAssistantSecretsCatalog() {}
     [
       key          : 'serpapi_api_key',
       label        : 'SerpAPI (web search)',
-      defaultEnvVar: 'SERPAPI_API_KEY',
+      defaultEnvVar: StudioAiCrafterEnv.envNameForSecretKey('serpapi_api_key'),
       optional     : true
     ],
     [
       key          : 'slack_bot_token',
       label        : 'Slack bot token (chat.postMessage)',
-      defaultEnvVar: 'SLACK_BOT_TOKEN',
+      defaultEnvVar: StudioAiCrafterEnv.envNameForSecretKey('slack_bot_token'),
       optional     : true
     ]
   ]

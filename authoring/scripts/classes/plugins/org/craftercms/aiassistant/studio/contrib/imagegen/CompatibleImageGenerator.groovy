@@ -10,7 +10,8 @@ import plugins.org.craftercms.aiassistant.studio.http.AiHttpProxy
 import plugins.org.craftercms.aiassistant.studio.contrib.llm.StudioAiProviderCredentials
 import plugins.org.craftercms.aiassistant.studio.engine.turn.AiOrchestration
 
-import java.net.HttpURLConnection
+import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiSandboxHttp
+import java.nio.charset.StandardCharsets
 import java.net.URL
 import java.util.Collections
 import java.util.LinkedHashSet
@@ -53,7 +54,8 @@ final class CompatibleImageGenerator implements StudioAiImageGenerator {
       return size ?: null
     }
     if (!size) {
-      return null
+      // GPT image models accept "auto"; omitting size can yield 200 with no data[] on some hosts.
+      return gptFamily ? 'auto' : null
     }
     if (GPT_IMAGE_API_SIZES.contains(size)) {
       return size
@@ -158,6 +160,9 @@ final class CompatibleImageGenerator implements StudioAiImageGenerator {
    * @param input Caller-supplied input.
    * @return Map payload for tools or orchestration.
    */
+  /** Bumped when image wire changes so studio.log confirms Groovy reloaded this class after deploy/restart. */
+  private static final String WIRE_REVISION = 'sandbox-http-v2'
+
   static Map postImagesGenerations(String apiKey, String postUrl, String defaultImageModel, Map input) {
     def prompt = input?.prompt?.toString()?.trim()
     if (!prompt) {
@@ -179,22 +184,33 @@ final class CompatibleImageGenerator implements StudioAiImageGenerator {
     }
     String size = normalizeImageGenerationSize(sizeRaw, model)
     String body = buildImagesGenerationsRequestJson(model, prompt, size, quality)
+    LOG.info(
+      'CompatibleImageGenerator: POST {} model={} size={} revision={}',
+      postUrl,
+      model,
+      size ?: '(omit)',
+      WIRE_REVISION
+    )
     if (LOG.isDebugEnabled()) {
       LOG.debug('CompatibleImageGenerator wireJson={}', AiHttpProxy.elideForLog(body, 900))
     }
-    HttpURLConnection conn = null
     try {
-      conn = (HttpURLConnection) new URL(postUrl).openConnection()
-      conn.requestMethod = 'POST'
-      conn.setRequestProperty('Content-Type', 'application/json; charset=UTF-8')
-      conn.setRequestProperty('Authorization', 'Bearer ' + apiKey)
-      conn.doOutput = true
-      conn.connectTimeout = 120_000
-      conn.readTimeout = 300_000
-      conn.outputStream.withWriter('UTF-8') { w -> w.write(body) }
-      int code = conn.responseCode
-      def stream = code >= 400 ? conn.errorStream : conn.inputStream
-      def text = stream != null ? stream.getText('UTF-8') : ''
+      def ex = StudioAiSandboxHttp.postBytes(
+        URI.create(postUrl),
+        body.getBytes(StandardCharsets.UTF_8),
+        'application/json; charset=UTF-8',
+        [
+          authorization   : apiKey,
+          connectTimeoutMs: 120_000,
+          readTimeoutMs   : 300_000,
+          maxRedirects    : 0,
+          ssrfCheck       : false
+        ])
+      if (!ex.ok && (ex.errorMessage ?: '').toString().trim()) {
+        return [error: true, message: "Images API I/O: ${ex.errorMessage}"]
+      }
+      int code = ex.statusCode
+      def text = ex.bodyText ?: ''
       if (code < 200 || code >= 300) {
         def errMsg = "Images API HTTP ${code}"
         try {
@@ -222,12 +238,36 @@ final class CompatibleImageGenerator implements StudioAiImageGenerator {
       }
       def data = json.data
       if (!(data instanceof List) || data.isEmpty()) {
-        return [error: true, message: 'Images API returned no data array', raw: text]
+        String keys = (json instanceof Map) ? ((Map) json).keySet()?.join(',') : ''
+        LOG.warn(
+          'CompatibleImageGenerator: HTTP {} from {} model={} bodyChars={} topLevelKeys={} bodyPrefix=\n{}',
+          code,
+          postUrl,
+          model,
+          (text ?: '').length(),
+          keys,
+          AiHttpProxy.elideForLog(text, 1200)
+        )
+        String hint = keys?.contains('error') ? ' See bodyPrefix for provider error JSON.' : ''
+        return [
+          error  : true,
+          message: "Images API returned no data array (HTTP ${code}, bodyChars=${(text ?: '').length()}).${hint}",
+          raw    : AiHttpProxy.elideForLog(text, 4000)
+        ]
       }
       def first = data[0]
       if (!(first instanceof Map)) {
         return [error: true, message: 'Images API data[0] is not an object', raw: text]
       }
+      LOG.info(
+        'CompatibleImageGenerator: HTTP {} ok model={} dataItems={} hasUrl={} hasB64={} revision={}',
+        code,
+        model,
+        data.size(),
+        first.url != null,
+        first.b64_json != null,
+        WIRE_REVISION
+      )
       def out = [
         ok            : true,
         tool          : 'GenerateImage',
@@ -260,10 +300,6 @@ final class CompatibleImageGenerator implements StudioAiImageGenerator {
     } catch (Throwable t) {
       LOG.warn('CompatibleImageGenerator failed: {}', t.toString())
       return [error: true, message: (t.message ?: t.toString())]
-    } finally {
-      try {
-        conn?.disconnect()
-      } catch (Throwable ignored) {}
     }
   }
 }

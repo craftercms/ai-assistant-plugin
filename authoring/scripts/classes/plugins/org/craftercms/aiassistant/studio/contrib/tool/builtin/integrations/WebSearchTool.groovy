@@ -4,14 +4,11 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import plugins.org.craftercms.aiassistant.studio.engine.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.http.OutboundHttpPolicy
+import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiSandboxHttp
 import plugins.org.craftercms.aiassistant.studio.spi.tool.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.studio.spi.tool.StudioAiToolContext
 import plugins.org.craftercms.aiassistant.studio.spi.tool.StudioAiToolSchemas
 
-import java.io.BufferedReader
-import java.io.InputStream
-import java.io.InputStreamReader
-import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -147,44 +144,36 @@ class WebSearchTool extends AbstractStudioAiTool {
       return []
     }
     String body = 'q=' + URLEncoder.encode(q, StandardCharsets.UTF_8.name())
-    HttpURLConnection conn = null
-    InputStream is = null
     try {
-      conn = (HttpURLConnection) uri.toURL().openConnection()
-      conn.setRequestMethod('POST')
-      conn.setDoOutput(true)
-      conn.setInstanceFollowRedirects(true)
-      conn.setConnectTimeout(15000)
-      conn.setReadTimeout(60_000)
-      conn.setRequestProperty('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8')
-      conn.setRequestProperty('Accept', 'text/html,application/xhtml+xml')
-      conn.setRequestProperty('User-Agent', USER_AGENT)
-      conn.outputStream.withWriter(StandardCharsets.UTF_8.name()) { it.write(body) }
-      int status = conn.responseCode
+      def ex = StudioAiSandboxHttp.postBytes(
+        uri,
+        body.getBytes(StandardCharsets.UTF_8),
+        'application/x-www-form-urlencoded; charset=UTF-8',
+        [
+          userAgent       : USER_AGENT,
+          accept          : 'text/html,application/xhtml+xml',
+          connectTimeoutMs: 15_000,
+          readTimeoutMs   : 60_000,
+          maxRedirects    : 5,
+          ssrfCheck       : false
+        ]
+      )
+      if (ex.errorMessage) {
+        log.warn('WebSearch DuckDuckGo I/O failed endpoint={}: {}', endpoint, ex.errorMessage)
+        return []
+      }
+      int status = ex.statusCode
       if (status < 200 || status >= 300) {
         log.warn('WebSearch DuckDuckGo HTTP {} endpoint={}', status, endpoint)
         return []
       }
-      String html = ''
-      is = conn.inputStream
-      if (is != null) {
-        html = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8)).text
-      }
+      String html = ex.bodyText ?: ''
       return liteParser ?
         parseDuckDuckGoLiteHtml(html, maxResults) :
         parseDuckDuckGoHtml(html, maxResults)
     } catch (Throwable t) {
       log.warn('WebSearch DuckDuckGo failed endpoint={}: {}', endpoint, t.message)
       return []
-    } finally {
-      try {
-        is?.close()
-      } catch (Throwable ignored) {
-      }
-      try {
-        conn?.disconnect()
-      } catch (Throwable ignored) {
-      }
     }
   }
 

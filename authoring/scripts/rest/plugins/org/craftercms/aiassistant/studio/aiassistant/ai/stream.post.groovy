@@ -10,6 +10,7 @@ import plugins.org.craftercms.aiassistant.studio.contrib.agents.AiAssistantCentr
 import plugins.org.craftercms.aiassistant.studio.engine.turn.AiOrchestration
 import plugins.org.craftercms.aiassistant.studio.engine.prompt.ToolPromptsSiteContext
 import plugins.org.craftercms.aiassistant.studio.config.StudioAiAssistantProjectConfig
+import plugins.org.craftercms.aiassistant.studio.config.StudioAiPlatformSettings
 import plugins.org.craftercms.aiassistant.studio.engine.rag.ExpertSkillVectorRegistry
 import plugins.org.craftercms.aiassistant.studio.secrets.StudioAiAssistantSecretsContext
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
@@ -280,6 +281,7 @@ try {
 
   String siteForPrompts = (siteIdBody ?: params?.siteId?.toString()?.trim() ?: '')
   ToolPromptsSiteContext.enter(applicationContext, siteForPrompts)
+  StudioAiPlatformSettings.enter(applicationContext, siteForPrompts)
   StudioAiAssistantSecretsContext.bind(siteForPrompts, applicationContext)
   try {
     try {
@@ -350,6 +352,7 @@ try {
   }
   } finally {
     ToolPromptsSiteContext.exit()
+    StudioAiPlatformSettings.exit()
     StudioAiAssistantSecretsContext.clear()
   }
 } catch (Throwable outer) {

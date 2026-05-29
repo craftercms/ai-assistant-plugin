@@ -3,6 +3,7 @@ package plugins.org.craftercms.aiassistant.studio.engine.turn
 import plugins.org.craftercms.aiassistant.studio.spi.llm.StudioAiLlmRuntime
 import plugins.org.craftercms.aiassistant.studio.engine.context.AuthoringPreviewContext
 import plugins.org.craftercms.aiassistant.studio.config.StudioAiAssistantProjectConfig
+import plugins.org.craftercms.aiassistant.studio.config.StudioAiPlatformSettings
 import plugins.org.craftercms.aiassistant.studio.http.AiHttpProxy
 import plugins.org.craftercms.aiassistant.studio.spi.llm.StudioAiLlmKind
 import plugins.org.craftercms.aiassistant.studio.engine.catalog.StudioAiLlmRuntimeFactory
@@ -41,10 +42,8 @@ import org.springframework.ai.chat.messages.SystemMessage
 import org.springframework.ai.chat.messages.UserMessage
 import org.springframework.ai.chat.model.ChatResponse
 import org.springframework.ai.chat.prompt.Prompt
-import org.springframework.ai.model.ModelOptionsUtils
 import org.springframework.ai.openai.api.OpenAiApi
 import org.springframework.ai.openai.api.OpenAiApi.ChatCompletionMessage
-import org.springframework.ai.openai.api.OpenAiApi.ChatCompletionRequest
 import org.springframework.ai.openai.api.common.OpenAiApiConstants
 import org.springframework.ai.tool.function.FunctionToolCallback
 import org.springframework.http.HttpHeaders
@@ -389,7 +388,7 @@ class AiOrchestration {
    */
   private static long resolveChatFluxAwaitMs() {
     try {
-      def p = System.getProperty('aiassistant.chatFluxAwaitMs')
+      def p = StudioAiPlatformSettings.property('aiassistant.chatFluxAwaitMs', '')
       if (p != null && p.toString().trim()) {
         long n = Long.parseLong(p.toString().trim())
         if (n >= 120_000L && n <= 1_200_000L) {
@@ -406,7 +405,7 @@ class AiOrchestration {
    */
   private static long resolveToolsLoopSseWaitHeartbeatMs() {
     try {
-      def p = System.getProperty('aiassistant.openai.sseWaitHeartbeatMs')
+      def p = StudioAiPlatformSettings.property('aiassistant.openai.sseWaitHeartbeatMs', '')
       if (p != null && p.toString()?.trim()) {
         long n = Long.parseLong(p.toString().trim())
         if (n >= 3_000L && n <= 120_000L) {
@@ -440,7 +439,7 @@ class AiOrchestration {
       }
     }
     try {
-      def p = System.getProperty('aiassistant.openai.restReadTimeoutMs')
+      def p = StudioAiPlatformSettings.property('aiassistant.openai.restReadTimeoutMs', '')
       if (p != null && p.toString().trim()) {
         int n = Integer.parseInt(p.toString().trim())
         if (n >= 60_000 && n <= 1_260_000) {
@@ -457,7 +456,7 @@ class AiOrchestration {
    */
   private static int resolveChatCompletionsRestConnectTimeoutMs() {
     try {
-      def p = System.getProperty('aiassistant.openai.restConnectTimeoutMs')
+      def p = StudioAiPlatformSettings.property('aiassistant.openai.restConnectTimeoutMs', '')
       if (p != null && p.toString().trim()) {
         int n = Integer.parseInt(p.toString().trim())
         if (n >= 5_000 && n <= 120_000) {
@@ -521,7 +520,7 @@ class AiOrchestration {
 
   /**
    * Spring AI / WebClient / Netty: optional DEBUG in Studio logs (Log4j2). **Off by default.**
-   * Set JVM system property {@code aiassistant.springAiHttpDebug=true} to enable once per JVM.
+   * Set {@code aiassistant.springAiHttpDebug=true} in {@code platform-settings.json} to enable once per JVM.
    */
   private static final AtomicBoolean springAiVerboseHttpLoggingArmed = new AtomicBoolean(false)
 
@@ -531,8 +530,7 @@ class AiOrchestration {
    * Helps operators trace RestClient failures during native-tools loops.
    */
   private static void ensureVerboseSpringAiHttpLogging() {
-    String raw = System.getProperty('aiassistant.springAiHttpDebug', 'false')
-    if (!Boolean.parseBoolean((raw != null ? raw.trim() : 'false') ?: 'false')) {
+    if (!StudioAiPlatformSettings.propertyBoolean('aiassistant.springAiHttpDebug', false)) {
       return
     }
     if (!springAiVerboseHttpLoggingArmed.compareAndSet(false, true)) {
@@ -1035,10 +1033,10 @@ For **content XML** (pages/components): do not invent a new element tree — pre
    * Returns empty string when callers should fall back to agent defaults.
    */
   static String resolveChatModel(String fromRequest) {
-    String base = (fromRequest ?: '').toString().trim() ?: (System.getProperty('crafter.openai.model') ?: '').toString().trim()
+    String base = (fromRequest ?: '').toString().trim() ?: StudioAiPlatformSettings.property('crafter.openai.model', '').trim()
     if (!base) {
       throw new IllegalStateException(
-        'The chat model is not configured properly. Set the agent LLM / llmModel in Project Tools → Agents (config/studio/ai-assistant/agents.json), pass llmModel on the chat request, or set JVM property crafter.openai.model when using the default bundled chat host configuration.'
+        'The chat model is not configured properly. Set the agent LLM / llmModel in Project Tools → Agents (config/studio/ai-assistant/agents.json), pass llmModel on the chat request, or set crafter.openai.model in config/studio/scripts/aiassistant/config/platform-settings.json when using the default bundled chat host configuration.'
       )
     }
     String canon = llmCanonicalizeApiModelToken(base)
@@ -1073,7 +1071,7 @@ For **content XML** (pages/components): do not invent a new element tree — pre
    */
   static int resolveTranslateContentItemMaxOutTokens() {
     try {
-      def p = System.getProperty('aiassistant.translateContentItemMaxOutTokens')?.toString()?.trim()
+      def p = StudioAiPlatformSettings.property('aiassistant.translateContentItemMaxOutTokens', '')?.trim()
       if (p) {
         int v = Integer.parseInt(p)
         return Math.max(1024, Math.min(32_768, v))
@@ -2732,6 +2730,31 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
   }
 
   /**
+   * When {@code generate_image} ran but no inline image reached the chat strip, correct optimistic LLM summaries.
+   */
+  private static String appendGenerateImageDeliveryWarningIfNeeded(
+    String assistantText,
+    Map toolsLoopSessionBundle,
+    Map<String, String> mergedGenerateImageUrls
+  ) {
+    Map tel = (toolsLoopSessionBundle instanceof Map && toolsLoopSessionBundle.intentRecipeRoutingTelemetry instanceof Map) ?
+      (Map) toolsLoopSessionBundle.intentRecipeRoutingTelemetry :
+      [:]
+    if (!'generate_image'.equals(tel.get('recipeId')?.toString()?.trim())) {
+      return assistantText ?: ''
+    }
+    if (mergedGenerateImageUrls != null && !mergedGenerateImageUrls.isEmpty()) {
+      return assistantText ?: ''
+    }
+    String base = (assistantText ?: '').toString()
+    if (base.contains('Image generation did not complete') || base.contains('chat image strip is empty')) {
+      return base
+    }
+    return base +
+      '\n\n❌ **Image generation did not complete.** The GenerateImage tool did not return a preview URL for the chat image strip. Check studio.log for `CompatibleImageGenerator` (revision `sandbox-http-v2`) and the provider response.\n'
+  }
+
+  /**
    * Append preview verification warning if needed.
    * @return Text result, or empty or null when unavailable.
    */
@@ -4279,7 +4302,7 @@ Use the reference response above together with **this** author request (includin
     model = resolveChatModel(model?.toString())
     int cap = 120_000
     try {
-      def p = System.getProperty('aiassistant.openai.reviewMaxChars')?.toString()?.trim()
+      def p = StudioAiPlatformSettings.property('aiassistant.openai.reviewMaxChars', '')?.trim()
       if (p) {
         cap = Math.max(8192, Integer.parseInt(p))
       }
@@ -6927,6 +6950,11 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     String sanitized =
       sanitizeAssistantMarkdownReplaceGenerateImageDataUrlsWithRefs((assistantAccum ?: '').toString(), mergedImgUrls)
     sanitized = promotePlanToPlanExecutionIfNeeded(sanitized)
+    sanitized = appendGenerateImageDeliveryWarningIfNeeded(
+      sanitized,
+      toolsLoopSessionBundle,
+      mergedImgUrls
+    )
     sanitized = appendPreviewVerificationWarningIfNeeded(
       sanitized,
       lastPreviewContentGoalFound,
@@ -7122,17 +7150,14 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     if (!model?.toString()?.trim()) {
       throw new IllegalStateException('Tools-loop tools-off chat: model missing')
     }
-    def msgs = chatCompletionMessagesForApi(authoringChatPrompt)
-    // Groovy cannot resolve `new ChatCompletionRequest(msgs, model, null, true)` reliably: `null` matches
-    // both (..., Double, boolean) and (..., List tools, Object toolChoice) → wrong ctor or wrong wire JSON.
-    def reqCtor = ChatCompletionRequest.getConstructor(
-      java.util.List.class,
-      String.class,
-      Double.class,
-      boolean.class
-    )
-    def req = reqCtor.newInstance(msgs, model, null, true) as ChatCompletionRequest
-    def jsonBody = chatCompletionsWireBodyApplyNeoTemperaturePolicy(ModelOptionsUtils.toJsonString(req))
+    def wireMessages = chatMessagesWireShape(authoringChatPrompt)
+    // Map + JsonOutput (not ChatCompletionRequest / reflection): sandbox blocks Class.getConstructor.
+    def reqMap = [
+      model   : model,
+      messages: wireMessages,
+      stream  : true
+    ]
+    def jsonBody = chatCompletionsWireBodyApplyNeoTemperaturePolicy(JsonOutput.toJson(reqMap))
     try {
       log.debug(
         'Tools-loop tools-off request wire (truncated): {}',
@@ -7143,7 +7168,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       'Tools-loop tools-off: RestClient exchange POST /v1/chat/completions (stream=true; forward upstream SSE) agentId={} model={} messageCount={}',
       agentId,
       model,
-      msgs.size()
+      wireMessages.size()
     )
     try {
       chatCompletionsRestClientBuilder(apiKey, wireBaseUrl)

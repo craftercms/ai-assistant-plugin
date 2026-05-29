@@ -4,15 +4,12 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import plugins.org.craftercms.aiassistant.studio.engine.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.http.OutboundHttpPolicy
+import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiSandboxHttp
 import plugins.org.craftercms.aiassistant.studio.spi.tool.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.studio.spi.tool.StudioAiToolContext
 import plugins.org.craftercms.aiassistant.studio.spi.tool.StudioAiToolMaintainerObservability
 import plugins.org.craftercms.aiassistant.studio.spi.tool.StudioAiToolSchemas
 
-import java.io.BufferedReader
-import java.io.InputStream
-import java.io.InputStreamReader
-import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -392,28 +389,34 @@ class SerpApiWebSearchTool extends AbstractStudioAiTool {
       log.warn('SerpApiWebSearch blocked by SSRF policy: {}', hopErr)
       return []
     }
-    HttpURLConnection conn = null
     try {
-      conn = (HttpURLConnection) uri.toURL().openConnection()
-      conn.setRequestMethod('GET')
-      conn.setInstanceFollowRedirects(true)
-      conn.setConnectTimeout(15000)
-      conn.setReadTimeout(60_000)
-      conn.setRequestProperty('Accept', 'application/json')
-      conn.setRequestProperty('User-Agent', USER_AGENT)
-      int status = conn.responseCode
+      def ex = StudioAiSandboxHttp.getText(uri, [
+        userAgent       : USER_AGENT,
+        accept          : 'application/json',
+        connectTimeoutMs: 15_000,
+        readTimeoutMs   : 60_000,
+        maxRedirects    : 5,
+        maxBodyChars    : MAX_SERP_RESPONSE_CHARS,
+        ssrfCheck       : false
+      ])
+      if (ex.errorMessage) {
+        diag.fetchError = ex.errorMessage
+        LAST_SERP_FETCH_DIAG.set(Collections.unmodifiableMap(diag))
+        log.warn('SerpApiWebSearch I/O failed q={}: {}', params.q, ex.errorMessage)
+        return []
+      }
+      int status = ex.statusCode
       diag.httpStatus = status
       if (status < 200 || status >= 300) {
-        String errBody = readHttpResponseBody(conn, true)
-        if (errBody) {
-          diag.responseSnippet = maintainerSnippet(errBody)
+        if (ex.bodyText) {
+          diag.responseSnippet = maintainerSnippet(ex.bodyText)
         }
         LAST_SERP_FETCH_DIAG.set(Collections.unmodifiableMap(diag))
         log.warn('SerpApiWebSearch HTTP {} q={}', status, params.q)
         return []
       }
-      String body = readHttpResponseBody(conn, false)
-      if (body.length() >= MAX_SERP_RESPONSE_CHARS) {
+      String body = ex.bodyText ?: ''
+      if (body.length() >= MAX_SERP_RESPONSE_CHARS || ex.truncated) {
         diag.responseTruncated = true
       }
       Map parseMeta = [:]
@@ -435,37 +438,6 @@ class SerpApiWebSearchTool extends AbstractStudioAiTool {
       LAST_SERP_FETCH_DIAG.set(Collections.unmodifiableMap(diag))
       log.warn('SerpApiWebSearch failed: {}', t.message)
       return []
-    } finally {
-      try {
-        conn?.disconnect()
-      } catch (Throwable ignored) {
-      }
-    }
-  }
-
-  /**
-   * Loads http response body from configuration or input.
-   * @param conn Caller-supplied input.
-   * @param errorStream Caller-supplied input.
-   * @return Text result, or empty or null when unavailable.
-   */
-  private static String readHttpResponseBody(HttpURLConnection conn, boolean errorStream) {
-    if (conn == null) {
-      return ''
-    }
-    InputStream is = errorStream ? conn.errorStream : conn.inputStream
-    if (is == null) {
-      return ''
-    }
-    try {
-      return readUtf8(is, MAX_SERP_RESPONSE_CHARS)?.trim() ?: ''
-    } catch (Throwable ignored) {
-      return ''
-    } finally {
-      try {
-        is.close()
-      } catch (Throwable ignoredClose) {
-      }
     }
   }
 
@@ -482,39 +454,6 @@ class SerpApiWebSearchTool extends AbstractStudioAiTool {
     return s.length() > MAINTAINER_RESPONSE_SNIPPET_CHARS
       ? s.substring(0, MAINTAINER_RESPONSE_SNIPPET_CHARS - 1) + '…'
       : s
-  }
-
-  /**
-   * Loads utf8 from configuration or input.
-   * @param inStream Caller-supplied input.
-   * @param maxChars Caller-supplied input.
-   * @return Text result, or empty or null when unavailable.
-   */
-  private static String readUtf8(InputStream inStream, int maxChars) {
-    if (inStream == null) {
-      return ''
-    }
-    StringBuilder sb = new StringBuilder(Math.min(maxChars + 16, 8192))
-    BufferedReader reader = new BufferedReader(new InputStreamReader(inStream, StandardCharsets.UTF_8))
-    char[] cbuf = new char[4096]
-    int total = 0
-    while (true) {
-      int n = reader.read(cbuf)
-      if (n < 0) {
-        break
-      }
-      if (total + n <= maxChars) {
-        sb.append(cbuf, 0, n)
-        total += n
-      } else {
-        int take = maxChars - total
-        if (take > 0) {
-          sb.append(cbuf, 0, take)
-        }
-        break
-      }
-    }
-    return sb.toString()
   }
 
   /**

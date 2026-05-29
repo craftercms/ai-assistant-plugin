@@ -10,9 +10,7 @@ import plugins.org.craftercms.aiassistant.studio.engine.catalog.StudioAiToolRegi
 import plugins.org.craftercms.aiassistant.studio.spi.tool.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.studio.spi.tool.StudioAiToolContext
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
-
-import java.net.URL
-import java.nio.charset.StandardCharsets
+import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiSandboxClasspath
 import java.util.ArrayList
 import java.util.Collections
 import java.util.LinkedHashMap
@@ -359,104 +357,43 @@ private AuthoringIntentRecipeCatalog() {}
   }
 
   /**
-   * Canonical bundled catalog: {@link #BUNDLED_RELATIVE} next to this class (repo:
-   * {@code authoring/scripts/classes/plugins/org/craftercms/aiassistant/studio/engine/routing/authoring-intent-recipes-default.json}).
-   * Studio deploys the whole {@code authoring/scripts/classes} tree; try classpath stream, resource URL, and code-source peer file.
+   * Bundled catalog JSON: optional site path override, then classloader stream, then site sandbox copy
+   * ({@link #BUNDLED_SANDBOX_REPO_PATH}). Sandbox-safe (no {@code Class.getResource}, {@code java.io.File}, or code-source paths).
    */
   private static String loadBundledRecipesJsonText(StudioToolOperations ops = null) {
-    String override = System.getProperty(SYSPROP_BUNDLED_PATH)?.toString()?.trim()
-
-    if (override) {
-      try {
-        File f = new File(override)
-
-        if (f.isFile()) {
-          return f.getText('UTF-8')
-        }
-        log.warn('{} set but not a file: {}', SYSPROP_BUNDLED_PATH, override)
-      } catch (Throwable t) {
-        log.warn('Failed reading bundled recipes from {}: {}', override, t.message)
-      }
-    }
-
     String pkgPath = "${PACKAGE_RESOURCE_PREFIX}${BUNDLED_RELATIVE}"
-    String fromResource = readUtf8FromResourceUrl(AuthoringIntentRecipeCatalog.class.getResource(BUNDLED_RELATIVE))
 
-    if (fromResource?.trim()) {
-      return fromResource
-    }
-
-    fromResource = readUtf8FromResourceUrl(AuthoringIntentRecipeCatalog.class.getResource("/${pkgPath}"))
-
-    if (fromResource?.trim()) {
-      return fromResource
-    }
-
-    ClassLoader cl = AuthoringIntentRecipeCatalog.class.classLoader
-    fromResource = readUtf8FromResourceUrl(cl?.getResource(pkgPath))
-
-    if (fromResource?.trim()) {
-      return fromResource
-    }
-
-    fromResource = readUtf8FromResourceUrl(Thread.currentThread().contextClassLoader?.getResource(pkgPath))
-
-    if (fromResource?.trim()) {
-      return fromResource
-    }
-
-    String fromStream = readUtf8FromResourceStream(AuthoringIntentRecipeCatalog.class.getResourceAsStream(BUNDLED_RELATIVE))
-
-    if (fromStream?.trim()) {
-      return fromStream
-    }
-
-    fromStream = readUtf8FromResourceStream(cl?.getResourceAsStream(pkgPath))
-
-    if (fromStream?.trim()) {
-      return fromStream
-    }
-
-    fromStream = readUtf8FromResourceStream(Thread.currentThread().contextClassLoader?.getResourceAsStream(pkgPath))
-
-    if (fromStream?.trim()) {
-      return fromStream
-    }
-
-    try {
-      def loc = AuthoringIntentRecipeCatalog.class.protectionDomain?.codeSource?.location
-
-      if (loc != null) {
-        String fromCodeSource = readBundledJsonBesideCodeSource(loc)
-
-        if (fromCodeSource?.trim()) {
-          return fromCodeSource
+    String override = plugins.org.craftercms.aiassistant.studio.config.StudioAiPlatformSettings
+      .property(SYSPROP_BUNDLED_PATH, '')?.trim()
+    if (override) {
+      if (override.startsWith('/scripts/') && ops != null) {
+        String sid = ops.resolveStudioSessionSiteId()?.toString()?.trim()
+        if (!sid) {
+          sid = ops.resolveEffectiveSiteId('')?.toString()?.trim()
         }
-        File base = new File(loc.toURI())
-
-        if (base.isFile()) {
-          base = base.parentFile
+        String fromOverride = StudioAiSandboxClasspath.readUtf8FromSiteConfig(ops, sid, override)
+        if (fromOverride?.trim()) {
+          return fromOverride
         }
-
-        if (base != null && base.isDirectory()) {
-          for (String rel : [BUNDLED_RELATIVE, pkgPath]) {
-            File candidate = new File(base, rel)
-
-            if (candidate.isFile()) {
-              return candidate.getText('UTF-8')
-            }
-          }
-        }
+        log.warn('AuthoringIntentRecipeCatalog: {}={} not readable from site sandbox', SYSPROP_BUNDLED_PATH, override)
+      } else if (!override.startsWith('/scripts/')) {
+        log.warn(
+          'AuthoringIntentRecipeCatalog: {}={} must be a site sandbox path under /scripts/... (not a host filesystem path)',
+          SYSPROP_BUNDLED_PATH,
+          override
+        )
       }
-    } catch (Throwable t) {
-      log.debug('AuthoringIntentRecipeCatalog: code-source directory load failed: {}', t.message)
+    }
+
+    String fromClasspath = StudioAiSandboxClasspath.readUtf8FromClassLoader(pkgPath)
+    if (fromClasspath?.trim()) {
+      return fromClasspath
     }
 
     String fromSandbox = loadBundledRecipesJsonFromSiteSandbox(ops)
-
     if (fromSandbox?.trim()) {
       log.debug(
-        'AuthoringIntentRecipeCatalog: loaded bundled {} from site sandbox {} (classpath/code-source miss)',
+        'AuthoringIntentRecipeCatalog: loaded bundled {} from site sandbox {} (classpath miss)',
         BUNDLED_RELATIVE,
         BUNDLED_SANDBOX_REPO_PATH
       )
@@ -529,78 +466,6 @@ private AuthoringIntentRecipeCatalog() {}
       }
     }
     return raw ?: ''
-  }
-
-  /** Peer {@link #BUNDLED_RELATIVE} next to this class code-source (handles Studio {@code file:/config/...} URLs). */
-  private static String readBundledJsonBesideCodeSource(def codeSourceLocation) {
-    if (codeSourceLocation == null) {
-      return ''
-    }
-
-    try {
-      URL codeUrl = (codeSourceLocation instanceof URL) ?
-        (URL) codeSourceLocation :
-        codeSourceLocation.toURI()?.toURL()
-      if (codeUrl == null) {
-        return ''
-      }
-
-      String path = codeUrl.path ?: ''
-
-      if (!path) {
-        return ''
-      }
-
-      int slash = path.lastIndexOf('/')
-      String dir = slash >= 0 ? path.substring(0, slash + 1) : ''
-      URL jsonUrl = new URL(codeUrl.protocol, codeUrl.host, codeUrl.port, "${dir}${BUNDLED_RELATIVE}")
-      return readUtf8FromResourceUrl(jsonUrl)
-    } catch (Throwable t) {
-      log.debug('AuthoringIntentRecipeCatalog: code-source peer JSON load failed: {}', t.message)
-      return ''
-    }
-  }
-
-  /** Reads a classpath or file URL as UTF-8 text (file protocol uses direct file read when possible). */
-  private static String readUtf8FromResourceUrl(URL url) {
-    if (url == null) {
-      return ''
-    }
-
-    try {
-      if ('file'.equalsIgnoreCase(url.protocol)) {
-        try {
-          File f = new File(url.toURI())
-
-          if (f.isFile()) {
-            return f.getText('UTF-8')
-          }
-        } catch (Throwable ignored) {
-        }
-
-        return readUtf8FromResourceStream(url.openStream())
-      }
-
-      return readUtf8FromResourceStream(url.openStream())
-    } catch (Throwable t) {
-      log.debug('AuthoringIntentRecipeCatalog: resource URL read failed {}: {}', url, t.message)
-      return ''
-    }
-  }
-
-  /** Reads an input stream to a UTF-8 string and closes the stream. */
-  private static String readUtf8FromResourceStream(InputStream is) {
-    if (is == null) {
-      return ''
-    }
-
-    try {
-      return new String(is.readAllBytes(), StandardCharsets.UTF_8)
-    } finally {
-      try {
-        is.close()
-      } catch (Throwable ignored) {}
-    }
   }
 
   /** Convenience: returns only the {@code recipes} list from {@link #parseCatalogDocument}. */
@@ -813,44 +678,12 @@ private AuthoringIntentRecipeCatalog() {}
   }
 
   /**
-   * Bundled catalog JSON for routing keys only — classpath / code-source, **not** the site sandbox copy
-   * ({@link #loadBundledRecipesJsonFromSiteSandbox}), which is often stale after plugin upgrades.
+   * Bundled catalog JSON for routing keys only — classloader stream, **not** the site sandbox copy
+   * ({@link #loadBundledRecipesJsonFromSiteSandbox}), which can be stale after plugin upgrades.
    */
   private static String loadBundledCatalogRoutingJsonCanonical() {
-    String override = System.getProperty(SYSPROP_BUNDLED_PATH)?.toString()?.trim()
-    if (override) {
-      try {
-        File f = new File(override)
-        if (f.isFile()) {
-          return f.getText('UTF-8')
-        }
-      } catch (Throwable ignored) {
-        // fall through
-      }
-    }
     String pkgPath = "${PACKAGE_RESOURCE_PREFIX}${BUNDLED_RELATIVE}"
-    for (String raw : [
-      readUtf8FromResourceUrl(AuthoringIntentRecipeCatalog.class.getResource(BUNDLED_RELATIVE)),
-      readUtf8FromResourceUrl(AuthoringIntentRecipeCatalog.class.getResource("/${pkgPath}")),
-      readUtf8FromResourceStream(AuthoringIntentRecipeCatalog.class.getResourceAsStream(BUNDLED_RELATIVE)),
-      readUtf8FromResourceStream(AuthoringIntentRecipeCatalog.class.classLoader?.getResourceAsStream(pkgPath))
-    ]) {
-      if (raw?.trim()) {
-        return raw
-      }
-    }
-    try {
-      def loc = AuthoringIntentRecipeCatalog.class.protectionDomain?.codeSource?.location
-      if (loc != null) {
-        String fromCodeSource = readBundledJsonBesideCodeSource(loc)
-        if (fromCodeSource?.trim()) {
-          return fromCodeSource
-        }
-      }
-    } catch (Throwable ignored) {
-      // fall through
-    }
-    return ''
+    return StudioAiSandboxClasspath.readUtf8FromClassLoader(pkgPath)?.trim() ?: ''
   }
 
   /** Deep-merges {@code routingRecipeFamilies} and replaces {@code multiGoalDefer} when present on {@code doc}. */

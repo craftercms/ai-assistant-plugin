@@ -30,3 +30,20 @@ studio_require_token() {
   fi
   return 0
 }
+
+# Returns 0 when Bearer token is accepted by Studio (GET /users/me → 200).
+studio_verify_token() {
+  local studio_url="${1:-http://localhost:8080}"
+  studio_url="${studio_url%/}"
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' \
+    "${studio_url}/studio/api/2/users/me" \
+    -H "Authorization: Bearer ${CRAFTER_STUDIO_TOKEN}")" || code="000"
+  if [[ "${code}" == "200" ]]; then
+    return 0
+  fi
+  echo "${AI_FAIL} Studio rejected CRAFTER_STUDIO_TOKEN (GET /users/me → ${code})." >&2
+  echo "  Tokens expire quickly and invalidate after a Studio restart." >&2
+  echo "  Log in at ${studio_url}, copy a fresh Bearer token from DevTools → Network, update scripts/.studio-token." >&2
+  return 2
+}

@@ -4,6 +4,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import plugins.org.craftercms.aiassistant.studio.config.StudioAiPlatformSettings
 import plugins.org.craftercms.aiassistant.studio.secrets.StudioAiAssistantSecretsContext
 import plugins.org.craftercms.aiassistant.studio.secrets.StudioAiSecretMacroResolver
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
@@ -37,13 +38,7 @@ final class StudioAiMcpClient {
    * @return int result.
    */
   private static int maxMcpResponseChars() {
-    int cap = 500_000
-    try {
-      def p = System.getProperty('aiassistant.mcp.maxResponseChars')?.toString()?.trim()
-      if (p) {
-        cap = Integer.parseInt(p)
-      }
-    } catch (Throwable ignored) {}
+    int cap = StudioAiPlatformSettings.propertyInt('aiassistant.mcp.maxResponseChars', 500_000, 16_384, 2_000_000)
     return Math.min(2_000_000, Math.max(16_384, cap))
   }
 

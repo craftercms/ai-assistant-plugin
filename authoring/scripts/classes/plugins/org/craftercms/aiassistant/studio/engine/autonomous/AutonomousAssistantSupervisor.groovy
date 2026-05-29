@@ -10,8 +10,11 @@ import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import plugins.org.craftercms.aiassistant.studio.config.StudioAiPlatformSettings
+import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiSandboxConcurrency
 
 /**
  * Prototype supervisor: wakes on a fixed interval ({@link #TICK_MS}) and evaluates every registered agent.
@@ -27,14 +30,14 @@ final class AutonomousAssistantSupervisor {
   private static final long TICK_MS = 10_000L
 
   /** Off until an author calls {@link #enableSupervisor()} from the widget (tick thread may run but {@link #tick()} no-ops while false). */
-  private static volatile boolean supervisorEnabled = false
+  private static volatile boolean supervisorEnabledFlag = false
   private static ScheduledExecutorService supervisorExec
   private static ExecutorService workerPool
   private static volatile ScheduledFuture<?> supervisorFuture
   private static final ConcurrentHashMap<String, Boolean> RUNNING = new ConcurrentHashMap<>()
 
   /** When set, {@link #haltSupervisorAfterAgentFailure} disabled the supervisor (legacy); worker failures no longer set this. */
-  private static volatile String supervisorHaltReason = ''
+  private static volatile String supervisorHaltReasonText = ''
 
   /**
    * Private constructor; not for direct use.
@@ -77,83 +80,77 @@ private AutonomousAssistantSupervisor() {}
     return null
   }
 
+  /** Named class — Studio sandbox blocks anonymous {@link ThreadFactory} implementations. */
+  private static final class SupervisorThreadFactory implements ThreadFactory {
+    @Override
+    Thread newThread(Runnable r) {
+      Thread t = new Thread(r, 'aiassistant-autonomous-supervisor')
+      t.setDaemon(true)
+      return t
+    }
+  }
+
+  private static final AtomicInteger WORKER_THREAD_SEQ = new AtomicInteger(1)
+
+  /** Named class — Studio sandbox blocks anonymous {@link ThreadFactory} implementations. */
+  private static final class WorkerThreadFactory implements ThreadFactory {
+    @Override
+    Thread newThread(Runnable r) {
+      Thread t = new Thread(r, 'aiassistant-autonomous-worker-' + WORKER_THREAD_SEQ.getAndIncrement())
+      t.setDaemon(true)
+      return t
+    }
+  }
+
+  /** Named class — Studio sandbox blocks anonymous {@link RejectedExecutionHandler} implementations. */
+  private static final class AutonomousWorkerRejectedHandler implements RejectedExecutionHandler {
+    @Override
+    void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
+      AutonomousAgentRunRunnable ar = autonomousRunnableFromRejectedTask(r)
+      if (ar != null) {
+        RUNNING.remove(ar.agentId)
+      }
+      log.warn(
+        'Autonomous worker pool saturated; task rejected (not run on supervisor thread). active={} poolSize={} queue={}',
+        executor.activeCount,
+        executor.poolSize,
+        executor.queue?.size()
+      )
+    }
+  }
+
+  /** Named class — Studio sandbox blocks closure-backed schedule runnables. */
+  private static final class SupervisorTickRunnable implements Runnable {
+    @Override
+    void run() {
+      tick()
+    }
+  }
+
   static synchronized void ensureStarted() {
     if (supervisorExec == null || supervisorExec.isShutdown()) {
-      supervisorExec = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
-        @Override
-        Thread newThread(Runnable r) {
-          Thread t = new Thread(r, 'aiassistant-autonomous-supervisor')
-          t.setDaemon(true)
-          t
-        }
-      })
+      supervisorExec = Executors.newSingleThreadScheduledExecutor(new SupervisorThreadFactory())
     }
     if (workerPool == null || workerPool.isShutdown()) {
-      int n = Math.max(1, Runtime.runtime.availableProcessors())
+      int n = Math.max(1, StudioAiSandboxConcurrency.availableProcessors())
       int maxPool = Math.min(16, Math.max(4, n * 2))
       int corePool = Math.min(maxPool, Math.max(2, n))
       int queueCap = 128
-      try {
-        Integer mp = Integer.getInteger('aiassistant.autonomous.worker.max')
-        if (mp != null && mp >= 1) {
-          maxPool = mp
-        }
-      } catch (Throwable ignoredMax) {
-      }
-      try {
-        Integer cp = Integer.getInteger('aiassistant.autonomous.worker.core')
-        if (cp != null && cp >= 1) {
-          corePool = Math.min(cp, maxPool)
-        }
-      } catch (Throwable ignoredCore) {
-      }
-      try {
-        Integer qc = Integer.getInteger('aiassistant.autonomous.worker.queue')
-        if (qc != null && qc >= 8) {
-          queueCap = qc
-        }
-      } catch (Throwable ignoredQ) {
-      }
+      maxPool = StudioAiPlatformSettings.propertyInt('aiassistant.autonomous.worker.max', maxPool, 1, 64)
+      corePool = StudioAiPlatformSettings.propertyInt('aiassistant.autonomous.worker.core', corePool, 1, maxPool)
+      queueCap = StudioAiPlatformSettings.propertyInt('aiassistant.autonomous.worker.queue', queueCap, 8, 4096)
       maxPool = Math.max(1, maxPool)
       corePool = Math.min(Math.max(1, corePool), maxPool)
-      ThreadFactory tf = new ThreadFactory() {
-        @Override
-        Thread newThread(Runnable r) {
-          Thread t = new Thread(r, 'aiassistant-autonomous-worker-' + Long.toHexString(System.nanoTime()))
-          t.setDaemon(true)
-          t
-        }
-      }
       // Do not use CallerRunsPolicy: {@link #tick()} submits from the single supervisor thread; saturation would
       // run agent work inline on that thread and stall all ticks. Log and drop when saturated instead.
-      RejectedExecutionHandler saturated = new RejectedExecutionHandler() {
-        @Override
-        /**
-         * Rejected execution.
-         * @param r Caller-supplied input.
-         * @param executor Caller-supplied input.
-         */
-        void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
-          AutonomousAgentRunRunnable ar = autonomousRunnableFromRejectedTask(r)
-          if (ar != null) {
-            RUNNING.remove(ar.agentId)
-          }
-          log.warn(
-            'Autonomous worker pool saturated; task rejected (not run on supervisor thread). active={} poolSize={} queue={}',
-            executor.activeCount,
-            executor.poolSize,
-            executor.queue?.size()
-          )
-        }
-      }
       workerPool = new ThreadPoolExecutor(
         corePool,
         maxPool,
         60L,
         TimeUnit.SECONDS,
         new LinkedBlockingQueue<Runnable>(queueCap),
-        tf,
-        saturated
+        new WorkerThreadFactory(),
+        new AutonomousWorkerRejectedHandler()
       )
       log.info(
         'Autonomous worker pool: core={} max={} queueCap={} (override aiassistant.autonomous.worker.core/max/queue)',
@@ -164,7 +161,7 @@ private AutonomousAssistantSupervisor() {}
     }
     if (supervisorFuture == null || supervisorFuture.isCancelled()) {
       supervisorFuture = supervisorExec.scheduleAtFixedRate(
-        { tick() },
+        new SupervisorTickRunnable(),
         2,
         TICK_MS,
         TimeUnit.MILLISECONDS
@@ -174,7 +171,7 @@ private AutonomousAssistantSupervisor() {}
   }
 
   static synchronized void disableSupervisor() {
-    supervisorEnabled = false
+    supervisorEnabledFlag = false
     if (supervisorFuture != null) {
       supervisorFuture.cancel(false)
       supervisorFuture = null
@@ -188,8 +185,8 @@ private AutonomousAssistantSupervisor() {}
    */
   static synchronized void haltSupervisorAfterAgentFailure(String reason) {
     disableSupervisor()
-    supervisorHaltReason = (reason ?: 'Agent run failed').toString().trim()
-    log.warn('AutonomousAssistantSupervisor halted: {}', supervisorHaltReason)
+    supervisorHaltReasonText = (reason ?: 'Agent run failed').toString().trim()
+    log.warn('AutonomousAssistantSupervisor halted: {}', supervisorHaltReasonText)
   }
 
   /**
@@ -197,12 +194,12 @@ private AutonomousAssistantSupervisor() {}
    * @return Text result, or empty or null when unavailable.
    */
   static String getSupervisorHaltReason() {
-    supervisorHaltReason ?: ''
+    supervisorHaltReasonText ?: ''
   }
 
   static synchronized void enableSupervisor() {
-    supervisorEnabled = true
-    supervisorHaltReason = ''
+    supervisorEnabledFlag = true
+    supervisorHaltReasonText = ''
     // Always reschedule: a non-cancelled future can survive disable in edge cases; authors expect Start to arm ticks.
     if (supervisorFuture != null) {
       supervisorFuture.cancel(false)
@@ -239,7 +236,7 @@ private AutonomousAssistantSupervisor() {}
     AutonomousAssistantStateStore.clearAll()
     AutonomousAssistantRegistry.clearAll()
     RUNNING.clear()
-    supervisorHaltReason = ''
+    supervisorHaltReasonText = ''
     AutonomousAssistantRuntimeHooks.clear()
     log.info('AutonomousAssistantSupervisor in-memory store cleared (re-sync agents from the UI after this)')
   }
@@ -261,7 +258,7 @@ private AutonomousAssistantSupervisor() {}
    * @return True when the check succeeds.
    */
   static boolean isSupervisorEnabled() {
-    supervisorEnabled
+    supervisorEnabledFlag
   }
 
   /**
@@ -270,7 +267,7 @@ private AutonomousAssistantSupervisor() {}
    */
   static Map statusSnapshot() {
     [
-      supervisorEnabled   : supervisorEnabled,
+      supervisorEnabled   : supervisorEnabledFlag,
       tickMs              : TICK_MS,
       supervisorRunning   : supervisorFuture != null && !supervisorFuture.isCancelled(),
       workerPoolActive    : workerPool != null && !workerPool.isTerminated(),
@@ -282,7 +279,7 @@ private AutonomousAssistantSupervisor() {}
    * Tick.
    */
   private static void tick() {
-    if (!supervisorEnabled || workerPool == null) {
+    if (!supervisorEnabledFlag || workerPool == null) {
       return
     }
     try {

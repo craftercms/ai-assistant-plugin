@@ -195,10 +195,13 @@ class StudioToolOperations {
     try {
       SecurityContext ctx = SecurityContextHolder.getContext()
       def auth = ctx?.getAuthentication()
-      if (auth != null && auth.isAuthenticated()) {
-        SecurityContext copy = SecurityContextHolder.createEmptyContext()
-        copy.setAuthentication(auth)
-        return copy
+      if (auth != null) {
+        String name = auth.getName()?.toString()?.trim()
+        if (name && !'anonymousUser'.equalsIgnoreCase(name)) {
+          SecurityContext copy = SecurityContextHolder.createEmptyContext()
+          copy.setAuthentication(auth)
+          return copy
+        }
       }
     } catch (Throwable ignored) {
     }

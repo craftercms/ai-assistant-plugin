@@ -2,6 +2,7 @@ package plugins.org.craftercms.aiassistant.studio.secrets
 
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import plugins.org.craftercms.aiassistant.studio.config.StudioAiCrafterEnv
 
 /**
  * Expands secret placeholders in configuration strings on the Studio JVM.
@@ -107,13 +108,7 @@ private StudioAiSecretMacroResolver() {}
     while (m.find()) {
       String name = m.group(1)
       String val = ''
-      try {
-        String gv = System.getenv(name)
-        if (gv != null) {
-          val = gv
-        }
-      } catch (Throwable ignored) {
-      }
+      val = StudioAiCrafterEnv.get(name)
       m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(val))
     }
     m.appendTail(sb)

@@ -16,7 +16,7 @@ This folder holds the **detailed guides** linked from that hub. You do not need 
 | [autonomous-assistants-widget.md](autonomous-assistants-widget.md) | Optional autonomous widget — placement and overview |
 | [llm-configuration.md](llm-configuration.md) | **`<llm>`** — providers, env + `ui.xml`, merge rules |
 | [image-generation.md](image-generation.md) | **Pluggable `GenerateImage`** — wire vs **`script:{id}`** |
-| [studio-aiassistant-jvm-parameters.md](studio-aiassistant-jvm-parameters.md) | JVM **`-D`** tuning (timeouts, HTTP/MCP caps) |
+| [studio-aiassistant-platform-settings.md](studio-aiassistant-platform-settings.md) | JVM **`-D`** tuning (timeouts, HTTP/MCP caps) |
 | [scripted-tools-and-imagegen.md](scripted-tools-and-imagegen.md) | Site **`InvokeSiteUserTool`** + **`imagegen/`** (integrators) |
 | [building-intent-recipes.md](building-intent-recipes.md) | Custom workflows — Cursor skill + Project Tools **Recipes** tab |
 | [product-requirements.md](product-requirements.md) | Product obligations for authors, admins, integrators |

@@ -9,8 +9,8 @@
 
   Plugin bundle: id="org.craftercms.aiassistant.studio" type="aiassistant" name="components" file="index.js"
   Widget ids must match sources/src/consts.ts (Helper, AutonomousAssistants, etc.).
-  Default install (craftercms-plugin.yaml): Preview toolbar only — Helper under PreviewToolbar configuration/rightSection/widgets.
-  Tools Panel Helper / Autonomous are not merged by the descriptor; paste below under ToolsPanel/configuration/widgets if needed.
+  Default install (craftercms-plugin.yaml): Preview toolbar Helper; Tools Panel AutonomousAssistants.
+  Optional: paste Helper below under ToolsPanel/configuration/widgets if you want chat in the left rail too.
 
   CRITICAL — Tools Panel placement: every sidebar tool row must live under
   //widget[@id='craftercms.components.ToolsPanel']/configuration/widgets as a <widget> child.

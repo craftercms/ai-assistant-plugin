@@ -34,5 +34,5 @@ Set **`showAutonomousAiAssistantsInSidebar`** to **`false`** or remove the key. 
 |-------|-----|
 | **Sidebar flag off (default)** | Set **`showAutonomousAiAssistantsInSidebar`** to **`true`** in **`studio-ui.json`**, or enable **Show Autonomous AI Assistants** in **Project Tools → AI Assistant → UI**. |
 | Wrong **`ui.xml` nesting** | **`Helper`** / **`AutonomousAssistants`** must be inside **`ToolsPanel → configuration → widgets`** as sibling `<widget>` rows—not after `</configuration>` |
-| Stale merge | Re-run **`./scripts/install-plugin.sh`** from an updated clone, or paste the block from [studio-ui-aiassistant-fragments.xml](../examples/studio-ui-aiassistant-fragments.xml), commit sandbox, sync in Studio |
+| Missing **`ui.xml` widget** | Re-run **`./scripts/install-plugin.sh <siteId>`** so **`craftercms-plugin.yaml`** merges **AutonomousAssistants**, or paste from [studio-ui-aiassistant-fragments.xml](../examples/studio-ui-aiassistant-fragments.xml); commit sandbox, sync in Studio |
 | **`<icon>`** | Use real `<![CDATA[...]]>` SVG, not HTML-escaped markup |

@@ -1,5 +1,7 @@
 package plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.http
 
+import plugins.org.craftercms.aiassistant.studio.config.StudioAiPlatformSettings
+
 import java.net.InetAddress
 import java.net.URI
 import java.util.Locale
@@ -16,7 +18,7 @@ private OutboundHttpPolicy() {}
    * @return True when the check succeeds.
    */
   static boolean globallyEnabled() {
-    !'false'.equalsIgnoreCase(System.getProperty('aiassistant.httpFetch.enabled', 'true')?.toString()?.trim())
+    StudioAiPlatformSettings.propertyBoolean('aiassistant.httpFetch.enabled', true)
   }
 
   /**
@@ -25,13 +27,7 @@ private OutboundHttpPolicy() {}
    * Feeds streaming guards inside HTTP helpers.
    */
   static int maxChars(Integer toolRequested) {
-    int cap = 400_000
-    try {
-      def p = System.getProperty('aiassistant.httpFetch.maxChars')?.toString()?.trim()
-      if (p) {
-        cap = Integer.parseInt(p)
-      }
-    } catch (Throwable ignored) {}
+    int cap = StudioAiPlatformSettings.propertyInt('aiassistant.httpFetch.maxChars', 400_000, 4096, 2_000_000)
     if (cap < 4096) {
       cap = 4096
     }
@@ -157,7 +153,7 @@ private OutboundHttpPolicy() {}
    * @return empty string if allowed, otherwise an error message
    */
   static String allowedSuffixesViolation(String host) {
-    def prop = System.getProperty('aiassistant.httpFetch.allowedHostSuffixes')?.toString()?.trim()
+    def prop = StudioAiPlatformSettings.property('aiassistant.httpFetch.allowedHostSuffixes', '')?.trim()
     if (!prop) {
       return ''
     }

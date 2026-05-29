@@ -5,7 +5,7 @@ set -euo pipefail
 # Runs `yarn package` from sources/ when Node is OK (Rollup + form-pipeline verify); does not run ESLint.
 
 # --- Hardcoded for local install: edit CRAFTER_DATA if your authoring data lives elsewhere ---
-CRAFTER_DATA="/home/russdanner/crafter-installs/4-4-xE/crafter-authoring/data"
+CRAFTER_DATA="/home/russdanner/crafter-installs/4-x/craftercms/crafter-authoring/data"
 # Example site sandbox (default siteId new-demo):
 #   /home/russdanner/crafter-installs/4-4-xE/crafter-authoring/data/repos/sites/new-demo/sandbox
 # Example when SITE_ID=qtest (first arg):
@@ -30,6 +30,9 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 fi
 
 if ! studio_require_token; then
+  exit 2
+fi
+if ! studio_verify_token "${STUDIO_URL}"; then
   exit 2
 fi
 

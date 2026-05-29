@@ -2,6 +2,8 @@ package plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.playbook
 
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import plugins.org.craftercms.aiassistant.studio.config.StudioAiPlatformSettings
+import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiSandboxClasspath
 
 /**
  * Loads {@link #PLAYBOOK_FILE_NAME} from the plugin package (classpath or same directory as compiled classes).
@@ -23,92 +25,13 @@ class CrafterizingPlaybookLoader {
    * @return UTF-8 markdown text, or {@code null} if not found
    */
   static String loadMarkdown() {
-    def override = System.getProperty(SYSPROP_PATH)?.toString()?.trim()
-    if (override) {
-      try {
-        def f = new File(override)
-        if (f.isFile()) {
-          log.debug('Crafterizing playbook loaded from system property path: {}', override)
-          return f.getText('UTF-8')
-        }
-        log.warn('aiassistant.crafterizingPlaybook.path set but not a file: {}', override)
-      } catch (Throwable t) {
-        log.warn('Failed reading crafterizing playbook from {}: {}', override, t.message)
-      }
+    String pkgPath = "${PACKAGE_RESOURCE_PREFIX}${PLAYBOOK_FILE_NAME}"
+    String text = StudioAiSandboxClasspath.readUtf8FromClassLoader(pkgPath)
+    if (text?.trim()) {
+      log.debug('Crafterizing playbook loaded from classpath: {} chars', text.length())
+      return text
     }
-
-    // 1) Same package as this class (works when .md is next to .class/.groovy on disk or in JAR)
-    try {
-      def is = CrafterizingPlaybookLoader.class.getResourceAsStream(PLAYBOOK_FILE_NAME)
-      if (is != null) {
-        try {
-          def text = is.getText('UTF-8')
-          log.debug('Crafterizing playbook loaded from classpath (peer resource): {} chars', text?.length() ?: 0)
-          return text
-        } finally {
-          try {
-            is.close()
-          } catch (Throwable ignored) {}
-        }
-      }
-    } catch (Throwable t) {
-      log.debug('Peer resource load failed: {}', t.toString())
-    }
-
-    // 2) Full path under scripts/classes tree (some class loaders)
-    try {
-      def is2 = CrafterizingPlaybookLoader.class.classLoader?.getResourceAsStream("${PACKAGE_RESOURCE_PREFIX}${PLAYBOOK_FILE_NAME}")
-      if (is2 != null) {
-        try {
-          def text = is2.getText('UTF-8')
-          log.debug('Crafterizing playbook loaded from classpath (package path): {} chars', text?.length() ?: 0)
-          return text
-        } finally {
-          try {
-            is2.close()
-          } catch (Throwable ignored) {}
-        }
-      }
-    } catch (Throwable t) {
-      log.debug('Package resource load failed: {}', t.toString())
-    }
-
-    // 3) Thread context class loader
-    try {
-      def cl = Thread.currentThread().contextClassLoader
-      def is3 = cl?.getResourceAsStream("${PACKAGE_RESOURCE_PREFIX}${PLAYBOOK_FILE_NAME}")
-      if (is3 != null) {
-        try {
-          return is3.getText('UTF-8')
-        } finally {
-          try {
-            is3.close()
-          } catch (Throwable ignored) {}
-        }
-      }
-    } catch (Throwable t) {
-      log.debug('Context classloader resource load failed: {}', t.toString())
-    }
-
-    // 4) Filesystem next to this class’s code source (directory deployment)
-    try {
-      def loc = CrafterizingPlaybookLoader.class.protectionDomain?.codeSource?.location
-      if (loc != null) {
-        def file = new File(loc.toURI())
-        if (file.isDirectory()) {
-          def inPlaybook = new File(new File(file, 'playbook'), PLAYBOOK_FILE_NAME)
-          def candidate = inPlaybook.isFile() ? inPlaybook : new File(file, PLAYBOOK_FILE_NAME)
-          if (candidate.isFile()) {
-            log.debug('Crafterizing playbook loaded from code source directory: {}', candidate.absolutePath)
-            return candidate.getText('UTF-8')
-          }
-        }
-      }
-    } catch (Throwable t) {
-      log.debug('Code source directory load failed: {}', t.toString())
-    }
-
-    log.warn('Crafterizing playbook file {} not found on classpath or beside plugin classes; using embedded fallback.', PLAYBOOK_FILE_NAME)
+    log.warn('Crafterizing playbook file {} not found on classpath; using embedded fallback.', PLAYBOOK_FILE_NAME)
     return null
   }
 

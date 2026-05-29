@@ -1,7 +1,6 @@
 package plugins.org.craftercms.aiassistant.studio.contrib.tool.mcp
 
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.mcp.StudioAiMcpClient
-import plugins.org.craftercms.aiassistant.studio.engine.catalog.AiOrchestrationTools
 import plugins.org.craftercms.aiassistant.studio.spi.tool.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.studio.spi.tool.StudioAiToolContext
 
@@ -105,28 +104,4 @@ final class McpWireStudioAiTool extends AbstractStudioAiTool {
     return connection.toolsCall(mcpToolName, (Map) (input ?: [:])) as Map
   }
 
-  /**
-   * Builds Spring AI {@link org.springframework.ai.tool.function.FunctionToolCallback} bridging MCP RPC + SSE progress listeners.
-   * Wraps execution with {@link AiOrchestrationTools#runWithToolProgress} for parity with tools.
-   * Reuses ctx converters for typed result marshaling back into chat transcripts.
-   */
-  @Override
-  Object toFunctionToolCallback(StudioAiToolContext ctx) {
-    final String name = wireName()
-    final StudioAiToolContext buildCtx = ctx
-    return org.springframework.ai.tool.function.FunctionToolCallback.builder(name, new java.util.function.Function<Map, Map>() {
-      @Override
-      Map apply(Map input) {
-        return AiOrchestrationTools.runWithToolProgress(name, input, buildCtx.toolProgressListener, {
-          AiOrchestrationTools.logToolInvocationPublic(name, (Map) (input ?: [:]))
-          execute((Map) (input ?: [:]), buildCtx)
-        })
-      }
-    })
-      .description(description())
-      .inputSchema(inputSchemaJson())
-      .inputType(Map.class)
-      .invokeMethod('toolCallResultConverter', ctx.converter)
-      .build()
-  }
 }

@@ -149,7 +149,7 @@ Typical authoring setup is **`config/studio/ui.xml`** (widget placement) plus **
 |------|---------------------|
 | Authors use AI **in Experience Builder** while authoring in **preview** | `ui.xml` → **`craftercms.components.aiassistant.Helper`** + agents in **`agents.json`** — optional toolbar icon visibility via **`studio-ui.json`** (**§1e**) |
 | Authors use AI on a **content type form** | Content type **form definition** → **AI Assistant** control + chat agents in **`agents.json`** (per-agent visibility toggles on the form field) |
-| **Scheduled** server-side runs (experimental) | `ui.xml` → **`craftercms.components.aiassistant.AutonomousAssistants`** + **`agents.json`** rows with **`mode: autonomous`** — see [spec.md — Autonomous assistants widget](../internals/spec.md#autonomous-assistants-widget-tools-panel); optional **sidebar show** via **`studio-ui.json`** (**§1e**); default off. |
+| **Scheduled** server-side runs (experimental) | Plugin install merges **`AutonomousAssistants`** into **`ui.xml`** + **`agents.json`** rows with **`mode: autonomous`** — see [spec.md — Autonomous assistants widget](../internals/spec.md#autonomous-assistants-widget-tools-panel); **sidebar show** via **`studio-ui.json`** (**§1e**); default off. |
 
 Commit **`config/studio/ui.xml`** (and any content-type changes) to the site sandbox so Studio and other authors load the same configuration.
 
@@ -161,7 +161,7 @@ Commit **`config/studio/ui.xml`** (and any content-type changes) to the site san
 |------|-----------------------------------|------------------------|
 | **Helper** (Experience Builder toolbar, optional Tools Panel) | **`config/studio/ui.xml`** | **A** (Preview toolbar) and/or **B** (Tools Panel) — the `<widget id="craftercms.components.aiassistant.Helper">` block is a **child of an existing `widgets` list**, not a loose sibling of `ToolsPanel`. |
 | **Form assistant** | **`config/studio/content-types/<your-type>/form-definition.xml`** | New **field** inside the right **`<section>`** / **`<fields>`** — prefer adding the **Studio AI Assistant** control from the Content Types UI after install (see **C**). |
-| **Autonomous** (optional) | **`config/studio/ui.xml`** | **D** — under **`craftercms.components.ToolsPanel`** → **`configuration`** → **`widgets`** (same list as Helper when both are used). Optional **hide** without removing the widget: **`studio-ui.json`** (**§1e**). |
+| **Autonomous** (optional) | **`config/studio/ui.xml`** (merged on plugin install) | **D** — under **`ToolsPanel` → `configuration` → `widgets`** (customize order/icon manually if needed). **Hide** row without uninstall: **`studio-ui.json`** (**§1e**). |
 
 ---
 
@@ -219,9 +219,9 @@ Chat agents come from **`config/studio/ai-assistant/agents.json`** (Project Tool
 
 #### D) Autonomous Assistants (Tools Panel Only)
 
-**Locate:** same parent as **B** — **`craftercms.components.ToolsPanel`** → **`configuration`** → **`widgets`**.
+**Default:** **`craftercms-plugin.yaml`** merges this widget on plugin install. Re-run **`./scripts/install-plugin.sh <siteId>`** after upgrading the plugin if **`ui.xml`** is missing the row.
 
-**Add** a **second** widget sibling (after or before Helper). Minimal shape:
+**Manual edit:** same parent as **B** — **`craftercms.components.ToolsPanel`** → **`configuration`** → **`widgets`**. Minimal shape:
 
 ```xml
         <!-- config/studio/ui.xml — ToolsPanel / configuration / widgets -->
@@ -322,7 +322,7 @@ The plugin still calls REST scripts with **`?siteId=`** = active Studio site (re
 
 1. **Project Tools → Secrets** — Site registry at **`config/studio/scripts/aiassistant/config/secrets.json`**. On first open (or **`scripts/install-plugin.sh`** when the file is missing), the plugin seeds one row per built-in LLM provider **and** optional integration rows (e.g. **`serpapi_api_key`**) with **`${env:VAR_NAME}`** defaults authors can change. Store **`${env:…}`**, Crafter **`${enc:…}`** ciphertext (from Studio **Encrypt Marked**), or plain text (encrypted on save). Resolved values are used **only on the server**; the UI never receives decrypted literals after save.
 2. **Runtime resolution** — Tools and LLM code read **only what is stored** in **`secrets.json`** for that key (no silent catalog default if a row is missing). **`${env:VAR}`** expands via the Studio JVM environment; **`${enc:…}`** decrypts via Crafter **`textEncryptor`** on Studio 4.x. LLM providers may still fall back to host env / JVM properties **after** secrets resolution when the provider stack allows it — see [llm-configuration.md](llm-configuration.md). Integration tools such as **`SerpApiWebSearch`** and **`SlackPostMessage`** use **secrets only** (no separate env bypass).
-3. **JVM system properties** — Advanced tuning and key fallbacks only; see **[studio-aiassistant-jvm-parameters.md](studio-aiassistant-jvm-parameters.md)**.
+3. **JVM system properties** — Advanced tuning and key fallbacks only; see **[studio-aiassistant-platform-settings.md](studio-aiassistant-platform-settings.md)**.
 4. **Per‑agent `llmSecretKey` in `agents.json`** — Optional; references a **custom** key in **`secrets.json`** or the built-in provider row for the agent’s **`llm`** (Project Tools → Agents).
 5. **Per‑agent `llmApiKey` in `agents.json` or POST body** — **testing only**; discouraged in Git‑tracked sites.
 
@@ -755,7 +755,7 @@ Each MCP tool becomes a function named roughly **`mcp_<serverId>_<toolName>`** (
 
 For a hosted **Streamable HTTP** reference (base URL, `/readonly` paths, optional `X-MCP-*` headers, and JSON snippets), see GitHub’s **[Remote GitHub MCP Server](https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md)** — map each recipe’s URL and headers into an `mcpServers[]` row (`id`, `url`, `headers`, optional `readTimeoutMs`) in Project Tools or in Git. **UI example (GitHub Copilot MCP endpoint):** [Screenshots — GitHub MCP](#cg-screenshots-mcp-github).
 
-Full behavior, lifecycle, and limits: [chat-and-tools-runtime.md § MCP client tools](../internals/chat-and-tools-runtime.md#mcp-client-tools-streamable-http). JVM caps / host allowlists: [studio-aiassistant-jvm-parameters.md](studio-aiassistant-jvm-parameters.md).
+Full behavior, lifecycle, and limits: [chat-and-tools-runtime.md § MCP client tools](../internals/chat-and-tools-runtime.md#mcp-client-tools-streamable-http). JVM caps / host allowlists: [studio-aiassistant-platform-settings.md](studio-aiassistant-platform-settings.md).
 
 ---
 

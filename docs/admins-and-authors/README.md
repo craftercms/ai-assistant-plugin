@@ -47,7 +47,7 @@ Ask your admin if chat is missing—they control `ui.xml`, **Agents**, and **Sec
 | Image generation backends | [Image generation](../using-and-extending/image-generation.md) |
 | Custom intent recipes (Project Tools **Recipes** tab) | [Building intent recipes](../using-and-extending/building-intent-recipes.md) |
 | Site Groovy tools & `imagegen/` (optional) | [Scripted tools & imagegen](../using-and-extending/scripted-tools-and-imagegen.md) |
-| JVM tuning on the Studio host (`-D` flags) | [Studio AI assistant JVM parameters](../using-and-extending/studio-aiassistant-jvm-parameters.md) |
+| JVM tuning on the Studio host (`-D` flags) | [Studio AI assistant JVM parameters](../using-and-extending/studio-aiassistant-platform-settings.md) |
 | Product obligations (review) | [Product requirements](../using-and-extending/product-requirements.md) |
 
 **Examples** (copy into your site sandbox): [`docs/examples/`](../examples/)

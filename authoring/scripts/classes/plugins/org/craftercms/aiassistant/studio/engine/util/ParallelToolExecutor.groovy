@@ -2,6 +2,7 @@ package plugins.org.craftercms.aiassistant.studio.engine.util
 
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import plugins.org.craftercms.aiassistant.studio.config.StudioAiPlatformSettings
 
 import java.util.concurrent.Callable
 import java.util.concurrent.Future
@@ -36,14 +37,7 @@ private ParallelToolExecutor() {}
    * @return int result.
    */
   private static int resolveIntProp(String sysKey, int defaultValue, int min, int max) {
-    try {
-      def p = System.getProperty(sysKey)?.toString()?.trim()
-      if (p) {
-        int v = Integer.parseInt(p)
-        return Math.max(min, Math.min(max, v))
-      }
-    } catch (Throwable ignored) {}
-    return defaultValue
+    return StudioAiPlatformSettings.propertyInt(sysKey, defaultValue, min, max)
   }
 
   /**

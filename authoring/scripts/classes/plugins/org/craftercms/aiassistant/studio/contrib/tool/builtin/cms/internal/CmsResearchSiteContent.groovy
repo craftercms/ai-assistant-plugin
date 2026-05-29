@@ -1,5 +1,6 @@
 package plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal
 
+import plugins.org.craftercms.aiassistant.studio.config.StudioAiPlatformSettings
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -21,7 +22,7 @@ private CmsResearchSiteContent() {}
    * @return True when the check succeeds.
    */
   static boolean globallyEnabled() {
-    !'false'.equalsIgnoreCase(System.getProperty('aiassistant.siteContentResearch.enabled', 'true')?.toString()?.trim())
+    StudioAiPlatformSettings.propertyBoolean('aiassistant.siteContentResearch.enabled', true)
   }
 
   /**
@@ -30,15 +31,7 @@ private CmsResearchSiteContent() {}
    * Protects Studio OpenSearch from runaway hits.
    */
   private static int maxSearchHits(Integer requested) {
-    int defMax = 12
-    try {
-      String p = System.getProperty('aiassistant.siteContentResearch.maxSearchHits')?.toString()?.trim()
-      if (p) {
-        defMax = Integer.parseInt(p)
-      }
-    } catch (Throwable ignored) {
-      defMax = 12
-    }
+    int defMax = StudioAiPlatformSettings.propertyInt('aiassistant.siteContentResearch.maxSearchHits', 12, 1, 30)
     int r = (requested != null) ? requested.intValue() : defMax
     return Math.min(30, Math.max(1, r))
   }
@@ -49,15 +42,7 @@ private CmsResearchSiteContent() {}
    * Feeds ResearchSiteContent batch loops.
    */
   private static int maxFetchItems(Integer requested) {
-    int defMax = 5
-    try {
-      String p = System.getProperty('aiassistant.siteContentResearch.maxFetchItems')?.toString()?.trim()
-      if (p) {
-        defMax = Integer.parseInt(p)
-      }
-    } catch (Throwable ignored) {
-      defMax = 5
-    }
+    int defMax = StudioAiPlatformSettings.propertyInt('aiassistant.siteContentResearch.maxFetchItems', 5, 0, 10)
     int r = (requested != null) ? requested.intValue() : defMax
     return Math.min(10, Math.max(0, r))
   }
@@ -68,14 +53,7 @@ private CmsResearchSiteContent() {}
    * Keeps SSE payloads bounded while preserving readability.
    */
   private static int excerptChars() {
-    try {
-      String p = System.getProperty('aiassistant.siteContentResearch.excerptChars')?.toString()?.trim()
-      if (p) {
-        int n = Integer.parseInt(p)
-        return Math.min(8000, Math.max(200, n))
-      }
-    } catch (Throwable ignored) {}
-    return 1800
+    return StudioAiPlatformSettings.propertyInt('aiassistant.siteContentResearch.excerptChars', 1800, 200, 8000)
   }
 
   /**

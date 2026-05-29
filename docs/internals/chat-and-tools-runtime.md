@@ -39,7 +39,7 @@ Companion to **[`spec.md`](spec.md)** for tools, REST bodies, MCP, and runtime t
 
 - **`OPENAI_API_KEY`**
 
-Server-side key fallbacks that use JVM system properties are listed in **[studio-aiassistant-jvm-parameters.md](../using-and-extending/studio-aiassistant-jvm-parameters.md)**.
+Server-side key fallbacks that use JVM system properties are listed in **[studio-aiassistant-platform-settings.md](../using-and-extending/studio-aiassistant-platform-settings.md)**.
 
 ### Optional: `<openAiApiKey>` in `ui.xml` (Testing Only)
 
@@ -58,7 +58,7 @@ Use only for **local testing** when you cannot set **`OPENAI_API_KEY`** on the S
 </agent>
 ```
 
-**Precedence:** if **`OPENAI_API_KEY`** (or another server-side key source for that provider — see **[llm-configuration.md](../using-and-extending/llm-configuration.md)** and **[studio-aiassistant-jvm-parameters.md](../using-and-extending/studio-aiassistant-jvm-parameters.md)**) is set, those win and **`<openAiApiKey>` is ignored**. The widget value is used only when no server-side key is configured.
+**Precedence:** if **`OPENAI_API_KEY`** (or another server-side key source for that provider — see **[llm-configuration.md](../using-and-extending/llm-configuration.md)** and **[studio-aiassistant-platform-settings.md](../using-and-extending/studio-aiassistant-platform-settings.md)**) is set, those win and **`<openAiApiKey>` is ignored**. The widget value is used only when no server-side key is configured.
 
 The REST body may also include `openAiApiKey` (same precedence); the React widget sends it when parsed from configuration.
 
@@ -108,11 +108,11 @@ Sites can attach **remote MCP servers** so **tools-loop chat** agents (and other
 
 - Each MCP tool from **`tools/list`** becomes a Studio tool whose name is **`mcp_<serverId>_<mcpToolName>`** (non-alphanumeric segments collapsed to `_`, total length capped at **64** characters to match the **tools-loop** wire’s tool-name constraints).
 - **Per chat request**, when **`AiOrchestrationTools.build`** registers MCP tools via **`StudioAiToolRegistry.buildMcpToolCallbacks`**, it runs **`initialize`** → **`notifications/initialized`** → **`tools/list`** for **each** configured server, then keeps a **single session** (including **`Mcp-Session-Id`** when returned) for all **`tools/call`** invocations from that request.
-- **Security:** MCP **`url`** values use the **same SSRF policy** as **`FetchHttpUrl`** / **`PostHttpUrl`** (`plugins.org.craftercms.aiassistant.contrib.tool.builtin.http.OutboundHttpPolicy.validateUrl`). Host allowlists and disabling outbound fetch (which also blocks MCP) are **JVM-only** — see **[studio-aiassistant-jvm-parameters.md](../using-and-extending/studio-aiassistant-jvm-parameters.md)** (`aiassistant.httpFetch.*`).
+- **Security:** MCP **`url`** values use the **same SSRF policy** as **`FetchHttpUrl`** / **`PostHttpUrl`** (`plugins.org.craftercms.aiassistant.contrib.tool.builtin.http.OutboundHttpPolicy.validateUrl`). Host allowlists and disabling outbound fetch (which also blocks MCP) are **JVM-only** — see **[studio-aiassistant-platform-settings.md](../using-and-extending/studio-aiassistant-platform-settings.md)** (`aiassistant.httpFetch.*`).
 - **Outbound POST:** **`PostHttpUrl`** (`url`, **`postType`** `json` | `form`, **`payload`**, optional **`headers`**, optional **`maxChars`**) sends **`application/json`** or **`application/x-www-form-urlencoded`** bodies to public **`http(s)`** endpoints and returns the response body as UTF-8 text. Enable/disable via the same **`aiassistant.httpFetch.*`** JVM flags as **`FetchHttpUrl`**; hide per site with **`disabledBuiltInTools`** in **`tools.json`**.
 - **Slack:** **`SlackPostMessage`** calls Slack **`chat.postMessage`** with per-request **`channel`**, **`text`** / **`blocks`**, optional **`threadTs`**, etc. Bot token from **`secrets.json`** (`slack_bot_token`); site **`builtInToolSettings.SlackPostMessage`** may set **`defaultChannel`** and optional **`secretKey`**. Channel names (`random`, `#random`) are resolved to **`C…`** ids when the bot can see the channel (**`conversations.list`**). **Recipe confirmation:** when a matched intent recipe lists **`SlackPostMessage`** under **`phases.confirmation.engineSteps`**, Studio runs it on the JVM after Action-phase chat (see **[intent-recipe-routing.md](intent-recipe-routing.md)**); empty **`text`** uses the last assistant message converted to mrkdwn (**`SlackConfirmationPostFormatter`**). Set **`args.text`** explicitly when the Slack post must be exact. Implement **`recipeEngineConfirmationStep()`** on built-in tools to join the confirmation allowlist.
 - **Whitelist:** When **`enabledBuiltInTools`** is a non-empty whitelist, **built-in** built-in tools are filtered to that list, but **`mcp_*`** tools and **`InvokeSiteUserTool`** are **still registered** unless their wire names appear in **`disabledBuiltInTools`** / **`disabledMcpTools`**.
-- **Response size:** MCP HTTP bodies are capped server-side (default **500000** characters); JVM override: **[studio-aiassistant-jvm-parameters.md](../using-and-extending/studio-aiassistant-jvm-parameters.md)** (`aiassistant.mcp.maxResponseChars`).
+- **Response size:** MCP HTTP bodies are capped server-side (default **500000** characters); JVM override: **[studio-aiassistant-platform-settings.md](../using-and-extending/studio-aiassistant-platform-settings.md)** (`aiassistant.mcp.maxResponseChars`).
 
 ---
 
@@ -167,7 +167,7 @@ Element form is also supported: `<expertSkill><name>…</name><url>…</url><des
 
 The Studio React client stops reading the SSE body as soon as it sees **`metadata.completed: true`** or **`metadata.error: true`**, then **`cancel()`s** the fetch reader. That avoids waiting for the HTTP connection to close (some servlet/async stacks keep it open), which previously surfaced as **“Timed out waiting for chat response”** after 65s. The safety timeout is now **5 minutes** for long tool runs.
 
-**Server-side (Spring AI flux + native tools-loop RestClient):** `AiOrchestration` waits up to **5 minutes** by default for the `chatResponse()` flux to complete or error, or for the **RestClient** multi-round tool `Future` to finish—then **disposes** / **cancels** so the outbound HTTP call is torn down (the **chat host** may see a **client disconnect**). Each **sync** `POST /v1/chat/completions` uses a read timeout tied to that outer budget so JDK **Read timed out** does not fire first. On timeout it sends an **SSE error** so authors see a reason in chat. **Await/read-timeout tuning** and **optional Spring AI HTTP trace** use JVM system properties documented in **[studio-aiassistant-jvm-parameters.md](../using-and-extending/studio-aiassistant-jvm-parameters.md)**. Crafter Studio uses **Log4j2** — expect first SSE chunk, `onComplete`, `onError`, and a **WARN** if the await times out.
+**Server-side (Spring AI flux + native tools-loop RestClient):** `AiOrchestration` waits up to **5 minutes** by default for the `chatResponse()` flux to complete or error, or for the **RestClient** multi-round tool `Future` to finish—then **disposes** / **cancels** so the outbound HTTP call is torn down (the **chat host** may see a **client disconnect**). Each **sync** `POST /v1/chat/completions` uses a read timeout tied to that outer budget so JDK **Read timed out** does not fire first. On timeout it sends an **SSE error** so authors see a reason in chat. **Await/read-timeout tuning** and **optional Spring AI HTTP trace** use JVM system properties documented in **[studio-aiassistant-platform-settings.md](../using-and-extending/studio-aiassistant-platform-settings.md)**. Crafter Studio uses **Log4j2** — expect first SSE chunk, `onComplete`, `onError`, and a **WARN** if the await times out.
 
 ### Author-visible Progress (Tools-loop + Tools)
 
@@ -190,7 +190,7 @@ If a tool throws mid-stream (e.g. Spring AI `MessageAggregator` / `UndeclaredThr
 - `llm`: `openAI` | `xAI` | `deepSeek` | `llama` | `genesis` | `gemini` | `claude` | `script:{id}` — **required** on the wire after merge: missing, blank, invalid **`script:…`** ids, unknown strings, or unsupported ids (**`aiassistant`**, **`hostedchat`**, …) → **400** (`StudioAiLlmKind.normalize`). When **`siteId`** + **`agentId`** are set, the server may copy **`llm`** from the matching **`<agent>`** in **`/ui.xml`** if the POST omitted it. Matching aliases are normalized server-side (e.g. `grok` → xAI, `ollama` → llama). **`script:myid`** → **`scriptLlm:myid`** and loads site Groovy from `/scripts/aiassistant/llm/myid/runtime.groovy`.
 - `llmModel`: optional string
 - `imageModel`: optional string — OpenAI **Images** model id for **GenerateImage**; must be set on the agent and/or this body field when the model should call **GenerateImage** (no server default). Prefer **`gpt-image-1`** or **`gpt-image-1-mini`**.
-- `openAiApiKey`: optional string — **testing only**; per-provider precedence (OpenAI, xAI, DeepSeek, etc.): ignored when the matching server-side key is set (host **env** vars per **[llm-configuration.md](../using-and-extending/llm-configuration.md)**, plus JVM fallbacks in **[studio-aiassistant-jvm-parameters.md](../using-and-extending/studio-aiassistant-jvm-parameters.md)**). For **`claude`**, the same field can carry the Anthropic key when no **`ANTHROPIC_API_KEY`** is configured.
+- `openAiApiKey`: optional string — **testing only**; per-provider precedence (OpenAI, xAI, DeepSeek, etc.): ignored when the matching server-side key is set (host **env** vars per **[llm-configuration.md](../using-and-extending/llm-configuration.md)**, plus JVM fallbacks in **[studio-aiassistant-platform-settings.md](../using-and-extending/studio-aiassistant-platform-settings.md)**). For **`claude`**, the same field can carry the Anthropic key when no **`ANTHROPIC_API_KEY`** is configured.
 - `siteId`: optional **working CMS site** for this turn. When set, the server stores it on **`aiassistant.siteId`** and uses it for **all** CMS tool calls (**`resolveEffectiveSiteId`** and **`ensureToolArgsSiteId`** override model-supplied `siteId` on tools). May differ from the Studio session site (URL query / active site). Sticky chat state: whole-message **`set site to X`** updates client state and sends `siteId: X` on subsequent turns without repeating the command.
 - `contentPath`: optional repository path of the item open in Studio preview (e.g. `/site/website/about/index.xml`). Omitted when working `siteId` ≠ session site (cross-site). When set, the server appends **Studio preview context** (metadata only — path, content type, display template; no inlined file bodies) so the model can resolve “this page” without preloading XML/FTL.
 - `displayTemplate`: optional display-template path for the open item’s content type (metadata only). Omitted on cross-site turns.
@@ -219,7 +219,7 @@ For accuracy and performance debugging (session debug log copy, Studio server lo
 
 Edit that file to change phases, checklists, and team conventions without changing Groovy.
 
-**Override (optional):** absolute path to a markdown file via JVM — see **[studio-aiassistant-jvm-parameters.md § Misc](../using-and-extending/studio-aiassistant-jvm-parameters.md#misc)** (`aiassistant.crafterizingPlaybook.path`).
+**Override (optional):** absolute path to a markdown file via JVM — see **[studio-aiassistant-platform-settings.md § Misc](../using-and-extending/studio-aiassistant-platform-settings.md#misc)** (`aiassistant.crafterizingPlaybook.path`).
 
 If the file is missing at runtime, the tool still returns a short embedded fallback and sets `loadedFromEditableFile: false` in the JSON result.
 

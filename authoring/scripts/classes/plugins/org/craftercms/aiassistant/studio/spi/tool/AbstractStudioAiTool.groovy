@@ -1,9 +1,6 @@
 package plugins.org.craftercms.aiassistant.studio.spi.tool
 
-import org.springframework.ai.tool.function.FunctionToolCallback
-import plugins.org.craftercms.aiassistant.studio.engine.catalog.AiOrchestrationTools
-
-import java.util.function.Function
+import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiToolCallbackSupport
 
 /**
  * Base class for {@link StudioAiOrchestrationTool} Groovy implementations under {@code contrib.tool.builtin}, etc.
@@ -69,22 +66,11 @@ abstract class AbstractStudioAiTool implements StudioAiOrchestrationTool {
    * Wires Groovy meta {@code toolCallResultConverter} because Builder lacks a public setter.
    */
   Object toFunctionToolCallback(StudioAiToolContext ctx) {
-    final String name = wireName()
-    final StudioAiToolContext buildCtx = ctx
-    return FunctionToolCallback.builder(name, new Function<Map, Map>() {
-      @Override
-      Map apply(Map input) {
-        return AiOrchestrationTools.runWithToolProgress(name, input, buildCtx.toolProgressListener, {
-          AiOrchestrationTools.logToolInvocationPublic(name, (Map) (input ?: [:]))
-          execute((Map) (input ?: [:]), buildCtx)
-        })
-      }
-    })
-      .description(description(buildCtx))
-      .inputSchema(inputSchemaJson())
-      .inputType(Map.class)
-      // Spring AI FunctionToolCallback.Builder has no public toolCallResultConverter(…) step; Groovy invokeMethod wires it.
-      .invokeMethod('toolCallResultConverter', ctx.converter)
-      .build()
+    return StudioAiToolCallbackSupport.buildForOrchestrationTool(
+      this,
+      ctx,
+      description(ctx),
+      inputSchemaJson()
+    )
   }
 }

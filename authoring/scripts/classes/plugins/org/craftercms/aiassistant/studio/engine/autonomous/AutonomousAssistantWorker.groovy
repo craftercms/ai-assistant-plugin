@@ -28,6 +28,7 @@ import plugins.org.craftercms.aiassistant.studio.engine.prompt.ToolPromptsSiteCo
 import plugins.org.craftercms.aiassistant.studio.secrets.StudioAiAssistantSecretsContext
 import plugins.org.craftercms.aiassistant.studio.engine.rag.ExpertSkillVectorRegistry
 import plugins.org.craftercms.aiassistant.studio.engine.catalog.AiOrchestrationTools
+import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiSandboxClock
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 
 /**
@@ -568,7 +569,7 @@ private AutonomousAssistantWorker() {}
       if (!title) {
         title = tm.get('label')?.toString()?.trim()
       }
-      String tid = 't-' + System.nanoTime() + '-' + (int) (Math.random() * 1_000_000)
+      String tid = 't-' + StudioAiSandboxClock.uniqueHexSuffix() + '-' + (int) (Math.random() * 1_000_000)
       String effectiveOwner = fullAgentId
       if (manageOtherAgentsHumanTasks) {
         String declared = tm.get('ownerAgentId')?.toString()?.trim()

@@ -27,7 +27,7 @@
 |------|-----|
 | Plugin orchestration / payload previews | Logger **DEBUG** on `plugins.org.craftercms.aiassistant.*` |
 
-**JVM flags:** [studio-aiassistant-jvm-parameters.md](../using-and-extending/studio-aiassistant-jvm-parameters.md)
+**JVM flags:** [studio-aiassistant-platform-settings.md](../using-and-extending/studio-aiassistant-platform-settings.md)
 
 ## Admin configuration (cross-links)
 

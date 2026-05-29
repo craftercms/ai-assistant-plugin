@@ -16,6 +16,7 @@ import plugins.org.craftercms.aiassistant.studio.engine.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.site.StudioAiUserSiteTools
 import plugins.org.craftercms.aiassistant.studio.engine.autonomous.AutonomousAssistantWorker
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
+import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiSandboxClock
 
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
@@ -639,7 +640,7 @@ class AiOrchestrationTools {
       ]
     }
     AiOrchestration.aiAssistantToolWorkerDiagPhase("${diag}_await_inner_openai_raw_item chars=${itemXml.length()}")
-    long tOpenAi = System.nanoTime()
+    long tOpenAi = StudioAiSandboxClock.millis()
     String assistantXml =
       AiOrchestration.toolsLoopSimpleCompletionAssistantText(
         apiKey,
@@ -653,7 +654,7 @@ class AiOrchestrationTools {
     log.debug(
       '{} DIAG innerRawItem wallMs={} assistantChars={}',
       diag,
-      (System.nanoTime() - tOpenAi) / 1_000_000L,
+      StudioAiSandboxClock.elapsedMs(tOpenAi),
       (assistantXml ?: '').length()
     )
     if (AiOrchestration.aiAssistantPipelineCancelEffective()) {
@@ -959,7 +960,7 @@ class AiOrchestrationTools {
     AiOrchestration.aiAssistantToolWorkerDiagPhase(
       "${diag}_await_inner_openai_completion model=${llmModel} bundleChars=${subgraphXml.length()}"
     )
-    long tOpenAi = System.nanoTime()
+    long tOpenAi = StudioAiSandboxClock.millis()
     String assistantXml = AiOrchestration.toolsLoopSimpleCompletionAssistantText(
       apiKey,
       llmModel,
@@ -969,7 +970,7 @@ class AiOrchestrationTools {
       readTimeoutMs,
       diag
     )
-    long ms = (System.nanoTime() - tOpenAi) / 1_000_000L
+    long ms = StudioAiSandboxClock.elapsedMs(tOpenAi)
     log.debug(
       '{} DIAG innerSimpleCompletion wallMs={} assistantXmlChars={} maxOutTokens={}',
       diag,
@@ -1084,9 +1085,9 @@ class AiOrchestrationTools {
     AiOrchestration.aiAssistantToolWorkerDiagPhase(
       "${diag}_apply_writes_running paths=${origPaths.size()}"
     )
-    long tApply = System.nanoTime()
+    long tApply = StudioAiSandboxClock.millis()
     Map applyRes = ContentSubgraphAggregator.apply(ops, siteId, cleaned, unlock, normProtected, pathProtect) as Map
-    long applyMs = (System.nanoTime() - tApply) / 1_000_000L
+    long applyMs = StudioAiSandboxClock.elapsedMs(tApply)
     log.debug(
       '{} DIAG applyWrites wallMs={} writtenCountApprox={} applyOk={}',
       diag,
@@ -1251,7 +1252,7 @@ class AiOrchestrationTools {
   ) {
     translateGate.acquire()
     try {
-      long t0 = System.nanoTime()
+      long t0 = StudioAiSandboxClock.millis()
       if (AiOrchestration.aiAssistantPipelineCancelEffective()) {
         Map cancelled = [
           path     : pathFinal,
@@ -1266,7 +1267,7 @@ class AiOrchestrationTools {
               [siteId: siteId, contentPath: pathFinal, path: pathFinal],
               null,
               cancelled,
-              (System.nanoTime() - t0) / 1_000_000L
+              StudioAiSandboxClock.elapsedMs(t0)
             )
           } catch (Throwable ignored) {}
         }
@@ -1299,7 +1300,7 @@ class AiOrchestrationTools {
           message: (t.message ?: t.toString()),
         ]
       }
-      long elapsedMs = (System.nanoTime() - t0) / 1_000_000L
+      long elapsedMs = StudioAiSandboxClock.elapsedMs(t0)
       if (toolProgressListener) {
         try {
           boolean warn =

@@ -1,5 +1,6 @@
 package plugins.org.craftercms.aiassistant.studio.spi.tool
 
+import plugins.org.craftercms.aiassistant.studio.config.StudioAiPlatformSettings
 import plugins.org.craftercms.aiassistant.studio.engine.catalog.StudioAiToolRegistry
 
 /**
@@ -20,8 +21,7 @@ private StudioAiToolMaintainerObservability() {}
    * @return True when the check succeeds.
    */
   static boolean enabled() {
-    String raw = System.getProperty(SYSPROP_ENABLED, 'true')?.toString()?.trim()
-    return !'false'.equalsIgnoreCase(raw) && !'0'.equals(raw)
+    return StudioAiPlatformSettings.propertyBoolean(SYSPROP_ENABLED, true)
   }
 
   /**

@@ -1,5 +1,6 @@
 package plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal
 
+import plugins.org.craftercms.aiassistant.studio.config.StudioAiPlatformSettings
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -26,14 +27,7 @@ private CmsPreviewHtmlFetch() {}
    * @return int result.
    */
   private static int maxChars() {
-    try {
-      def p = System.getProperty('aiassistant.preview.fetch.maxChars')?.toString()?.trim()
-      if (p) {
-        int n = Integer.parseInt(p)
-        if (n >= 4096 && n <= 2_000_000) return n
-      }
-    } catch (Throwable ignored) {}
-    return 400_000
+    return StudioAiPlatformSettings.propertyInt('aiassistant.preview.fetch.maxChars', 400_000, 4096, 2_000_000)
   }
 
   /**
@@ -96,7 +90,7 @@ private CmsPreviewHtmlFetch() {}
     } catch (Throwable ignored) {}
     if (srv && h == srv) return true
     if (h == 'localhost' || h == '127.0.0.1' || h == '[::1]') return true
-    def extra = System.getProperty('aiassistant.preview.fetch.allowedHosts')?.toString()?.trim()
+    def extra = StudioAiPlatformSettings.property('aiassistant.preview.fetch.allowedHosts', '')?.trim()
     if (extra) {
       for (String part : extra.split(',')) {
         def p = part.trim().toLowerCase(Locale.ROOT)
@@ -194,7 +188,7 @@ private CmsPreviewHtmlFetch() {}
           conn.setRequestProperty('User-Agent', ua)
         }
         // Studio Bearer JWT is not valid Engine auth; forwarding it often yields 401 on preview GET.
-        if (Boolean.parseBoolean(System.getProperty('aiassistant.preview.fetch.forwardAuthorization', 'false'))) {
+        if (StudioAiPlatformSettings.propertyBoolean('aiassistant.preview.fetch.forwardAuthorization', false)) {
           def authz = ops.request?.getHeader('Authorization')?.toString()?.trim()
           if (authz) {
             conn.setRequestProperty('Authorization', authz)
