@@ -5,6 +5,7 @@ import groovy.json.JsonSlurper
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
+import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiSandboxCrypto
 
 import java.util.Locale
 
@@ -370,7 +371,8 @@ private StudioAiAssistantSecretsService() {}
       if (!key || !SECRET_KEY_PATTERN.matcher(key).matches()) {
         return [ok: false, message: "Invalid secret key '${item.key}' (use lowercase letters, digits, underscore; start with a letter)."]
       }
-      if (Boolean.TRUE.equals(item.clear) || Boolean.TRUE.equals(item.remove)) {
+      // Bracket access — item.remove / item.clear invoke Map methods in Groovy, not JSON fields.
+      if (Boolean.TRUE.equals(item['clear']) || Boolean.TRUE.equals(item['remove'])) {
         byKey.remove(key)
         continue
       }
@@ -477,27 +479,8 @@ private StudioAiAssistantSecretsService() {}
    * @return Text result, or empty or null when unavailable.
    */
   private static String encryptPlaintext(String siteId, Object applicationContext, String plaintext) {
-    String plain = (plaintext ?: '').toString()
-    Object encSvc = resolveEncryptionService(applicationContext)
-    if (encSvc == null || !siteId?.trim()) {
-      throw new IllegalStateException(
-        'Crafter encryptionService is not available. Use ${env:VAR} or paste a ${enc:…} value from Studio Encrypt Marked.'
-      )
-    }
-    try {
-      if (!encSvc.metaClass.respondsTo(encSvc, 'encrypt', String, String)) {
-        throw new IllegalStateException('encryptionService.encrypt(siteId, text) is not available on this Studio build.')
-      }
-      String cipher = encSvc.encrypt(siteId.trim(), plain)?.toString()?.trim()
-      if (!cipher) {
-        throw new IllegalStateException('encryptionService.encrypt returned empty ciphertext.')
-      }
-      return "\${enc:${cipher}}"
-    } catch (IllegalStateException ise) {
-      throw ise
-    } catch (Throwable t) {
-      throw new IllegalStateException("Encrypt failed: ${t.message}", t)
-    }
+    String cipher = StudioAiSandboxCrypto.encryptForSite(siteId, plaintext, applicationContext)
+    return "\${enc:${cipher}}"
   }
 
   /**
@@ -513,8 +496,8 @@ private StudioAiAssistantSecretsService() {}
     String path = StudioAiAssistantSecretsCatalog.SECRETS_JSON_PATH
     try {
       Object cfg = applicationContext.get('configurationService')
-      if (cfg != null && cfg.metaClass.respondsTo(cfg, 'getConfigurationAsString', String, String, String, String)) {
-        return cfg.getConfigurationAsString(siteId.trim(), 'studio', path, '')
+      if (cfg != null) {
+        return cfg.getConfigurationAsString(siteId.trim(), 'studio', path, '')?.toString()
       }
     } catch (Throwable t) {
       LOG.debug('StudioAiAssistantSecretsService: configuration read failed siteId={}: {}', siteId, t.message)
@@ -522,24 +505,4 @@ private StudioAiAssistantSecretsService() {}
     return null
   }
 
-  /**
-   * Resolves encryption service from request and plugin context.
-   * @param applicationContext Caller-supplied input.
-   * @return Object result.
-   */
-  private static Object resolveEncryptionService(Object applicationContext) {
-    if (applicationContext == null) {
-      return null
-    }
-    for (String beanName : ['encryptionService', 'encryptionServiceImpl']) {
-      try {
-        Object bean = applicationContext.get(beanName)
-        if (bean != null) {
-          return bean
-        }
-      } catch (Throwable ignored) {
-      }
-    }
-    return null
-  }
 }

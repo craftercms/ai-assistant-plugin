@@ -73,7 +73,7 @@ class SerpApiWebSearchTool extends AbstractStudioAiTool {
       out.error = em.length() > 300 ? em.substring(0, 297) + '…' : em
     }
     if (!'start'.equals(phase)) {
-      LAST_SERP_FETCH_DIAG.remove()
+      LAST_SERP_FETCH_DIAG.set(null)
     }
     return out.isEmpty() ? [:] : Collections.unmodifiableMap(out)
   }
@@ -156,7 +156,7 @@ class SerpApiWebSearchTool extends AbstractStudioAiTool {
     try {
       return runSearchBody(query, maxResultsOpt, siteDefaults, paramOverrides, cfg, ctx)
     } finally {
-      LAST_SERP_FETCH_DIAG.remove()
+      LAST_SERP_FETCH_DIAG.set(null)
     }
   }
 

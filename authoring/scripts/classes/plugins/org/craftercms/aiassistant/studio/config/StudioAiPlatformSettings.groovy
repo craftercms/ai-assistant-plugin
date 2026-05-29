@@ -32,7 +32,8 @@ final class StudioAiPlatformSettings {
   }
 
   static void exit() {
-    TL.remove()
+    // ThreadLocal<Map>: Groovy treats TL.remove() as ambiguous Map#remove(); use set(null).
+    TL.set(null)
   }
 
   static String property(String key, String defaultValue = '') {

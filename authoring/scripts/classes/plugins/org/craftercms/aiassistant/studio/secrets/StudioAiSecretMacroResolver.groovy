@@ -3,6 +3,7 @@ package plugins.org.craftercms.aiassistant.studio.secrets
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import plugins.org.craftercms.aiassistant.studio.config.StudioAiCrafterEnv
+import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiSandboxCrypto
 
 /**
  * Expands secret placeholders in configuration strings on the Studio JVM.
@@ -127,7 +128,7 @@ private StudioAiSecretMacroResolver() {}
     if (!s.contains('${enc:')) {
       return s
     }
-    if (resolveTextEncryptor(applicationContext) == null) {
+    if (StudioAiSandboxCrypto.resolveTextEncryptor(applicationContext) == null) {
       LOG.debug('StudioAiSecretMacroResolver: no textEncryptor; ${enc:…} left unchanged')
       return s
     }
@@ -144,18 +145,11 @@ private StudioAiSecretMacroResolver() {}
 
   /** Decrypts ciphertext from {@code ${enc:…}} (CCE-V1#…) saved via Studio Encrypt Marked / Secrets UI. */
   private static String decryptEncCipher(String siteId, Object applicationContext, String cipher) {
-    if (!cipher?.trim()) {
-      return ''
+    String plain = StudioAiSandboxCrypto.decryptText(cipher, applicationContext)
+    if (!plain && cipher?.trim()) {
+      LOG.warn('StudioAiSecretMacroResolver: textEncryptor.decrypt failed or empty siteId={}', siteId)
     }
-    Object textEnc = resolveTextEncryptor(applicationContext)
-    if (textEnc != null && textEnc.metaClass.respondsTo(textEnc, 'decrypt', String)) {
-      try {
-        return textEnc.decrypt(cipher.trim())?.toString()?.trim() ?: ''
-      } catch (Throwable t) {
-        LOG.warn('StudioAiSecretMacroResolver: textEncryptor.decrypt failed siteId={}: {}', siteId, t.message)
-      }
-    }
-    return ''
+    return plain
   }
 
   /**
@@ -191,27 +185,6 @@ private StudioAiSecretMacroResolver() {}
     }
     m.appendTail(sb)
     return sb.toString()
-  }
-
-  /**
-   * Resolves text encryptor from request and plugin context.
-   * @param applicationContext Caller-supplied input.
-   * @return Object result.
-   */
-  private static Object resolveTextEncryptor(Object applicationContext) {
-    if (applicationContext == null) {
-      return null
-    }
-    for (String beanName : ['crafter.textEncryptor', 'textEncryptor']) {
-      try {
-        Object bean = applicationContext.get(beanName)
-        if (bean != null) {
-          return bean
-        }
-      } catch (Throwable ignored) {
-      }
-    }
-    return null
   }
 
   /** Classifies a stored value for admin UI (never returns decrypted plaintext for literals). */

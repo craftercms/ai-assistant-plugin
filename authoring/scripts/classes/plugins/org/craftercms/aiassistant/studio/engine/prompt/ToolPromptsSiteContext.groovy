@@ -30,7 +30,7 @@ private ToolPromptsSiteContext() {}
    * Exit.
    */
   static void exit() {
-    TL.remove()
+    TL.set(null)
   }
 
   /**
