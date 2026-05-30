@@ -32,7 +32,8 @@ final class CmsSandboxSafePng {
       }
     }
     byte[] compressed = deflate(raw)
-    ByteArrayOutputStream png = new ByteArrayOutputStream(64 + compressed.length)
+    int pngCap = (int) (64 + compressed.length)
+    ByteArrayOutputStream png = new ByteArrayOutputStream(pngCap)
     png.write([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] as byte[])
     writeChunk(png, 'IHDR', ihdrBytes(width, height))
     writeChunk(png, 'IDAT', compressed)
@@ -57,7 +58,8 @@ final class CmsSandboxSafePng {
     try {
       deflater.setInput(raw)
       deflater.finish()
-      ByteArrayOutputStream bos = new ByteArrayOutputStream(raw.length / 4 + 32)
+      int bosCap = (int) (raw.length / 4 + 32)
+      ByteArrayOutputStream bos = new ByteArrayOutputStream(bosCap)
       byte[] buf = new byte[8192]
       while (!deflater.finished()) {
         int n = deflater.deflate(buf)

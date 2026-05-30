@@ -3,7 +3,8 @@ chat-scenarios JSON (informal contract)
 - turns[].prompt: user message (required).
 - turns[].request: optional object merged on top of defaults for that turn only (e.g. switch authoringSurface to preview for translate).
 - turns[].expect: optional assertions on SSE telemetry — recipeId, recipeOutcome, toolsAny, toolsAll, forbidTools, maxToolStarts.
-- turns[].optional / turns[].skipUnless: skip turn when env unset (see run-tool-recipe-matrix.sh).
+- turns[].optional / turns[].skipUnless: destructive turns skip unless env set (CHAT_MATRIX_ALLOW_WRITES, CHAT_MATRIX_ALLOW_PUBLISH).
+- turns[].partialOnMissingConfig: optional turn; missing keys/permissions/stream abort → partial (exit 0).
 - turns[].group: intent-recipes | builtin-tools (filter with CHAT_SCENARIO_GROUP).
 - turns[].freshChat: new chatId before this turn.
 - Runner adds chatId (same UUID for all turns in one session) unless freshChat on a turn.

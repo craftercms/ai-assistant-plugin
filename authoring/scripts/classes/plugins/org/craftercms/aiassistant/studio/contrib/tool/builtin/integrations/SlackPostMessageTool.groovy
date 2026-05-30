@@ -7,15 +7,11 @@ import org.slf4j.LoggerFactory
 import plugins.org.craftercms.aiassistant.studio.engine.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.studio.secrets.StudioAiAssistantSecretsService
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.http.OutboundHttpPolicy
+import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiSandboxHttp
 import plugins.org.craftercms.aiassistant.studio.spi.tool.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.studio.spi.tool.StudioAiToolContext
 import plugins.org.craftercms.aiassistant.studio.spi.tool.StudioAiToolSchemas
 
-import java.io.BufferedReader
-import java.io.InputStream
-import java.io.InputStreamReader
-import java.io.OutputStream
-import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -210,20 +206,20 @@ class SlackPostMessageTool extends AbstractStudioAiTool {
     if (hopErr) {
       return [ok: false, message: hopErr]
     }
-    HttpURLConnection conn = null
-    InputStream inStream = null
     try {
-      conn = (HttpURLConnection) new URI(url).toURL().openConnection()
-      conn.setRequestMethod('GET')
-      conn.setConnectTimeout(15000)
-      conn.setReadTimeout(60_000)
-      conn.setRequestProperty('Authorization', "Bearer ${token}")
-      conn.setRequestProperty('Accept', 'application/json')
-      conn.setRequestProperty('User-Agent', USER_AGENT)
-      int status = conn.responseCode
-      inStream = status >= 400 ? conn.getErrorStream() : conn.getInputStream()
-      String responseText = readUtf8(inStream, MAX_RESPONSE_CHARS)
-      Object parsed = new JsonSlurper().parseText(responseText ?: '{}')
+      def ex = StudioAiSandboxHttp.getText(
+        URI.create(url),
+        [
+          connectTimeoutMs: 15_000,
+          readTimeoutMs   : 60_000,
+          authorization   : token,
+          accept          : 'application/json',
+          userAgent       : USER_AGENT,
+          maxBodyChars    : MAX_RESPONSE_CHARS,
+          ssrfCheck       : true
+        ]
+      )
+      Object parsed = new JsonSlurper().parseText((ex.bodyText ?: '{}').trim() ?: '{}')
       if (parsed instanceof Map) {
         return (Map) parsed
       }
@@ -231,16 +227,6 @@ class SlackPostMessageTool extends AbstractStudioAiTool {
     } catch (Throwable t) {
       log.warn('SlackPostMessage Slack API GET failed: {}', t.message)
       return [ok: false, message: t.message ?: t.toString()]
-    } finally {
-      if (inStream != null) {
-        try {
-          inStream.close()
-        } catch (Throwable ignored) {
-        }
-      }
-      if (conn != null) {
-        conn.disconnect()
-      }
     }
   }
 
@@ -421,30 +407,27 @@ class SlackPostMessageTool extends AbstractStudioAiTool {
       return [ok: false, tool: wireName(), message: hopErr]
     }
     String json = JsonOutput.toJson(body)
-    HttpURLConnection conn = null
-    InputStream inStream = null
     try {
-      conn = (HttpURLConnection) new URI(SLACK_POST_URL).toURL().openConnection()
-      conn.setRequestMethod('POST')
-      conn.setDoOutput(true)
-      conn.setConnectTimeout(15000)
-      conn.setReadTimeout(60_000)
-      conn.setRequestProperty('Authorization', "Bearer ${token}")
-      conn.setRequestProperty('Content-Type', 'application/json; charset=utf-8')
-      conn.setRequestProperty('Accept', 'application/json')
-      conn.setRequestProperty('User-Agent', USER_AGENT)
       byte[] bytes = json.getBytes(StandardCharsets.UTF_8)
-      conn.setFixedLengthStreamingMode(bytes.length)
-      OutputStream out = conn.getOutputStream()
-      out.write(bytes)
-      out.flush()
-      out.close()
-      int status = conn.responseCode
-      inStream = status >= 400 ? conn.getErrorStream() : conn.getInputStream()
-      String responseText = readUtf8(inStream, MAX_RESPONSE_CHARS)
+      def ex = StudioAiSandboxHttp.postBytes(
+        URI.create(SLACK_POST_URL),
+        bytes,
+        'application/json; charset=utf-8',
+        [
+          connectTimeoutMs: 15_000,
+          readTimeoutMs   : 60_000,
+          authorization   : token,
+          accept          : 'application/json',
+          userAgent       : USER_AGENT,
+          maxBodyChars    : MAX_RESPONSE_CHARS,
+          ssrfCheck       : true
+        ]
+      )
+      int status = ex.statusCode
+      String responseText = (ex.bodyText ?: '').toString()
       Map slack = [:]
       try {
-        Object parsed = new JsonSlurper().parseText(responseText ?: '{}')
+        Object parsed = new JsonSlurper().parseText(responseText?.trim() ?: '{}')
         if (parsed instanceof Map) {
           slack = (Map) parsed
         }
@@ -478,48 +461,6 @@ class SlackPostMessageTool extends AbstractStudioAiTool {
         tool   : wireName(),
         message: (t.message ?: t.toString())
       ]
-    } finally {
-      try {
-        inStream?.close()
-      } catch (Throwable ignored) {
-      }
-      try {
-        conn?.disconnect()
-      } catch (Throwable ignored) {
-      }
     }
-  }
-
-  /**
-   * Loads utf8 from configuration or input.
-   * @param inStream Caller-supplied input.
-   * @param maxChars Caller-supplied input.
-   * @return Text result, or empty or null when unavailable.
-   */
-  private static String readUtf8(InputStream inStream, int maxChars) {
-    if (inStream == null) {
-      return ''
-    }
-    StringBuilder sb = new StringBuilder(Math.min(maxChars + 16, 8192))
-    BufferedReader reader = new BufferedReader(new InputStreamReader(inStream, StandardCharsets.UTF_8))
-    char[] cbuf = new char[4096]
-    int total = 0
-    while (true) {
-      int n = reader.read(cbuf)
-      if (n < 0) {
-        break
-      }
-      if (total + n <= maxChars) {
-        sb.append(cbuf, 0, n)
-        total += n
-      } else {
-        int take = maxChars - total
-        if (take > 0) {
-          sb.append(cbuf, 0, take)
-        }
-        break
-      }
-    }
-    return sb.toString()
   }
 }

@@ -46,8 +46,8 @@ final class StudioAiSandboxHttp {
 
   static SimpleClientHttpRequestFactory requestFactory(int connectTimeoutMs, int readTimeoutMs) {
     def rf = new SimpleClientHttpRequestFactory()
-    rf.setConnectTimeout(Math.max(1_000, connectTimeoutMs))
-    rf.setReadTimeout(Math.max(1_000, readTimeoutMs))
+    rf.setConnectTimeout((int) Math.max(1_000, connectTimeoutMs as int))
+    rf.setReadTimeout((int) Math.max(1_000, readTimeoutMs as int))
     return rf
   }
 

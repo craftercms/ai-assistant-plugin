@@ -11,11 +11,12 @@
       "id": "ContentExists",
       "group": "builtin-tools",
       "summary": "ContentExists on home page path.",
-      "prompt": "Use ContentExists only: does /site/website/index.xml exist? Reply with the boolean.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the ContentExists tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with path \"/site/website/index.xml\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "ContentExists"
-        ]
+        ],
+        "enableTools": true
       },
       "expect": {
         "toolsAny": [
@@ -27,11 +28,12 @@
       "id": "GetContent",
       "group": "builtin-tools",
       "summary": "GetContent read title_t.",
-      "prompt": "Use GetContent only on /site/website/index.xml and report title_t.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the GetContent tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with path \"/site/website/index.xml\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "GetContent"
-        ]
+        ],
+        "enableTools": true
       },
       "expect": {
         "toolsAny": [
@@ -43,11 +45,12 @@
       "id": "ListContentDependencyScope",
       "group": "builtin-tools",
       "summary": "List translation/dependency scope.",
-      "prompt": "Use ListContentDependencyScope only for /site/website/index.xml and summarize dependency paths.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the ListContentDependencyScope tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with contentPath \"/site/website/index.xml\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "ListContentDependencyScope"
-        ]
+        ],
+        "enableTools": true
       },
       "expect": {
         "toolsAny": [
@@ -59,11 +62,12 @@
       "id": "ListStudioContentTypes",
       "group": "builtin-tools",
       "summary": "List content types.",
-      "prompt": "Use ListStudioContentTypes only and list page content type ids.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the ListStudioContentTypes tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with no filters; list ids only from the tool result. After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "ListStudioContentTypes"
-        ]
+        ],
+        "enableTools": true
       },
       "expect": {
         "toolsAny": [
@@ -75,15 +79,19 @@
       "id": "GetContentTypeFormDefinition",
       "group": "builtin-tools",
       "summary": "Form definition for /page/home.",
-      "prompt": "Use GetContentTypeFormDefinition only for content type /page/home.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the GetContentTypeFormDefinition tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with contentTypeId \"/page/home\" (not GetContent). After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "GetContentTypeFormDefinition"
-        ]
+        ],
+        "enableTools": true
       },
       "expect": {
         "toolsAny": [
           "GetContentTypeFormDefinition"
+        ],
+        "forbidTools": [
+          "GetContent"
         ]
       }
     },
@@ -91,11 +99,12 @@
       "id": "GetContentVersionHistory",
       "group": "builtin-tools",
       "summary": "Version history for home page.",
-      "prompt": "Use GetContentVersionHistory only for /site/website/index.xml.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the GetContentVersionHistory tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with path \"/site/website/index.xml\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "GetContentVersionHistory"
-        ]
+        ],
+        "enableTools": true
       },
       "expect": {
         "toolsAny": [
@@ -107,17 +116,23 @@
       "id": "GetPreviewHtml",
       "group": "builtin-tools",
       "summary": "Preview HTML for home (needs preview token).",
-      "prompt": "Use GetPreviewHtml only for the home page and summarize the HTML title.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the GetPreviewHtml tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with the anchored home preview URL for /site/website/index.xml (use studioPreviewPageUrl or url from context). Do not use GetContent. After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "GetPreviewHtml"
         ],
+        "enableTools": true,
         "authoringSurface": "preview",
-        "contentPath": "/site/website/index.xml"
+        "contentPath": "/site/website/index.xml",
+        "contentTypeId": "/page/home",
+        "contentTypeLabel": "Home"
       },
       "expect": {
         "toolsAny": [
           "GetPreviewHtml"
+        ],
+        "forbidTools": [
+          "GetContent"
         ]
       }
     },
@@ -125,11 +140,12 @@
       "id": "FetchHttpUrl",
       "group": "builtin-tools",
       "summary": "Fetch public URL.",
-      "prompt": "Use FetchHttpUrl only to fetch https://example.com and report the page title.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the FetchHttpUrl tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with url \"https://example.com\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "FetchHttpUrl"
-        ]
+        ],
+        "enableTools": true
       },
       "expect": {
         "toolsAny": [
@@ -141,47 +157,48 @@
       "id": "PostHttpUrl",
       "group": "builtin-tools",
       "summary": "POST to httpbin (optional).",
-      "prompt": "Use PostHttpUrl only to POST JSON {\"test\":true} to https://httpbin.org/post and report the echoed json field.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the PostHttpUrl tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with url \"https://httpbin.org/post\" and body JSON {\"test\":true}. After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "PostHttpUrl"
-        ]
+        ],
+        "enableTools": true
       },
       "expect": {
         "toolsAny": [
           "PostHttpUrl"
         ]
       },
-      "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_HTTP_POST"
+      "optional": true
     },
     {
       "id": "WebSearch",
       "group": "builtin-tools",
       "summary": "Built-in web search.",
-      "prompt": "Use WebSearch only: who founded CrafterCMS?",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the WebSearch tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with query \"who founded CrafterCMS\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "WebSearch"
-        ]
+        ],
+        "enableTools": true
       },
       "expect": {
         "toolsAny": [
           "WebSearch"
         ]
       },
-      "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_WEB_SEARCH"
+      "optional": true
     },
     {
       "id": "SerpApiWebSearch",
       "group": "builtin-tools",
       "summary": "SerpAPI web search (optional keys).",
-      "prompt": "Use SerpApiWebSearch only: latest CrafterCMS release news.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the SerpApiWebSearch tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with query \"latest CrafterCMS release news\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "SerpApiWebSearch"
-        ]
+        ],
+        "enableTools": true
       },
       "expect": {
         "toolsAny": [
@@ -189,17 +206,18 @@
         ]
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_SERPAPI"
+      "partialOnMissingConfig": true
     },
     {
       "id": "ConsultCrafterQ",
       "group": "builtin-tools",
       "summary": "CrafterQ integration (optional).",
-      "prompt": "Use ConsultCrafterQ only: what is Experience Builder?",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the ConsultCrafterQ tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with question \"what is Experience Builder\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "ConsultCrafterQ"
-        ]
+        ],
+        "enableTools": true
       },
       "expect": {
         "toolsAny": [
@@ -207,17 +225,18 @@
         ]
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_CRAFTERQ"
+      "partialOnMissingConfig": true
     },
     {
       "id": "SlackPostMessage",
       "group": "builtin-tools",
       "summary": "Slack post (optional webhook).",
-      "prompt": "Use SlackPostMessage only with a test message \"matrix harness ping\".",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the SlackPostMessage tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with message text \"matrix harness ping\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "SlackPostMessage"
-        ]
+        ],
+        "enableTools": true
       },
       "expect": {
         "toolsAny": [
@@ -225,17 +244,18 @@
         ]
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_SLACK"
+      "partialOnMissingConfig": true
     },
     {
       "id": "ResearchSiteContent",
       "group": "builtin-tools",
       "summary": "Research site content index.",
-      "prompt": "Use ResearchSiteContent only to find pages mentioning home.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the ResearchSiteContent tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with query \"home page\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "ResearchSiteContent"
-        ]
+        ],
+        "enableTools": true
       },
       "expect": {
         "toolsAny": [
@@ -247,11 +267,12 @@
       "id": "QueryExpertGuidance",
       "group": "builtin-tools",
       "summary": "Expert guidance query (requires enabled agent skills + embeddings API).",
-      "prompt": "Use QueryExpertGuidance only: best practices for CrafterCMS content modeling.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the QueryExpertGuidance tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with query \"best practices for CrafterCMS content modeling\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "QueryExpertGuidance"
-        ]
+        ],
+        "enableTools": true
       },
       "expect": {
         "toolsAny": [
@@ -259,17 +280,18 @@
         ]
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_EXPERT_GUIDANCE"
+      "partialOnMissingConfig": true
     },
     {
       "id": "GeneratePlaceholderImage",
       "group": "builtin-tools",
       "summary": "Placeholder image generation.",
-      "prompt": "Use GeneratePlaceholderImage only: 64x64 gray placeholder.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the GeneratePlaceholderImage tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with width 64 and height 64. After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "GeneratePlaceholderImage"
-        ]
+        ],
+        "enableTools": true
       },
       "expect": {
         "toolsAny": [
@@ -281,11 +303,12 @@
       "id": "GenerateImage",
       "group": "builtin-tools",
       "summary": "LLM image generation.",
-      "prompt": "Use GenerateImage only: simple blue circle on white, 256x256.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the GenerateImage tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with prompt \"simple blue circle on white background\" and size 256x256. After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "GenerateImage"
-        ]
+        ],
+        "enableTools": true
       },
       "expect": {
         "toolsAny": [
@@ -293,17 +316,18 @@
         ]
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_IMAGE"
+      "partialOnMissingConfig": true
     },
     {
       "id": "GenerateTextNoTools",
       "group": "builtin-tools",
       "summary": "Inner one-shot completion tool.",
-      "prompt": "You must call the GenerateTextNoTools tool exactly once with userPrompt set to the literal string harness-ok. Do not answer in prose without calling the tool.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the GenerateTextNoTools tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with userPrompt set to the literal string harness-ok. After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "GenerateTextNoTools"
-        ]
+        ],
+        "enableTools": true
       },
       "expect": {
         "toolsAny": [
@@ -311,8 +335,7 @@
         ],
         "recipeIdSoft": false
       },
-      "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_GENERATE_TEXT_NO_TOOLS"
+      "optional": true
     },
     {
       "id": "TranslateContentItem",
@@ -332,7 +355,8 @@
         ]
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",
+      "partialOnMissingConfig": true
     },
     {
       "id": "TranslateContentBatch",
@@ -353,17 +377,19 @@
         ]
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",
+      "partialOnMissingConfig": true
     },
     {
       "id": "TransformContentSubgraph",
       "group": "builtin-tools",
       "summary": "Transform content subgraph (off-wire unless ENABLED_ON_WIRE in plugin source).",
-      "prompt": "Use TransformContentSubgraph only on /site/website/index.xml to list field ids (no writes).",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the TransformContentSubgraph tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call on /site/website/index.xml to list field ids (read-only, no writes). After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "TransformContentSubgraph"
-        ]
+        ],
+        "enableTools": true
       },
       "expect": {
         "toolsAny": [
@@ -371,7 +397,7 @@
         ]
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_TRANSFORM_SUBGRAPH"
+      "partialOnMissingConfig": true
     },
     {
       "id": "WriteContent",
@@ -389,17 +415,19 @@
         ]
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",
+      "partialOnMissingConfig": true
     },
     {
       "id": "ListPagesAndComponents",
       "group": "builtin-tools",
       "summary": "List pages and components.",
-      "prompt": "Use ListPagesAndComponents only and list the first five page paths.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the ListPagesAndComponents tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with default args; report the first path from the result. After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "ListPagesAndComponents"
-        ]
+        ],
+        "enableTools": true
       },
       "expect": {
         "toolsAny": [
@@ -424,7 +452,8 @@
         ]
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",
+      "partialOnMissingConfig": true
     },
     {
       "id": "update_content",
@@ -444,7 +473,8 @@
         ]
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",
+      "partialOnMissingConfig": true
     },
     {
       "id": "update_content_type",
@@ -463,17 +493,19 @@
         ]
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",
+      "partialOnMissingConfig": true
     },
     {
       "id": "analyze_template",
       "group": "builtin-tools",
       "summary": "Analyze FTL template.",
-      "prompt": "Use analyze_template only on /templates/web/pages/home.ftl and summarize structure.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the analyze_template tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with templatePath \"/templates/web/pages/home.ftl\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "analyze_template"
-        ]
+        ],
+        "enableTools": true
       },
       "expect": {
         "toolsAny": [
@@ -498,17 +530,19 @@
         ]
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_PUBLISH"
+      "skipUnless": "CHAT_MATRIX_ALLOW_PUBLISH",
+      "partialOnMissingConfig": true
     },
     {
       "id": "GetCrafterizingPlaybook",
       "group": "builtin-tools",
       "summary": "Crafterizing playbook retrieval.",
-      "prompt": "Use GetCrafterizingPlaybook only and summarize the first section.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the GetCrafterizingPlaybook tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with no args. After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "GetCrafterizingPlaybook"
-        ]
+        ],
+        "enableTools": true
       },
       "expect": {
         "toolsAny": [
@@ -533,17 +567,19 @@
         ]
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",
+      "partialOnMissingConfig": true
     },
     {
       "id": "InvokeSiteUserTool",
       "group": "builtin-tools",
       "summary": "Site-defined user tool (site-specific).",
-      "prompt": "Use InvokeSiteUserTool only if a site user tool exists; list available tools first.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the InvokeSiteUserTool tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call only if a site user tool exists; otherwise report that none are configured. After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "InvokeSiteUserTool"
-        ]
+        ],
+        "enableTools": true
       },
       "expect": {
         "toolsAny": [
@@ -551,7 +587,7 @@
         ]
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_SITE_USER_TOOLS"
+      "partialOnMissingConfig": true
     }
   ]
 }

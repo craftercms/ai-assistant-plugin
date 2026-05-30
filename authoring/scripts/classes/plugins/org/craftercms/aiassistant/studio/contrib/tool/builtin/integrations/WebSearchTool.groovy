@@ -111,7 +111,7 @@ class WebSearchTool extends AbstractStudioAiTool {
    */
   private static int maxResults(Integer toolRequested) {
     int r = (toolRequested != null) ? toolRequested.intValue() : DEFAULT_MAX_RESULTS
-    return Math.min(15, Math.max(1, r))
+    return (int) Math.min(15, Math.max(1, r))
   }
 
   /**

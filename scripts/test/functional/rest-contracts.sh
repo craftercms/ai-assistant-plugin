@@ -17,6 +17,23 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 SITE_ID="${INTEGRATION_SITE_ID:-aiat-2}"
 BASE="/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant"
+REPORT_CLI="${REPO_ROOT}/scripts/test/lib/run-report.mjs"
+
+_report_record() {
+  local id="$1" status="$2" reason="${3:-}"
+  [[ -z "${RUN_ALL_REPORT_FILE:-}" ]] && return 0
+  command -v node >/dev/null 2>&1 || return 0
+  local suite="step3-rest-contracts"
+  if [[ "${REST_CONTRACTS_SELFTEST:-}" == "1" ]]; then
+    suite="step1-offline"
+  fi
+  node "${REPORT_CLI}" record \
+    --file="${RUN_ALL_REPORT_FILE}" \
+    --suite="${suite}" \
+    --id="${id}" \
+    --status="${status}" \
+    ${reason:+--reason="${reason}"} 2>/dev/null || true
+}
 
 # shellcheck source=../integration/include/reporting.inc.sh
 source "${SCRIPT_DIR}/../integration/include/reporting.inc.sh"
@@ -270,12 +287,27 @@ if errs:
 # Set REST_CONTRACTS_SELFTEST=1 to verify JSON unwrap + contracts without Studio (no JWT).
 if [[ "${REST_CONTRACTS_SELFTEST:-}" == "1" ]]; then
   echo "======== ${AI_TEST} REST_CONTRACTS_SELFTEST (wrapped .result + bare body) ========"
-  contract_content_types_list_node '{"result":{"siteId":"aiat-2","contentTypes":[],"ok":true}}' "aiat-2" \
-    && echo "${AI_OK} content-types (Studio-wrapped)"
-  contract_scripts_index_node '{"result":{"ok":true,"siteId":"aiat-2","tools":[],"imageGenerators":[],"llmScripts":[],"projectContext":{"studioPath":"/scripts/aiassistant/context/site-authoring.md","hasContent":false,"byteLength":0},"toolPromptOverrides":[],"registryStudioPath":"/scripts/aiassistant/user-tools/registry.yaml","registryText":"","registryTextTruncated":false}}' "aiat-2" \
-    && echo "${AI_OK} scripts/index (Studio-wrapped)"
-  contract_content_types_list_node '{"siteId":"aiat-2","contentTypes":[],"ok":true}' "aiat-2" \
-    && echo "${AI_OK} content-types (bare plugin map)"
+  if contract_content_types_list_node '{"result":{"siteId":"aiat-2","contentTypes":[],"ok":true}}' "aiat-2"; then
+    echo "${AI_OK} content-types (Studio-wrapped)"
+    _report_record "selftest-content-types-wrapped" pass
+  else
+    _report_record "selftest-content-types-wrapped" fail "content-types wrapped contract failed"
+    exit 1
+  fi
+  if contract_scripts_index_node '{"result":{"ok":true,"siteId":"aiat-2","tools":[],"imageGenerators":[],"llmScripts":[],"projectContext":{"studioPath":"/scripts/aiassistant/context/site-authoring.md","hasContent":false,"byteLength":0},"toolPromptOverrides":[],"registryStudioPath":"/scripts/aiassistant/user-tools/registry.yaml","registryText":"","registryTextTruncated":false}}' "aiat-2"; then
+    echo "${AI_OK} scripts/index (Studio-wrapped)"
+    _report_record "selftest-scripts-index-wrapped" pass
+  else
+    _report_record "selftest-scripts-index-wrapped" fail "scripts/index wrapped contract failed"
+    exit 1
+  fi
+  if contract_content_types_list_node '{"siteId":"aiat-2","contentTypes":[],"ok":true}' "aiat-2"; then
+    echo "${AI_OK} content-types (bare plugin map)"
+    _report_record "selftest-content-types-bare" pass
+  else
+    _report_record "selftest-content-types-bare" fail "content-types bare contract failed"
+    exit 1
+  fi
   echo "======== ${AI_OK} REST_CONTRACTS_SELFTEST: all passed ========"
   exit 0
 fi
@@ -382,11 +414,14 @@ idx=0
 for name in "${TEST_NAMES[@]}"; do
   n=$((idx + 1))
   st="${T_OK[idx]:-FAIL}"
+  slug="rest-$(printf '%s' "${name}" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-//;s/-$//')"
   if [[ "${st}" == "OK" ]]; then
     echo "  ${AI_OK} ${n}. ${name}"
+    _report_record "${slug}" pass
   else
     echo "  ${AI_FAIL} ${n}. ${name}"
     echo "       ${AI_HINT} ${T_WHY[idx]:-Unknown failure.}"
+    _report_record "${slug}" fail "${T_WHY[idx]:-Unknown failure.}"
     failed=$((failed + 1))
   fi
   idx=$((idx + 1))

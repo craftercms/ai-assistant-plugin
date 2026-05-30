@@ -122,6 +122,7 @@ function caseToTurn(id, matrixCase, group) {
   if (matrixCase.expect) turn.expect = matrixCase.expect;
   if (matrixCase.optional) turn.optional = true;
   if (matrixCase.skipUnless) turn.skipUnless = matrixCase.skipUnless;
+  if (matrixCase.partialOnMissingConfig) turn.partialOnMissingConfig = true;
   if (matrixCase.freshChat) turn.freshChat = true;
   return turn;
 }
@@ -137,7 +138,7 @@ function buildRecipesDoc(recipeIds) {
   }
   return {
     description:
-      'One turn per bundled intent recipe (generated from tool-recipe-matrix.mjs). Requires intentRecipeRouting.enabled on the site. Optional turns need env flags — see scripts/test/README.md.',
+      'One turn per bundled intent recipe (generated from tool-recipe-matrix.mjs). Requires intentRecipeRouting.enabled on the site. Integration optional recipes run by default; missing keys/routing → partial. Destructive turns need CHAT_MATRIX_ALLOW_WRITES / CHAT_MATRIX_ALLOW_PUBLISH.',
     defaults: {
       siteId: 'aiat-2',
       llm: 'openAI',

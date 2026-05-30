@@ -621,20 +621,14 @@ class PluginRagVectorRegistry {
    */
   static String resolvePluginBuildId() {
     try {
-      InputStream is = PluginRagVectorRegistry.class.getClassLoader().getResourceAsStream('craftercms-plugin.yaml')
-      if (is != null) {
-        try {
-          String yaml = slurpStreamUtf8(is)
-          def m = (yaml =~ /(?m)^\s+major:\s*(\d+)\s*$/)
-          def m2 = (yaml =~ /(?m)^\s+minor:\s*(\d+)\s*$/)
-          def m3 = (yaml =~ /(?m)^\s+patch:\s*(\d+)\s*$/)
-          if (m.find() && m2.find() && m3.find()) {
-            return "${m.group(1)}.${m2.group(1)}.${m3.group(1)}"
-          }
-        } finally {
-          try {
-            is.close()
-          } catch (Throwable ignored) {}
+      String yaml = plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiSandboxClasspath
+        .readUtf8FromClassLoader('craftercms-plugin.yaml')
+      if (yaml?.trim()) {
+        def m = (yaml =~ /(?m)^\s+major:\s*(\d+)\s*$/)
+        def m2 = (yaml =~ /(?m)^\s+minor:\s*(\d+)\s*$/)
+        def m3 = (yaml =~ /(?m)^\s+patch:\s*(\d+)\s*$/)
+        if (m.find() && m2.find() && m3.find()) {
+          return "${m.group(1)}.${m2.group(1)}.${m3.group(1)}"
         }
       }
     } catch (Throwable ignored) {}

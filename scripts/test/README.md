@@ -68,15 +68,45 @@ node scripts/test/functional/generate-tool-recipe-scenarios.mjs
 
 **Live matrix** (long; requires JWT, LLM keys, **`intentRecipeRouting.enabled`** on the site):
 
+Integration optional **recipes** and **tools** run by default. **`partialOnMissingConfig`** turns report 🟡 partial when keys/routing/permissions block the turn — exit 0.
+
 ```bash
 export CRAFTER_STUDIO_URL=http://localhost:8080
 export CHAT_SITE_ID=your-site
-# Optional: CHAT_PREVIEW_TOKEN, CHAT_MATRIX_ALLOW_WRITES=1, CHAT_MATRIX_ALLOW_PUBLISH=1, CHAT_MATRIX_ALLOW_IMAGE=1, …
+# Optional: CHAT_PREVIEW_TOKEN, CHAT_MATRIX_ALLOW_WRITES=1, CHAT_MATRIX_ALLOW_PUBLISH=1
 ./scripts/test/functional/run-tool-recipe-matrix.sh
 ```
 
-By default **`CHAT_SKIP_OPTIONAL=1`** skips destructive/integration turns (writes, publish, SerpAPI, Slack, etc.). Unset or set env flags documented in `run-tool-recipe-matrix.sh` to include them.
-
-**Via `run-all.sh`:** `RUN_ALL_TOOL_RECIPE_MATRIX=1 ./scripts/test/run-all.sh` (adds step 5 after the four-turn smoke).
+**Via `run-all.sh`:** step **5** runs the **full matrix** — all **13 recipes** and **31 tools** with `CHAT_MATRIX_FULL=1` (writes/publish included). Missing keys or blocked permissions → 🟡 partial (exit 0). Skip with **`RUN_ALL_SKIP_TOOL_RECIPE_MATRIX=1`**. Manual matrix without writes: omit **`CHAT_MATRIX_FULL`** and set **`CHAT_MATRIX_ALLOW_WRITES=1`** / **`CHAT_MATRIX_ALLOW_PUBLISH=1`** only when needed.
 
 **Per-turn SSE assertions** in scenario JSON (`turn.expect`): `recipeId`, `toolsAny`, `toolsAll`, `forbidTools`, `maxToolStarts`. Implemented in `lib/sse-telemetry.mjs` and enforced by `run-chat-scenarios.mjs`.
+
+## Concurrent users / sessions
+
+Two complementary checks for cross-talk between authors or parallel chat streams:
+
+**Offline (always in `run-all.sh` step 1):**
+
+```bash
+node scripts/test/functional/concurrent-ice-panel-storage.mjs
+```
+
+Verifies ICE panel `localStorage` keys are **per-username** so patching one author’s stored widget does not mutate another’s.
+
+**Live (requires Studio + JWT + LLM):**
+
+```bash
+export CHAT_SITE_ID=your-site
+node scripts/test/functional/run-concurrent-chat-sessions.mjs
+```
+
+Runs **two parallel** `ai/stream` requests with distinct `chatId` values and unique session markers. Fails if assistant text from session A appears in session B (or vice versa). Includes:
+
+- **Echo pair** — `omitTools: true`, each session must echo its own marker only.
+- **Tools pair** — parallel `GetContent` with overlapping worker threads (ThreadLocal / diag-session isolation).
+
+Optional second user JWT: `CRAFTER_STUDIO_TOKEN_B` or gitignored `scripts/.studio-token-b` (`export CRAFTER_STUDIO_TOKEN_B='…'`). When omitted, both sessions use the same token but different `chatId`s (still catches stream cross-leak).
+
+Env: `CONCURRENT_SESSIONS=echo|tools|both` (default `both`).
+
+**Via `run-all.sh`:** `RUN_ALL_CONCURRENT_SESSIONS=1 ./scripts/test/run-all.sh`

@@ -3,11 +3,11 @@ package plugins.org.craftercms.aiassistant.studio.engine.util
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import plugins.org.craftercms.aiassistant.studio.config.StudioAiPlatformSettings
+import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiSandboxConcurrency
 
 import java.util.concurrent.Callable
 import java.util.concurrent.Future
 import java.util.concurrent.LinkedBlockingQueue
-import java.util.concurrent.ThreadFactory
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -54,29 +54,14 @@ private ParallelToolExecutor() {}
       if (ex != null && !ex.isShutdown()) {
         return ex
       }
-      int n = Math.max(1, Runtime.runtime.availableProcessors())
+      int n = StudioAiSandboxConcurrency.availableProcessors()
       int maxPool = resolveIntProp('aiassistant.parallelToolPoolMax', Math.min(32, Math.max(8, n * 2)), 2, 64)
       int corePool = resolveIntProp('aiassistant.parallelToolPoolCore', Math.min(maxPool, Math.max(2, n)), 1, maxPool)
       if (corePool > maxPool) {
         corePool = maxPool
       }
       int queueCap = resolveIntProp('aiassistant.parallelToolPoolQueue', 512, 16, 4096)
-      ThreadFactory tf = { Runnable r ->
-        Thread t = new Thread(r, 'aiassistant-parallel-tools-' + THREAD_SEQ.getAndIncrement())
-        t.setDaemon(true)
-        t.setUncaughtExceptionHandler(
-          new Thread.UncaughtExceptionHandler() {
-            /**
-             * Uncaught exception.
-             * @param th Caller-supplied input.
-             * @param err Caller-supplied input.
-             */
-            void uncaughtException(Thread th, Throwable err) {
-              log.error('Uncaught exception on parallel tool thread {}', th?.name, err)
-            }
-          })
-        t
-      } as ThreadFactory
+      def tf = new ParallelToolThreadFactory(THREAD_SEQ)
       ex = new ThreadPoolExecutor(
         corePool,
         maxPool,

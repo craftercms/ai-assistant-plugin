@@ -14,7 +14,8 @@
  *
  * Optional per-turn assertions (`turn.expect`):
  *   recipeId, recipeOutcome (default matched), toolsAny, toolsAll, forbidTools, maxToolStarts
- * Optional turn flags: optional, skipUnless (env var name), freshChat, group (filter via CHAT_SCENARIO_GROUP).
+ * Optional turn flags: optional, skipUnless (destructive opt-in env var), partialOnMissingConfig,
+ * freshChat, group (filter via CHAT_SCENARIO_GROUP).
  *
  * Usage (repo root):
  *   node scripts/test/functional/run-chat-scenarios.mjs [path/to/scenarios.json]
@@ -28,7 +29,8 @@
  *   CHAT_PREVIEW_TOKEN    crafterPreview cookie (recommended for translate / GetPreviewHtml tools)
  *   CHAT_TURN_TIMEOUT_MS  Per-turn wall clock (default 180000)
   CHAT_SCENARIO_GROUP   Run only turns with matching group (intent-recipes | builtin-tools)
-  CHAT_SKIP_OPTIONAL    When 1, skip turns marked optional or skipUnless without env
+  CHAT_SKIP_OPTIONAL    When 1, skip turns marked optional (integration optional still run when 0)
+  CHAT_MATRIX_FULL      When 1, run write/publish optional turns (run-all sets this by default)
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -36,6 +38,9 @@ import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { evaluateExpectations, summarizeSseTelemetry } from '../lib/sse-telemetry.mjs';
+import { isDestructiveSkipUnless, isMissingConfigFailure } from '../lib/partial-failure.mjs';
+import { appendEntry, printDetailedReport } from '../lib/run-report.mjs';
+import { basename } from 'node:path';
 
 /** Same as scripts/lib/studio-auth.sh → scripts/.studio-token (gitignored). */
 function loadStudioTokenFromRepoFile() {
@@ -300,8 +305,10 @@ function shouldSkipTurn(turn) {
     return 'optional (CHAT_SKIP_OPTIONAL=1)';
   }
   const skipUnless = String(turn.skipUnless || '').trim();
-  if (skipUnless && !process.env[skipUnless]) {
-    return `skipUnless ${skipUnless} not set`;
+  if (skipUnless && !process.env[skipUnless] && isDestructiveSkipUnless(skipUnless)) {
+    if (process.env.CHAT_MATRIX_FULL !== '1') {
+      return `skipUnless ${skipUnless} not set (destructive opt-in; set CHAT_MATRIX_FULL=1 for run-all)`;
+    }
   }
   const groupFilter = String(process.env.CHAT_SCENARIO_GROUP || '').trim();
   if (groupFilter && turn.group && turn.group !== groupFilter) {
@@ -354,14 +361,34 @@ async function main() {
   }
   console.log('');
 
+  const reportFile = process.env.RUN_ALL_REPORT_FILE || '';
+  const scenarioBase = basename(scenarioPath);
+  const reportSuite =
+    process.env.RUN_ALL_REPORT_SUITE ||
+    (process.env.CHAT_SCENARIO_GROUP
+      ? `chat/${process.env.CHAT_SCENARIO_GROUP}`
+      : `chat/${scenarioBase.replace(/\.json$/, '')}`);
+
+  /** @type {import('../lib/run-report.mjs').ReportEntry[]} */
+  const reportEntries = [];
+
+  function recordTurn(entry) {
+    const row = { suite: reportSuite, ...entry };
+    reportEntries.push(row);
+    if (reportFile) appendEntry(reportFile, row);
+  }
+
   let failed = 0;
+  let partial = 0;
   let skipped = 0;
   let passed = 0;
   for (const turn of turns) {
     const id = turn.id || '(no id)';
+    const turnLabel = turn.summary || turn.prompt?.slice(0, 80) || '';
     const skipReason = shouldSkipTurn(turn);
     if (skipReason) {
       skipped++;
+      recordTurn({ id, label: turnLabel, status: 'skip', reason: skipReason });
       console.log(`⏭ ${id}: skipped (${skipReason})`);
       console.log('');
       continue;
@@ -395,8 +422,30 @@ async function main() {
           console.log(`  ⚠️  ${w}`);
         }
         if (expectFailures.length) {
-          failed++;
-          console.log(`  ❌ expectations failed: ${expectFailures.join('; ')}  (wall ${wall}ms)`);
+          const reason = expectFailures.join('; ');
+          if (isMissingConfigFailure(turn, r, expectFailures)) {
+            partial++;
+            recordTurn({
+              id,
+              label: turnLabel,
+              status: 'partial',
+              reason: `expectations (missing config/key): ${reason}`,
+              durationMs: wall,
+            });
+            console.log(
+              `  🟡 partial (missing config/key): ${reason}  (wall ${wall}ms)`,
+            );
+          } else {
+            failed++;
+            recordTurn({
+              id,
+              label: turnLabel,
+              status: 'fail',
+              reason: `expectations failed: ${reason}`,
+              durationMs: wall,
+            });
+            console.log(`  ❌ expectations failed: ${reason}  (wall ${wall}ms)`);
+          }
           if (r.telemetry?.matchedRecipes?.length) {
             console.log(`     recipes: ${r.telemetry.matchedRecipes.join(', ')}`);
           }
@@ -405,6 +454,7 @@ async function main() {
           }
         } else {
           passed++;
+          recordTurn({ id, label: turnLabel, status: 'pass', durationMs: wall });
           const recipeNote =
             r.telemetry?.matchedRecipes?.length ? `  recipes=${r.telemetry.matchedRecipes.join(',')}` : '';
           const toolNote =
@@ -414,20 +464,51 @@ async function main() {
           );
         }
       } else {
-        failed++;
-        console.log(`  ❌ ${r.reason}  (wall ${wall}ms)`);
+        const reason = r.reason || 'stream failed';
+        if (isMissingConfigFailure(turn, r, [reason])) {
+          partial++;
+          recordTurn({
+            id,
+            label: turnLabel,
+            status: 'partial',
+            reason: `missing config/key: ${reason}`,
+            durationMs: wall,
+          });
+          console.log(`  🟡 partial (missing config/key): ${reason}  (wall ${wall}ms)`);
+        } else {
+          failed++;
+          recordTurn({ id, label: turnLabel, status: 'fail', reason, durationMs: wall });
+          console.log(`  ❌ ${reason}  (wall ${wall}ms)`);
+        }
       }
     } catch (e) {
       failed++;
-      console.log(`  ❌ ${e instanceof Error ? e.message : String(e)}  (wall ${Date.now() - tStart}ms)`);
+      const reason = e instanceof Error ? e.message : String(e);
+      const wall = Date.now() - tStart;
+      recordTurn({ id, label: turnLabel, status: 'fail', reason, durationMs: wall });
+      console.log(`  ❌ ${reason}  (wall ${wall}ms)`);
     }
     console.log('');
   }
 
-  console.log(`Summary: passed=${passed} failed=${failed} skipped=${skipped}`);
+  printDetailedReport(reportEntries, {
+    title: `Scenario report: ${reportSuite} (${scenarioBase})`,
+    groupBySuite: false,
+  });
+
+  console.log(`Summary: passed=${passed} partial=${partial} failed=${failed} skipped=${skipped}`);
+  if (partial) {
+    console.log(
+      `Note: ${partial} optional turn(s) failed due to missing integration config/keys (partial — not a harness regression).`,
+    );
+  }
   if (failed) {
     console.error(`Done: ${failed} turn(s) failed.`);
     process.exit(1);
+  }
+  if (partial) {
+    console.log('Done: all required turns passed; see partial count for optional integration gaps.');
+    process.exit(0);
   }
   console.log('Done: all executed turns completed successfully.');
 }

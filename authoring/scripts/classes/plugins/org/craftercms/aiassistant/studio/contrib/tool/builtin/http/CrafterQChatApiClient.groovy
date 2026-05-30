@@ -4,13 +4,10 @@ import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiSandboxHttp
 
-import java.io.BufferedReader
-import java.io.InputStream
-import java.io.InputStreamReader
-import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
-import java.net.URL
+import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.Base64
@@ -208,84 +205,75 @@ private CrafterQChatApiClient() {}
     int attempt = 0
     while (attempt < maxAttempts) {
       attempt++
-      HttpURLConnection conn = null
-      InputStream inputStream = null
       try {
-        conn = (HttpURLConnection) new URL(streamUrl).openConnection()
-        conn.setRequestMethod('POST')
-        conn.setDoOutput(true)
-        conn.setInstanceFollowRedirects(false)
-        conn.setFixedLengthStreamingMode(payloadBytes.length)
-        conn.setRequestProperty('Content-Type', 'application/json')
-        conn.setRequestProperty('Accept', 'text/event-stream')
-        conn.setRequestProperty('User-Agent', USER_AGENT)
-        conn.setRequestProperty(HEADER_CHAT_USER, chatUser)
-        conn.setConnectTimeout(15_000)
-        conn.setReadTimeout(120_000)
-        conn.getOutputStream().withCloseable { os -> os.write(payloadBytes) }
-        int status = conn.getResponseCode()
+        def ex = StudioAiSandboxHttp.postBytes(
+          URI.create(streamUrl),
+          payloadBytes,
+          'application/json',
+          [
+            connectTimeoutMs: 15_000,
+            readTimeoutMs   : 120_000,
+            maxRedirects    : 0,
+            accept          : 'text/event-stream',
+            userAgent       : USER_AGENT,
+            headers         : [(HEADER_CHAT_USER): chatUser],
+            ssrfCheck       : false
+          ]
+        )
+        int status = ex.statusCode
         if (status >= 500 && attempt < maxAttempts) {
           log.warn('CrafterQ SSE HTTP {} (attempt {}/{}), retrying', status, attempt, maxAttempts)
           Thread.sleep(400)
           continue
         }
         if (status < 200 || status >= 300) {
-          InputStream err = conn.getErrorStream()
-          String errText = ''
-          if (err != null) {
-            err.withCloseable { errText = it.getText('UTF-8') ?: '' }
-          }
+          String errText = (ex.bodyText ?: ex.errorMessage ?: '').toString()
           String sizeHint = streamPromptSizeHint(status, promptText.length())
           throw new RuntimeException(
-            "HTTP ${status} calling ${streamUrl}: ${errText ?: conn.getResponseMessage()}${sizeHint}"
+            "HTTP ${status} calling ${streamUrl}: ${errText ?: 'request failed'}${sizeHint}"
           )
         }
-        inputStream = conn.getInputStream()
-        StringBuilder acc = new StringBuilder()
-        JsonSlurper slurper = new JsonSlurper()
-        BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))
-        String line
-        while ((line = reader.readLine()) != null) {
-          if (!line.startsWith('data:')) {
-            continue
-          }
-          String data = line.substring(5).trim()
-          if (!data) {
-            continue
-          }
-          try {
-            def obj = slurper.parseText(data)
-            def metaObj = obj?.metadata ?: [:]
-            def meta = (metaObj instanceof Map) ? (metaObj as Map) : [:]
-            boolean completed = (meta?.completed != null) ? meta.completed.asBoolean() : false
-            String chunk = extractAssistantText(obj)
-            if (chunk) {
-              acc.append(chunk)
-            }
-            if (completed) {
-              break
-            }
-          } catch (Exception parseEx) {
-            log.warn('CrafterQ SSE parse failed: {}', parseEx.toString())
-          }
-        }
-        return acc.toString()
+        return parseSseAssistantText(ex.bodyText)
       } catch (SocketTimeoutException ste) {
         if (attempt >= maxAttempts) {
           throw new RuntimeException("Request timed out calling ${streamUrl}", ste)
         }
-      } finally {
-        try {
-          inputStream?.close()
-        } catch (Throwable ignored) {
-        }
-        try {
-          conn?.disconnect()
-        } catch (Throwable ignored2) {
-        }
       }
     }
     throw new RuntimeException("POST failed after retries calling ${streamUrl}")
+  }
+
+  /**
+   * Parses CrafterQ SSE {@code data:} lines from a complete response body.
+   */
+  private static String parseSseAssistantText(String bodyText) {
+    StringBuilder acc = new StringBuilder()
+    JsonSlurper slurper = new JsonSlurper()
+    for (String line : (bodyText ?: '').split('\n')) {
+      if (!line.startsWith('data:')) {
+        continue
+      }
+      String data = line.substring(5).trim()
+      if (!data) {
+        continue
+      }
+      try {
+        def obj = slurper.parseText(data)
+        def metaObj = obj?.metadata ?: [:]
+        def meta = (metaObj instanceof Map) ? (metaObj as Map) : [:]
+        boolean completed = (meta?.completed != null) ? meta.completed.asBoolean() : false
+        String chunk = extractAssistantText(obj)
+        if (chunk) {
+          acc.append(chunk)
+        }
+        if (completed) {
+          break
+        }
+      } catch (Exception parseEx) {
+        log.warn('CrafterQ SSE parse failed: {}', parseEx.toString())
+      }
+    }
+    return acc.toString()
   }
 
   /**
@@ -297,67 +285,50 @@ private CrafterQChatApiClient() {}
    */
   private static String fetchChatUserFromChatConfig(String base, String agent, String existingJwt) {
     String configUrl = "${base}/v1/agents/${URLEncoder.encode(agent, 'UTF-8')}/chat_config"
-    HttpURLConnection conn = null
-    try {
-      conn = (HttpURLConnection) new URL(configUrl).openConnection()
-      conn.setRequestMethod('GET')
-      conn.setInstanceFollowRedirects(false)
-      conn.setRequestProperty('Accept', 'application/json')
-      conn.setRequestProperty('User-Agent', USER_AGENT)
-      if (looksLikeChatUserJwt(existingJwt)) {
-        conn.setRequestProperty(HEADER_CHAT_USER, existingJwt)
-      }
-      conn.setConnectTimeout(15_000)
-      conn.setReadTimeout(30_000)
-      int status = conn.getResponseCode()
-      String jwt = readChatUserHeader(conn)
-      if (status < 200 || status >= 300) {
-        InputStream err = conn.getErrorStream()
-        String errText = ''
-        if (err != null) {
-          err.withCloseable { errText = it.getText('UTF-8') ?: '' }
-        }
-        throw new RuntimeException("HTTP ${status} calling ${configUrl}: ${errText ?: conn.getResponseMessage()}")
-      }
-      // Consume body so connection can complete (embed reads JSON config; we only need the header).
-      conn.inputStream?.withCloseable { InputStream is -> is.readAllBytes() }
-      return jwt
-    } finally {
-      try {
-        conn?.disconnect()
-      } catch (Throwable ignored) {
-      }
+    Map reqHeaders = [:]
+    if (looksLikeChatUserJwt(existingJwt)) {
+      reqHeaders.put(HEADER_CHAT_USER, existingJwt)
     }
+    def ex = StudioAiSandboxHttp.getText(
+      URI.create(configUrl),
+      [
+        connectTimeoutMs: 15_000,
+        readTimeoutMs   : 30_000,
+        maxRedirects    : 0,
+        accept          : 'application/json',
+        userAgent       : USER_AGENT,
+        headers         : reqHeaders,
+        ssrfCheck       : false
+      ]
+    )
+    String jwt = readChatUserHeader(ex.responseHeaders)
+    int status = ex.statusCode
+    if (status < 200 || status >= 300) {
+      String errText = (ex.bodyText ?: ex.errorMessage ?: '').toString()
+      throw new RuntimeException("HTTP ${status} calling ${configUrl}: ${errText ?: 'request failed'}")
+    }
+    return jwt
   }
 
   /**
-   * Loads chat user header from configuration or input.
-   * @param conn Caller-supplied input.
-   * @return Text result, or empty or null when unavailable.
+   * Loads chat user header from response headers.
    */
-  private static String readChatUserHeader(HttpURLConnection conn) {
-    if (conn == null) {
+  private static String readChatUserHeader(org.springframework.http.HttpHeaders headers) {
+    if (headers == null) {
       return ''
     }
     try {
-      String direct = conn.getHeaderField(HEADER_CHAT_USER)?.toString()?.trim()
+      String direct = StudioAiSandboxHttp.firstHeader(headers, HEADER_CHAT_USER)?.trim()
       if (looksLikeChatUserJwt(direct)) {
         return direct
       }
     } catch (Throwable ignored) {
     }
-    Map<String, List<String>> fields = conn.getHeaderFields()
-    if (!fields) {
-      return ''
-    }
-    for (Map.Entry<String, List<String>> e : fields.entrySet()) {
-      if (e.key == null) {
+    for (String name : headers.keySet()) {
+      if (name == null || !HEADER_CHAT_USER.equalsIgnoreCase(name.trim())) {
         continue
       }
-      if (!HEADER_CHAT_USER.equalsIgnoreCase(e.key.trim())) {
-        continue
-      }
-      for (String v : e.value) {
+      for (String v : headers.get(name)) {
         String s = (v ?: '').toString().trim()
         if (looksLikeChatUserJwt(s)) {
           return s

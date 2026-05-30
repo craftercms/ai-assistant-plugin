@@ -25,6 +25,7 @@ import plugins.org.craftercms.aiassistant.studio.contrib.llm.vendor.anthropic.An
 import plugins.org.craftercms.aiassistant.studio.contrib.llm.wire.openaispec.OpenAiSpecSpringAiLlmRuntime
 import plugins.org.craftercms.aiassistant.studio.contrib.llm.script.StudioAiScriptLlmContainerRuntime
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.http.OutboundHttpPolicy
+import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiSandboxHttp
 
 // Spring AI 1.1.x: no spring-ai-core on Maven Central — use split modules (was 1.0.0-M6 spring-ai-core).
 @Grab(group='org.springframework.ai', module='spring-ai-model', version='1.1.7', initClass=false)
@@ -330,19 +331,22 @@ class AiOrchestration {
     if (p.contains('TranslateContentItem_simple_completion_awaiting_chat_upstream_response_body')) {
       return 'Finishing an automated content edit…'
     }
-    if (p.contains('TranslateContentItem_simple_completion_HttpURLConnection_POST')) {
+    if (p.contains('TranslateContentItem_simple_completion_HttpURLConnection_POST') ||
+      p.contains('TranslateContentItem_simple_completion_RestClient_POST_/v1/chat/completions')) {
       return 'Sending an automated content edit…'
     }
     if (p.contains('TransformContentSubgraph_simple_completion_awaiting_chat_upstream_response_body')) {
       return 'Receiving updates for linked pages…'
     }
-    if (p.contains('TransformContentSubgraph_simple_completion_HttpURLConnection_POST')) {
+    if (p.contains('TransformContentSubgraph_simple_completion_HttpURLConnection_POST') ||
+      p.contains('TransformContentSubgraph_simple_completion_RestClient_POST_/v1/chat/completions')) {
       return 'Sending a bundled content update…'
     }
     if (p.contains('simple_completion_awaiting_chat_upstream_response_body')) {
       return 'Waiting on a background content edit…'
     }
-    if (p.contains('simple_completion_HttpURLConnection_POST')) {
+    if (p.contains('simple_completion_HttpURLConnection_POST') ||
+      p.contains('simple_completion_RestClient_POST_/v1/chat/completions')) {
       return 'Waiting on a background response…'
     }
     if (p.contains('TranslateContentItem_apply_writes')) {
@@ -3698,7 +3702,7 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
     String urlStr = resolveSyncChatCompletionsUrl(wireBaseUrl)
     aiAssistantToolWorkerDiagPhase(
       phasePfx +
-        "simple_completion_HttpURLConnection_POST_/v1/chat/completions model=${model} wireJsonChars=${jsonBody.length()} userMsgChars=${(userText ?: '').toString().length()} readTimeoutMs=${readTimeoutMs}"
+        "simple_completion_RestClient_POST_/v1/chat/completions model=${model} wireJsonChars=${jsonBody.length()} userMsgChars=${(userText ?: '').toString().length()} readTimeoutMs=${readTimeoutMs}"
     )
     log.debug(
       'Tools-loop wire → POST /v1/chat/completions phase=simple_completion worker={} model={} systemChars={} userChars={} maxOutTokens={} readTimeoutMs={} wireJsonChars={} urlTail={}',
@@ -3711,39 +3715,33 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       jsonBody.length(),
       urlStr.contains('?') ? urlStr.substring(0, urlStr.indexOf('?')) : urlStr
     )
-    HttpURLConnection conn = null
+    int readTimeoutEffective = (int) Math.max(60_000, readTimeoutMs as int)
     try {
-      conn = (HttpURLConnection) new URL(urlStr).openConnection()
-      conn.setRequestMethod('POST')
-      conn.setConnectTimeout(30_000)
-      conn.setReadTimeout(Math.max(60_000, readTimeoutMs))
-      conn.setRequestProperty(HttpHeaders.AUTHORIZATION, 'Bearer ' + apiKey)
-      conn.setRequestProperty(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
-      conn.setRequestProperty(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-      conn.setDoOutput(true)
-      byte[] bodyBytes = jsonBody.getBytes(StandardCharsets.UTF_8)
-      conn.setFixedLengthStreamingMode(bodyBytes.length)
-      conn.outputStream.write(bodyBytes)
-      conn.outputStream.flush()
+      def ex = StudioAiSandboxHttp.postBytes(
+        URI.create(urlStr),
+        jsonBody.getBytes(StandardCharsets.UTF_8),
+        MediaType.APPLICATION_JSON_VALUE,
+        [
+          authorization   : apiKey,
+          connectTimeoutMs: 30_000,
+          readTimeoutMs   : readTimeoutEffective,
+          maxRedirects    : 0,
+          ssrfCheck       : false
+        ]
+      )
+      if (ex.errorMessage && !ex.bodyText) {
+        throw new IllegalStateException("Tools-loop chat I/O: ${ex.errorMessage}")
+      }
       if (aiAssistantPipelineCancelEffective()) {
         aiAssistantToolWorkerDiagPhase(phasePfx + 'simple_completion_skipped_after_request_body_pipeline_cancelled')
         throw new InterruptedException(AIASSISTANT_PIPELINE_CANCELLED)
       }
       aiAssistantToolWorkerDiagPhase(
         phasePfx +
-          "simple_completion_awaiting_chat_upstream_response_body model=${model} httpURLConnection readTimeoutMs=${Math.max(60_000, readTimeoutMs)}"
+          "simple_completion_awaiting_chat_upstream_response_body model=${model} readTimeoutMs=${readTimeoutEffective}"
       )
-      int code = conn.responseCode
-      InputStream rawStream = code >= 200 && code < 300 ? conn.inputStream : conn.errorStream
-      byte[] bytes
-      try {
-        bytes = rawStream != null ? rawStream.readAllBytes() : new byte[0]
-      } finally {
-        try {
-          rawStream?.close()
-        } catch (Throwable ignored) {}
-      }
-      String raw = new String(bytes, StandardCharsets.UTF_8)
+      int code = ex.statusCode
+      String raw = ex.bodyText ?: ''
       if (code < 200 || code >= 300) {
         log.error('Tools-loop simple completion HTTP {} body=\n{}', code, AiHttpProxy.elideForLog(raw, 4000))
         if (code == 400 && responseBodyLooksLikeInvalidModelId(raw)) {
@@ -3775,10 +3773,13 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       }
       aiAssistantToolWorkerDiagPhase(phasePfx + 'simple_completion_chat_upstream_response_parsed_ok')
       return assistantTextFromChoiceMessageMap((Map) message)
-    } finally {
-      try {
-        conn?.disconnect()
-      } catch (Throwable ignored) {}
+    } catch (InterruptedException ie) {
+      throw ie
+    } catch (Throwable t) {
+      if (t instanceof IllegalStateException) {
+        throw t
+      }
+      throw new IllegalStateException("Tools-loop simple completion failed: ${t.message ?: t.toString()}", t)
     }
     } finally {
       if (countTranslateItemInflight) {
@@ -8971,36 +8972,41 @@ If this is unexpected: verify outbound HTTPS from Studio to your configured chat
     if (scheme != 'https' && scheme != 'http') {
       throw new IllegalArgumentException('Only http(s) image URLs are supported')
     }
-    HttpURLConnection conn = null
-    InputStream inStream = null
     try {
-      conn = (HttpURLConnection) uri.toURL().openConnection()
-      conn.setInstanceFollowRedirects(false)
-      conn.setConnectTimeout(15_000)
-      conn.setReadTimeout(120_000)
-      conn.setRequestProperty('Accept', 'image/*,*/*;q=0.8')
-      int status = conn.responseCode
+      def ex = StudioAiSandboxHttp.getBytes(uri, [
+        connectTimeoutMs: 15_000,
+        readTimeoutMs   : 120_000,
+        maxRedirects    : 0,
+        accept          : 'image/*,*/*;q=0.8',
+        ssrfCheck       : true
+      ])
+      if (ex.errorMessage && (ex.bodyBytes == null || ex.bodyBytes.length == 0)) {
+        throw new IllegalStateException("Failed to download image: ${ex.errorMessage}")
+      }
+      int status = ex.statusCode
       if (status >= 300 && status < 400) {
         throw new IllegalArgumentException('Redirected image URLs are not allowed')
       }
       if (status < 200 || status >= 300) {
         throw new IllegalStateException("Failed to download image: HTTP ${status}")
       }
-      String contentType = (conn.contentType ?: 'image/png').split(';')[0]?.trim() ?: 'image/png'
-      inStream = conn.inputStream
+      String contentType = (ex.contentType ?: '').split(';')[0]?.trim() ?: ''
+      if (!contentType.toLowerCase(Locale.ROOT).startsWith('image/')) {
+        throw new IllegalStateException("Unexpected content type: ${contentType ?: '(missing)'}")
+      }
+      byte[] body = ex.bodyBytes
+      if (body == null || body.length == 0) {
+        throw new IllegalStateException('Failed to download image: empty response body')
+      }
+      response.setHeader('X-Content-Type-Options', 'nosniff')
       response.contentType = contentType
-      response.outputStream << inStream
+      response.outputStream.write(body)
       response.flushBuffer()
       return null
-    } finally {
-      try {
-        inStream?.close()
-      } catch (Throwable ignored) {
-      }
-      try {
-        conn?.disconnect()
-      } catch (Throwable ignored) {
-      }
+    } catch (IllegalArgumentException | IllegalStateException e) {
+      throw e
+    } catch (Throwable t) {
+      throw new IllegalStateException("Failed to download image: ${t.message ?: t.toString()}", t)
     }
   }
 }

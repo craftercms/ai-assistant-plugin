@@ -1,0 +1,65 @@
+{"suite":"step1-offline","id":"bash-syntax-check","label":"bash -n on integration shell scripts","status":"pass","reason":"","durationMs":2,"ts":1780115972957}
+{"suite":"step1-offline","id":"node-check-run-chat-scenarios","label":"node --check run-chat-scenarios.mjs","status":"pass","reason":"","durationMs":27,"ts":1780115973030}
+{"suite":"step1-offline","id":"tool-id-parity","label":"CORE_TOOLS vs UI tool id parity","status":"pass","reason":"","durationMs":70,"ts":1780115973341}
+{"suite":"step1-offline","id":"recipe-catalog-offline","label":"Bundled intent recipe catalog JSON","status":"pass","reason":"","durationMs":39,"ts":1780115973411}
+{"suite":"step1-offline","id":"scenario-fixture-drift","label":"tool-recipe matrix fixture drift check","status":"pass","reason":"","durationMs":50,"ts":1780115973492}
+{"suite":"step1-offline","id":"concurrent-ice-panel-storage","label":"ICE panel localStorage isolation","status":"pass","reason":"","durationMs":35,"ts":1780115973558}
+{"suite":"step1-offline","id":"selftest-content-types-wrapped","label":"","status":"pass","reason":"","durationMs":null,"ts":1780115973618}
+{"suite":"step1-offline","id":"selftest-scripts-index-wrapped","label":"","status":"pass","reason":"","durationMs":null,"ts":1780115973673}
+{"suite":"step1-offline","id":"selftest-content-types-bare","label":"","status":"pass","reason":"","durationMs":null,"ts":1780115973727}
+{"suite":"step2-build","id":"yarn-package","label":"sources yarn package (+ form-pipeline verify)","status":"pass","reason":"","durationMs":null,"ts":1780115992063}
+{"suite":"step3-rest-contracts","id":"rest-studio-connectivity-jwt-get-studio-api-2-users-me","label":"","status":"pass","reason":"","durationMs":null,"ts":1780115993538}
+{"suite":"step3-rest-contracts","id":"rest-plugin-rest-content-types-list-http-200-json-contract-siteid-contenttypes-ok-boolean","label":"","status":"pass","reason":"","durationMs":null,"ts":1780115993577}
+{"suite":"step3-rest-contracts","id":"rest-plugin-rest-scripts-index-http-200-json-contract-tools-registry-overrides","label":"","status":"pass","reason":"","durationMs":null,"ts":1780115993616}
+{"suite":"step3-rest-contracts","id":"rest-plugin-rest-ai-stream-rejects-invalid-json-http-400-error-body","label":"","status":"pass","reason":"","durationMs":null,"ts":1780115993654}
+{"suite":"step4-chat-scenarios","id":"hello","label":"Warm-up: no tools, checks stream + latency baseline.","status":"pass","reason":"","durationMs":4632,"ts":1780115998326}
+{"suite":"step4-chat-scenarios","id":"field-edit","label":"Form assistant: asks model to propose a field change (client JSON apply path).","status":"pass","reason":"","durationMs":5324,"ts":1780116003651}
+{"suite":"step4-chat-scenarios","id":"translate-page","label":"Preview surface: translation tools need repo path + preview token in real Studio.","status":"pass","reason":"","durationMs":68937,"ts":1780116072589}
+{"suite":"step4-chat-scenarios","id":"generate-image","label":"Image tool path: requires agent/site policy that enables GenerateImage + keys on the server.","status":"pass","reason":"","durationMs":2730,"ts":1780116075320}
+{"suite":"step5-matrix/intent-recipes","id":"web_research","label":"Web search recipe (WebSearch force tool).","status":"pass","reason":"","durationMs":8689,"ts":1780116084356}
+{"suite":"step5-matrix/intent-recipes","id":"site_content_research","label":"Site content research (ResearchSiteContent force tool).","status":"pass","reason":"","durationMs":3696,"ts":1780116088052}
+{"suite":"step5-matrix/intent-recipes","id":"llm_research","label":"General knowledge — tools loop disabled on recipe.","status":"pass","reason":"","durationMs":6373,"ts":1780116094425}
+{"suite":"step5-matrix/intent-recipes","id":"open_page_inquiry","label":"Read-only summary of anchored page.","status":"pass","reason":"","durationMs":7012,"ts":1780116101438}
+{"suite":"step5-matrix/intent-recipes","id":"modify_page_content","label":"Modify anchored page content (no write in harness unless CHAT_MATRIX_ALLOW_WRITES).","status":"pass","reason":"","durationMs":66974,"ts":1780116168413}
+{"suite":"step5-matrix/intent-recipes","id":"revert_content_version","label":"Revert anchored item to prior version.","status":"pass","reason":"","durationMs":19702,"ts":1780116188115}
+{"suite":"step5-matrix/intent-recipes","id":"generate_image","label":"Generate image recipe.","status":"pass","reason":"","durationMs":16333,"ts":1780116204448}
+{"suite":"step5-matrix/intent-recipes","id":"template_display_change","label":"Template / display change on anchored page.","status":"partial","reason":"expectations (missing config/key): expected recipe template_display_change outcome=matched; saw [?(plan)]","durationMs":3062,"ts":1780116207513}
+{"suite":"step5-matrix/intent-recipes","id":"publish_site","label":"Publish entire site (destructive).","status":"partial","reason":"expectations (missing config/key): expected recipe publish_site outcome=matched; saw [none]","durationMs":4287,"ts":1780116211802}
+{"suite":"step5-matrix/intent-recipes","id":"publish_item","label":"Publish single anchored item.","status":"pass","reason":"","durationMs":8628,"ts":1780116220430}
+{"suite":"step5-matrix/intent-recipes","id":"new_content_item_from_chat_draft-prior","label":"Prior turn: assistant prose draft (not saved).","status":"partial","reason":"expectations (missing config/key): expected recipe llm_research outcome=matched; saw [none]","durationMs":7716,"ts":1780116228146}
+{"suite":"step5-matrix/intent-recipes","id":"new_content_item_from_chat_draft","label":"Turn 2 — persist prior assistant draft (needs prior turn in same chat).","status":"partial","reason":"expectations (missing config/key): expected recipe new_content_item_from_chat_draft outcome=matched; saw [none]","durationMs":29460,"ts":1780116257608}
+{"suite":"step5-matrix/intent-recipes","id":"new_content_item","label":"Create brand-new repository item from scratch.","status":"partial","reason":"expectations (missing config/key): expected recipe new_content_item outcome=matched; saw [none]","durationMs":15900,"ts":1780116273509}
+{"suite":"step5-matrix/intent-recipes","id":"translate_content_item","label":"Translate anchored page to French.","status":"pass","reason":"","durationMs":43027,"ts":1780116316537}
+{"suite":"step5-matrix/builtin-tools","id":"ContentExists","label":"ContentExists on home page path.","status":"pass","reason":"","durationMs":3519,"ts":1780116320282}
+{"suite":"step5-matrix/builtin-tools","id":"GetContent","label":"GetContent read title_t.","status":"pass","reason":"","durationMs":3239,"ts":1780116323521}
+{"suite":"step5-matrix/builtin-tools","id":"ListContentDependencyScope","label":"List translation/dependency scope.","status":"pass","reason":"","durationMs":4083,"ts":1780116327606}
+{"suite":"step5-matrix/builtin-tools","id":"ListStudioContentTypes","label":"List content types.","status":"pass","reason":"","durationMs":3437,"ts":1780116331043}
+{"suite":"step5-matrix/builtin-tools","id":"GetContentTypeFormDefinition","label":"Form definition for /page/home.","status":"pass","reason":"","durationMs":4094,"ts":1780116335138}
+{"suite":"step5-matrix/builtin-tools","id":"GetContentVersionHistory","label":"Version history for home page.","status":"pass","reason":"","durationMs":4289,"ts":1780116339427}
+{"suite":"step5-matrix/builtin-tools","id":"GetPreviewHtml","label":"Preview HTML for home (needs preview token).","status":"pass","reason":"","durationMs":4945,"ts":1780116344373}
+{"suite":"step5-matrix/builtin-tools","id":"FetchHttpUrl","label":"Fetch public URL.","status":"pass","reason":"","durationMs":29219,"ts":1780116373592}
+{"suite":"step5-matrix/builtin-tools","id":"PostHttpUrl","label":"POST to httpbin (optional).","status":"pass","reason":"","durationMs":3565,"ts":1780116377157}
+{"suite":"step5-matrix/builtin-tools","id":"WebSearch","label":"Built-in web search.","status":"pass","reason":"","durationMs":5506,"ts":1780116382663}
+{"suite":"step5-matrix/builtin-tools","id":"SerpApiWebSearch","label":"SerpAPI web search (optional keys).","status":"pass","reason":"","durationMs":3540,"ts":1780116386203}
+{"suite":"step5-matrix/builtin-tools","id":"ConsultCrafterQ","label":"CrafterQ integration (optional).","status":"pass","reason":"","durationMs":5124,"ts":1780116391328}
+{"suite":"step5-matrix/builtin-tools","id":"SlackPostMessage","label":"Slack post (optional webhook).","status":"pass","reason":"","durationMs":3393,"ts":1780116394722}
+{"suite":"step5-matrix/builtin-tools","id":"ResearchSiteContent","label":"Research site content index.","status":"pass","reason":"","durationMs":3122,"ts":1780116397844}
+{"suite":"step5-matrix/builtin-tools","id":"QueryExpertGuidance","label":"Expert guidance query (requires enabled agent skills + embeddings API).","status":"partial","reason":"missing config/key: Stream error: tools: empty tool list","durationMs":1590,"ts":1780116399442}
+{"suite":"step5-matrix/builtin-tools","id":"GeneratePlaceholderImage","label":"Placeholder image generation.","status":"pass","reason":"","durationMs":4274,"ts":1780116403717}
+{"suite":"step5-matrix/builtin-tools","id":"GenerateImage","label":"LLM image generation.","status":"pass","reason":"","durationMs":16259,"ts":1780116419976}
+{"suite":"step5-matrix/builtin-tools","id":"GenerateTextNoTools","label":"Inner one-shot completion tool.","status":"pass","reason":"","durationMs":4271,"ts":1780116424247}
+{"suite":"step5-matrix/builtin-tools","id":"TranslateContentItem","label":"Translate single item.","status":"pass","reason":"","durationMs":134446,"ts":1780116558693}
+{"suite":"step5-matrix/builtin-tools","id":"TranslateContentBatch","label":"Batch translate scoped paths.","status":"pass","reason":"","durationMs":15539,"ts":1780116574232}
+{"suite":"step5-matrix/builtin-tools","id":"TransformContentSubgraph","label":"Transform content subgraph (off-wire unless ENABLED_ON_WIRE in plugin source).","status":"partial","reason":"missing config/key: Stream error: tools: empty tool list","durationMs":1375,"ts":1780116575608}
+{"suite":"step5-matrix/builtin-tools","id":"WriteContent","label":"WriteContent (destructive).","status":"pass","reason":"","durationMs":10021,"ts":1780116585629}
+{"suite":"step5-matrix/builtin-tools","id":"ListPagesAndComponents","label":"List pages and components.","status":"pass","reason":"","durationMs":4651,"ts":1780116590282}
+{"suite":"step5-matrix/builtin-tools","id":"update_template","label":"Update FTL template (destructive).","status":"partial","reason":"expectations (missing config/key): expected at least one tool in [analyze_template]; saw [none]","durationMs":2398,"ts":1780116592681}
+{"suite":"step5-matrix/builtin-tools","id":"update_content","label":"Update repository XML (destructive).","status":"pass","reason":"","durationMs":4264,"ts":1780116596945}
+{"suite":"step5-matrix/builtin-tools","id":"update_content_type","label":"Update content type definition (destructive).","status":"pass","reason":"","durationMs":4974,"ts":1780116601919}
+{"suite":"step5-matrix/builtin-tools","id":"analyze_template","label":"Analyze FTL template.","status":"pass","reason":"","durationMs":17090,"ts":1780116619009}
+{"suite":"step5-matrix/builtin-tools","id":"publish_content","label":"Publish content (destructive).","status":"partial","reason":"expectations (missing config/key): expected at least one tool in [publish_content]; saw [none]","durationMs":2073,"ts":1780116621086}
+{"suite":"step5-matrix/builtin-tools","id":"GetCrafterizingPlaybook","label":"Crafterizing playbook retrieval.","status":"pass","reason":"","durationMs":3064,"ts":1780116624152}
+{"suite":"step5-matrix/builtin-tools","id":"revert_change","label":"Revert last change (destructive).","status":"partial","reason":"expectations (missing config/key): expected at least one tool in [revert_change]; saw [none]","durationMs":3246,"ts":1780116627399}
+{"suite":"step5-matrix/builtin-tools","id":"InvokeSiteUserTool","label":"Site-defined user tool (site-specific).","status":"partial","reason":"missing config/key: Stream error: tools: empty tool list","durationMs":1546,"ts":1780116628946}
+{"suite":"step6-concurrent-sessions","id":"concurrent-echo-pair","label":"concurrent-echo-pair","status":"pass","reason":"","durationMs":2233,"ts":1780116631240}
+{"suite":"step6-concurrent-sessions","id":"concurrent-tools-pair","label":"concurrent-tools-pair","status":"pass","reason":"","durationMs":4338,"ts":1780116635578}

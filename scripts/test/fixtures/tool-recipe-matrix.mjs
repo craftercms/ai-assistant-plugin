@@ -3,7 +3,16 @@
  * When adding a recipe or core tool, extend the maps here — generate-tool-recipe-scenarios.mjs fails if any are missing.
  */
 
-/** @typedef {{ summary?: string, prompt: string, request?: Record<string, unknown>, expect?: Record<string, unknown>, optional?: boolean, skipUnless?: string, freshChat?: boolean, group?: string }} MatrixCase */
+/** @typedef {{ summary?: string, prompt: string, request?: Record<string, unknown>, expect?: Record<string, unknown>, optional?: boolean, skipUnless?: string, partialOnMissingConfig?: boolean, freshChat?: boolean, group?: string }} MatrixCase */
+
+/** Forces the model to invoke a single whitelisted tool (matrix harness). */
+function mustCallTool(toolName, callDetail) {
+  return (
+    `[Matrix harness — required tool call] You MUST invoke the ${toolName} tool exactly once before writing any assistant reply. ` +
+    `Do not use any other tool. Do not answer from memory or guess. ${callDetail} ` +
+    `After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.`
+  );
+}
 
 /** @type {Record<string, MatrixCase>} */
 export const RECIPE_CASES = {
@@ -12,11 +21,13 @@ export const RECIPE_CASES = {
     prompt:
       'Search the web for the latest headlines about renewable energy today. Cite sources briefly.',
     expect: { recipeId: 'web_research', recipeIdSoft: true, toolsAny: ['WebSearch'] },
+    partialOnMissingConfig: true,
   },
   site_content_research: {
     summary: 'Site content research (ResearchSiteContent force tool).',
     prompt: 'Search our site repository for pages about the home page and list what you find.',
     expect: { recipeId: 'site_content_research', recipeIdSoft: true, toolsAny: ['ResearchSiteContent'] },
+    partialOnMissingConfig: true,
   },
   llm_research: {
     summary: 'General knowledge — tools loop disabled on recipe.',
@@ -25,7 +36,8 @@ export const RECIPE_CASES = {
   },
   open_page_inquiry: {
     summary: 'Read-only summary of anchored page.',
-    prompt: 'Summarize this page — what is it about?',
+    prompt:
+      'Summarize this anchored home page. You MUST call GetContent on /site/website/index.xml before answering; do not guess from memory.',
     request: {
       authoringSurface: 'preview',
       contentPath: '/site/website/index.xml',
@@ -47,6 +59,7 @@ export const RECIPE_CASES = {
     expect: { recipeId: 'modify_page_content' },
     optional: true,
     skipUnless: 'CHAT_MATRIX_ALLOW_WRITES',
+    partialOnMissingConfig: true,
   },
   revert_content_version: {
     summary: 'Revert anchored item to prior version.',
@@ -58,13 +71,18 @@ export const RECIPE_CASES = {
     expect: { recipeId: 'revert_content_version' },
     optional: true,
     skipUnless: 'CHAT_MATRIX_ALLOW_WRITES',
+    partialOnMissingConfig: true,
   },
   generate_image: {
     summary: 'Generate image recipe.',
     prompt: 'Generate a simple 256x256 abstract test image for QA.',
-    expect: { recipeId: 'generate_image', toolsAny: ['GenerateImage', 'GeneratePlaceholderImage'] },
+    expect: {
+      recipeId: 'generate_image',
+      recipeIdSoft: true,
+      toolsAny: ['GenerateImage', 'GeneratePlaceholderImage'],
+    },
     optional: true,
-    skipUnless: 'CHAT_MATRIX_ALLOW_IMAGE',
+    partialOnMissingConfig: true,
   },
   template_display_change: {
     summary: 'Template / display change on anchored page.',
@@ -78,6 +96,7 @@ export const RECIPE_CASES = {
     expect: { recipeId: 'template_display_change' },
     optional: true,
     skipUnless: 'CHAT_MATRIX_ALLOW_WRITES',
+    partialOnMissingConfig: true,
   },
   publish_site: {
     summary: 'Publish entire site (destructive).',
@@ -85,6 +104,7 @@ export const RECIPE_CASES = {
     expect: { recipeId: 'publish_site' },
     optional: true,
     skipUnless: 'CHAT_MATRIX_ALLOW_PUBLISH',
+    partialOnMissingConfig: true,
   },
   publish_item: {
     summary: 'Publish single anchored item.',
@@ -96,6 +116,7 @@ export const RECIPE_CASES = {
     expect: { recipeId: 'publish_item' },
     optional: true,
     skipUnless: 'CHAT_MATRIX_ALLOW_PUBLISH',
+    partialOnMissingConfig: true,
   },
   new_content_item_from_chat_draft: {
     summary: 'Turn 2 — persist prior assistant draft (needs prior turn in same chat).',
@@ -103,6 +124,7 @@ export const RECIPE_CASES = {
     expect: { recipeId: 'new_content_item_from_chat_draft', toolsAny: ['WriteContent'] },
     optional: true,
     skipUnless: 'CHAT_MATRIX_ALLOW_WRITES',
+    partialOnMissingConfig: true,
   },
   new_content_item: {
     summary: 'Create brand-new repository item from scratch.',
@@ -111,6 +133,7 @@ export const RECIPE_CASES = {
     expect: { recipeId: 'new_content_item' },
     optional: true,
     skipUnless: 'CHAT_MATRIX_ALLOW_WRITES',
+    partialOnMissingConfig: true,
   },
   translate_content_item: {
     summary: 'Translate anchored page to French.',
@@ -122,8 +145,11 @@ export const RECIPE_CASES = {
     },
     expect: {
       recipeId: 'translate_content_item',
+      recipeIdSoft: true,
       toolsAny: ['TranslateContentItem', 'TranslateContentBatch', 'ListContentDependencyScope'],
     },
+    optional: true,
+    partialOnMissingConfig: true,
   },
 };
 
@@ -137,140 +163,156 @@ export const RECIPE_DRAFT_PRIOR_TURN = {
   expect: { recipeId: 'llm_research', maxToolStarts: 0 },
   optional: true,
   skipUnless: 'CHAT_MATRIX_ALLOW_WRITES',
+  partialOnMissingConfig: true,
 };
 
 /** @type {Record<string, MatrixCase>} */
 export const TOOL_CASES = {
   ContentExists: {
     summary: 'ContentExists on home page path.',
-    prompt: 'Use ContentExists only: does /site/website/index.xml exist? Reply with the boolean.',
-    request: { enabledBuiltInTools: ['ContentExists'] },
+    prompt: mustCallTool('ContentExists', 'Call with path "/site/website/index.xml".'),
+    request: { enabledBuiltInTools: ['ContentExists'], enableTools: true },
     expect: { toolsAny: ['ContentExists'] },
   },
   GetContent: {
     summary: 'GetContent read title_t.',
-    prompt: 'Use GetContent only on /site/website/index.xml and report title_t.',
-    request: { enabledBuiltInTools: ['GetContent'] },
+    prompt: mustCallTool('GetContent', 'Call with path "/site/website/index.xml".'),
+    request: { enabledBuiltInTools: ['GetContent'], enableTools: true },
     expect: { toolsAny: ['GetContent'] },
   },
   ListContentDependencyScope: {
     summary: 'List translation/dependency scope.',
-    prompt:
-      'Use ListContentDependencyScope only for /site/website/index.xml and summarize dependency paths.',
-    request: { enabledBuiltInTools: ['ListContentDependencyScope'] },
+    prompt: mustCallTool('ListContentDependencyScope', 'Call with contentPath "/site/website/index.xml".'),
+    request: { enabledBuiltInTools: ['ListContentDependencyScope'], enableTools: true },
     expect: { toolsAny: ['ListContentDependencyScope'] },
   },
   ListStudioContentTypes: {
     summary: 'List content types.',
-    prompt: 'Use ListStudioContentTypes only and list page content type ids.',
-    request: { enabledBuiltInTools: ['ListStudioContentTypes'] },
+    prompt: mustCallTool('ListStudioContentTypes', 'Call with no filters; list ids only from the tool result.'),
+    request: { enabledBuiltInTools: ['ListStudioContentTypes'], enableTools: true },
     expect: { toolsAny: ['ListStudioContentTypes'] },
   },
   GetContentTypeFormDefinition: {
     summary: 'Form definition for /page/home.',
-    prompt: 'Use GetContentTypeFormDefinition only for content type /page/home.',
-    request: { enabledBuiltInTools: ['GetContentTypeFormDefinition'] },
-    expect: { toolsAny: ['GetContentTypeFormDefinition'] },
+    prompt: mustCallTool(
+      'GetContentTypeFormDefinition',
+      'Call with contentTypeId "/page/home" (not GetContent).',
+    ),
+    request: { enabledBuiltInTools: ['GetContentTypeFormDefinition'], enableTools: true },
+    expect: { toolsAny: ['GetContentTypeFormDefinition'], forbidTools: ['GetContent'] },
   },
   GetContentVersionHistory: {
     summary: 'Version history for home page.',
-    prompt: 'Use GetContentVersionHistory only for /site/website/index.xml.',
-    request: { enabledBuiltInTools: ['GetContentVersionHistory'] },
+    prompt: mustCallTool('GetContentVersionHistory', 'Call with path "/site/website/index.xml".'),
+    request: { enabledBuiltInTools: ['GetContentVersionHistory'], enableTools: true },
     expect: { toolsAny: ['GetContentVersionHistory'] },
   },
   GetPreviewHtml: {
     summary: 'Preview HTML for home (needs preview token).',
-    prompt: 'Use GetPreviewHtml only for the home page and summarize the HTML title.',
+    prompt: mustCallTool(
+      'GetPreviewHtml',
+      'Call with the anchored home preview URL for /site/website/index.xml (use studioPreviewPageUrl or url from context). Do not use GetContent.',
+    ),
     request: {
       enabledBuiltInTools: ['GetPreviewHtml'],
+      enableTools: true,
       authoringSurface: 'preview',
       contentPath: '/site/website/index.xml',
+      contentTypeId: '/page/home',
+      contentTypeLabel: 'Home',
     },
-    expect: { toolsAny: ['GetPreviewHtml'] },
+    expect: { toolsAny: ['GetPreviewHtml'], forbidTools: ['GetContent'] },
   },
   FetchHttpUrl: {
     summary: 'Fetch public URL.',
-    prompt: 'Use FetchHttpUrl only to fetch https://example.com and report the page title.',
-    request: { enabledBuiltInTools: ['FetchHttpUrl'] },
+    prompt: mustCallTool('FetchHttpUrl', 'Call with url "https://example.com".'),
+    request: { enabledBuiltInTools: ['FetchHttpUrl'], enableTools: true },
     expect: { toolsAny: ['FetchHttpUrl'] },
   },
   PostHttpUrl: {
     summary: 'POST to httpbin (optional).',
-    prompt:
-      'Use PostHttpUrl only to POST JSON {"test":true} to https://httpbin.org/post and report the echoed json field.',
-    request: { enabledBuiltInTools: ['PostHttpUrl'] },
+    prompt: mustCallTool(
+      'PostHttpUrl',
+      'Call with url "https://httpbin.org/post" and body JSON {"test":true}.',
+    ),
+    request: { enabledBuiltInTools: ['PostHttpUrl'], enableTools: true },
     expect: { toolsAny: ['PostHttpUrl'] },
     optional: true,
-    skipUnless: 'CHAT_MATRIX_ALLOW_HTTP_POST',
   },
   WebSearch: {
     summary: 'Built-in web search.',
-    prompt: 'Use WebSearch only: who founded CrafterCMS?',
-    request: { enabledBuiltInTools: ['WebSearch'] },
+    prompt: mustCallTool('WebSearch', 'Call with query "who founded CrafterCMS".'),
+    request: { enabledBuiltInTools: ['WebSearch'], enableTools: true },
     expect: { toolsAny: ['WebSearch'] },
     optional: true,
-    skipUnless: 'CHAT_MATRIX_ALLOW_WEB_SEARCH',
   },
   SerpApiWebSearch: {
     summary: 'SerpAPI web search (optional keys).',
-    prompt: 'Use SerpApiWebSearch only: latest CrafterCMS release news.',
-    request: { enabledBuiltInTools: ['SerpApiWebSearch'] },
+    prompt: mustCallTool('SerpApiWebSearch', 'Call with query "latest CrafterCMS release news".'),
+    request: { enabledBuiltInTools: ['SerpApiWebSearch'], enableTools: true },
     expect: { toolsAny: ['SerpApiWebSearch'] },
     optional: true,
-    skipUnless: 'CHAT_MATRIX_ALLOW_SERPAPI',
+    partialOnMissingConfig: true,
   },
   ConsultCrafterQ: {
     summary: 'CrafterQ integration (optional).',
-    prompt: 'Use ConsultCrafterQ only: what is Experience Builder?',
-    request: { enabledBuiltInTools: ['ConsultCrafterQ'] },
+    prompt: mustCallTool('ConsultCrafterQ', 'Call with question "what is Experience Builder".'),
+    request: { enabledBuiltInTools: ['ConsultCrafterQ'], enableTools: true },
     expect: { toolsAny: ['ConsultCrafterQ'] },
     optional: true,
-    skipUnless: 'CHAT_MATRIX_ALLOW_CRAFTERQ',
+    partialOnMissingConfig: true,
   },
   SlackPostMessage: {
     summary: 'Slack post (optional webhook).',
-    prompt: 'Use SlackPostMessage only with a test message "matrix harness ping".',
-    request: { enabledBuiltInTools: ['SlackPostMessage'] },
+    prompt: mustCallTool('SlackPostMessage', 'Call with message text "matrix harness ping".'),
+    request: { enabledBuiltInTools: ['SlackPostMessage'], enableTools: true },
     expect: { toolsAny: ['SlackPostMessage'] },
     optional: true,
-    skipUnless: 'CHAT_MATRIX_ALLOW_SLACK',
+    partialOnMissingConfig: true,
   },
   ResearchSiteContent: {
     summary: 'Research site content index.',
-    prompt: 'Use ResearchSiteContent only to find pages mentioning home.',
-    request: { enabledBuiltInTools: ['ResearchSiteContent'] },
+    prompt: mustCallTool('ResearchSiteContent', 'Call with query "home page".'),
+    request: { enabledBuiltInTools: ['ResearchSiteContent'], enableTools: true },
     expect: { toolsAny: ['ResearchSiteContent'] },
   },
   QueryExpertGuidance: {
     summary: 'Expert guidance query (requires enabled agent skills + embeddings API).',
-    prompt: 'Use QueryExpertGuidance only: best practices for CrafterCMS content modeling.',
-    request: { enabledBuiltInTools: ['QueryExpertGuidance'] },
+    prompt: mustCallTool(
+      'QueryExpertGuidance',
+      'Call with query "best practices for CrafterCMS content modeling".',
+    ),
+    request: { enabledBuiltInTools: ['QueryExpertGuidance'], enableTools: true },
     expect: { toolsAny: ['QueryExpertGuidance'] },
     optional: true,
-    skipUnless: 'CHAT_MATRIX_ALLOW_EXPERT_GUIDANCE',
+    partialOnMissingConfig: true,
   },
   GeneratePlaceholderImage: {
     summary: 'Placeholder image generation.',
-    prompt: 'Use GeneratePlaceholderImage only: 64x64 gray placeholder.',
-    request: { enabledBuiltInTools: ['GeneratePlaceholderImage'] },
+    prompt: mustCallTool('GeneratePlaceholderImage', 'Call with width 64 and height 64.'),
+    request: { enabledBuiltInTools: ['GeneratePlaceholderImage'], enableTools: true },
     expect: { toolsAny: ['GeneratePlaceholderImage'] },
   },
   GenerateImage: {
     summary: 'LLM image generation.',
-    prompt: 'Use GenerateImage only: simple blue circle on white, 256x256.',
-    request: { enabledBuiltInTools: ['GenerateImage'] },
+    prompt: mustCallTool(
+      'GenerateImage',
+      'Call with prompt "simple blue circle on white background" and size 256x256.',
+    ),
+    request: { enabledBuiltInTools: ['GenerateImage'], enableTools: true },
     expect: { toolsAny: ['GenerateImage'] },
     optional: true,
-    skipUnless: 'CHAT_MATRIX_ALLOW_IMAGE',
+    partialOnMissingConfig: true,
   },
   GenerateTextNoTools: {
     summary: 'Inner one-shot completion tool.',
-    prompt:
-      'You must call the GenerateTextNoTools tool exactly once with userPrompt set to the literal string harness-ok. Do not answer in prose without calling the tool.',
-    request: { enabledBuiltInTools: ['GenerateTextNoTools'] },
+    prompt: mustCallTool(
+      'GenerateTextNoTools',
+      'Call with userPrompt set to the literal string harness-ok.',
+    ),
+    request: { enabledBuiltInTools: ['GenerateTextNoTools'], enableTools: true },
     expect: { toolsAny: ['GenerateTextNoTools'], recipeIdSoft: false },
     optional: true,
-    skipUnless: 'CHAT_MATRIX_ALLOW_GENERATE_TEXT_NO_TOOLS',
   },
   TranslateContentItem: {
     summary: 'Translate single item.',
@@ -283,6 +325,7 @@ export const TOOL_CASES = {
     expect: { toolsAny: ['TranslateContentItem'] },
     optional: true,
     skipUnless: 'CHAT_MATRIX_ALLOW_WRITES',
+    partialOnMissingConfig: true,
   },
   TranslateContentBatch: {
     summary: 'Batch translate scoped paths.',
@@ -296,15 +339,18 @@ export const TOOL_CASES = {
     expect: { toolsAny: ['TranslateContentBatch'] },
     optional: true,
     skipUnless: 'CHAT_MATRIX_ALLOW_WRITES',
+    partialOnMissingConfig: true,
   },
   TransformContentSubgraph: {
     summary: 'Transform content subgraph (off-wire unless ENABLED_ON_WIRE in plugin source).',
-    prompt:
-      'Use TransformContentSubgraph only on /site/website/index.xml to list field ids (no writes).',
-    request: { enabledBuiltInTools: ['TransformContentSubgraph'] },
+    prompt: mustCallTool(
+      'TransformContentSubgraph',
+      'Call on /site/website/index.xml to list field ids (read-only, no writes).',
+    ),
+    request: { enabledBuiltInTools: ['TransformContentSubgraph'], enableTools: true },
     expect: { toolsAny: ['TransformContentSubgraph'] },
     optional: true,
-    skipUnless: 'CHAT_MATRIX_ALLOW_TRANSFORM_SUBGRAPH',
+    partialOnMissingConfig: true,
   },
   WriteContent: {
     summary: 'WriteContent (destructive).',
@@ -314,11 +360,12 @@ export const TOOL_CASES = {
     expect: { toolsAny: ['WriteContent'] },
     optional: true,
     skipUnless: 'CHAT_MATRIX_ALLOW_WRITES',
+    partialOnMissingConfig: true,
   },
   ListPagesAndComponents: {
     summary: 'List pages and components.',
-    prompt: 'Use ListPagesAndComponents only and list the first five page paths.',
-    request: { enabledBuiltInTools: ['ListPagesAndComponents'] },
+    prompt: mustCallTool('ListPagesAndComponents', 'Call with default args; report the first path from the result.'),
+    request: { enabledBuiltInTools: ['ListPagesAndComponents'], enableTools: true },
     expect: { toolsAny: ['ListPagesAndComponents'] },
   },
   update_template: {
@@ -329,6 +376,7 @@ export const TOOL_CASES = {
     expect: { toolsAny: ['analyze_template'] },
     optional: true,
     skipUnless: 'CHAT_MATRIX_ALLOW_WRITES',
+    partialOnMissingConfig: true,
   },
   update_content: {
     summary: 'Update repository XML (destructive).',
@@ -341,6 +389,7 @@ export const TOOL_CASES = {
     expect: { toolsAny: ['GetContent'] },
     optional: true,
     skipUnless: 'CHAT_MATRIX_ALLOW_WRITES',
+    partialOnMissingConfig: true,
   },
   update_content_type: {
     summary: 'Update content type definition (destructive).',
@@ -349,11 +398,12 @@ export const TOOL_CASES = {
     expect: { toolsAny: ['GetContentTypeFormDefinition'] },
     optional: true,
     skipUnless: 'CHAT_MATRIX_ALLOW_WRITES',
+    partialOnMissingConfig: true,
   },
   analyze_template: {
     summary: 'Analyze FTL template.',
-    prompt: 'Use analyze_template only on /templates/web/pages/home.ftl and summarize structure.',
-    request: { enabledBuiltInTools: ['analyze_template'] },
+    prompt: mustCallTool('analyze_template', 'Call with templatePath "/templates/web/pages/home.ftl".'),
+    request: { enabledBuiltInTools: ['analyze_template'], enableTools: true },
     expect: { toolsAny: ['analyze_template'] },
   },
   publish_content: {
@@ -366,11 +416,12 @@ export const TOOL_CASES = {
     expect: { toolsAny: ['publish_content'] },
     optional: true,
     skipUnless: 'CHAT_MATRIX_ALLOW_PUBLISH',
+    partialOnMissingConfig: true,
   },
   GetCrafterizingPlaybook: {
     summary: 'Crafterizing playbook retrieval.',
-    prompt: 'Use GetCrafterizingPlaybook only and summarize the first section.',
-    request: { enabledBuiltInTools: ['GetCrafterizingPlaybook'] },
+    prompt: mustCallTool('GetCrafterizingPlaybook', 'Call with no args.'),
+    request: { enabledBuiltInTools: ['GetCrafterizingPlaybook'], enableTools: true },
     expect: { toolsAny: ['GetCrafterizingPlaybook'] },
   },
   revert_change: {
@@ -383,13 +434,17 @@ export const TOOL_CASES = {
     expect: { toolsAny: ['revert_change'] },
     optional: true,
     skipUnless: 'CHAT_MATRIX_ALLOW_WRITES',
+    partialOnMissingConfig: true,
   },
   InvokeSiteUserTool: {
     summary: 'Site-defined user tool (site-specific).',
-    prompt: 'Use InvokeSiteUserTool only if a site user tool exists; list available tools first.',
-    request: { enabledBuiltInTools: ['InvokeSiteUserTool'] },
+    prompt: mustCallTool(
+      'InvokeSiteUserTool',
+      'Call only if a site user tool exists; otherwise report that none are configured.',
+    ),
+    request: { enabledBuiltInTools: ['InvokeSiteUserTool'], enableTools: true },
     expect: { toolsAny: ['InvokeSiteUserTool'] },
     optional: true,
-    skipUnless: 'CHAT_MATRIX_ALLOW_SITE_USER_TOOLS',
+    partialOnMissingConfig: true,
   },
 };

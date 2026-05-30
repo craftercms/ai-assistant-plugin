@@ -16,7 +16,9 @@ set -euo pipefail
 #   CRAFTER_STUDIO_URL, INTEGRATION_SITE_ID — passed through when Studio checks run; CHAT_SITE_ID defaults to INTEGRATION_SITE_ID.
 #   CHAT_AGENT_ID — optional override; otherwise run-chat-scenarios.mjs discovers ui.xml or uses the default agent UUID.
 #   CHAT_SCENARIOS_FILE, CHAT_PREVIEW_TOKEN, CHAT_TURN_TIMEOUT_MS — see scripts/test/README.md.
-#   RUN_ALL_TOOL_RECIPE_MATRIX=1  After step 4, run full tool+recipe matrix (offline checks + live; long).
+#   RUN_ALL_SKIP_TOOL_RECIPE_MATRIX=1 Skip the full per-tool + per-recipe live matrix (still runs offline parity in step 1).
+#   Step 5 runs all 13 recipes + 31 tools (CHAT_MATRIX_FULL=1). Destructive/write/publish turns use partialOnMissingConfig when blocked.
+#   RUN_ALL_CONCURRENT_SESSIONS=1 After the matrix, run parallel two-session ai/stream concurrency smoke.
 #   CRAFTER_STUDIO_TOKEN or scripts/.studio-token — required unless RUN_ALL_SKIP_STUDIO=1.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -24,11 +26,57 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 # shellcheck source=../lib/studio-auth.sh
 source "${REPO_ROOT}/scripts/lib/studio-auth.sh"
 
-_RUN_TOTAL=3
+RUN_ALL_REPORT_FILE="${RUN_ALL_REPORT_FILE:-${REPO_ROOT}/scripts/test/.run-all-report.jsonl}"
+export RUN_ALL_REPORT_FILE
+REPORT_CLI="${REPO_ROOT}/scripts/test/lib/run-report.mjs"
+
+report_record() {
+  local suite="$1" id="$2" status="$3"
+  local label="${4:-}" reason="${5:-}" duration_ms="${6:-}"
+  [[ -z "${RUN_ALL_REPORT_FILE}" ]] && return 0
+  command -v node >/dev/null 2>&1 || return 0
+  local args=(
+    record
+    "--file=${RUN_ALL_REPORT_FILE}"
+    "--suite=${suite}"
+    "--id=${id}"
+    "--status=${status}"
+  )
+  [[ -n "${label}" ]] && args+=("--label=${label}")
+  [[ -n "${reason}" ]] && args+=("--reason=${reason}")
+  [[ -n "${duration_ms}" ]] && args+=("--duration-ms=${duration_ms}")
+  node "${REPORT_CLI}" "${args[@]}" 2>/dev/null || true
+}
+
+report_run() {
+  local suite="$1" id="$2" label="$3"
+  shift 3
+  local t0
+  t0=$(date +%s%3N 2>/dev/null || echo 0)
+  if "$@"; then
+    local t1 dur=0
+    t1=$(date +%s%3N 2>/dev/null || echo 0)
+    if [[ "${t0}" != "0" && "${t1}" != "0" ]]; then dur=$((t1 - t0)); fi
+    report_record "${suite}" "${id}" pass "${label}" "" "${dur}"
+    return 0
+  fi
+  report_record "${suite}" "${id}" fail "${label}" "command exited non-zero"
+  return 1
+}
+
+: > "${RUN_ALL_REPORT_FILE}"
+
+_RUN_TOTAL=2
 if [[ "${RUN_ALL_SKIP_STUDIO:-}" != "1" ]]; then
-  _RUN_TOTAL=4
-  if [[ "${RUN_ALL_TOOL_RECIPE_MATRIX:-}" == "1" ]]; then
+  _RUN_TOTAL=3
+  if [[ "${RUN_ALL_SKIP_CHAT_SCENARIOS:-}" != "1" ]]; then
+    _RUN_TOTAL=4
+  fi
+  if [[ "${RUN_ALL_SKIP_TOOL_RECIPE_MATRIX:-}" != "1" ]]; then
     _RUN_TOTAL=5
+  fi
+  if [[ "${RUN_ALL_CONCURRENT_SESSIONS:-}" == "1" ]]; then
+    _RUN_TOTAL=6
   fi
 fi
 
@@ -43,7 +91,8 @@ fail() {
 }
 
 step "1/${_RUN_TOTAL}  bash -n (integration shell) + REST JSON selftest"
-bash -n "${REPO_ROOT}/scripts/studio-api.sh"
+report_run "step1-offline" "bash-syntax-check" "bash -n on integration shell scripts" \
+  bash -n "${REPO_ROOT}/scripts/studio-api.sh"
 bash -n "${REPO_ROOT}/scripts/install-plugin.sh"
 bash -n "${REPO_ROOT}/scripts/test/integration/smoke.sh"
 bash -n "${REPO_ROOT}/scripts/test/functional/rest-contracts.sh"
@@ -55,15 +104,27 @@ bash -n "${REPO_ROOT}/scripts/lib/emoji.inc.sh"
 bash -n "${REPO_ROOT}/scripts/test/run-all.sh"
 bash -n "${REPO_ROOT}/scripts/test/functional/run-tool-recipe-matrix.sh"
 if command -v node >/dev/null 2>&1; then
-  node --check "${REPO_ROOT}/scripts/test/functional/run-chat-scenarios.mjs"
+  report_run "step1-offline" "node-check-run-chat-scenarios" "node --check run-chat-scenarios.mjs" \
+    node --check "${REPO_ROOT}/scripts/test/functional/run-chat-scenarios.mjs"
+  node --check "${REPO_ROOT}/scripts/test/functional/run-concurrent-chat-sessions.mjs"
+  node --check "${REPO_ROOT}/scripts/test/functional/concurrent-ice-panel-storage.mjs"
+  node --check "${REPO_ROOT}/scripts/test/lib/sse-chat-stream.mjs"
   node --check "${REPO_ROOT}/scripts/test/functional/generate-tool-recipe-scenarios.mjs"
   node --check "${REPO_ROOT}/scripts/test/functional/tool-id-parity.mjs"
-  node --check "${REPO_ROOT}/scripts/test/functional/recipe-catalog-offline.mjs"
-  node "${REPO_ROOT}/scripts/test/functional/tool-id-parity.mjs"
-  node "${REPO_ROOT}/scripts/test/functional/recipe-catalog-offline.mjs"
-  node "${REPO_ROOT}/scripts/test/functional/generate-tool-recipe-scenarios.mjs" --check
+  node --check "${REPO_ROOT}/scripts/test/lib/partial-failure.mjs"
+  node --check "${REPO_ROOT}/scripts/test/lib/run-report.mjs"
+  report_run "step1-offline" "tool-id-parity" "CORE_TOOLS vs UI tool id parity" \
+    node "${REPO_ROOT}/scripts/test/functional/tool-id-parity.mjs"
+  report_run "step1-offline" "recipe-catalog-offline" "Bundled intent recipe catalog JSON" \
+    node "${REPO_ROOT}/scripts/test/functional/recipe-catalog-offline.mjs"
+  report_run "step1-offline" "scenario-fixture-drift" "tool-recipe matrix fixture drift check" \
+    node "${REPO_ROOT}/scripts/test/functional/generate-tool-recipe-scenarios.mjs" --check
+  report_run "step1-offline" "concurrent-ice-panel-storage" "ICE panel localStorage isolation" \
+    node "${REPO_ROOT}/scripts/test/functional/concurrent-ice-panel-storage.mjs"
 fi
-REST_CONTRACTS_SELFTEST=1 "${REPO_ROOT}/scripts/test/functional/rest-contracts.sh"
+export REST_CONTRACTS_SELFTEST=1
+"${REPO_ROOT}/scripts/test/functional/rest-contracts.sh"
+unset REST_CONTRACTS_SELFTEST
 echo "${AI_OK} OK"
 
 step "2/${_RUN_TOTAL}  sources: yarn package (same gate as install-plugin.sh packaging)"
@@ -77,6 +138,7 @@ fi
   fi
   yarn package
 )
+report_record "step2-build" "yarn-package" pass "sources yarn package (+ form-pipeline verify)"
 echo "${AI_OK} OK"
 
 if [[ "${RUN_ALL_SKIP_STUDIO:-}" == "1" ]]; then
@@ -101,6 +163,7 @@ else
     fi
     export CRAFTER_STUDIO_URL="${CRAFTER_STUDIO_URL:-http://localhost:8080}"
     export CHAT_SITE_ID="${CHAT_SITE_ID:-${INTEGRATION_SITE_ID:-}}"
+    unset CHAT_SCENARIO_GROUP
     scen="${CHAT_SCENARIOS_FILE:-}"
     if [[ -z "${scen}" ]]; then
       if [[ -f "${REPO_ROOT}/scripts/test/scenarios/chat-scenarios.json" ]]; then
@@ -109,19 +172,44 @@ else
         scen="${REPO_ROOT}/scripts/test/scenarios/chat-scenarios.example.json"
       fi
     fi
+    export RUN_ALL_REPORT_SUITE="step4-chat-scenarios"
     node "${REPO_ROOT}/scripts/test/functional/run-chat-scenarios.mjs" "${scen}"
     echo "${AI_OK} OK"
   fi
 
-  if [[ "${RUN_ALL_TOOL_RECIPE_MATRIX:-}" == "1" ]]; then
+  if [[ "${RUN_ALL_SKIP_TOOL_RECIPE_MATRIX:-}" == "1" ]]; then
+    step "5/${_RUN_TOTAL}  Tool + intent-recipe matrix (skipped RUN_ALL_SKIP_TOOL_RECIPE_MATRIX=1)"
+    echo "${AI_SKIP} OK (skipped tool/recipe matrix)"
+  else
     step "5/${_RUN_TOTAL}  Tool + intent-recipe matrix (functional/run-tool-recipe-matrix.sh)"
     if ! command -v node >/dev/null 2>&1; then
       fail "node on PATH is required for tool/recipe matrix."
     fi
+    export CRAFTER_STUDIO_URL="${CRAFTER_STUDIO_URL:-http://localhost:8080}"
+    export CHAT_SITE_ID="${CHAT_SITE_ID:-${INTEGRATION_SITE_ID:-}}"
+    export CHAT_SKIP_OPTIONAL=0
+    export CHAT_MATRIX_FULL=1
+    export CHAT_MATRIX_ALLOW_WRITES=1
+    export CHAT_MATRIX_ALLOW_PUBLISH=1
     RUN_TOOL_RECIPE_MATRIX_OFFLINE_ONLY=0 "${SCRIPT_DIR}/functional/run-tool-recipe-matrix.sh"
+    echo "${AI_OK} OK"
+  fi
+
+  if [[ "${RUN_ALL_CONCURRENT_SESSIONS:-}" == "1" ]]; then
+    step "6/${_RUN_TOTAL}  Concurrent chat sessions (functional/run-concurrent-chat-sessions.mjs)"
+    if ! command -v node >/dev/null 2>&1; then
+      fail "node on PATH is required for concurrent session tests."
+    fi
+    export CRAFTER_STUDIO_URL="${CRAFTER_STUDIO_URL:-http://localhost:8080}"
+    export CHAT_SITE_ID="${CHAT_SITE_ID:-${INTEGRATION_SITE_ID:-}}"
+    export RUN_ALL_REPORT_SUITE="step6-concurrent-sessions"
+    node "${REPO_ROOT}/scripts/test/functional/run-concurrent-chat-sessions.mjs"
     echo "${AI_OK} OK"
   fi
 fi
 
 echo ""
 echo "======== ${AI_OK} run-all: finished ========"
+if command -v node >/dev/null 2>&1 && [[ -f "${RUN_ALL_REPORT_FILE}" ]]; then
+  node "${REPORT_CLI}" print --file="${RUN_ALL_REPORT_FILE}" --title="run-all: complete test report"
+fi

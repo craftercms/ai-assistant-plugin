@@ -6,6 +6,7 @@ import plugins.org.craftercms.aiassistant.studio.engine.prompt.ToolPrompts
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.http.HttpUrlFetch
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.site.StudioAiUserSiteTools
 import plugins.org.craftercms.aiassistant.studio.engine.turn.AiOrchestration
+import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiSandboxHttp
 
 import org.craftercms.studio.api.v2.event.site.SyncFromRepoEvent
 import org.dom4j.Document
@@ -28,10 +29,8 @@ import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.InputStreamReader
 import java.io.StringReader
-import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.URI
-import java.net.URL
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -640,44 +639,31 @@ class StudioToolOperations {
           }
         }
 
-        URL url = parsed.toURL()
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection()
-        conn.setInstanceFollowRedirects(false)
-        conn.setConnectTimeout(15_000)
-        conn.setReadTimeout(120_000)
-        conn.setRequestProperty('Accept', 'image/*,*/*;q=0.8')
-        int status = conn.responseCode
+        def ex = StudioAiSandboxHttp.getBytes(parsed, [
+          connectTimeoutMs: 15_000,
+          readTimeoutMs   : 120_000,
+          maxRedirects    : 0,
+          accept          : 'image/*,*/*;q=0.8',
+          ssrfCheck       : false
+        ])
+        if (ex.errorMessage && (ex.bodyBytes == null || ex.bodyBytes.length == 0)) {
+          throw new IllegalStateException("Failed to download image: ${ex.errorMessage}")
+        }
+        int status = ex.statusCode
         if (status >= 300 && status < 400) {
           throw new IllegalArgumentException('Redirected image URLs are not allowed')
         }
         if (status < 200 || status >= 300) {
           throw new IllegalStateException("Failed to download image: HTTP ${status}")
         }
-        contentType = (conn.contentType ?: '').split(';')[0]?.trim()?.toLowerCase() ?: ''
+        contentType = (ex.contentType ?: '').split(';')[0]?.trim()?.toLowerCase() ?: ''
         if (contentType && !contentType.startsWith('image/')) {
           throw new IllegalStateException("URL did not return an image (Content-Type: ${contentType})")
         }
-
-        ByteArrayOutputStream bos = new ByteArrayOutputStream()
-        byte[] buf = new byte[16384]
-        long total = 0
-        InputStream inStream = conn.inputStream
-        try {
-          int n
-          while ((n = inStream.read(buf)) != -1) {
-            total += n
-            if (total > MAX_REMOTE_IMAGE_BYTES) {
-              throw new IllegalStateException("Image exceeds maximum size (${MAX_REMOTE_IMAGE_BYTES} bytes)")
-            }
-            bos.write(buf, 0, n)
-          }
-        } finally {
-          try {
-            inStream?.close()
-          } catch (Throwable ignored) {
-          }
+        bytes = ex.bodyBytes ?: new byte[0]
+        if (bytes.length > MAX_REMOTE_IMAGE_BYTES) {
+          throw new IllegalStateException("Image exceeds maximum size (${MAX_REMOTE_IMAGE_BYTES} bytes)")
         }
-        bytes = bos.toByteArray()
         if (bytes.length == 0) {
           throw new IllegalStateException('Downloaded image is empty')
         }

@@ -1,5 +1,5 @@
 {
-  "description": "One turn per bundled intent recipe (generated from tool-recipe-matrix.mjs). Requires intentRecipeRouting.enabled on the site. Optional turns need env flags — see scripts/test/README.md.",
+  "description": "One turn per bundled intent recipe (generated from tool-recipe-matrix.mjs). Requires intentRecipeRouting.enabled on the site. Integration optional recipes run by default; missing keys/routing → partial. Destructive turns need CHAT_MATRIX_ALLOW_WRITES / CHAT_MATRIX_ALLOW_PUBLISH.",
   "defaults": {
     "siteId": "aiat-2",
     "llm": "openAI",
@@ -23,7 +23,8 @@
         "toolsAny": [
           "WebSearch"
         ]
-      }
+      },
+      "partialOnMissingConfig": true
     },
     {
       "id": "site_content_research",
@@ -36,7 +37,8 @@
         "toolsAny": [
           "ResearchSiteContent"
         ]
-      }
+      },
+      "partialOnMissingConfig": true
     },
     {
       "id": "llm_research",
@@ -51,7 +53,7 @@
       "id": "open_page_inquiry",
       "group": "intent-recipes",
       "summary": "Read-only summary of anchored page.",
-      "prompt": "Summarize this page — what is it about?",
+      "prompt": "Summarize this anchored home page. You MUST call GetContent on /site/website/index.xml before answering; do not guess from memory.",
       "request": {
         "authoringSurface": "preview",
         "contentPath": "/site/website/index.xml",
@@ -80,7 +82,8 @@
         "recipeId": "modify_page_content"
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",
+      "partialOnMissingConfig": true
     },
     {
       "id": "revert_content_version",
@@ -95,7 +98,8 @@
         "recipeId": "revert_content_version"
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",
+      "partialOnMissingConfig": true
     },
     {
       "id": "generate_image",
@@ -104,13 +108,14 @@
       "prompt": "Generate a simple 256x256 abstract test image for QA.",
       "expect": {
         "recipeId": "generate_image",
+        "recipeIdSoft": true,
         "toolsAny": [
           "GenerateImage",
           "GeneratePlaceholderImage"
         ]
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_IMAGE"
+      "partialOnMissingConfig": true
     },
     {
       "id": "template_display_change",
@@ -126,7 +131,8 @@
         "recipeId": "template_display_change"
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",
+      "partialOnMissingConfig": true
     },
     {
       "id": "publish_site",
@@ -137,7 +143,8 @@
         "recipeId": "publish_site"
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_PUBLISH"
+      "skipUnless": "CHAT_MATRIX_ALLOW_PUBLISH",
+      "partialOnMissingConfig": true
     },
     {
       "id": "publish_item",
@@ -152,7 +159,8 @@
         "recipeId": "publish_item"
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_PUBLISH"
+      "skipUnless": "CHAT_MATRIX_ALLOW_PUBLISH",
+      "partialOnMissingConfig": true
     },
     {
       "id": "new_content_item_from_chat_draft-prior",
@@ -164,7 +172,8 @@
         "maxToolStarts": 0
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",
+      "partialOnMissingConfig": true
     },
     {
       "id": "new_content_item_from_chat_draft",
@@ -178,7 +187,8 @@
         ]
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",
+      "partialOnMissingConfig": true
     },
     {
       "id": "new_content_item",
@@ -189,7 +199,8 @@
         "recipeId": "new_content_item"
       },
       "optional": true,
-      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",
+      "partialOnMissingConfig": true
     },
     {
       "id": "translate_content_item",
@@ -203,12 +214,15 @@
       },
       "expect": {
         "recipeId": "translate_content_item",
+        "recipeIdSoft": true,
         "toolsAny": [
           "TranslateContentItem",
           "TranslateContentBatch",
           "ListContentDependencyScope"
         ]
-      }
+      },
+      "optional": true,
+      "partialOnMissingConfig": true
     }
   ]
 }

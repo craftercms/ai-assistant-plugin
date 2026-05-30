@@ -5,13 +5,9 @@ import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperationsSupport
-import java.io.BufferedReader
-import java.io.InputStream
-import java.io.InputStreamReader
-import java.net.HttpURLConnection
+import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiSandboxHttp
 import java.net.URI
 import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 import java.util.Locale
 /** CMS tool implementation extracted from StudioToolOperations. */
 final class CmsPreviewHtmlFetch {
@@ -161,99 +157,72 @@ private CmsPreviewHtmlFetch() {}
           "Host '${host}' is not allowed for preview fetch. Allowed: this Studio server name (${ops.request?.getServerName()}), localhost, 127.0.0.1, [::1], or JVM aiassistant.preview.fetch.allowedHosts (comma-separated)."
       ]
     }
-    URL connUrl
-    try {
-      connUrl = uri.toURL()
-    } catch (Throwable t) {
-      return [ok: false, action: 'get_preview_html', message: "Invalid URL: ${t.message}"]
+    Map<String, String> reqHeaders = new LinkedHashMap<>()
+    reqHeaders.put('x-crafter-preview', token)
+    String cookieHeader = buildCookieHeader(ops, token, siteForQuery)
+    if (cookieHeader) {
+      reqHeaders.put('Cookie', cookieHeader)
     }
-    HttpURLConnection conn = null
-    InputStream inStream = null
     try {
-      conn = (HttpURLConnection) connUrl.openConnection()
-      conn.setRequestMethod('GET')
-      conn.setInstanceFollowRedirects(false)
-      conn.setConnectTimeout(15000)
-      conn.setReadTimeout(45000)
-      conn.setRequestProperty('Accept', 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8')
-      // Engine accepts the Experience Builder preview ticket via cookie crafterPreview, query crafterPreview, and/or
-      // the x-crafter-preview header (same value). Server-side fetches must send the header — cookie-only paths can
-      // still 401 depending on servlet / security filter order.
-      conn.setRequestProperty('x-crafter-preview', token)
-      String cookieHeader = buildCookieHeader(ops, token, siteForQuery)
-      conn.setRequestProperty('Cookie', cookieHeader)
-      try {
-        def ua = ops.request?.getHeader('User-Agent')?.toString()?.trim()
-        if (ua) {
-          conn.setRequestProperty('User-Agent', ua)
-        }
-        // Studio Bearer JWT is not valid Engine auth; forwarding it often yields 401 on preview GET.
-        if (StudioAiPlatformSettings.propertyBoolean('aiassistant.preview.fetch.forwardAuthorization', false)) {
-          def authz = ops.request?.getHeader('Authorization')?.toString()?.trim()
-          if (authz) {
-            conn.setRequestProperty('Authorization', authz)
-          }
-        }
-        def ref = ops.request?.getHeader('Referer')?.toString()?.trim()
-        if (!ref) {
-          def ru = ops.request?.getRequestURL()
-          if (ru != null) {
-            ref = ru.toString().trim()
-          }
-        }
-        if (ref) {
-          conn.setRequestProperty('Referer', ref)
-        }
-      } catch (Throwable ignored) {
+      def ua = ops.request?.getHeader('User-Agent')?.toString()?.trim()
+      if (ua) {
+        reqHeaders.put('User-Agent', ua)
       }
-      int status = conn.getResponseCode()
+      if (StudioAiPlatformSettings.propertyBoolean('aiassistant.preview.fetch.forwardAuthorization', false)) {
+        def authz = ops.request?.getHeader('Authorization')?.toString()?.trim()
+        if (authz) {
+          reqHeaders.put('Authorization', authz)
+        }
+      }
+      def ref = ops.request?.getHeader('Referer')?.toString()?.trim()
+      if (!ref) {
+        def ru = ops.request?.getRequestURL()
+        if (ru != null) {
+          ref = ru.toString().trim()
+        }
+      }
+      if (ref) {
+        reqHeaders.put('Referer', ref)
+      }
+    } catch (Throwable ignored) {
+    }
+    try {
+      int maxChars = maxChars()
+      def ex = StudioAiSandboxHttp.getText(uri, [
+        connectTimeoutMs: 15_000,
+        readTimeoutMs   : 45_000,
+        maxRedirects    : 0,
+        maxBodyChars    : maxChars,
+        accept          : 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+        headers         : reqHeaders,
+        ssrfCheck       : false
+      ])
+      if (ex.errorMessage && !ex.bodyText && ex.statusCode <= 0) {
+        return [ok: false, action: 'get_preview_html', message: ex.errorMessage]
+      }
+      int status = ex.statusCode
       if (status == 401) {
         log.warn('fetchPreviewRenderedHtml HTTP 401 url={} crafterPreviewTokenChars={} outgoingCookieHeaderChars={}',
           u, token.length(), cookieHeader.length())
       }
-      String ct = (conn.getContentType() ?: '').toString()
+      String ct = ex.contentType ?: ''
       if (status >= 300 && status < 400) {
         return [
           ok        : false,
           action    : 'get_preview_html',
           statusCode: status,
           message   : 'HTTP redirect — use the final preview URL (redirects are disabled for safety).',
-          location  : conn.getHeaderField('Location')
+          location  : ex.redirectLocation ?: StudioAiSandboxHttp.firstHeader(ex.responseHeaders, 'Location')
         ]
       }
-      inStream = status >= 400 ? conn.getErrorStream() : conn.getInputStream()
-      int maxChars = maxChars()
-      StringBuilder sb = new StringBuilder(Math.min(maxChars + 16, 65536))
-      boolean truncated = false
-      int total = 0
-      if (inStream != null) {
-        def reader = new BufferedReader(new InputStreamReader(inStream, StandardCharsets.UTF_8))
-        char[] cbuf = new char[8192]
-        while (true) {
-          int n = reader.read(cbuf)
-          if (n < 0) break
-          if (total + n <= maxChars) {
-            sb.append(cbuf, 0, n)
-            total += n
-          } else {
-            int take = maxChars - total
-            if (take > 0) {
-              sb.append(cbuf, 0, take)
-              total = maxChars
-            }
-            truncated = true
-            break
-          }
-        }
-      }
-      String body = sb.toString()
+      String body = ex.bodyText ?: ''
       return [
         action    : 'get_preview_html',
         ok        : status >= 200 && status < 300,
         statusCode: status,
         contentType: ct,
         charCount : body.length(),
-        truncated : truncated,
+        truncated : ex.truncated,
         html      : body,
         message   : status >= 200 && status < 300
           ? 'Fetched preview HTML.'
@@ -268,14 +237,6 @@ private CmsPreviewHtmlFetch() {}
         action : 'get_preview_html',
         message: (t.message ?: t.toString())
       ]
-    } finally {
-      try {
-        inStream?.close()
-      } catch (Throwable ignored) {}
-      try {
-        conn?.disconnect()
-      } catch (Throwable ignored) {}
     }
   }
-
 }

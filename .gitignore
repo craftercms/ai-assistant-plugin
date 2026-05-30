@@ -9,6 +9,7 @@ node_modules/
 
 # Local Studio auth (never commit)
 scripts/.studio-token
+scripts/.studio-token-b
 .env.local
 
 # Local integration payloads (copy from create-site.json.example)

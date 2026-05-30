@@ -8,11 +8,8 @@ import plugins.org.craftercms.aiassistant.studio.config.StudioAiPlatformSettings
 import plugins.org.craftercms.aiassistant.studio.secrets.StudioAiAssistantSecretsContext
 import plugins.org.craftercms.aiassistant.studio.secrets.StudioAiSecretMacroResolver
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
+import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiSandboxHttp
 
-import java.io.BufferedReader
-import java.io.InputStream
-import java.io.InputStreamReader
-import java.net.HttpURLConnection
 import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.util.LinkedHashMap
@@ -117,65 +114,61 @@ private McpConnection(String serverId, String baseUrl, Map<String, String> extra
         throw new IllegalStateException("MCP url blocked: ${gate2}")
       }
 
-      HttpURLConnection http = null
-      try {
-        http = (HttpURLConnection) uri.toURL().openConnection()
-        http.setRequestMethod('POST')
-        http.setInstanceFollowRedirects(false)
-        http.setConnectTimeout(15_000)
-        http.setReadTimeout(readTimeoutMs)
-        http.setDoOutput(true)
-        http.setRequestProperty('Content-Type', 'application/json')
-        http.setRequestProperty('Accept', 'application/json, text/event-stream')
-        http.setRequestProperty('User-Agent', 'CrafterCMS-AI-Assistant-Studio-Plugin-MCP/1.0 (+https://craftercms.org)')
-        String pv = (protocolVersion ?: '2024-11-05').toString().trim()
-        http.setRequestProperty('MCP-Protocol-Version', pv ?: '2024-11-05')
-        String sidHdr = sessionId?.toString()?.trim()
-        if (sidHdr) {
-          http.setRequestProperty('Mcp-Session-Id', sidHdr)
-        } else if (sessionRequired) {
-          throw new IllegalStateException('MCP session id missing for ' + method)
-        }
-        for (Map.Entry<String, String> e : extraHeaders.entrySet()) {
-          http.setRequestProperty(e.key, e.value)
-        }
-        http.outputStream.write(bytes)
-        http.outputStream.flush()
-
-        int code = http.getResponseCode()
-        String ct = (http.getContentType() ?: '').toString().toLowerCase(Locale.ROOT)
-        String newSession = http.getHeaderField('Mcp-Session-Id')?.toString()?.trim()
-        InputStream raw = code >= 400 ? http.getErrorStream() : http.getInputStream()
-        String text = readBodyCapped(raw, maxMcpResponseChars())
-
-        if (ct.contains('text/event-stream')) {
-          return parseSseRpc(text, id, newSession)
-        }
-        if (!text?.trim()) {
-          if (code == 202) {
-            return [error: null, result: null, sessionId: newSession ?: sidHdr]
-          }
-          return [error: [message: "HTTP ${code} empty body"], result: null, sessionId: newSession]
-        }
-        Object parsed
-        try {
-          parsed = new JsonSlurper().parseText(text.trim())
-        } catch (Throwable t) {
-          return [error: [message: "Invalid JSON HTTP ${code}: ${t.message}"], result: null, sessionId: newSession]
-        }
-        if (!(parsed instanceof Map)) {
-          return [error: [message: 'Non-object JSON response'], result: null, sessionId: newSession]
-        }
-        Map m = (Map) parsed
-        if (m.containsKey('error') && m.get('error') != null) {
-          return [error: m.get('error'), result: null, sessionId: newSession]
-        }
-        return [error: null, result: m.get('result'), sessionId: newSession]
-      } finally {
-        try {
-          http?.disconnect()
-        } catch (Throwable ignored) {}
+      String pv = (protocolVersion ?: '2024-11-05').toString().trim()
+      String sidHdr = sessionId?.toString()?.trim()
+      if (!sidHdr && sessionRequired) {
+        throw new IllegalStateException('MCP session id missing for ' + method)
       }
+      Map<String, String> reqHeaders = new LinkedHashMap<>(extraHeaders)
+      reqHeaders.put('MCP-Protocol-Version', pv ?: '2024-11-05')
+      if (sidHdr) {
+        reqHeaders.put('Mcp-Session-Id', sidHdr)
+      }
+
+      def ex = StudioAiSandboxHttp.postBytes(
+        uri,
+        bytes,
+        'application/json',
+        [
+          connectTimeoutMs: 15_000,
+          readTimeoutMs   : readTimeoutMs,
+          maxRedirects    : 0,
+          accept          : 'application/json, text/event-stream',
+          userAgent       : 'CrafterCMS-AI-Assistant-Studio-Plugin-MCP/1.0 (+https://craftercms.org)',
+          headers         : reqHeaders,
+          maxBodyChars    : maxMcpResponseChars(),
+          ssrfCheck       : true
+        ]
+      )
+
+      int code = ex.statusCode
+      String ct = (ex.contentType ?: '').toString().toLowerCase(Locale.ROOT)
+      String newSession = StudioAiSandboxHttp.firstHeader(ex.responseHeaders, 'Mcp-Session-Id')?.trim()
+      String text = (ex.bodyText ?: '').toString()
+
+      if (ct.contains('text/event-stream')) {
+        return parseSseRpc(text, id, newSession)
+      }
+      if (!text?.trim()) {
+        if (code == 202) {
+          return [error: null, result: null, sessionId: newSession ?: sidHdr]
+        }
+        return [error: [message: "HTTP ${code} empty body"], result: null, sessionId: newSession]
+      }
+      Object parsed
+      try {
+        parsed = new JsonSlurper().parseText(text.trim())
+      } catch (Throwable t) {
+        return [error: [message: "Invalid JSON HTTP ${code}: ${t.message}"], result: null, sessionId: newSession]
+      }
+      if (!(parsed instanceof Map)) {
+        return [error: [message: 'Non-object JSON response'], result: null, sessionId: newSession]
+      }
+      Map m = (Map) parsed
+      if (m.containsKey('error') && m.get('error') != null) {
+        return [error: m.get('error'), result: null, sessionId: newSession]
+      }
+      return [error: null, result: m.get('result'), sessionId: newSession]
     }
 
     /**
@@ -195,36 +188,33 @@ private McpConnection(String serverId, String baseUrl, Map<String, String> extra
       if (gate2) {
         throw new IllegalStateException("MCP url blocked: ${gate2}")
       }
-      HttpURLConnection http = null
-      try {
-        http = (HttpURLConnection) uri.toURL().openConnection()
-        http.setRequestMethod('POST')
-        http.setInstanceFollowRedirects(false)
-        http.setConnectTimeout(15_000)
-        http.setReadTimeout(readTimeoutMs)
-        http.setDoOutput(true)
-        http.setRequestProperty('Content-Type', 'application/json')
-        http.setRequestProperty('Accept', 'application/json, text/event-stream')
-        http.setRequestProperty('MCP-Protocol-Version', (protocolVersion ?: '2024-11-05').toString().trim())
-        String sidHdr = sessionId?.toString()?.trim()
-        if (sidHdr) {
-          http.setRequestProperty('Mcp-Session-Id', sidHdr)
-        }
-        for (Map.Entry<String, String> e : extraHeaders.entrySet()) {
-          http.setRequestProperty(e.key, e.value)
-        }
-        http.outputStream.write(bytes)
-        http.outputStream.flush()
-        int code = http.getResponseCode()
-        if (code != 202 && (code < 200 || code >= 300)) {
-          InputStream err = code >= 400 ? http.getErrorStream() : http.getInputStream()
-          String t = readBodyCapped(err, maxMcpResponseChars())
-          LOG.warn('MCP notification {} returned HTTP {} body={}', method, code, t?.take(500))
-        }
-      } finally {
-        try {
-          http?.disconnect()
-        } catch (Throwable ignored) {}
+
+      Map<String, String> reqHeaders = new LinkedHashMap<>(extraHeaders)
+      reqHeaders.put('MCP-Protocol-Version', (protocolVersion ?: '2024-11-05').toString().trim())
+      String sidHdr = sessionId?.toString()?.trim()
+      if (sidHdr) {
+        reqHeaders.put('Mcp-Session-Id', sidHdr)
+      }
+
+      def ex = StudioAiSandboxHttp.postBytes(
+        uri,
+        bytes,
+        'application/json',
+        [
+          connectTimeoutMs: 15_000,
+          readTimeoutMs   : readTimeoutMs,
+          maxRedirects    : 0,
+          accept          : 'application/json, text/event-stream',
+          userAgent       : 'CrafterCMS-AI-Assistant-Studio-Plugin-MCP/1.0 (+https://craftercms.org)',
+          headers         : reqHeaders,
+          maxBodyChars    : maxMcpResponseChars(),
+          ssrfCheck       : true
+        ]
+      )
+      int code = ex.statusCode
+      if (code != 202 && (code < 200 || code >= 300)) {
+        String t = (ex.bodyText ?: '').toString()
+        LOG.warn('MCP notification {} returned HTTP {} body={}', method, code, t?.take(500))
       }
     }
 
@@ -279,12 +269,6 @@ private McpConnection(String serverId, String baseUrl, Map<String, String> extra
       return [error: null, result: lastMatch.get('result'), sessionId: lastSession]
     }
 
-    /**
-     * Rpc id matches.
-     * @param rid Caller-supplied input.
-     * @param wantId Identifier for the target resource.
-     * @return True when the check succeeds.
-     */
     private static boolean rpcIdMatches(Object rid, int wantId) {
       if (rid == null) {
         return false
@@ -297,47 +281,6 @@ private McpConnection(String serverId, String baseUrl, Map<String, String> extra
       } catch (Throwable ignored) {
         return false
       }
-    }
-
-    /**
-     * Loads body capped from configuration or input.
-     * @param inStream Caller-supplied input.
-     * @param maxChars Caller-supplied input.
-     * @return Text result, or empty or null when unavailable.
-     */
-    private static String readBodyCapped(InputStream inStream, int maxChars) {
-      if (inStream == null) {
-        return ''
-      }
-      StringBuilder sb = new StringBuilder(Math.min(maxChars + 16, 65536))
-      BufferedReader br = new BufferedReader(new InputStreamReader(inStream, StandardCharsets.UTF_8))
-      try {
-        char[] cbuf = new char[8192]
-        int total = 0
-        while (true) {
-          int n = br.read(cbuf)
-          if (n < 0) {
-            break
-          }
-          if (total + n <= maxChars) {
-            sb.append(cbuf, 0, n)
-            total += n
-          } else {
-            int take = maxChars - total
-            if (take > 0) {
-              sb.append(cbuf, 0, take)
-            }
-            break
-          }
-        }
-      } catch (Throwable t) {
-        LOG.debug('MCP read body: {}', t.toString())
-      } finally {
-        try {
-          br.close()
-        } catch (Throwable ignored) {}
-      }
-      return sb.toString()
     }
   }
 
