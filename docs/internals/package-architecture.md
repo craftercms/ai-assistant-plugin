@@ -74,7 +74,7 @@ Bundled default recipes: `engine/routing/authoring-intent-recipes-default.json`.
 | `contrib/tool/builtin/site/` | `InvokeSiteUserTool`, `StudioAiUserSiteTools` (site `user-tools/`) |
 | `contrib/tool/mcp/` | MCP client + wire tools |
 | `contrib/llm/wire/openaispec/` | **OpenAISpec** tools-loop wire (`OpenAiSpecSpringAiLlmRuntime`) — **not** the OpenAI vendor folder |
-| `contrib/llm/vendor/anthropic/` | Claude / Anthropic wire |
+| `contrib/llm/vendor/anthropic/` | Claude / Anthropic — **`AnthropicSpringAiLlmRuntime`**, **`StudioAiAnthropicSimpleCompletion`** (auxiliary `/v1/messages`), 429 retry client config |
 | `contrib/llm/script/` | Site script LLM loader |
 | `contrib/imagegen/` | Script image backends |
 | `contrib/agents/` | Central agents catalog merge |

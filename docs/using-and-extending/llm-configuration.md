@@ -14,17 +14,35 @@ Defines **`<llm>`** identifiers, env/XML keys, merge rules, and the provider cap
 
 Rows list **supported** backends. **Hosted-only** SaaS adapters (**`aiassistant`**, **`hostedchat`**, …) are **not** supported — **`StudioAiLlmKind.normalize`** throws (**HTTP 400**). **`ai-assistant`** is **not** a valid `<llm>` value either (that string names the Studio plugin / form control path, not a model provider); use **`openAI`**, **`claude`**, etc.
 
-| `<llm>` wire value | Aliases (normalized) | Required configuration | Optional `agents.json` / env | What you get |
-|--------------------|----------------------|-------------------------|-------------------------|--------------|
-| **`openAI`** | `openai`, `open-ai` | **API key:** host env **`OPENAI_API_KEY`** (recommended). | **`llmModel`**, **`imageModel`**, **`llmApiKey`** (testing only). | **Built-in tools**, **GenerateImage** (when `imageModel` + key allow), enabled **`skills`** → **QueryExpertGuidance**. |
-| **`xAI`** | `x-ai`, `grok` | **`XAI_API_KEY`** | **`XAI_BASE_URL`** (tools-loop chat base URL). **`<llmModel>`**. Same **tools-loop** stack as **`openAI`**. | Same tool surface as **OpenAI** vendor row. |
-| **`deepSeek`** | `deep-seek` | **`DEEPSEEK_API_KEY`** | **`DEEPSEEK_BASE_URL`** (optional). **`<llmModel>`**. | Same tool surface as **OpenAI** vendor row. |
-| **`llama`** | `ollama`, `meta-llama`, `meta_llama` | Often **`LLAMA_API_KEY`** (Ollama may accept a placeholder). | **`LLAMA_BASE_URL`**. **`<llmModel>`**. | Same tool surface as **OpenAI** row. |
-| **`genesis`** / **`gemini`** | `gemini`, `google`, `google-genai`, `google_genai` | **`GEMINI_API_KEY`** or **`GOOGLE_API_KEY`** | **`GEMINI_BASE_URL`**. **`<llmModel>`**. | Same tool surface as **OpenAI** row. |
-| **`claude`** | `anthropic` | **`ANTHROPIC_API_KEY`** | **`<llmModel>`**. **`<openAiApiKey>`** — *testing only* for Anthropic when no **`ANTHROPIC_API_KEY`** (see runtime doc). | **Built-in tools** via Spring AI **Anthropic** (not the OpenAI RestClient loop). **GenerateImage** / embeddings that still use OpenAI key material are described in the runtime doc. **Skills** when configured. |
-| **`script:{id}`** | — | Site Groovy under **`config/studio/scripts/aiassistant/llm/{id}/runtime.groovy`** (or `llm.groovy`) implementing **`StudioAiLlmRuntime`** or the documented **Map** bundle contract. | Bundle chooses **tools-loop** vs Anthropic-style transport. | **Configurable** by the script (tools, custom behavior). |
+| `<llm>` wire value | Aliases (normalized) | API key (production) | Default chat model (when agent omits `llmModel`) | Transport |
+|--------------------|----------------------|----------------------|--------------------------------------------------|-----------|
+| **`openAI`** | `openai`, `open-ai` | **`secrets.json`** → **`openai_api_key`** → **`crafter_openai_api_key`** on Studio host | **`crafter.openai.model`** in platform-settings (required for OpenAI row if unset) | Tools-loop **`/v1/chat/completions`** |
+| **`xAI`** | `x-ai`, `grok` | **`xai_api_key`** → **`crafter_xai_api_key`** | **`grok-4.3`** (`crafter.xai.model`) | Tools-loop (same stack as **`openAI`**) |
+| **`deepSeek`** | `deep-seek` | **`deepseek_api_key`** → **`crafter_deepseek_api_key`** | **`deepseek-chat`** | Tools-loop |
+| **`llama`** | `ollama`, `meta-llama`, `meta_llama` | **`llama_api_key`** → **`crafter_llama_api_key`** (Ollama may use a placeholder) | **`llama3.2`** | Tools-loop |
+| **`genesis`** / **`gemini`** | `gemini`, `google`, … | **`gemini_api_key`** / **`google_api_key`** → **`crafter_gemini_api_key`** / **`crafter_google_api_key`** | **`gemini-2.0-flash`** | Tools-loop |
+| **`claude`** | `anthropic` | **`anthropic_api_key`** → **`crafter_anthropic_api_key`** | **`claude-sonnet-4-20250514`** (`crafter.anthropic.model`) | Spring AI **Anthropic** (main chat + tools). Auxiliary prose completions use Anthropic **`/v1/messages`** — see below. |
+| **`script:{id}`** | — | Site Groovy runtime + optional bundle keys | Set in script / agent | Script chooses tools-loop vs Anthropic-style transport |
 
----
+**Capabilities (by row):** **`openAI`** — built-in tools, **GenerateImage** (when configured), agent **skills** → **QueryExpertGuidance**. **Tools-loop family** (`xAI`, `deepSeek`, `llama`, `gemini`) — same tool surface as OpenAI. **`claude`** — built-in tools via Anthropic; **GenerateImage** / expert embeddings may still use **OpenAI** key material separately. **`script:{id}`** — configurable.
+
+### Host environment (`crafter_*`)
+
+On **Crafter Studio 4.x**, Groovy sandbox code reads provider secrets from host env vars with the **`crafter_`** prefix (see **`StudioAiCrafterEnv`**). Project Tools → **Secrets** seeds **`secrets.json`** with **`${env:crafter_<provider>_api_key}`** — that is the **recommended** production path.
+
+| Secret key (`secrets.json`) | Host env var (Studio JVM) |
+|-----------------------------|---------------------------|
+| `openai_api_key` | **`crafter_openai_api_key`** |
+| `anthropic_api_key` | **`crafter_anthropic_api_key`** |
+| `xai_api_key` | **`crafter_xai_api_key`** |
+| `deepseek_api_key` | **`crafter_deepseek_api_key`** |
+| `llama_api_key` | **`crafter_llama_api_key`** |
+| `gemini_api_key` | **`crafter_gemini_api_key`** |
+
+Optional base URLs (tools-loop hosts): **`crafter_xai_base_url`**, **`crafter_deepseek_base_url`**, **`crafter_llama_base_url`**, **`crafter_gemini_base_url`**, or matching **`crafter.*.llmBaseUrl`** keys in **[platform-settings.json](studio-aiassistant-platform-settings.md)**.
+
+Legacy unprefixed names (**`OPENAI_API_KEY`**, **`ANTHROPIC_API_KEY`**, **`XAI_API_KEY`**, …) may appear in older docs or external guides; the plugin’s sandbox-safe resolution path is **`secrets.json`** → **`crafter_*`** → **`platform-settings.json`** → testing-only agent **`llmApiKey`**.
+
 
 ## Configuration Examples (`agents.json`)
 
@@ -46,12 +64,25 @@ Configure agents in **Project Tools → AI Assistant → Agents** (file: **`conf
 }
 ```
 
-- Set **`OPENAI_API_KEY`** on the Studio host (recommended). Do **not** commit keys to Git.
+- Set **`crafter_openai_api_key`** on the Studio host (via **`secrets.json`** `${env:…}` is recommended). Do **not** commit keys to Git.
 - **`imageModel`** is required for **GenerateImage** on the default wire; there is no silent default in site config.
 
 ### Other providers
 
-Use the same shape with **`llm`**: **`claude`**, **`xAI`**, **`deepSeek`**, **`llama`**, **`gemini`**, or **`script:mybackend`**. Set the matching env keys (**`ANTHROPIC_API_KEY`**, **`XAI_API_KEY`**, etc.). For **`script:{id}`**, implement **`config/studio/scripts/aiassistant/llm/{id}/runtime.groovy`** per **[studio-plugins-guide.md](studio-plugins-guide.md)**.
+Use the same shape with **`llm`**: **`claude`**, **`xAI`**, **`deepSeek`**, **`llama`**, **`gemini`**, or **`script:mybackend`**. Set the matching **`crafter_*`** host env vars (see table above) or **`secrets.json`** rows. For **`script:{id}`**, implement **`config/studio/scripts/aiassistant/llm/{id}/runtime.groovy`** per **[studio-plugins-guide.md](studio-plugins-guide.md)**.
+
+Example Claude agent:
+
+```json
+{
+  "mode": "chat",
+  "agentId": "00000000-0000-4000-8000-000000000003",
+  "label": "Claude authoring",
+  "llm": "claude",
+  "llmModel": "claude-sonnet-4-20250514",
+  "enableTools": true
+}
+```
 
 ---
 
@@ -74,7 +105,12 @@ When POST **`siteId`** + **`agentId`** match a catalog row, the server may **cop
 
 ### `claude`
 
-- **Transport:** Spring AI **`AnthropicChatModel`** — tools run inside Spring AI’s Anthropic integration, not the OpenAI RestClient loop.
+- **Main chat transport:** Spring AI **`AnthropicChatModel`** — interactive **`/ai/stream`** turns and native tool execution go to **Anthropic**, not the OpenAI RestClient tools-loop.
+- **Intent recipe routing prelude** (pre-tools classifier in **[intent-recipe-routing.md](../internals/intent-recipe-routing.md)**) runs only on **tools-loop** providers; it is **skipped** when **`llm`** is **`claude`**.
+- **Auxiliary prose completions** (recipe confirmation LLM refine, translate inner loops, **`GenerateTextNoTools`**, etc.) use **`StudioAiAnthropicSimpleCompletion`** → Anthropic **`POST /v1/messages`**, not **`/v1/chat/completions`**, when the session bundle is Claude.
+- **Still OpenAI-backed (separate keys):** default **GenerateImage** wire; expert-skill **embeddings** / RAG typically use **`crafter_openai_api_key`**. Configure those independently if authors need images or **QueryExpertGuidance** on a Claude agent.
+- **Platform tuning:** **`crafter.anthropic.maxTokens`** (default **8192**), **`crafter.anthropic.model`** — see **[studio-aiassistant-platform-settings.md](studio-aiassistant-platform-settings.md)**.
+- **Autonomous assistants:** **`claude`** is **not** supported for **`mode: autonomous`** rows.
 
 ### `script:{id}` (Site Groovy LLM)
 

@@ -33,13 +33,23 @@ Companion to **[`spec.md`](spec.md)** for tools, REST bodies, MCP, and runtime t
 
 ---
 
-## OpenAI Vendor API Key (`OPENAI_API_KEY`, Server-side) and Testing-only Widget Key {#openai-api-key-server-side}
+## OpenAI Vendor API Key (server-side) and Testing-only Widget Key {#openai-api-key-server-side}
 
-**Recommended:** set on the **Studio host** as an environment variable (never commit real keys to site config):
+**Recommended:** set provider keys on the **Studio host** via **Project Tools → Secrets** (`secrets.json` with **`${env:crafter_openai_api_key}`**, **`${env:crafter_anthropic_api_key}`**, etc.). See **[llm-configuration.md § Host environment](../using-and-extending/llm-configuration.md#host-environment-crafter_)**.
 
-- **`OPENAI_API_KEY`**
+Legacy unprefixed env vars (**`OPENAI_API_KEY`**, …) are **not** read by sandbox-safe Groovy code paths. Optional **`crafter.openai.apiKey`** / **`crafter.anthropic.apiKey`** fallbacks in **[platform-settings.json](../using-and-extending/studio-aiassistant-platform-settings.md)** apply only after Secrets resolution is empty.
 
-Server-side key fallbacks that use JVM system properties are listed in **[studio-aiassistant-platform-settings.md](../using-and-extending/studio-aiassistant-platform-settings.md)**.
+### Claude vs OpenAI wire (common confusion)
+
+| Path | Provider | When |
+|------|----------|------|
+| Interactive **`/ai/stream`** with **`llm: claude`** | **Anthropic** (Spring AI + native tools) | Normal Claude chat |
+| Auxiliary prose completions on Claude sessions | **Anthropic `/v1/messages`** | Recipe refine, translate inner loops, **`GenerateTextNoTools`**, etc. |
+| Tools-loop **`/v1/chat/completions`** | Configured tools-loop host (**`openAI`**, **`xAI`**, …) | **Not** used for main Claude chat |
+| **GenerateImage** (default wire) | **OpenAI images API** (separate key) | Any agent when image tool enabled |
+| Expert skill embeddings | Usually **OpenAI** | **QueryExpertGuidance** when skills configured |
+
+Intent recipe **routing prelude** (classifier before tools) runs on **tools-loop** LLMs only — **skipped** for **`claude`**. Details: **[intent-recipe-routing.md](intent-recipe-routing.md)**.
 
 ### Optional: `<openAiApiKey>` in `ui.xml` (Testing Only)
 
@@ -58,7 +68,7 @@ Use only for **local testing** when you cannot set **`OPENAI_API_KEY`** on the S
 </agent>
 ```
 
-**Precedence:** if **`OPENAI_API_KEY`** (or another server-side key source for that provider — see **[llm-configuration.md](../using-and-extending/llm-configuration.md)** and **[studio-aiassistant-platform-settings.md](../using-and-extending/studio-aiassistant-platform-settings.md)**) is set, those win and **`<openAiApiKey>` is ignored**. The widget value is used only when no server-side key is configured.
+**Precedence:** if **`crafter_openai_api_key`** (via Secrets / host env) or **`crafter.openai.apiKey`** in platform-settings is set, those win and **`<openAiApiKey>`** / REST **`openAiApiKey`** is ignored. The widget value is used only when no server-side key is configured.
 
 The REST body may also include `openAiApiKey` (same precedence); the React widget sends it when parsed from configuration.
 
