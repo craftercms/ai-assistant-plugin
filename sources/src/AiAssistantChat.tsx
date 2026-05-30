@@ -51,6 +51,7 @@ import type { AgentSkillConfig, PromptConfig } from './agentConfig';
 import type { AuthoringFormContextSnapshot } from './aiAssistantFormAuthoringTypes';
 import MarkdownMessage, { normalizeLlmLiteralEscapes } from './MarkdownMessage';
 import GenerateImageBlurredPlaceholder from './GenerateImageBlurredPlaceholder';
+import GenerateImagePromptCaption from './GenerateImagePromptCaption';
 import AssistantChatGeneratedImages from './AssistantChatGeneratedImages';
 import {
   combineGeneratedImageSources,
@@ -1252,11 +1253,15 @@ type UiMessage = {
 function pickGenerateImagePromptPatch(
   toolName: string,
   toolPhase: string,
-  metaPrompt: unknown
+  metaPrompt: unknown,
+  priorPrompt?: string
 ): Pick<UiMessage, 'generateImagePrompt'> | Record<string, never> {
-  if (toolName !== 'GenerateImage' || toolPhase !== 'start') return {};
+  if (toolName !== 'GenerateImage') return {};
+  const phase = (toolPhase || '').trim().toLowerCase();
+  if (phase !== 'start' && phase !== 'done' && phase !== 'warn') return {};
   const p = typeof metaPrompt === 'string' ? metaPrompt.trim() : '';
-  return p ? { generateImagePrompt: p } : {};
+  if (p) return { generateImagePrompt: p };
+  return priorPrompt?.trim() ? { generateImagePrompt: priorPrompt.trim() } : {};
 }
 
 function combinedAssistantMarkdownForVerification(m: UiMessage): string {
@@ -2419,7 +2424,6 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
           const summarizingResultsHint =
             md?.status === 'aiassistant-chat-phase' && String(md?.phase || '') === 'summarizing-results';
           const incomingStudioAiInlineImgUrls = md?.studioAiInlineImageUrls;
-          const genImgPromptPatch = pickGenerateImagePromptPatch(toolName, toolPhase, md?.generateImagePrompt);
           const mdStatus = md && md.status != null ? String(md.status).trim() : '';
           if (mdStatus === 'pipeline-heartbeat') {
             const rawEl = md.elapsedSec;
@@ -2539,6 +2543,12 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
               setMessages((prev) =>
                 prev.map((m) => {
                   if (m.id !== assistantId) return m;
+                  const genImgPromptPatch = pickGenerateImagePromptPatch(
+                    toolName,
+                    toolPhase,
+                    md?.generateImagePrompt,
+                    m.generateImagePrompt
+                  );
                   const hadNoToolLinesYet = !(m.toolProgressText || '').length;
                   const priorMain = (m.text || '').trim();
                   const reasoningHead = (m.reasoningStreamText || '').trim();
@@ -2967,6 +2977,9 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                     return (
                       <>
                         {imageStripSources.length ? <AssistantChatGeneratedImages sources={imageStripSources} /> : null}
+                        {imageStripSources.length ? (
+                          <GenerateImagePromptCaption prompt={m.generateImagePrompt} />
+                        ) : null}
                         {!imageStripSources.length && showGenImgPlaceholder ? (
                           <GenerateImageBlurredPlaceholder prompt={m.generateImagePrompt} />
                         ) : null}
@@ -3016,6 +3029,9 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                     return (
                       <>
                         {imageStripSources.length ? <AssistantChatGeneratedImages sources={imageStripSources} /> : null}
+                        {imageStripSources.length ? (
+                          <GenerateImagePromptCaption prompt={m.generateImagePrompt} />
+                        ) : null}
                         {!imageStripSources.length && showGenImgPlaceholder ? (
                           <GenerateImageBlurredPlaceholder prompt={m.generateImagePrompt} />
                         ) : null}

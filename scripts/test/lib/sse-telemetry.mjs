@@ -8,6 +8,10 @@ export function summarizeSseTelemetry(events) {
   const recipeRouting = [];
   /** @type {Map<string, Set<string>>} */
   const toolPhases = new Map();
+  /** @type {Map<string, number>} */
+  const toolStartCounts = new Map();
+  /** @type {string[]} */
+  const generateImagePrompts = [];
   let completed = false;
   let streamError = null;
 
@@ -34,6 +38,13 @@ export function summarizeSseTelemetry(events) {
       if (tool && tool !== 'Tools-loop chat') {
         if (!toolPhases.has(tool)) toolPhases.set(tool, new Set());
         if (phase) toolPhases.get(tool).add(phase);
+        if (phase === 'start') {
+          toolStartCounts.set(tool, (toolStartCounts.get(tool) || 0) + 1);
+        }
+      }
+      if (tool === 'GenerateImage' && typeof meta.generateImagePrompt === 'string') {
+        const gp = meta.generateImagePrompt.trim();
+        if (gp) generateImagePrompts.push(gp);
       }
     }
   }
@@ -54,6 +65,8 @@ export function summarizeSseTelemetry(events) {
     recipeRouting,
     matchedRecipes,
     toolPhases,
+    toolStartCounts,
+    generateImagePrompts,
     toolsStarted,
     toolsDone,
     completed,
@@ -125,6 +138,25 @@ export function evaluateExpectations(telemetry, expect) {
       failures.push(
         `expected at most ${max} repo tool start(s); saw ${telemetry.toolsStarted.length}: [${telemetry.toolsStarted.join(', ')}]`,
       );
+    }
+  }
+
+  if (exp.maxToolStartCounts != null && typeof exp.maxToolStartCounts === 'object') {
+    for (const [tool, maxRaw] of Object.entries(exp.maxToolStartCounts)) {
+      const max = Number(maxRaw);
+      const name = String(tool).trim();
+      if (!name || !Number.isFinite(max)) continue;
+      const count = telemetry.toolStartCounts?.get(name) || 0;
+      if (count > max) {
+        failures.push(`expected at most ${max} start(s) for tool ${name}; saw ${count}`);
+      }
+    }
+  }
+
+  if (exp.generateImagePromptSeen === true) {
+    const prompts = telemetry.generateImagePrompts || [];
+    if (!prompts.length) {
+      failures.push('expected GenerateImage SSE metadata generateImagePrompt; saw none');
     }
   }
 

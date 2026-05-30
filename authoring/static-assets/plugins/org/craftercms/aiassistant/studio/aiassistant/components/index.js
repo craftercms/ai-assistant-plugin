@@ -29661,6 +29661,25 @@ function GenerateImageBlurredPlaceholder({ prompt }) {
                             }, children: prompt.trim() })) : null] }) })] }));
 }
 
+/** Shows the prompt sent to the image backend after (or while) the chat strip displays the bitmap. */
+function GenerateImagePromptCaption({ prompt }) {
+    const theme = useTheme();
+    const text = (prompt || '').trim();
+    if (!text)
+        return null;
+    return (jsxs(Typography, { component: "p", variant: "caption", color: "text.secondary", "data-aiassistant-generate-image-prompt": true, sx: {
+            mt: 0.5,
+            mb: 0,
+            lineHeight: 1.45,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            maxWidth: '100%',
+            px: 0.25,
+            borderLeft: `2px solid ${theme.palette.mode === 'dark' ? theme.palette.grey[700] : theme.palette.grey[300]}`,
+            pl: 1
+        }, children: [jsx$1(Typography, { component: "span", variant: "caption", sx: { fontWeight: 600, color: 'text.primary', mr: 0.5 }, children: "Prompt used:" }), text] }));
+}
+
 /**
  * Renders GenerateImage output as {@link StudioDraggableImage} tiles. Sources come from
  * {@link combineGeneratedImageSources} (SSE metadata + same-turn text recovery for large {@code data:} URLs).
@@ -31005,11 +31024,16 @@ function AssistantReasoningLive(props) {
                     opacity: 0.9
                 }, children: "Live model output" }), jsx$1(MarkdownMessage, { text: t })] }));
 }
-function pickGenerateImagePromptPatch(toolName, toolPhase, metaPrompt) {
-    if (toolName !== 'GenerateImage' || toolPhase !== 'start')
+function pickGenerateImagePromptPatch(toolName, toolPhase, metaPrompt, priorPrompt) {
+    if (toolName !== 'GenerateImage')
+        return {};
+    const phase = (toolPhase || '').trim().toLowerCase();
+    if (phase !== 'start' && phase !== 'done' && phase !== 'warn')
         return {};
     const p = typeof metaPrompt === 'string' ? metaPrompt.trim() : '';
-    return p ? { generateImagePrompt: p } : {};
+    if (p)
+        return { generateImagePrompt: p };
+    return priorPrompt?.trim() ? { generateImagePrompt: priorPrompt.trim() } : {};
 }
 function combinedAssistantMarkdownForVerification(m) {
     const tail = dedupeAssistantPostToolsMarkdown(m.assistantPreToolsText, m.text);
@@ -31950,7 +31974,6 @@ function AiAssistantChat(props) {
                     const textChunk = isToolProgressChunk ? rawTextChunk : stripForbiddenLazyPlanLines(rawTextChunk);
                     const summarizingResultsHint = md?.status === 'aiassistant-chat-phase' && String(md?.phase || '') === 'summarizing-results';
                     const incomingStudioAiInlineImgUrls = md?.studioAiInlineImageUrls;
-                    const genImgPromptPatch = pickGenerateImagePromptPatch(toolName, toolPhase, md?.generateImagePrompt);
                     const mdStatus = md && md.status != null ? String(md.status).trim() : '';
                     if (mdStatus === 'pipeline-heartbeat') {
                         const rawEl = md.elapsedSec;
@@ -32041,6 +32064,7 @@ function AiAssistantChat(props) {
                             setMessages((prev) => prev.map((m) => {
                                 if (m.id !== assistantId)
                                     return m;
+                                const genImgPromptPatch = pickGenerateImagePromptPatch(toolName, toolPhase, md?.generateImagePrompt, m.generateImagePrompt);
                                 const hadNoToolLinesYet = !(m.toolProgressText || '').length;
                                 const priorMain = (m.text || '').trim();
                                 const reasoningHead = (m.reasoningStreamText || '').trim();
@@ -32364,7 +32388,7 @@ function AiAssistantChat(props) {
                                         const tailDisplay = stripDisplayedGeneratedImages(stripStudioAiInlineImageMarkdownFromText(tailRaw, m.studioAiInlineImageUrls), imageStripSources);
                                         const mdUrls = imageStripSources.length ? undefined : m.studioAiInlineImageUrls;
                                         const showGenImgPlaceholder = shouldShowGenerateImagePlaceholder(m.toolProgressText, tailRaw, m.studioAiInlineImageUrls);
-                                        return (jsxs(Fragment, { children: [imageStripSources.length ? jsx$1(AssistantChatGeneratedImages, { sources: imageStripSources }) : null, !imageStripSources.length && showGenImgPlaceholder ? (jsx$1(GenerateImageBlurredPlaceholder, { prompt: m.generateImagePrompt })) : null, jsx$1(MarkdownMessage, { text: tailDisplay, studioAiInlineImageUrls: mdUrls })] }));
+                                        return (jsxs(Fragment, { children: [imageStripSources.length ? jsx$1(AssistantChatGeneratedImages, { sources: imageStripSources }) : null, imageStripSources.length ? (jsx$1(GenerateImagePromptCaption, { prompt: m.generateImagePrompt })) : null, !imageStripSources.length && showGenImgPlaceholder ? (jsx$1(GenerateImageBlurredPlaceholder, { prompt: m.generateImagePrompt })) : null, jsx$1(MarkdownMessage, { text: tailDisplay, studioAiInlineImageUrls: mdUrls })] }));
                                     })(), jsx$1(AssistantPipelineTimingLine, { wallMs: m.toolPipelineWallMs, totalSec: m.toolPipelineTotalSec, taskSec: m.toolPipelineTaskCompletionSec })] })) : (jsxs(Fragment, { children: [m.toolProgressText?.trim() ? (jsx$1(ToolProgressScrollArea, { text: m.toolProgressText })) : null, m.summarizingResults ? (jsx$1(Typography, { variant: "caption", component: "p", sx: {
                                             mt: 0.75,
                                             mb: 0,
@@ -32377,7 +32401,7 @@ function AiAssistantChat(props) {
                                         const tailDisplay = stripDisplayedGeneratedImages(stripStudioAiInlineImageMarkdownFromText(tailRaw, m.studioAiInlineImageUrls), imageStripSources);
                                         const mdUrls = imageStripSources.length ? undefined : m.studioAiInlineImageUrls;
                                         const showGenImgPlaceholder = shouldShowGenerateImagePlaceholder(m.toolProgressText, tailRaw, m.studioAiInlineImageUrls);
-                                        return (jsxs(Fragment, { children: [imageStripSources.length ? jsx$1(AssistantChatGeneratedImages, { sources: imageStripSources }) : null, !imageStripSources.length && showGenImgPlaceholder ? (jsx$1(GenerateImageBlurredPlaceholder, { prompt: m.generateImagePrompt })) : null, jsx$1(MarkdownMessage, { text: tailDisplay, studioAiInlineImageUrls: mdUrls })] }));
+                                        return (jsxs(Fragment, { children: [imageStripSources.length ? jsx$1(AssistantChatGeneratedImages, { sources: imageStripSources }) : null, imageStripSources.length ? (jsx$1(GenerateImagePromptCaption, { prompt: m.generateImagePrompt })) : null, !imageStripSources.length && showGenImgPlaceholder ? (jsx$1(GenerateImageBlurredPlaceholder, { prompt: m.generateImagePrompt })) : null, jsx$1(MarkdownMessage, { text: tailDisplay, studioAiInlineImageUrls: mdUrls })] }));
                                     })(), jsx$1(AssistantPipelineTimingLine, { wallMs: m.toolPipelineWallMs, totalSec: m.toolPipelineTotalSec, taskSec: m.toolPipelineTaskCompletionSec })] }))] })) : (jsxs(Fragment, { children: [jsx$1(Typography, { variant: "body2", sx: { whiteSpace: 'pre-wrap' }, children: m.text }), jsxs(Box, { sx: {
                                     display: 'flex',
                                     justifyContent: 'flex-end',

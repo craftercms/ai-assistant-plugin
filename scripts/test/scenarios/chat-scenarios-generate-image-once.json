@@ -1,0 +1,28 @@
+{
+  "description": "Single-turn GenerateImage harness: at most one image API call per chat turn + generateImagePrompt SSE metadata. Requires agent imageModel + API key. Routing (plan vs recipe) is out of scope.",
+  "defaults": {
+    "siteId": "aiat-2",
+    "agentId": "019c7237-478b-7f98-9a5c-87144c3fb010",
+    "llm": "openAI",
+    "llmModel": "gpt-4o-mini"
+  },
+  "turns": [
+    {
+      "id": "generate-image-once",
+      "summary": "GenerateImage: one start max per turn; prompt visible in SSE metadata.",
+      "prompt": "Generate a simple 256x256 abstract blue circle on white background for automated testing. Call GenerateImage exactly once.",
+      "request": {
+        "omitTools": false
+      },
+      "expect": {
+        "toolsAny": ["GenerateImage"],
+        "maxToolStartCounts": {
+          "GenerateImage": 1
+        },
+        "generateImagePromptSeen": true
+      },
+      "optional": true,
+      "partialOnMissingConfig": true
+    }
+  ]
+}

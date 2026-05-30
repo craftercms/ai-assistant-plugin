@@ -5847,6 +5847,8 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     boolean toolsRan = false
     boolean previousRoundHadRepoMutation = false
     Set<String> writeContentPathsThisTurn = new LinkedHashSet<>()
+    boolean generateImageSucceededThisTurn = false
+    boolean generateImageWrapUpInjectedThisTurn = false
     Boolean lastPreviewContentGoalFound = null
     String authorVisibleForToolsLoop = authorVisibleRequestFromWire(wireMessages) ?: ''
     String frozenAuthorOutcomePhrase = extractAuthoringOutcomePhrase(authorVisibleForToolsLoop)
@@ -6223,6 +6225,31 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
             } catch (Throwable ignoredDup) {
             }
           }
+          if (toolPol.duplicateGenerateImageThisTurnGuard && generateImageSucceededThisTurn) {
+            Map skipInp = toolProgressInputFromArgsJson(argsStr, slurper, fnName)
+            long skipT0 = System.currentTimeMillis()
+            writeToolProgressSse(ssePreToolAssistantText, fnName, 'start', skipInp, null, null, null)
+            String skipOut = JsonOutput.toJson([
+              ok                                   : true,
+              skippedDuplicateGenerateImageThisTurn: true,
+              tool                                 : 'GenerateImage',
+              message                              :
+                'GenerateImage skipped: one generated bitmap already completed this chat turn. ' +
+                  'The image is in the Studio chat strip — reply in short prose only. ' +
+                  'Do not call GenerateImage again unless the author explicitly asks for a different image.'
+            ])
+            writeToolProgressSse(
+              ssePreToolAssistantText,
+              fnName,
+              'warn',
+              skipInp,
+              null,
+              slurper.parseText(skipOut),
+              System.currentTimeMillis() - skipT0
+            )
+            wireMessages << [role: 'tool', tool_call_id: id, content: skipOut]
+            continue
+          }
           if (toolsLoopSkipDiscoveryUntilWriteContent(fnName, intentTelLoop, requiredToolSuccess)) {
             Map skipInp = toolProgressInputFromArgsJson(argsStr, slurper, fnName)
             long skipT0 = System.currentTimeMillis()
@@ -6411,6 +6438,23 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
             } catch (Throwable ignoredFetchOk) {
             }
           }
+          if (toolPol.duplicateGenerateImageThisTurnGuard && 'GenerateImage'.equals(fnName)) {
+            try {
+              def parsedGi = slurper.parseText(toolOut.toString())
+              if (parsedGi instanceof Map &&
+                !Boolean.TRUE.equals(((Map) parsedGi).get('skippedDuplicateGenerateImageThisTurn'))) {
+                boolean giOk = Boolean.TRUE.equals(((Map) parsedGi).get('ok'))
+                Map gm = ChatCompletionsToolWire.unwrapGenerateImageToolResultMap((Map) parsedGi)
+                String giUrl = ChatCompletionsToolWire.generateImageResultUrlString(gm)?.trim()
+                boolean hasRenderableImage = (giUrl?.length() > 0) || gm.get('b64_json') != null
+                if (giOk && hasRenderableImage) {
+                  generateImageSucceededThisTurn = true
+                  markTaskCompletionWallMsIfUnset(toolTimingCtx)
+                }
+              }
+            } catch (Throwable ignoredGenImgDupTrack) {
+            }
+          }
           if (toolPol.duplicateWritePathGuard) {
             roundHadWriteAttempt = true
             try {
@@ -6504,7 +6548,8 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
                 (Boolean.TRUE.equals(((Map) parsedReq).get('ok')) ||
                   'written'.equalsIgnoreCase(((Map) parsedReq).get('result')?.toString()?.trim()))
               if (reqOk && !Boolean.TRUE.equals(((Map) parsedReq).get('skippedBannedRepoPath')) &&
-                !Boolean.TRUE.equals(((Map) parsedReq).get('skippedDuplicateWriteThisTurn'))) {
+                !Boolean.TRUE.equals(((Map) parsedReq).get('skippedDuplicateWriteThisTurn')) &&
+                !Boolean.TRUE.equals(((Map) parsedReq).get('skippedDuplicateGenerateImageThisTurn'))) {
                 requiredToolSuccess.put(fnName, Boolean.TRUE)
               }
             } catch (Throwable ignoredReqTrack) {
@@ -6529,6 +6574,21 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
         }
         if (previewState.lastPreviewContentGoalPhrase) {
           lastPreviewContentGoalPhrase = previewState.lastPreviewContentGoalPhrase.toString()
+        }
+        if (generateImageSucceededThisTurn && !generateImageWrapUpInjectedThisTurn &&
+          !toolsLoopRequiredToolsStillPending(requiredToolSuccess)) {
+          wireMessages << [
+            role   : 'user',
+            content:
+              'GenerateImage already finished for this chat turn (bitmap is in the Studio chat image strip). ' +
+                'Reply in short prose only — do not call GenerateImage again unless the author explicitly requests another image.'
+          ]
+          generateImageWrapUpInjectedThisTurn = true
+          log.info(
+            'Tools-loop: injected GenerateImage wrap-up after successful bitmap agentId={} round={}',
+            agentId,
+            round
+          )
         }
         maybeAppendAutoConfirmationPreviewAfterRound(
           wireMessages,
@@ -7970,7 +8030,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           pipelineStage : pipelineStageForRepoTool(toolName)
         ]
       ]
-      if ('GenerateImage'.equalsIgnoreCase(toolName ?: '') && 'start'.equals(phase)) {
+      if ('GenerateImage'.equalsIgnoreCase(toolName ?: '') && ('start'.equals(phase) || 'done'.equals(phase) || 'warn'.equals(phase))) {
         String imgPrompt = (input?.prompt ?: input?.imagePrompt ?: '')?.toString()?.trim() ?: ''
         if (imgPrompt.length() > 600) {
           imgPrompt = imgPrompt.substring(0, 597) + '…'

@@ -313,7 +313,11 @@
       "expect": {
         "toolsAny": [
           "GenerateImage"
-        ]
+        ],
+        "maxToolStartCounts": {
+          "GenerateImage": 1
+        },
+        "generateImagePromptSeen": true
       },
       "optional": true,
       "partialOnMissingConfig": true

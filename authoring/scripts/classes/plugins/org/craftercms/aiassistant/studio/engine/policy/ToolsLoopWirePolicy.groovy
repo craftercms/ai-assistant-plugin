@@ -37,6 +37,8 @@ final class ToolsLoopWirePolicy {
   final boolean skipWhenPriorWriteFailedInRound
   /** When true, track write paths and duplicate-write suppression for this wire. */
   final boolean duplicateWritePathGuard
+  /** When true, allow at most one successful {@code GenerateImage} per chat turn. */
+  final boolean duplicateGenerateImageThisTurnGuard
   /** One of {@link #WIRE_TRUNCATE}, {@link #WIRE_COMPACT_UPDATE_CONTENT}, {@link #WIRE_COMPACT_GENERATE_IMAGE}. */
   final String wireOutputMode
   /** When set, fenced JSON with this key dispatches to this wire (e.g. {@code toolId} → site user tools). */
@@ -55,6 +57,7 @@ final class ToolsLoopWirePolicy {
     boolean expertGuidancePrefix,
     boolean skipWhenPriorWriteFailedInRound,
     boolean duplicateWritePathGuard,
+    boolean duplicateGenerateImageThisTurnGuard,
     String wireOutputMode,
     String proseJsonDispatchKey,
     String normalizeArgsId,
@@ -66,6 +69,7 @@ final class ToolsLoopWirePolicy {
     this.expertGuidancePrefix = expertGuidancePrefix
     this.skipWhenPriorWriteFailedInRound = skipWhenPriorWriteFailedInRound
     this.duplicateWritePathGuard = duplicateWritePathGuard
+    this.duplicateGenerateImageThisTurnGuard = duplicateGenerateImageThisTurnGuard
     this.wireOutputMode = wireOutputMode ?: WIRE_TRUNCATE
     this.proseJsonDispatchKey = proseJsonDispatchKey
     this.normalizeArgsId = normalizeArgsId
@@ -75,22 +79,22 @@ final class ToolsLoopWirePolicy {
 
   /** Default policy for unknown built-ins and {@code mcp_*} wires. */
   static ToolsLoopWirePolicy defaults() {
-    return new ToolsLoopWirePolicy(PROGRESS_OTHER, false, false, false, false, WIRE_TRUNCATE, null, null, 'main', false)
+    return new ToolsLoopWirePolicy(PROGRESS_OTHER, false, false, false, false, false, WIRE_TRUNCATE, null, null, 'main', false)
   }
 
   /** Standard read / search / inspect tools. */
   static ToolsLoopWirePolicy readPolicy() {
-    return new ToolsLoopWirePolicy(PROGRESS_READ, false, false, false, false, WIRE_TRUNCATE, null, null, 'main', false)
+    return new ToolsLoopWirePolicy(PROGRESS_READ, false, false, false, false, false, WIRE_TRUNCATE, null, null, 'main', false)
   }
 
   /** Expert SME tools (QueryExpertGuidance, GetCrafterizingPlaybook). */
   static ToolsLoopWirePolicy expertReadPolicy() {
-    return new ToolsLoopWirePolicy(PROGRESS_READ, false, true, false, false, WIRE_TRUNCATE, null, null, 'main', false)
+    return new ToolsLoopWirePolicy(PROGRESS_READ, false, true, false, false, false, WIRE_TRUNCATE, null, null, 'main', false)
   }
 
   /** Template analysis ({@code analyze_template}). */
   static ToolsLoopWirePolicy analysisPolicy() {
-    return new ToolsLoopWirePolicy(PROGRESS_ANALYSIS, false, false, false, false, WIRE_TRUNCATE, null, null, 'verification', false)
+    return new ToolsLoopWirePolicy(PROGRESS_ANALYSIS, false, false, false, false, false, WIRE_TRUNCATE, null, null, 'verification', false)
   }
 
   /**
@@ -98,7 +102,7 @@ final class ToolsLoopWirePolicy {
    * @param duplicatePathGuard when true, enable per-turn duplicate path suppression (WriteContent uses dedicated policy).
    */
   static ToolsLoopWirePolicy writeMutationPolicy(boolean duplicatePathGuard = false) {
-    return new ToolsLoopWirePolicy(PROGRESS_WRITE, true, false, false, duplicatePathGuard, WIRE_TRUNCATE, null, null, 'main', false)
+    return new ToolsLoopWirePolicy(PROGRESS_WRITE, true, false, false, duplicatePathGuard, false, WIRE_TRUNCATE, null, null, 'main', false)
   }
 
   /**
@@ -107,36 +111,36 @@ final class ToolsLoopWirePolicy {
    * tools loop does not enter verification ("Checking the result") until after {@link #writeContentPolicy}.
    */
   static ToolsLoopWirePolicy preparatoryUpdatePolicy(String wireOutputMode = WIRE_TRUNCATE) {
-    return new ToolsLoopWirePolicy(PROGRESS_WRITE, false, false, false, false, wireOutputMode, null, null, 'main', false)
+    return new ToolsLoopWirePolicy(PROGRESS_WRITE, false, false, false, false, false, wireOutputMode, null, null, 'main', false)
   }
 
   /** GetPreviewHtml: verification stage; may skip after failed write; enriches result JSON. */
   static ToolsLoopWirePolicy verificationReadPolicy() {
-    return new ToolsLoopWirePolicy(PROGRESS_READ, false, false, true, false, WIRE_TRUNCATE, null, null, 'verification', true)
+    return new ToolsLoopWirePolicy(PROGRESS_READ, false, false, true, false, false, WIRE_TRUNCATE, null, null, 'verification', true)
   }
 
   /** GeneratePlaceholderImage: Studio sample placeholder; not a repository mutation. */
   static ToolsLoopWirePolicy placeholderImagePolicy() {
-    return new ToolsLoopWirePolicy(PROGRESS_WRITE, false, false, false, false, WIRE_TRUNCATE, null, null, 'main', false)
+    return new ToolsLoopWirePolicy(PROGRESS_WRITE, false, false, false, false, false, WIRE_TRUNCATE, null, null, 'main', false)
   }
 
   /** GenerateImage: compact wire output; not counted as a repository XML mutation. */
   static ToolsLoopWirePolicy generateImagePolicy() {
-    return new ToolsLoopWirePolicy(PROGRESS_WRITE, false, false, false, false, WIRE_COMPACT_GENERATE_IMAGE, null, null, 'main', false)
+    return new ToolsLoopWirePolicy(PROGRESS_WRITE, false, false, false, false, true, WIRE_COMPACT_GENERATE_IMAGE, null, null, 'main', false)
   }
 
   /** FetchHttpUrl: cap large HTML bodies on the tools-loop wire to avoid context overflow. */
   static ToolsLoopWirePolicy fetchHttpUrlPolicy() {
-    return new ToolsLoopWirePolicy(PROGRESS_READ, false, false, false, false, WIRE_COMPACT_FETCH_HTTP, null, null, 'main', false)
+    return new ToolsLoopWirePolicy(PROGRESS_READ, false, false, false, false, false, WIRE_COMPACT_FETCH_HTTP, null, null, 'main', false)
   }
 
   /** InvokeSiteUserTool: prose blocks may use {@code {"toolId":"…"}} instead of API tool_calls. */
   static ToolsLoopWirePolicy siteUserToolPolicy() {
-    return new ToolsLoopWirePolicy(PROGRESS_OTHER, false, false, false, false, WIRE_TRUNCATE, 'toolId', null, 'main', false)
+    return new ToolsLoopWirePolicy(PROGRESS_OTHER, false, false, false, false, false, WIRE_TRUNCATE, 'toolId', null, 'main', false)
   }
 
   /** WriteContent: full duplicate-path guard and write_content arg normalization. */
   static ToolsLoopWirePolicy writeContentPolicy() {
-    return new ToolsLoopWirePolicy(PROGRESS_WRITE, true, false, false, true, WIRE_TRUNCATE, null, 'write_content', 'main', false)
+    return new ToolsLoopWirePolicy(PROGRESS_WRITE, true, false, false, true, false, WIRE_TRUNCATE, null, 'write_content', 'main', false)
   }
 }

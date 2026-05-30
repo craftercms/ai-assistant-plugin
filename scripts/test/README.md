@@ -100,7 +100,9 @@ export CHAT_SITE_ID=your-site
 
 **Via `run-all.sh`:** step **5** runs the **full matrix** when not skipped — all **13 recipes** and **31 tools** with `CHAT_MATRIX_FULL=1`. **`run-tool-recipe-matrix.sh`** uses **`set -e`**: if the recipe pass exits non-zero, the **31-tool** pass does not run (use **`RUN_ALL_CONTINUE_ON_FAIL=1`** on **`run-all.sh`** to continue to step 6 anyway). Skip matrix: **`RUN_ALL_SKIP_TOOL_RECIPE_MATRIX=1`**.
 
-**Per-turn SSE assertions** in scenario JSON (`turn.expect`): `recipeId`, `toolsAny`, `toolsAll`, `forbidTools`, `maxToolStarts`. Implemented in `lib/sse-telemetry.mjs` and enforced by `run-chat-scenarios.mjs`.
+**Per-turn SSE assertions** in scenario JSON (`turn.expect`): `recipeId`, `toolsAny`, `toolsAll`, `forbidTools`, `maxToolStarts`, `maxToolStartCounts` (e.g. `{ "GenerateImage": 1 }`), `generateImagePromptSeen`. Implemented in `lib/sse-telemetry.mjs` and enforced by `run-chat-scenarios.mjs`.
+
+**GenerateImage once per turn:** server skips duplicate `GenerateImage` tool calls in the same chat turn; live check: `node scripts/test/functional/run-chat-scenarios.mjs scripts/test/scenarios/chat-scenarios-generate-image-once.json`.
 
 ## Concurrent users / sessions
 

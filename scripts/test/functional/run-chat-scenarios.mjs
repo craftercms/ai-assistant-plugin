@@ -13,7 +13,8 @@
  * `metadata.error` / incomplete stream.
  *
  * Optional per-turn assertions (`turn.expect`):
- *   recipeId, recipeOutcome (default matched), toolsAny, toolsAll, forbidTools, maxToolStarts
+ *   recipeId, recipeOutcome (default matched), toolsAny, toolsAll, forbidTools, maxToolStarts,
+ *   maxToolStartCounts ({ toolName: maxStarts }), generateImagePromptSeen
  * Optional turn flags: optional, skipUnless (destructive opt-in env var), partialOnMissingConfig,
  * freshChat, group (filter via CHAT_SCENARIO_GROUP).
  *

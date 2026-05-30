@@ -40,7 +40,16 @@
       "prompt": "Generate a simple 256x256 abstract placeholder image for automated testing and describe where you would save it in the repo.",
       "request": {
         "omitTools": false
-      }
+      },
+      "expect": {
+        "toolsAny": ["GenerateImage"],
+        "maxToolStartCounts": {
+          "GenerateImage": 1
+        },
+        "generateImagePromptSeen": true
+      },
+      "optional": true,
+      "partialOnMissingConfig": true
     }
   ]
 }
