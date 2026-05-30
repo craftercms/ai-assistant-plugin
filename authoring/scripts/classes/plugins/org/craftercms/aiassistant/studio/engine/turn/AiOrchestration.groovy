@@ -22,6 +22,7 @@ import plugins.org.craftercms.aiassistant.studio.engine.catalog.AiOrchestrationT
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 import plugins.org.craftercms.aiassistant.studio.spi.tool.StudioAiToolMaintainerObservability
 import plugins.org.craftercms.aiassistant.studio.contrib.llm.vendor.anthropic.AnthropicSpringAiLlmRuntime
+import plugins.org.craftercms.aiassistant.studio.contrib.llm.vendor.anthropic.StudioAiAnthropicSimpleCompletion
 import plugins.org.craftercms.aiassistant.studio.contrib.llm.wire.openaispec.OpenAiSpecSpringAiLlmRuntime
 import plugins.org.craftercms.aiassistant.studio.contrib.llm.script.StudioAiScriptLlmContainerRuntime
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.http.OutboundHttpPolicy
@@ -3687,6 +3688,21 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
         effMaxOut,
         model,
         wireBaseUrl ?: '(default)'
+      )
+    }
+    if (StudioAiLlmKind.shouldUseAnthropicSimpleCompletion(toolsLoopSessionBundle, model, wireBaseUrl)) {
+      aiAssistantToolWorkerDiagPhase(
+        phasePfx +
+          "simple_completion_Anthropic_POST_/v1/messages model=${model} userMsgChars=${(userText ?: '').toString().length()} readTimeoutMs=${readTimeoutMs}"
+      )
+      return StudioAiAnthropicSimpleCompletion.assistantText(
+        apiKey,
+        model,
+        systemText,
+        userText,
+        effMaxOut,
+        readTimeoutMs,
+        workerPhasePrefix
       )
     }
     def reqMap = [

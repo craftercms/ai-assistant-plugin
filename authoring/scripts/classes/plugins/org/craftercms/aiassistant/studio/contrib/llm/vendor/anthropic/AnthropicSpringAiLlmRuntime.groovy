@@ -6,6 +6,7 @@ import plugins.org.craftercms.aiassistant.studio.spi.llm.StudioAiRuntimeBuildReq
 import plugins.org.craftercms.aiassistant.studio.engine.turn.AiOrchestration
 import plugins.org.craftercms.aiassistant.studio.engine.catalog.AiOrchestrationTools
 import plugins.org.craftercms.aiassistant.studio.contrib.llm.StudioAiProviderCredentials
+import plugins.org.craftercms.aiassistant.studio.config.StudioAiPlatformSettings
 
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -13,6 +14,7 @@ import org.springframework.ai.anthropic.AnthropicChatModel
 import org.springframework.ai.anthropic.AnthropicChatOptions
 import org.springframework.ai.anthropic.api.AnthropicApi
 import org.springframework.ai.chat.client.DefaultChatClientBuilder
+import org.springframework.ai.retry.RetryUtils
 
 /**
  * LLM runtime: <strong>Anthropic Claude</strong> via Spring AI {@link AnthropicChatModel}.
@@ -74,14 +76,21 @@ private AnthropicSpringAiLlmRuntime() {}
     } else {
       tools = []
     }
-    def anthropicApi = new AnthropicApi(AnthropicApi.DEFAULT_BASE_URL, apiKey)
+    def apiBuilder = AnthropicApi.builder()
+      .baseUrl(AnthropicApi.DEFAULT_BASE_URL)
+      .apiKey(apiKey)
+    StudioAiAnthropicClientConfig.applyTo(apiBuilder)
+    def anthropicApi = apiBuilder.build()
+    int maxOutTokens = StudioAiPlatformSettings.propertyInt('crafter.anthropic.maxTokens', 8192, 256, 65536)
     def options = AnthropicChatOptions.builder()
       .model(modelName)
+      .maxTokens(maxOutTokens)
       .internalToolExecutionEnabled(req.enableTools)
       .build()
     def chatModel = AnthropicChatModel.builder()
       .anthropicApi(anthropicApi)
       .defaultOptions(options)
+      .retryTemplate(RetryUtils.DEFAULT_RETRY_TEMPLATE)
       .build()
     def chatClient = new DefaultChatClientBuilder(chatModel).build()
     log.debug(
@@ -97,6 +106,7 @@ private AnthropicSpringAiLlmRuntime() {}
       chatModel               : chatModel,
       tools                   : tools,
       llm                     : StudioAiLlmKind.CLAUDE_NATIVE,
+      nativeToolTransport     : 'anthropic',
       useTools                : req.enableTools,
       studioOps               : req.studioOps,
       toolsLoopChatApiKey     : apiKey,

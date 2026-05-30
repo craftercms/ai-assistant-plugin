@@ -20,6 +20,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadStudioTokenFromRepoFile, runChatStream } from '../lib/sse-chat-stream.mjs';
 import { appendEntry, printDetailedReport } from '../lib/run-report.mjs';
+import { chatStreamBodyBase } from '../lib/chat-llm-env.mjs';
 
 const DEFAULT_AGENT_ID = '019c7237-478b-7f98-9a5c-87144c3fb010';
 
@@ -60,7 +61,11 @@ async function runEchoPair({ baseUrl, siteId, agentId, tokenA, tokenB, timeoutMs
   const chatA = randomUUID();
   const chatB = randomUUID();
 
-  const bodyBase = { agentId, siteId, llm: 'openAI', llmModel: 'gpt-4o-mini', enableTools: false, omitTools: true };
+  const bodyBase = chatStreamBodyBase({
+    agentId,
+    siteId,
+    extra: { enableTools: false, omitTools: true },
+  });
 
   console.log(`… echo pair  chatA=${chatA.slice(0, 8)}… chatB=${chatB.slice(0, 8)}…`);
   console.log(`   markers: ${markerA} | ${markerB}`);
@@ -105,16 +110,16 @@ async function runToolsPair({ baseUrl, siteId, agentId, tokenA, tokenB, timeoutT
   const chatB = randomUUID();
   const contentPath = process.env.CONCURRENT_CONTENT_PATH || '/site/website/index.xml';
 
-  const bodyBase = {
+  const bodyBase = chatStreamBodyBase({
     agentId,
     siteId,
-    llm: 'openAI',
-    llmModel: 'gpt-4o-mini',
-    enableTools: true,
-    enabledBuiltInTools: ['GetContent'],
-    contentPath,
-    authoringSurface: 'preview',
-  };
+    extra: {
+      enableTools: true,
+      enabledBuiltInTools: ['GetContent'],
+      contentPath,
+      authoringSurface: 'preview',
+    },
+  });
 
   console.log(`… tools pair  chatA=${chatA.slice(0, 8)}… chatB=${chatB.slice(0, 8)}… path=${contentPath}`);
 

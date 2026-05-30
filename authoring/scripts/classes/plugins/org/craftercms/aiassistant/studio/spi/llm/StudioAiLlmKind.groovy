@@ -246,6 +246,34 @@ private StudioAiLlmKind() {}
   }
 
   /**
+   * Auxiliary prose completions ({@code toolsLoopSimpleCompletionAssistantText}) must use Anthropic Messages API,
+   * not the OpenAI-compatible {@code /v1/chat/completions} wire.
+   */
+  static boolean shouldUseAnthropicSimpleCompletion(Map springAiBundle, String model, String wireBaseUrl = null) {
+    if (springAiBundle instanceof Map) {
+      String llmId = (springAiBundle.llm ?: springAiBundle.get('llm') ?: '').toString().trim()
+      if (isAnthropicClaude(llmId, springAiBundle) || CLAUDE_NATIVE.equalsIgnoreCase(llmId)) {
+        return true
+      }
+    }
+    String m = (model ?: '').trim().toLowerCase(Locale.ROOT)
+    if (!m.startsWith('claude-')) {
+      return false
+    }
+    String wire = (wireBaseUrl ?: '').trim()
+    if (wire) {
+      return false
+    }
+    if (springAiBundle instanceof Map) {
+      String bundleWire = toolsLoopChatBaseUrlFromBundle(springAiBundle)
+      if (bundleWire) {
+        return false
+      }
+    }
+    return true
+  }
+
+  /**
    * Answers whether autonomous runners may attach native Spring tool callbacks without interactive chat.
    * Returns true for built-in RestClient vendors or script-hosted Groovy llms advertising compatible bundles.
    * Keeps incompatible transports from registering tools that cannot execute headlessly.

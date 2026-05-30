@@ -93,9 +93,8 @@ export const STUDIO_AI_TOOLS_LOOP_CHAT_MODELS: readonly string[] = [
 export const STUDIO_AI_OPENAI_WIRE_CHAT_MODELS = STUDIO_AI_TOOLS_LOOP_CHAT_MODELS;
 
 export const STUDIO_AI_CLAUDE_CHAT_MODELS: readonly string[] = [
-  'claude-3-5-sonnet-20241022',
-  'claude-3-5-haiku-20241022',
-  'claude-3-opus-20240229'
+  'claude-sonnet-4-20250514',
+  'claude-opus-4-20250514'
 ] as const;
 
 export const STUDIO_AI_DEFAULT_IMAGE_MODEL = 'gpt-image-1';

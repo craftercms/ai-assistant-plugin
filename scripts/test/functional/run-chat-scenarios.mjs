@@ -31,6 +31,9 @@
   CHAT_SCENARIO_GROUP   Run only turns with matching group (intent-recipes | builtin-tools)
   CHAT_LLM              Override defaults.llm for every turn (e.g. claude)
   CHAT_LLM_MODEL        Override defaults.llmModel for every turn
+  CHAT_INTER_TURN_DELAY_MS  Pause between turns (default 45000 when CHAT_LLM=claude)
+  CHAT_RATE_LIMIT_RETRIES   Retries on Anthropic 429 (default 2 when CHAT_LLM=claude)
+  CHAT_RATE_LIMIT_BACKOFF_MS  Backoff before retry (default 65000)
   CHAT_SKIP_OPTIONAL    When 1, skip turns marked optional (integration optional still run when 0)
   CHAT_MATRIX_FULL      When 1, run write/publish optional turns (run-all sets this by default)
  */
@@ -42,6 +45,14 @@ import { fileURLToPath } from 'node:url';
 import { evaluateExpectations, summarizeSseTelemetry } from '../lib/sse-telemetry.mjs';
 import { isDestructiveSkipUnless, isMissingConfigFailure } from '../lib/partial-failure.mjs';
 import { appendEntry, printDetailedReport } from '../lib/run-report.mjs';
+import {
+  applyChatLlmEnvToDefaults,
+  isRateLimitReason,
+  resolveInterTurnDelayMs,
+  resolveRateLimitBackoffMs,
+  resolveRateLimitRetries,
+  sleepMs,
+} from '../lib/chat-llm-env.mjs';
 import { basename } from 'node:path';
 
 /** Same as scripts/lib/studio-auth.sh → scripts/.studio-token (gitignored). */
@@ -205,6 +216,22 @@ async function resolveAgentId({ baseUrl, siteId, token, defaults }) {
   return DEFAULT_AGENT_ID;
 }
 
+async function runTurnWithRetries(args, maxRetries) {
+  let last;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      const backoff = resolveRateLimitBackoffMs();
+      console.log(`  ⏳ rate-limit retry ${attempt}/${maxRetries} after ${backoff}ms…`);
+      await sleepMs(backoff);
+    }
+    last = await runTurn(args);
+    if (last.ok || !isRateLimitReason(last.reason)) {
+      return last;
+    }
+  }
+  return last;
+}
+
 async function runTurn({ baseUrl, siteId, token, previewToken, body, timeoutMs }) {
   const enc = encodeURIComponent(siteId);
   const url = `${baseUrl.replace(/\/$/, '')}/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/ai/stream?siteId=${enc}`;
@@ -330,14 +357,9 @@ async function main() {
   const raw = readFileSync(scenarioPath, 'utf8');
   const doc = JSON.parse(raw);
   const defaults = doc.defaults || {};
-  const llmOverride = String(process.env.CHAT_LLM || '').trim();
-  const llmModelOverride = String(process.env.CHAT_LLM_MODEL || '').trim();
-  if (llmOverride) {
-    defaults.llm = llmOverride;
-  }
-  if (llmModelOverride) {
-    defaults.llmModel = llmModelOverride;
-  }
+  const { llmOverride, llmModelOverride } = applyChatLlmEnvToDefaults(defaults);
+  const interTurnDelayMs = resolveInterTurnDelayMs(llmOverride);
+  const rateLimitRetries = resolveRateLimitRetries(llmOverride);
   const turns = doc.turns || [];
 
   loadStudioTokenFromRepoFile();
@@ -373,6 +395,9 @@ async function main() {
     console.log(
       `LLM override: llm=${defaults.llm || '(unset)'} llmModel=${defaults.llmModel || '(unset)'}`,
     );
+    if (interTurnDelayMs > 0) {
+      console.log(`Claude pacing: inter-turn delay=${interTurnDelayMs}ms retries=${rateLimitRetries}`);
+    }
   }
   console.log('');
 
@@ -397,6 +422,7 @@ async function main() {
   let partial = 0;
   let skipped = 0;
   let passed = 0;
+  let executedTurnIndex = 0;
   for (const turn of turns) {
     const id = turn.id || '(no id)';
     const turnLabel = turn.summary || turn.prompt?.slice(0, 80) || '';
@@ -423,10 +449,18 @@ async function main() {
       prompt: turn.prompt != null ? String(turn.prompt) : '',
     };
     const label = `${id}: ${turn.summary || turn.prompt?.slice(0, 60) || ''}`;
+    if (executedTurnIndex > 0 && interTurnDelayMs > 0) {
+      console.log(`  ⏳ inter-turn delay ${interTurnDelayMs}ms…`);
+      await sleepMs(interTurnDelayMs);
+    }
+    executedTurnIndex++;
     process.stdout.write(`… ${label}\n`);
     const tStart = Date.now();
     try {
-      const r = await runTurn({ baseUrl, siteId, token, previewToken, body, timeoutMs });
+      const r = await runTurnWithRetries(
+        { baseUrl, siteId, token, previewToken, body, timeoutMs },
+        rateLimitRetries,
+      );
       const wall = Date.now() - tStart;
       if (r.ok) {
         const { failures: expectFailures, warnings: expectWarnings } = evaluateExpectations(

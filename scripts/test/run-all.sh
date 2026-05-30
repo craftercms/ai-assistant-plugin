@@ -17,6 +17,9 @@ set -euo pipefail
 #   CHAT_AGENT_ID — optional override; otherwise run-chat-scenarios.mjs discovers ui.xml or uses the default agent UUID.
 #   CHAT_SCENARIOS_FILE, CHAT_PREVIEW_TOKEN, CHAT_TURN_TIMEOUT_MS — see scripts/test/README.md.
 #   RUN_ALL_SKIP_TOOL_RECIPE_MATRIX=1 Skip the full per-tool + per-recipe live matrix (still runs offline parity in step 1).
+#   CHAT_LLM=claude                 Claude smoke profile: chat-scenarios-claude-smoke.json + skip step-5 matrix
+#                                   (Tier-1 Sonnet 30k input TPM cannot run the full 31-tool matrix). Override with
+#                                   CHAT_CLAUDE_FULL_MATRIX=1 or set CHAT_SCENARIOS_FILE / RUN_ALL_SKIP_TOOL_RECIPE_MATRIX=0.
 #   Step 5 runs all 13 recipes + 31 tools (CHAT_MATRIX_FULL=1). Destructive/write/publish turns use partialOnMissingConfig when blocked.
 #   RUN_ALL_CONCURRENT_SESSIONS=1 After the matrix, run parallel two-session ai/stream concurrency smoke.
 #   CRAFTER_STUDIO_TOKEN or scripts/.studio-token — required unless RUN_ALL_SKIP_STUDIO=1.
@@ -29,6 +32,19 @@ source "${REPO_ROOT}/scripts/lib/studio-auth.sh"
 RUN_ALL_REPORT_FILE="${RUN_ALL_REPORT_FILE:-${REPO_ROOT}/scripts/test/.run-all-report.jsonl}"
 export RUN_ALL_REPORT_FILE
 REPORT_CLI="${REPO_ROOT}/scripts/test/lib/run-report.mjs"
+
+# Claude on Anthropic Tier 1: Sonnet allows ~30k input tokens/min — full tool matrix exceeds that in one turn.
+if [[ "${CHAT_LLM:-}" =~ ^[Cc]laude$ ]]; then
+  if [[ -z "${CHAT_SCENARIOS_FILE:-}" && "${CHAT_CLAUDE_FULL_MATRIX:-}" != "1" ]]; then
+    export CHAT_SCENARIOS_FILE="${REPO_ROOT}/scripts/test/scenarios/chat-scenarios-claude-smoke.json"
+  fi
+  if [[ "${CHAT_CLAUDE_FULL_MATRIX:-}" == "1" && -z "${CHAT_LLM_MODEL:-}" ]]; then
+    export CHAT_LLM_MODEL=claude-opus-4-20250514
+  fi
+  if [[ "${CHAT_CLAUDE_FULL_MATRIX:-}" != "1" && "${RUN_ALL_SKIP_TOOL_RECIPE_MATRIX:-}" != "0" ]]; then
+    export RUN_ALL_SKIP_TOOL_RECIPE_MATRIX=1
+  fi
+fi
 
 report_record() {
   local suite="$1" id="$2" status="$3"
@@ -112,7 +128,7 @@ if command -v node >/dev/null 2>&1; then
   node --check "${REPO_ROOT}/scripts/test/functional/generate-tool-recipe-scenarios.mjs"
   node --check "${REPO_ROOT}/scripts/test/functional/tool-id-parity.mjs"
   node --check "${REPO_ROOT}/scripts/test/lib/partial-failure.mjs"
-  node --check "${REPO_ROOT}/scripts/test/lib/run-report.mjs"
+  node --check "${REPO_ROOT}/scripts/test/lib/chat-llm-env.mjs"
   report_run "step1-offline" "tool-id-parity" "CORE_TOOLS vs UI tool id parity" \
     node "${REPO_ROOT}/scripts/test/functional/tool-id-parity.mjs"
   report_run "step1-offline" "recipe-catalog-offline" "Bundled intent recipe catalog JSON" \
@@ -168,12 +184,25 @@ else
     if [[ -z "${scen}" ]]; then
       if [[ -f "${REPO_ROOT}/scripts/test/scenarios/chat-scenarios.json" ]]; then
         scen="${REPO_ROOT}/scripts/test/scenarios/chat-scenarios.json"
+      elif [[ "${CHAT_LLM:-}" =~ ^[Cc]laude$ && "${CHAT_CLAUDE_FULL_MATRIX:-}" != "1" && -f "${REPO_ROOT}/scripts/test/scenarios/chat-scenarios-claude-smoke.json" ]]; then
+        scen="${REPO_ROOT}/scripts/test/scenarios/chat-scenarios-claude-smoke.json"
       else
         scen="${REPO_ROOT}/scripts/test/scenarios/chat-scenarios.example.json"
       fi
     fi
+    if [[ "${CHAT_LLM:-}" =~ ^[Cc]laude$ && "${CHAT_CLAUDE_FULL_MATRIX:-}" != "1" ]]; then
+      echo "ℹ️  Claude smoke profile (Tier-1 Sonnet TPM): ${scen##*/} — set CHAT_CLAUDE_FULL_MATRIX=1 + CHAT_LLM_MODEL=claude-opus-4-20250514 for full matrix."
+    elif [[ "${CHAT_LLM:-}" =~ ^[Cc]laude$ ]]; then
+      echo "ℹ️  Claude full matrix: ${scen##*/}  model=${CHAT_LLM_MODEL:-server default}"
+    fi
     export RUN_ALL_REPORT_SUITE="step4-chat-scenarios"
-    node "${REPO_ROOT}/scripts/test/functional/run-chat-scenarios.mjs" "${scen}"
+    if ! node "${REPO_ROOT}/scripts/test/functional/run-chat-scenarios.mjs" "${scen}"; then
+      if [[ "${RUN_ALL_CONTINUE_ON_FAIL:-}" == "1" ]]; then
+        echo "${AI_WARN} chat scenarios had failures (RUN_ALL_CONTINUE_ON_FAIL=1 — continuing)"
+      else
+        exit 1
+      fi
+    fi
     echo "${AI_OK} OK"
   fi
 
@@ -191,7 +220,13 @@ else
     export CHAT_MATRIX_FULL=1
     export CHAT_MATRIX_ALLOW_WRITES=1
     export CHAT_MATRIX_ALLOW_PUBLISH=1
-    RUN_TOOL_RECIPE_MATRIX_OFFLINE_ONLY=0 "${SCRIPT_DIR}/functional/run-tool-recipe-matrix.sh"
+    RUN_TOOL_RECIPE_MATRIX_OFFLINE_ONLY=0 "${SCRIPT_DIR}/functional/run-tool-recipe-matrix.sh" || {
+      if [[ "${RUN_ALL_CONTINUE_ON_FAIL:-}" == "1" ]]; then
+        echo "${AI_WARN} tool/recipe matrix had failures (RUN_ALL_CONTINUE_ON_FAIL=1 — continuing)"
+      else
+        exit 1
+      fi
+    }
     echo "${AI_OK} OK"
   fi
 
@@ -203,7 +238,13 @@ else
     export CRAFTER_STUDIO_URL="${CRAFTER_STUDIO_URL:-http://localhost:8080}"
     export CHAT_SITE_ID="${CHAT_SITE_ID:-${INTEGRATION_SITE_ID:-}}"
     export RUN_ALL_REPORT_SUITE="step6-concurrent-sessions"
-    node "${REPO_ROOT}/scripts/test/functional/run-concurrent-chat-sessions.mjs"
+    node "${REPO_ROOT}/scripts/test/functional/run-concurrent-chat-sessions.mjs" || {
+      if [[ "${RUN_ALL_CONTINUE_ON_FAIL:-}" == "1" ]]; then
+        echo "${AI_WARN} concurrent sessions had failures (RUN_ALL_CONTINUE_ON_FAIL=1 — continuing)"
+      else
+        exit 1
+      fi
+    }
     echo "${AI_OK} OK"
   fi
 fi

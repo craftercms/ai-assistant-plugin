@@ -181,7 +181,7 @@ final class StudioAiProviderCredentials {
     }
     if (!raw) {
       if (StudioAiLlmKind.XAI_NATIVE == n) {
-        raw = StudioAiPlatformSettings.property('crafter.xai.model', 'grok-2-latest').trim()
+        raw = StudioAiPlatformSettings.property('crafter.xai.model', 'grok-4.3').trim()
       } else if (StudioAiLlmKind.DEEPSEEK_NATIVE == n) {
         raw = StudioAiPlatformSettings.property('crafter.deepseek.model', 'deepseek-chat').trim()
       } else if (StudioAiLlmKind.LLAMA_NATIVE == n) {
@@ -213,7 +213,7 @@ final class StudioAiProviderCredentials {
   static String resolveAnthropicChatModel(String fromRequestOrAgent) {
     String raw = (fromRequestOrAgent ?: '').toString().trim()
     if (!raw) {
-      raw = StudioAiPlatformSettings.property('crafter.anthropic.model', 'claude-3-5-sonnet-20241022').trim()
+      raw = StudioAiPlatformSettings.property('crafter.anthropic.model', 'claude-sonnet-4-20250514').trim()
     }
     if (!raw) {
       throw new IllegalStateException('The Claude model is not configured. Set agent llmModel or crafter.anthropic.model in platform-settings.json.')

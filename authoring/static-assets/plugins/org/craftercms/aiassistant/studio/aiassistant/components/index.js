@@ -29933,9 +29933,8 @@ const STUDIO_AI_TOOLS_LOOP_CHAT_MODELS = [
     'o1-mini'
 ];
 const STUDIO_AI_CLAUDE_CHAT_MODELS = [
-    'claude-3-5-sonnet-20241022',
-    'claude-3-5-haiku-20241022',
-    'claude-3-opus-20240229'
+    'claude-sonnet-4-20250514',
+    'claude-opus-4-20250514'
 ];
 const STUDIO_AI_DEFAULT_IMAGE_MODEL = 'gpt-image-1';
 
