@@ -1,0 +1,557 @@
+{
+  "description": "One turn per CORE_TOOLS wire name with enabledBuiltInTools allowlist (generated). Optional turns need env flags.",
+  "defaults": {
+    "siteId": "aiat-2",
+    "llm": "openAI",
+    "llmModel": "gpt-4o-mini",
+    "enableTools": true
+  },
+  "turns": [
+    {
+      "id": "ContentExists",
+      "group": "builtin-tools",
+      "summary": "ContentExists on home page path.",
+      "prompt": "Use ContentExists only: does /site/website/index.xml exist? Reply with the boolean.",
+      "request": {
+        "enabledBuiltInTools": [
+          "ContentExists"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "ContentExists"
+        ]
+      }
+    },
+    {
+      "id": "GetContent",
+      "group": "builtin-tools",
+      "summary": "GetContent read title_t.",
+      "prompt": "Use GetContent only on /site/website/index.xml and report title_t.",
+      "request": {
+        "enabledBuiltInTools": [
+          "GetContent"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "GetContent"
+        ]
+      }
+    },
+    {
+      "id": "ListContentDependencyScope",
+      "group": "builtin-tools",
+      "summary": "List translation/dependency scope.",
+      "prompt": "Use ListContentDependencyScope only for /site/website/index.xml and summarize dependency paths.",
+      "request": {
+        "enabledBuiltInTools": [
+          "ListContentDependencyScope"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "ListContentDependencyScope"
+        ]
+      }
+    },
+    {
+      "id": "ListStudioContentTypes",
+      "group": "builtin-tools",
+      "summary": "List content types.",
+      "prompt": "Use ListStudioContentTypes only and list page content type ids.",
+      "request": {
+        "enabledBuiltInTools": [
+          "ListStudioContentTypes"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "ListStudioContentTypes"
+        ]
+      }
+    },
+    {
+      "id": "GetContentTypeFormDefinition",
+      "group": "builtin-tools",
+      "summary": "Form definition for /page/home.",
+      "prompt": "Use GetContentTypeFormDefinition only for content type /page/home.",
+      "request": {
+        "enabledBuiltInTools": [
+          "GetContentTypeFormDefinition"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "GetContentTypeFormDefinition"
+        ]
+      }
+    },
+    {
+      "id": "GetContentVersionHistory",
+      "group": "builtin-tools",
+      "summary": "Version history for home page.",
+      "prompt": "Use GetContentVersionHistory only for /site/website/index.xml.",
+      "request": {
+        "enabledBuiltInTools": [
+          "GetContentVersionHistory"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "GetContentVersionHistory"
+        ]
+      }
+    },
+    {
+      "id": "GetPreviewHtml",
+      "group": "builtin-tools",
+      "summary": "Preview HTML for home (needs preview token).",
+      "prompt": "Use GetPreviewHtml only for the home page and summarize the HTML title.",
+      "request": {
+        "enabledBuiltInTools": [
+          "GetPreviewHtml"
+        ],
+        "authoringSurface": "preview",
+        "contentPath": "/site/website/index.xml"
+      },
+      "expect": {
+        "toolsAny": [
+          "GetPreviewHtml"
+        ]
+      }
+    },
+    {
+      "id": "FetchHttpUrl",
+      "group": "builtin-tools",
+      "summary": "Fetch public URL.",
+      "prompt": "Use FetchHttpUrl only to fetch https://example.com and report the page title.",
+      "request": {
+        "enabledBuiltInTools": [
+          "FetchHttpUrl"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "FetchHttpUrl"
+        ]
+      }
+    },
+    {
+      "id": "PostHttpUrl",
+      "group": "builtin-tools",
+      "summary": "POST to httpbin (optional).",
+      "prompt": "Use PostHttpUrl only to POST JSON {\"test\":true} to https://httpbin.org/post and report the echoed json field.",
+      "request": {
+        "enabledBuiltInTools": [
+          "PostHttpUrl"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "PostHttpUrl"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_HTTP_POST"
+    },
+    {
+      "id": "WebSearch",
+      "group": "builtin-tools",
+      "summary": "Built-in web search.",
+      "prompt": "Use WebSearch only: who founded CrafterCMS?",
+      "request": {
+        "enabledBuiltInTools": [
+          "WebSearch"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "WebSearch"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WEB_SEARCH"
+    },
+    {
+      "id": "SerpApiWebSearch",
+      "group": "builtin-tools",
+      "summary": "SerpAPI web search (optional keys).",
+      "prompt": "Use SerpApiWebSearch only: latest CrafterCMS release news.",
+      "request": {
+        "enabledBuiltInTools": [
+          "SerpApiWebSearch"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "SerpApiWebSearch"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_SERPAPI"
+    },
+    {
+      "id": "ConsultCrafterQ",
+      "group": "builtin-tools",
+      "summary": "CrafterQ integration (optional).",
+      "prompt": "Use ConsultCrafterQ only: what is Experience Builder?",
+      "request": {
+        "enabledBuiltInTools": [
+          "ConsultCrafterQ"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "ConsultCrafterQ"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_CRAFTERQ"
+    },
+    {
+      "id": "SlackPostMessage",
+      "group": "builtin-tools",
+      "summary": "Slack post (optional webhook).",
+      "prompt": "Use SlackPostMessage only with a test message \"matrix harness ping\".",
+      "request": {
+        "enabledBuiltInTools": [
+          "SlackPostMessage"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "SlackPostMessage"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_SLACK"
+    },
+    {
+      "id": "ResearchSiteContent",
+      "group": "builtin-tools",
+      "summary": "Research site content index.",
+      "prompt": "Use ResearchSiteContent only to find pages mentioning home.",
+      "request": {
+        "enabledBuiltInTools": [
+          "ResearchSiteContent"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "ResearchSiteContent"
+        ]
+      }
+    },
+    {
+      "id": "QueryExpertGuidance",
+      "group": "builtin-tools",
+      "summary": "Expert guidance query (requires enabled agent skills + embeddings API).",
+      "prompt": "Use QueryExpertGuidance only: best practices for CrafterCMS content modeling.",
+      "request": {
+        "enabledBuiltInTools": [
+          "QueryExpertGuidance"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "QueryExpertGuidance"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_EXPERT_GUIDANCE"
+    },
+    {
+      "id": "GeneratePlaceholderImage",
+      "group": "builtin-tools",
+      "summary": "Placeholder image generation.",
+      "prompt": "Use GeneratePlaceholderImage only: 64x64 gray placeholder.",
+      "request": {
+        "enabledBuiltInTools": [
+          "GeneratePlaceholderImage"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "GeneratePlaceholderImage"
+        ]
+      }
+    },
+    {
+      "id": "GenerateImage",
+      "group": "builtin-tools",
+      "summary": "LLM image generation.",
+      "prompt": "Use GenerateImage only: simple blue circle on white, 256x256.",
+      "request": {
+        "enabledBuiltInTools": [
+          "GenerateImage"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "GenerateImage"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_IMAGE"
+    },
+    {
+      "id": "GenerateTextNoTools",
+      "group": "builtin-tools",
+      "summary": "Inner one-shot completion tool.",
+      "prompt": "You must call the GenerateTextNoTools tool exactly once with userPrompt set to the literal string harness-ok. Do not answer in prose without calling the tool.",
+      "request": {
+        "enabledBuiltInTools": [
+          "GenerateTextNoTools"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "GenerateTextNoTools"
+        ],
+        "recipeIdSoft": false
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_GENERATE_TEXT_NO_TOOLS"
+    },
+    {
+      "id": "TranslateContentItem",
+      "group": "builtin-tools",
+      "summary": "Translate single item.",
+      "prompt": "Use TranslateContentItem only to translate /site/website/index.xml title to French.",
+      "request": {
+        "enabledBuiltInTools": [
+          "TranslateContentItem"
+        ],
+        "authoringSurface": "preview",
+        "contentPath": "/site/website/index.xml"
+      },
+      "expect": {
+        "toolsAny": [
+          "TranslateContentItem"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+    },
+    {
+      "id": "TranslateContentBatch",
+      "group": "builtin-tools",
+      "summary": "Batch translate scoped paths.",
+      "prompt": "Use ListContentDependencyScope then TranslateContentBatch only to translate /site/website/index.xml to Spanish.",
+      "request": {
+        "enabledBuiltInTools": [
+          "ListContentDependencyScope",
+          "TranslateContentBatch"
+        ],
+        "authoringSurface": "preview",
+        "contentPath": "/site/website/index.xml"
+      },
+      "expect": {
+        "toolsAny": [
+          "TranslateContentBatch"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+    },
+    {
+      "id": "TransformContentSubgraph",
+      "group": "builtin-tools",
+      "summary": "Transform content subgraph (off-wire unless ENABLED_ON_WIRE in plugin source).",
+      "prompt": "Use TransformContentSubgraph only on /site/website/index.xml to list field ids (no writes).",
+      "request": {
+        "enabledBuiltInTools": [
+          "TransformContentSubgraph"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "TransformContentSubgraph"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_TRANSFORM_SUBGRAPH"
+    },
+    {
+      "id": "WriteContent",
+      "group": "builtin-tools",
+      "summary": "WriteContent (destructive).",
+      "prompt": "Use WriteContent only to create /site/components/matrix-harness/ping.xml as a minimal component stub if the type exists; otherwise explain why not.",
+      "request": {
+        "enabledBuiltInTools": [
+          "WriteContent"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "WriteContent"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+    },
+    {
+      "id": "ListPagesAndComponents",
+      "group": "builtin-tools",
+      "summary": "List pages and components.",
+      "prompt": "Use ListPagesAndComponents only and list the first five page paths.",
+      "request": {
+        "enabledBuiltInTools": [
+          "ListPagesAndComponents"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "ListPagesAndComponents"
+        ]
+      }
+    },
+    {
+      "id": "update_template",
+      "group": "builtin-tools",
+      "summary": "Update FTL template (destructive).",
+      "prompt": "Use analyze_template then update_template only on /templates/web/pages/home.ftl — describe one safe comment-only change, do not apply unless sure.",
+      "request": {
+        "enabledBuiltInTools": [
+          "analyze_template",
+          "update_template"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "analyze_template"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+    },
+    {
+      "id": "update_content",
+      "group": "builtin-tools",
+      "summary": "Update repository XML (destructive).",
+      "prompt": "Use GetContent and update_content only on /site/website/index.xml — propose a title change but skip write unless confirmed.",
+      "request": {
+        "enabledBuiltInTools": [
+          "GetContent",
+          "update_content"
+        ],
+        "contentPath": "/site/website/index.xml"
+      },
+      "expect": {
+        "toolsAny": [
+          "GetContent"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+    },
+    {
+      "id": "update_content_type",
+      "group": "builtin-tools",
+      "summary": "Update content type definition (destructive).",
+      "prompt": "Use GetContentTypeFormDefinition and update_content_type only for /page/home — read-only summary.",
+      "request": {
+        "enabledBuiltInTools": [
+          "GetContentTypeFormDefinition",
+          "update_content_type"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "GetContentTypeFormDefinition"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+    },
+    {
+      "id": "analyze_template",
+      "group": "builtin-tools",
+      "summary": "Analyze FTL template.",
+      "prompt": "Use analyze_template only on /templates/web/pages/home.ftl and summarize structure.",
+      "request": {
+        "enabledBuiltInTools": [
+          "analyze_template"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "analyze_template"
+        ]
+      }
+    },
+    {
+      "id": "publish_content",
+      "group": "builtin-tools",
+      "summary": "Publish content (destructive).",
+      "prompt": "Use publish_content only with publishScope=item for /site/website/index.xml.",
+      "request": {
+        "enabledBuiltInTools": [
+          "publish_content"
+        ],
+        "contentPath": "/site/website/index.xml"
+      },
+      "expect": {
+        "toolsAny": [
+          "publish_content"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_PUBLISH"
+    },
+    {
+      "id": "GetCrafterizingPlaybook",
+      "group": "builtin-tools",
+      "summary": "Crafterizing playbook retrieval.",
+      "prompt": "Use GetCrafterizingPlaybook only and summarize the first section.",
+      "request": {
+        "enabledBuiltInTools": [
+          "GetCrafterizingPlaybook"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "GetCrafterizingPlaybook"
+        ]
+      }
+    },
+    {
+      "id": "revert_change",
+      "group": "builtin-tools",
+      "summary": "Revert last change (destructive).",
+      "prompt": "Use revert_change only for the last edit on /site/website/index.xml if any.",
+      "request": {
+        "enabledBuiltInTools": [
+          "revert_change"
+        ],
+        "contentPath": "/site/website/index.xml"
+      },
+      "expect": {
+        "toolsAny": [
+          "revert_change"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+    },
+    {
+      "id": "InvokeSiteUserTool",
+      "group": "builtin-tools",
+      "summary": "Site-defined user tool (site-specific).",
+      "prompt": "Use InvokeSiteUserTool only if a site user tool exists; list available tools first.",
+      "request": {
+        "enabledBuiltInTools": [
+          "InvokeSiteUserTool"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "InvokeSiteUserTool"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_SITE_USER_TOOLS"
+    }
+  ]
+}

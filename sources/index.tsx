@@ -27,9 +27,16 @@ import AiAssistantProjectToolsConfiguration, {
 } from './src/AiAssistantProjectToolsConfiguration';
 import { installAiAssistantContentTypesHighlightPatch } from './src/aiAssistantContentTypesHighlightPatch';
 import { installRemoteImageDropImportBridge } from './src/aiAssistantRemoteImageDropBridge';
+import { patchAllStoredIcePanelPagesInLocalStorage } from './src/aiAssistantPluginDescriptor';
+import { authoringSiteIdFromWindow } from './src/aiAssistantStudioUiConfig';
 
 installRemoteImageDropImportBridge();
 installAiAssistantContentTypesHighlightPatch();
+
+const bootstrapSiteId = authoringSiteIdFromWindow();
+if (bootstrapSiteId) {
+  patchAllStoredIcePanelPagesInLocalStorage(bootstrapSiteId);
+}
 
 const plugin: PluginDescriptor = {
   locales: undefined,

@@ -5,16 +5,20 @@
  *
  * LLM backend (OpenAI, proxy, mock gateway, etc.) is whatever Studio/JVM is configured for — this script only drives HTTP.
  *
- * Requires: Node 18+, live Studio, CRAFTER_STUDIO_TOKEN.
+ * Requires: Node 18+, live Studio, CRAFTER_STUDIO_TOKEN (env or scripts/.studio-token).
  * **agentId:** `CHAT_AGENT_ID`, scenario `defaults.agentId`, first chat row `agentId` in
  * `config/studio/ai-assistant/agents.json` (sandbox content API), else default UUID (`AI_ASSISTANT_DEFAULT_AGENT_ID`).
  *
  * Does not assert exact LLM wording; asserts HTTP 200 and stream completion (`metadata.completed`), or fails on
  * `metadata.error` / incomplete stream.
  *
+ * Optional per-turn assertions (`turn.expect`):
+ *   recipeId, recipeOutcome (default matched), toolsAny, toolsAll, forbidTools, maxToolStarts
+ * Optional turn flags: optional, skipUnless (env var name), freshChat, group (filter via CHAT_SCENARIO_GROUP).
+ *
  * Usage (repo root):
- *   export CRAFTER_STUDIO_TOKEN='…'
  *   node scripts/test/functional/run-chat-scenarios.mjs [path/to/scenarios.json]
+ *   (JWT from CRAFTER_STUDIO_TOKEN or scripts/.studio-token — same as install-plugin.sh)
  *
  * Invoked by `./scripts/test/run-all.sh` step 4 when Studio is live (opt out: `RUN_ALL_SKIP_CHAT_SCENARIOS=1`).
  *
@@ -23,10 +27,26 @@
  *   CHAT_AGENT_ID         Force agent id (optional if discoverable from agents.json or default UUID works)
  *   CHAT_PREVIEW_TOKEN    crafterPreview cookie (recommended for translate / GetPreviewHtml tools)
  *   CHAT_TURN_TIMEOUT_MS  Per-turn wall clock (default 180000)
+  CHAT_SCENARIO_GROUP   Run only turns with matching group (intent-recipes | builtin-tools)
+  CHAT_SKIP_OPTIONAL    When 1, skip turns marked optional or skipUnless without env
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { evaluateExpectations, summarizeSseTelemetry } from '../lib/sse-telemetry.mjs';
+
+/** Same as scripts/lib/studio-auth.sh → scripts/.studio-token (gitignored). */
+function loadStudioTokenFromRepoFile() {
+  if (process.env.CRAFTER_STUDIO_TOKEN?.trim()) return;
+  const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../../..');
+  const tokenFile = join(repoRoot, 'scripts/.studio-token');
+  if (!existsSync(tokenFile)) return;
+  const raw = readFileSync(tokenFile, 'utf8');
+  const m = raw.match(/^\s*export\s+CRAFTER_STUDIO_TOKEN=(['"])([\s\S]*?)\1\s*$/m);
+  if (m?.[2]) process.env.CRAFTER_STUDIO_TOKEN = m[2];
+}
 
 /** Same value as {@link AI_ASSISTANT_DEFAULT_AGENT_ID} in sources/src/agentConfig.ts */
 const DEFAULT_AGENT_ID = '019c7237-478b-7f98-9a5c-87144c3fb010';
@@ -39,7 +59,7 @@ Usage:
 
 Env (required unless in JSON defaults):
   CRAFTER_STUDIO_URL     Base URL (default http://localhost:8080)
-  CRAFTER_STUDIO_TOKEN   Bearer JWT
+  CRAFTER_STUDIO_TOKEN   Bearer JWT (or scripts/.studio-token)
 
 Agent id (first match wins):
   CHAT_AGENT_ID          Optional explicit id
@@ -240,8 +260,18 @@ async function runTurn({ baseUrl, siteId, token, previewToken, body, timeoutMs }
     clearTimeout(timer);
   }
 
+  const telemetry = summarizeSseTelemetry(state.events);
+
   if (state.err) {
-    return { ok: false, httpStatus: res.status, reason: `Stream error: ${state.errMsg}`, ms: Date.now() - t0, firstTokenMs: state.firstTokenMs };
+    return {
+      ok: false,
+      httpStatus: res.status,
+      reason: `Stream error: ${state.errMsg}`,
+      ms: Date.now() - t0,
+      firstTokenMs: state.firstTokenMs,
+      events: state.events,
+      telemetry,
+    };
   }
   if (!state.completed) {
     return {
@@ -250,6 +280,8 @@ async function runTurn({ baseUrl, siteId, token, previewToken, body, timeoutMs }
       reason: 'Stream ended without metadata.completed',
       ms: Date.now() - t0,
       firstTokenMs: state.firstTokenMs,
+      events: state.events,
+      telemetry,
     };
   }
   return {
@@ -258,7 +290,24 @@ async function runTurn({ baseUrl, siteId, token, previewToken, body, timeoutMs }
     ms: Date.now() - t0,
     firstTokenMs: state.firstTokenMs,
     eventCount: state.events.length,
+    events: state.events,
+    telemetry,
   };
+}
+
+function shouldSkipTurn(turn) {
+  if (process.env.CHAT_SKIP_OPTIONAL === '1' && turn.optional) {
+    return 'optional (CHAT_SKIP_OPTIONAL=1)';
+  }
+  const skipUnless = String(turn.skipUnless || '').trim();
+  if (skipUnless && !process.env[skipUnless]) {
+    return `skipUnless ${skipUnless} not set`;
+  }
+  const groupFilter = String(process.env.CHAT_SCENARIO_GROUP || '').trim();
+  if (groupFilter && turn.group && turn.group !== groupFilter) {
+    return `group ${turn.group} != ${groupFilter}`;
+  }
+  return null;
 }
 
 async function main() {
@@ -273,6 +322,8 @@ async function main() {
   const doc = JSON.parse(raw);
   const defaults = doc.defaults || {};
   const turns = doc.turns || [];
+
+  loadStudioTokenFromRepoFile();
 
   const baseUrl = process.env.CRAFTER_STUDIO_URL || 'http://localhost:8080';
   const token = process.env.CRAFTER_STUDIO_TOKEN || '';
@@ -295,14 +346,32 @@ async function main() {
     process.exit(2);
   }
 
-  const chatId = randomUUID();
+  let chatId = randomUUID();
   console.log(`Scenarios: ${scenarioPath}`);
   console.log(`Studio: ${baseUrl}  siteId=${siteId}  agentId=${agentId}  chatId=${chatId}`);
+  if (process.env.CHAT_SCENARIO_GROUP) {
+    console.log(`Group filter: ${process.env.CHAT_SCENARIO_GROUP}`);
+  }
   console.log('');
 
   let failed = 0;
+  let skipped = 0;
+  let passed = 0;
   for (const turn of turns) {
     const id = turn.id || '(no id)';
+    const skipReason = shouldSkipTurn(turn);
+    if (skipReason) {
+      skipped++;
+      console.log(`⏭ ${id}: skipped (${skipReason})`);
+      console.log('');
+      continue;
+    }
+
+    if (turn.freshChat) {
+      chatId = randomUUID();
+      console.log(`  (fresh chatId=${chatId})`);
+    }
+
     const body = {
       ...defaults,
       ...(turn.request || {}),
@@ -318,9 +387,32 @@ async function main() {
       const r = await runTurn({ baseUrl, siteId, token, previewToken, body, timeoutMs });
       const wall = Date.now() - tStart;
       if (r.ok) {
-        console.log(
-          `  ✅ completed  total=${r.ms}ms  first-chunk≈${r.firstTokenMs != null ? `${r.firstTokenMs}ms` : 'n/a'}  events=${r.eventCount}`,
+        const { failures: expectFailures, warnings: expectWarnings } = evaluateExpectations(
+          r.telemetry,
+          turn.expect,
         );
+        for (const w of expectWarnings) {
+          console.log(`  ⚠️  ${w}`);
+        }
+        if (expectFailures.length) {
+          failed++;
+          console.log(`  ❌ expectations failed: ${expectFailures.join('; ')}  (wall ${wall}ms)`);
+          if (r.telemetry?.matchedRecipes?.length) {
+            console.log(`     recipes: ${r.telemetry.matchedRecipes.join(', ')}`);
+          }
+          if (r.telemetry?.toolsStarted?.length) {
+            console.log(`     tools: ${r.telemetry.toolsStarted.join(', ')}`);
+          }
+        } else {
+          passed++;
+          const recipeNote =
+            r.telemetry?.matchedRecipes?.length ? `  recipes=${r.telemetry.matchedRecipes.join(',')}` : '';
+          const toolNote =
+            r.telemetry?.toolsStarted?.length ? `  tools=${r.telemetry.toolsStarted.join(',')}` : '';
+          console.log(
+            `  ✅ completed  total=${r.ms}ms  first-chunk≈${r.firstTokenMs != null ? `${r.firstTokenMs}ms` : 'n/a'}  events=${r.eventCount}${recipeNote}${toolNote}`,
+          );
+        }
       } else {
         failed++;
         console.log(`  ❌ ${r.reason}  (wall ${wall}ms)`);
@@ -332,11 +424,12 @@ async function main() {
     console.log('');
   }
 
+  console.log(`Summary: passed=${passed} failed=${failed} skipped=${skipped}`);
   if (failed) {
     console.error(`Done: ${failed} turn(s) failed.`);
     process.exit(1);
   }
-  console.log('Done: all turns completed stream successfully.');
+  console.log('Done: all executed turns completed successfully.');
 }
 
 main().catch((e) => {

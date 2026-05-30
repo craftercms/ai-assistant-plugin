@@ -5,6 +5,7 @@ import groovy.json.JsonSlurper
 import org.springframework.ai.tool.function.FunctionToolCallback
 import plugins.org.craftercms.aiassistant.studio.engine.policy.ToolsLoopWirePolicy
 import plugins.org.craftercms.aiassistant.studio.engine.policy.ToolsLoopWirePolicyRegistry
+import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiSandboxClock
 
 import java.util.ArrayList
 import java.util.LinkedHashMap
@@ -308,7 +309,7 @@ final class ProseDeclaredToolCalls {
    * @param argsJson JSON object string for {@code function.arguments}
    */
   static Map buildToolCallMap(String wireName, String argsJson) {
-    String id = 'prose_' + wireName + '_' + Long.toHexString(System.nanoTime())
+    String id = 'prose_' + wireName + '_' + StudioAiSandboxClock.uniqueHexSuffix()
     return [
       id      : id,
       type    : 'function',

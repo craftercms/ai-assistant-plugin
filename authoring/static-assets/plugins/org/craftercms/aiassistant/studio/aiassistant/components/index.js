@@ -30,7 +30,7 @@ const DragIndicatorRounded = craftercms.utils.constants.components.get('@mui/ico
 const { createSvgIcon: createSvgIcon$1 } = craftercms.libs.MaterialUI;
 const { createPortal } = craftercms.libs.ReactDOM;
 const ToolsPanelListItemButton = craftercms.components.ToolsPanelListItemButton && Object.prototype.hasOwnProperty.call(craftercms.components.ToolsPanelListItemButton, 'default') ? craftercms.components.ToolsPanelListItemButton['default'] : craftercms.components.ToolsPanelListItemButton;
-const { createToolsPanelPage, createWidgetDescriptor } = craftercms.utils.state;
+const { setStoredICEToolsPanelPage, createToolsPanelPage, createWidgetDescriptor } = craftercms.utils.state;
 const RemoveRounded = craftercms.utils.constants.components.get('@mui/icons-material/RemoveRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/RemoveRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/RemoveRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/RemoveRounded');
 const OpenInBrowserRounded = craftercms.utils.constants.components.get('@mui/icons-material/OpenInBrowserRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/OpenInBrowserRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/OpenInBrowserRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/OpenInBrowserRounded');
 const { catchError } = craftercms.libs.rxjs;
@@ -238,6 +238,7 @@ const initToolbarConfig = /*#__PURE__*/ createAction('INIT_TOOLBAR_CONFIG');
 // endregion
 // region ICE panel stack
 const pushIcePanelPage = /*#__PURE__*/ createAction('PUSH_ICE_PANEL_PAGE');
+const popIcePanelPage = /*#__PURE__*/ createAction('POP_ICE_PANEL_PAGE');
 
 /*
  * Copyright (C) 2007-2022 Crafter Software Corporation. All Rights Reserved.
@@ -33205,6 +33206,27 @@ const AutonomousAgentsMarkIcon = createSvgIcon$1(jsxs("svg", { viewBox: "0 0 48 
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+function useActiveSite() {
+  const id = useActiveSiteId();
+  return useSelector((state) => state.sites.byId[id]);
+}
+
+/*
+ * Copyright (C) 2007-2022 Crafter Software Corporation. All Rights Reserved.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License version 3 as published by
+ * the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 // region Batch Actions
 const batchActions = /*#__PURE__*/ createAction('BATCH_ACTIONS');
 // endregion
@@ -34271,6 +34293,126 @@ function dispatchPreviewToolbarUiXmlFixIfNeeded(xml, dispatch) {
     dispatch(initToolbarConfig({ configXml: normalized }));
 }
 
+const AI_ASSISTANT_COMPONENTS_BUNDLE = 'components';
+const AI_ASSISTANT_COMPONENTS_FILE = 'index.js';
+const AI_ASSISTANT_PLUGIN_TYPE = 'aiassistant';
+/** Widget ids exported from the Studio components bundle and resolved via {@link importPlugin}. */
+const AI_ASSISTANT_WIDGET_IDS = new Set([
+    helperWidgetId,
+    dialogContentWidgetId,
+    formControlWidgetId,
+    autonomousAssistantsWidgetId,
+    popoverWidgetId,
+    logoWidgetId,
+    'craftercms.components.aiassistant.AiAssistantLogo',
+    projectToolsAiAssistantConfigWidgetId,
+    projectToolsCentralAgentsWidgetId,
+    projectToolsScriptsSandboxWidgetId,
+    projectToolsStudioUiSettingsWidgetId
+]);
+function isAiAssistantWidgetId(id) {
+    return typeof id === 'string' && AI_ASSISTANT_WIDGET_IDS.has(id);
+}
+function createAiAssistantPluginFileBuilder(siteId) {
+    const site = (siteId || '').trim();
+    return {
+        site,
+        type: AI_ASSISTANT_PLUGIN_TYPE,
+        name: AI_ASSISTANT_COMPONENTS_BUNDLE,
+        file: AI_ASSISTANT_COMPONENTS_FILE,
+        id: aiAssistantStudioPluginId
+    };
+}
+function pluginNeedsSite(plugin) {
+    if (!plugin || typeof plugin !== 'object')
+        return true;
+    return !plugin.site?.trim();
+}
+/** True when a widget tree references AI Assistant widgets without a loadable plugin descriptor. */
+function widgetDescriptorTreeNeedsAiAssistantPlugin(descriptor) {
+    if (!descriptor || typeof descriptor !== 'object')
+        return false;
+    const d = descriptor;
+    if (isAiAssistantWidgetId(d.id) && pluginNeedsSite(d.plugin))
+        return true;
+    const nested = d.configuration?.widgets;
+    if (Array.isArray(nested)) {
+        return nested.some((w) => widgetDescriptorTreeNeedsAiAssistantPlugin(w));
+    }
+    return false;
+}
+/** Attach {@link createAiAssistantPluginFileBuilder} to AI Assistant widgets missing `plugin.site`. */
+function patchWidgetDescriptorTreeWithAiAssistantPlugin(descriptor, siteId) {
+    if (!descriptor || typeof descriptor !== 'object')
+        return descriptor;
+    const d = descriptor;
+    const next = { ...d };
+    if (isAiAssistantWidgetId(next.id) && pluginNeedsSite(next.plugin)) {
+        next.plugin = createAiAssistantPluginFileBuilder(siteId);
+    }
+    const nested = next.configuration?.widgets;
+    if (Array.isArray(nested)) {
+        next.configuration = {
+            ...next.configuration,
+            widgets: nested.map((w) => patchWidgetDescriptorTreeWithAiAssistantPlugin(w, siteId))
+        };
+    }
+    return next;
+}
+const ICE_PANEL_PAGE_STORAGE_PREFIX = '.ICEToolsPanel.';
+function icePanelStorageKey(username, siteUuid) {
+    return `craftercms.${username}${ICE_PANEL_PAGE_STORAGE_PREFIX}${siteUuid}`;
+}
+/** Patch persisted ICE panel pages saved before plugin descriptors were embedded (cold-reload race). */
+function patchStoredIcePanelPageInLocalStorage(siteUuid, username, siteId) {
+    if (typeof localStorage === 'undefined' || !siteUuid?.trim() || !username?.trim() || !siteId?.trim()) {
+        return null;
+    }
+    const key = icePanelStorageKey(username, siteUuid);
+    const raw = localStorage.getItem(key);
+    if (!raw)
+        return null;
+    let parsed;
+    try {
+        parsed = JSON.parse(raw);
+    }
+    catch {
+        return null;
+    }
+    if (!widgetDescriptorTreeNeedsAiAssistantPlugin(parsed))
+        return null;
+    const patched = patchWidgetDescriptorTreeWithAiAssistantPlugin(parsed, siteId);
+    try {
+        localStorage.setItem(key, JSON.stringify(patched));
+    }
+    catch {
+        // ignore quota / private mode
+    }
+    return patched;
+}
+/** Best-effort migration for any persisted ICE panel page missing plugin metadata. */
+function patchAllStoredIcePanelPagesInLocalStorage(siteId) {
+    if (typeof localStorage === 'undefined' || !siteId.trim())
+        return;
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key?.includes(ICE_PANEL_PAGE_STORAGE_PREFIX))
+            continue;
+        try {
+            const raw = localStorage.getItem(key);
+            if (!raw)
+                continue;
+            const parsed = JSON.parse(raw);
+            if (!widgetDescriptorTreeNeedsAiAssistantPlugin(parsed))
+                continue;
+            localStorage.setItem(key, JSON.stringify(patchWidgetDescriptorTreeWithAiAssistantPlugin(parsed, siteId)));
+        }
+        catch {
+            // ignore malformed entries
+        }
+    }
+}
+
 const DIALOG_WIDTH_STORAGE_KEY = 'aiassistant-dialog-width';
 const DEFAULT_DIALOG_WIDTH = 480;
 const MIN_DIALOG_WIDTH = 320;
@@ -34343,6 +34485,9 @@ function AiAssistantHelper(props) {
     const ui = readHelperUi(props) ?? 'ListItemButton';
     const iceChatCfg = useMemo(() => readIceChatConfiguration(props), [configuration, props]);
     const activeSiteId = useActiveSiteId();
+    const { uuid: activeSiteUuid } = useActiveSite();
+    const { username } = useSelector((state) => state.user);
+    const icePanelStack = useSelector((state) => state.preview.icePanelStack);
     const studioUiSiteKey = useMemo(() => effectiveStudioSiteId(activeSiteId), [activeSiteId]);
     const siteId = studioUiSiteKey || 'default';
     const subscribeUi = useCallback((onStoreChange) => subscribeStudioUiConfigChanged(studioUiSiteKey, onStoreChange), [studioUiSiteKey]);
@@ -34351,6 +34496,21 @@ function AiAssistantHelper(props) {
     useEffect(() => {
         dispatchPreviewToolbarUiXmlFixIfNeeded(studioUiXml, dispatch);
     }, [studioUiXml, dispatch]);
+    // Cold reload: ICE panel may restore a stored page before the components bundle registers widgets.
+    // Embed the plugin descriptor so Studio's Widget can lazy-import the bundle; repair legacy stored pages too.
+    useEffect(() => {
+        if (iceChatCfg || !studioUiSiteKey)
+            return;
+        patchStoredIcePanelPageInLocalStorage(activeSiteUuid ?? '', username, studioUiSiteKey);
+        const top = icePanelStack[icePanelStack.length - 1];
+        if (!top || !widgetDescriptorTreeNeedsAiAssistantPlugin(top))
+            return;
+        const fixed = patchWidgetDescriptorTreeWithAiAssistantPlugin(top, studioUiSiteKey);
+        if (activeSiteUuid && username) {
+            setStoredICEToolsPanelPage(activeSiteUuid, username, fixed);
+        }
+        dispatch(batchActions([popIcePanelPage(), pushIcePanelPage(fixed)]));
+    }, [iceChatCfg, studioUiSiteKey, activeSiteUuid, username, icePanelStack, dispatch]);
     const [siteChatOverlay, setSiteChatOverlay] = useState(null);
     useEffect(() => {
         if (!studioUiSiteKey || iceChatCfg) {
@@ -34389,11 +34549,13 @@ function AiAssistantHelper(props) {
         setMenuAnchor(null);
         const effectiveId = agent?.id?.trim() || '';
         const resolved = { ...agent, id: effectiveId };
+        const plugin = createAiAssistantPluginFileBuilder(studioUiSiteKey);
         dispatch(batchActions([
             setPreviewEditMode({ editMode: true }),
             pushIcePanelPage(createToolsPanelPage(resolved.label, [
                 createWidgetDescriptor({
                     id: helperWidgetId,
+                    plugin,
                     configuration: {
                         iceChatOnly: true,
                         agentId: effectiveId,
@@ -77106,6 +77268,10 @@ function installRemoteImageDropImportBridge() {
 
 installRemoteImageDropImportBridge();
 installAiAssistantContentTypesHighlightPatch();
+const bootstrapSiteId = authoringSiteIdFromWindow();
+if (bootstrapSiteId) {
+    patchAllStoredIcePanelPagesInLocalStorage(bootstrapSiteId);
+}
 const plugin = {
     locales: undefined,
     scripts: undefined,

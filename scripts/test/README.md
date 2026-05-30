@@ -46,3 +46,37 @@ node scripts/test/functional/run-chat-scenarios.mjs scripts/test/scenarios/chat-
 ```
 
 The four turns are: **hello**, **field-edit** (form-engine context), **translate-page** (preview; use **`CHAT_PREVIEW_TOKEN`** / **`crafterPreview`** for preview tools), **generate-image** (needs image tool + keys on the server). To skip chat when using **`run-all.sh`**: **`RUN_ALL_SKIP_CHAT_SCENARIOS=1 ./scripts/test/run-all.sh`**.
+
+## Tool + intent-recipe matrix (every CORE tool and bundled recipe)
+
+**Offline (always in `run-all.sh` step 1 when `node` is available):**
+
+- `tool-id-parity.mjs` — `StudioAiToolRegistry.CORE_TOOLS` wire names vs `STUDIO_AI_BUILTIN_TOOL_IDS` in TypeScript
+- `recipe-catalog-offline.mjs` — bundled `authoring-intent-recipes-default.json` structure
+- `generate-tool-recipe-scenarios.mjs --check` — fixture coverage + committed JSON drift guard
+
+**Scenario files (generated; do not hand-edit):**
+
+- `scenarios/intent-recipes-all.json` — 13 recipes (+ prior-turn for `new_content_item_from_chat_draft`)
+- `scenarios/tools-all.json` — 31 built-in tools (one turn each with `enabledBuiltInTools`)
+
+Curated prompts live in `fixtures/tool-recipe-matrix.mjs`. Regenerate after adding a tool or recipe:
+
+```bash
+node scripts/test/functional/generate-tool-recipe-scenarios.mjs
+```
+
+**Live matrix** (long; requires JWT, LLM keys, **`intentRecipeRouting.enabled`** on the site):
+
+```bash
+export CRAFTER_STUDIO_URL=http://localhost:8080
+export CHAT_SITE_ID=your-site
+# Optional: CHAT_PREVIEW_TOKEN, CHAT_MATRIX_ALLOW_WRITES=1, CHAT_MATRIX_ALLOW_PUBLISH=1, CHAT_MATRIX_ALLOW_IMAGE=1, …
+./scripts/test/functional/run-tool-recipe-matrix.sh
+```
+
+By default **`CHAT_SKIP_OPTIONAL=1`** skips destructive/integration turns (writes, publish, SerpAPI, Slack, etc.). Unset or set env flags documented in `run-tool-recipe-matrix.sh` to include them.
+
+**Via `run-all.sh`:** `RUN_ALL_TOOL_RECIPE_MATRIX=1 ./scripts/test/run-all.sh` (adds step 5 after the four-turn smoke).
+
+**Per-turn SSE assertions** in scenario JSON (`turn.expect`): `recipeId`, `toolsAny`, `toolsAll`, `forbidTools`, `maxToolStarts`. Implemented in `lib/sse-telemetry.mjs` and enforced by `run-chat-scenarios.mjs`.

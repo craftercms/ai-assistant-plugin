@@ -1,0 +1,214 @@
+{
+  "description": "One turn per bundled intent recipe (generated from tool-recipe-matrix.mjs). Requires intentRecipeRouting.enabled on the site. Optional turns need env flags — see scripts/test/README.md.",
+  "defaults": {
+    "siteId": "aiat-2",
+    "llm": "openAI",
+    "llmModel": "gpt-4o-mini",
+    "authoringSurface": "formEngine",
+    "formEngineClientJsonApply": true,
+    "formEngineItemPath": "/site/website/index.xml",
+    "contentTypeId": "/page/home",
+    "contentTypeLabel": "Home",
+    "enableTools": true
+  },
+  "turns": [
+    {
+      "id": "web_research",
+      "group": "intent-recipes",
+      "summary": "Web search recipe (WebSearch force tool).",
+      "prompt": "Search the web for the latest headlines about renewable energy today. Cite sources briefly.",
+      "expect": {
+        "recipeId": "web_research",
+        "recipeIdSoft": true,
+        "toolsAny": [
+          "WebSearch"
+        ]
+      }
+    },
+    {
+      "id": "site_content_research",
+      "group": "intent-recipes",
+      "summary": "Site content research (ResearchSiteContent force tool).",
+      "prompt": "Search our site repository for pages about the home page and list what you find.",
+      "expect": {
+        "recipeId": "site_content_research",
+        "recipeIdSoft": true,
+        "toolsAny": [
+          "ResearchSiteContent"
+        ]
+      }
+    },
+    {
+      "id": "llm_research",
+      "group": "intent-recipes",
+      "summary": "General knowledge — tools loop disabled on recipe.",
+      "prompt": "Explain the difference between REST and GraphQL APIs in plain language.",
+      "expect": {
+        "maxToolStarts": 0
+      }
+    },
+    {
+      "id": "open_page_inquiry",
+      "group": "intent-recipes",
+      "summary": "Read-only summary of anchored page.",
+      "prompt": "Summarize this page — what is it about?",
+      "request": {
+        "authoringSurface": "preview",
+        "contentPath": "/site/website/index.xml",
+        "contentTypeId": "/page/home",
+        "contentTypeLabel": "Home"
+      },
+      "expect": {
+        "recipeId": "open_page_inquiry",
+        "toolsAny": [
+          "GetContent"
+        ]
+      }
+    },
+    {
+      "id": "modify_page_content",
+      "group": "intent-recipes",
+      "summary": "Modify anchored page content (no write in harness unless CHAT_MATRIX_ALLOW_WRITES).",
+      "prompt": "Update the page title (title_t) on this page to exactly: Matrix harness modify title. Use update tools if available.",
+      "request": {
+        "authoringSurface": "preview",
+        "contentPath": "/site/website/index.xml",
+        "contentTypeId": "/page/home",
+        "contentTypeLabel": "Home"
+      },
+      "expect": {
+        "recipeId": "modify_page_content"
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+    },
+    {
+      "id": "revert_content_version",
+      "group": "intent-recipes",
+      "summary": "Revert anchored item to prior version.",
+      "prompt": "Revert this page to the previous repository version.",
+      "request": {
+        "authoringSurface": "preview",
+        "contentPath": "/site/website/index.xml"
+      },
+      "expect": {
+        "recipeId": "revert_content_version"
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+    },
+    {
+      "id": "generate_image",
+      "group": "intent-recipes",
+      "summary": "Generate image recipe.",
+      "prompt": "Generate a simple 256x256 abstract test image for QA.",
+      "expect": {
+        "recipeId": "generate_image",
+        "toolsAny": [
+          "GenerateImage",
+          "GeneratePlaceholderImage"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_IMAGE"
+    },
+    {
+      "id": "template_display_change",
+      "group": "intent-recipes",
+      "summary": "Template / display change on anchored page.",
+      "prompt": "Change how this home page displays in the template — suggest a layout tweak using analyze/update template tools.",
+      "request": {
+        "authoringSurface": "preview",
+        "contentPath": "/site/website/index.xml",
+        "displayTemplate": "/templates/web/pages/home.ftl"
+      },
+      "expect": {
+        "recipeId": "template_display_change"
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+    },
+    {
+      "id": "publish_site",
+      "group": "intent-recipes",
+      "summary": "Publish entire site (destructive).",
+      "prompt": "Publish the entire site to delivery now.",
+      "expect": {
+        "recipeId": "publish_site"
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_PUBLISH"
+    },
+    {
+      "id": "publish_item",
+      "group": "intent-recipes",
+      "summary": "Publish single anchored item.",
+      "prompt": "Publish this page to delivery.",
+      "request": {
+        "authoringSurface": "preview",
+        "contentPath": "/site/website/index.xml"
+      },
+      "expect": {
+        "recipeId": "publish_item"
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_PUBLISH"
+    },
+    {
+      "id": "new_content_item_from_chat_draft-prior",
+      "summary": "Prior turn: assistant prose draft (not saved).",
+      "prompt": "Draft a short blog post about hiking in markdown with a title and two paragraphs. Do not save anything to the repository.",
+      "group": "intent-recipes",
+      "expect": {
+        "recipeId": "llm_research",
+        "maxToolStarts": 0
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+    },
+    {
+      "id": "new_content_item_from_chat_draft",
+      "group": "intent-recipes",
+      "summary": "Turn 2 — persist prior assistant draft (needs prior turn in same chat).",
+      "prompt": "Save the prior assistant draft as a new blog post in the repository.",
+      "expect": {
+        "recipeId": "new_content_item_from_chat_draft",
+        "toolsAny": [
+          "WriteContent"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+    },
+    {
+      "id": "new_content_item",
+      "group": "intent-recipes",
+      "summary": "Create brand-new repository item from scratch.",
+      "prompt": "Create a new generic page called matrix-harness-test with internal name Matrix Harness Test and title Matrix Harness Test.",
+      "expect": {
+        "recipeId": "new_content_item"
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES"
+    },
+    {
+      "id": "translate_content_item",
+      "group": "intent-recipes",
+      "summary": "Translate anchored page to French.",
+      "prompt": "Translate this page content to French using translation tools.",
+      "request": {
+        "authoringSurface": "preview",
+        "contentPath": "/site/website/index.xml",
+        "contentTypeId": "/page/home"
+      },
+      "expect": {
+        "recipeId": "translate_content_item",
+        "toolsAny": [
+          "TranslateContentItem",
+          "TranslateContentBatch",
+          "ListContentDependencyScope"
+        ]
+      }
+    }
+  ]
+}

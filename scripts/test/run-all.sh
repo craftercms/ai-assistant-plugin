@@ -16,6 +16,7 @@ set -euo pipefail
 #   CRAFTER_STUDIO_URL, INTEGRATION_SITE_ID — passed through when Studio checks run; CHAT_SITE_ID defaults to INTEGRATION_SITE_ID.
 #   CHAT_AGENT_ID — optional override; otherwise run-chat-scenarios.mjs discovers ui.xml or uses the default agent UUID.
 #   CHAT_SCENARIOS_FILE, CHAT_PREVIEW_TOKEN, CHAT_TURN_TIMEOUT_MS — see scripts/test/README.md.
+#   RUN_ALL_TOOL_RECIPE_MATRIX=1  After step 4, run full tool+recipe matrix (offline checks + live; long).
 #   CRAFTER_STUDIO_TOKEN or scripts/.studio-token — required unless RUN_ALL_SKIP_STUDIO=1.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -26,6 +27,9 @@ source "${REPO_ROOT}/scripts/lib/studio-auth.sh"
 _RUN_TOTAL=3
 if [[ "${RUN_ALL_SKIP_STUDIO:-}" != "1" ]]; then
   _RUN_TOTAL=4
+  if [[ "${RUN_ALL_TOOL_RECIPE_MATRIX:-}" == "1" ]]; then
+    _RUN_TOTAL=5
+  fi
 fi
 
 step() {
@@ -47,12 +51,17 @@ bash -n "${REPO_ROOT}/scripts/test/integration/e2e-site-lifecycle.sh"
 bash -n "${REPO_ROOT}/scripts/test/integration/include/plugin-stream-probe.inc.sh"
 bash -n "${REPO_ROOT}/scripts/test/integration/include/reporting.inc.sh"
 bash -n "${REPO_ROOT}/scripts/lib/studio-auth.sh"
-bash -n "${REPO_ROOT}/authoring/scripts/rest/plugins/org/craftercms/aiassistant/studio/aiassistant/secrets/index.get.groovy"
-bash -n "${REPO_ROOT}/authoring/scripts/rest/plugins/org/craftercms/aiassistant/studio/aiassistant/secrets/mutate.post.groovy"
 bash -n "${REPO_ROOT}/scripts/lib/emoji.inc.sh"
 bash -n "${REPO_ROOT}/scripts/test/run-all.sh"
+bash -n "${REPO_ROOT}/scripts/test/functional/run-tool-recipe-matrix.sh"
 if command -v node >/dev/null 2>&1; then
   node --check "${REPO_ROOT}/scripts/test/functional/run-chat-scenarios.mjs"
+  node --check "${REPO_ROOT}/scripts/test/functional/generate-tool-recipe-scenarios.mjs"
+  node --check "${REPO_ROOT}/scripts/test/functional/tool-id-parity.mjs"
+  node --check "${REPO_ROOT}/scripts/test/functional/recipe-catalog-offline.mjs"
+  node "${REPO_ROOT}/scripts/test/functional/tool-id-parity.mjs"
+  node "${REPO_ROOT}/scripts/test/functional/recipe-catalog-offline.mjs"
+  node "${REPO_ROOT}/scripts/test/functional/generate-tool-recipe-scenarios.mjs" --check
 fi
 REST_CONTRACTS_SELFTEST=1 "${REPO_ROOT}/scripts/test/functional/rest-contracts.sh"
 echo "${AI_OK} OK"
@@ -101,6 +110,15 @@ else
       fi
     fi
     node "${REPO_ROOT}/scripts/test/functional/run-chat-scenarios.mjs" "${scen}"
+    echo "${AI_OK} OK"
+  fi
+
+  if [[ "${RUN_ALL_TOOL_RECIPE_MATRIX:-}" == "1" ]]; then
+    step "5/${_RUN_TOTAL}  Tool + intent-recipe matrix (functional/run-tool-recipe-matrix.sh)"
+    if ! command -v node >/dev/null 2>&1; then
+      fail "node on PATH is required for tool/recipe matrix."
+    fi
+    RUN_TOOL_RECIPE_MATRIX_OFFLINE_ONLY=0 "${SCRIPT_DIR}/functional/run-tool-recipe-matrix.sh"
     echo "${AI_OK} OK"
   fi
 fi

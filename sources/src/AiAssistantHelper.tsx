@@ -2,11 +2,16 @@ import * as React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
+import useActiveSite from '@craftercms/studio-ui/hooks/useActiveSite';
 import useActiveSiteId from '@craftercms/studio-ui/hooks/useActiveSiteId';
 import ToolsPanelListItemButton from '@craftercms/studio-ui/components/ToolsPanelListItemButton';
 import { batchActions } from '@craftercms/studio-ui/state/actions/misc';
-import { pushIcePanelPage, setPreviewEditMode } from '@craftercms/studio-ui/state/actions/preview';
-import { createToolsPanelPage, createWidgetDescriptor } from '@craftercms/studio-ui/utils/state';
+import { popIcePanelPage, pushIcePanelPage, setPreviewEditMode } from '@craftercms/studio-ui/state/actions/preview';
+import {
+  createToolsPanelPage,
+  createWidgetDescriptor,
+  setStoredICEToolsPanelPage
+} from '@craftercms/studio-ui/utils/state';
 import {
   Box,
   Dialog,
@@ -48,6 +53,12 @@ import {
   syncReadStudioUiConfig
 } from './aiAssistantStudioUiConfig';
 import { dispatchPreviewToolbarUiXmlFixIfNeeded } from './aiAssistantPreviewToolbarUiXmlFix';
+import {
+  createAiAssistantPluginFileBuilder,
+  patchStoredIcePanelPageInLocalStorage,
+  patchWidgetDescriptorTreeWithAiAssistantPlugin,
+  widgetDescriptorTreeNeedsAiAssistantPlugin
+} from './aiAssistantPluginDescriptor';
 
 const DIALOG_WIDTH_STORAGE_KEY = 'aiassistant-dialog-width';
 const DEFAULT_DIALOG_WIDTH = 480;
@@ -133,6 +144,12 @@ export function AiAssistantHelper(props: Readonly<AiAssistantHelperProps>) {
   const ui = readHelperUi(props) ?? 'ListItemButton';
   const iceChatCfg = useMemo(() => readIceChatConfiguration(props), [configuration, props]);
   const activeSiteId = useActiveSiteId();
+  const { uuid: activeSiteUuid } = useActiveSite();
+  const { username } = useSelector((state: { user: { username: string } }) => state.user);
+  const icePanelStack = useSelector(
+    (state: { preview: { icePanelStack: ReturnType<typeof createWidgetDescriptor>[] } }) =>
+      state.preview.icePanelStack
+  );
   const studioUiSiteKey = useMemo(() => effectiveStudioSiteId(activeSiteId), [activeSiteId]);
   const siteId = studioUiSiteKey || 'default';
   const subscribeUi = useCallback(
@@ -151,6 +168,20 @@ export function AiAssistantHelper(props: Readonly<AiAssistantHelperProps>) {
   useEffect(() => {
     dispatchPreviewToolbarUiXmlFixIfNeeded(studioUiXml, dispatch);
   }, [studioUiXml, dispatch]);
+
+  // Cold reload: ICE panel may restore a stored page before the components bundle registers widgets.
+  // Embed the plugin descriptor so Studio's Widget can lazy-import the bundle; repair legacy stored pages too.
+  useEffect(() => {
+    if (iceChatCfg || !studioUiSiteKey) return;
+    patchStoredIcePanelPageInLocalStorage(activeSiteUuid ?? '', username, studioUiSiteKey);
+    const top = icePanelStack[icePanelStack.length - 1];
+    if (!top || !widgetDescriptorTreeNeedsAiAssistantPlugin(top)) return;
+    const fixed = patchWidgetDescriptorTreeWithAiAssistantPlugin(top, studioUiSiteKey);
+    if (activeSiteUuid && username) {
+      setStoredICEToolsPanelPage(activeSiteUuid, username, fixed);
+    }
+    dispatch(batchActions([popIcePanelPage(), pushIcePanelPage(fixed)]));
+  }, [iceChatCfg, studioUiSiteKey, activeSiteUuid, username, icePanelStack, dispatch]);
   const [siteChatOverlay, setSiteChatOverlay] = useState<SiteChatAgentsOverlayResult | null>(null);
   useEffect(() => {
     if (!studioUiSiteKey || iceChatCfg) {
@@ -192,6 +223,7 @@ export function AiAssistantHelper(props: Readonly<AiAssistantHelperProps>) {
     setMenuAnchor(null);
     const effectiveId = agent?.id?.trim() || '';
     const resolved = { ...agent, id: effectiveId };
+    const plugin = createAiAssistantPluginFileBuilder(studioUiSiteKey);
     dispatch(
       batchActions([
         setPreviewEditMode({ editMode: true }),
@@ -201,6 +233,7 @@ export function AiAssistantHelper(props: Readonly<AiAssistantHelperProps>) {
             [
               createWidgetDescriptor({
                 id: helperWidgetId,
+                plugin,
                 configuration: {
                   iceChatOnly: true,
                   agentId: effectiveId,
