@@ -29,6 +29,8 @@
  *   CHAT_PREVIEW_TOKEN    crafterPreview cookie (recommended for translate / GetPreviewHtml tools)
  *   CHAT_TURN_TIMEOUT_MS  Per-turn wall clock (default 180000)
   CHAT_SCENARIO_GROUP   Run only turns with matching group (intent-recipes | builtin-tools)
+  CHAT_LLM              Override defaults.llm for every turn (e.g. claude)
+  CHAT_LLM_MODEL        Override defaults.llmModel for every turn
   CHAT_SKIP_OPTIONAL    When 1, skip turns marked optional (integration optional still run when 0)
   CHAT_MATRIX_FULL      When 1, run write/publish optional turns (run-all sets this by default)
  */
@@ -328,6 +330,14 @@ async function main() {
   const raw = readFileSync(scenarioPath, 'utf8');
   const doc = JSON.parse(raw);
   const defaults = doc.defaults || {};
+  const llmOverride = String(process.env.CHAT_LLM || '').trim();
+  const llmModelOverride = String(process.env.CHAT_LLM_MODEL || '').trim();
+  if (llmOverride) {
+    defaults.llm = llmOverride;
+  }
+  if (llmModelOverride) {
+    defaults.llmModel = llmModelOverride;
+  }
   const turns = doc.turns || [];
 
   loadStudioTokenFromRepoFile();
@@ -358,6 +368,11 @@ async function main() {
   console.log(`Studio: ${baseUrl}  siteId=${siteId}  agentId=${agentId}  chatId=${chatId}`);
   if (process.env.CHAT_SCENARIO_GROUP) {
     console.log(`Group filter: ${process.env.CHAT_SCENARIO_GROUP}`);
+  }
+  if (llmOverride || llmModelOverride) {
+    console.log(
+      `LLM override: llm=${defaults.llm || '(unset)'} llmModel=${defaults.llmModel || '(unset)'}`,
+    );
   }
   console.log('');
 

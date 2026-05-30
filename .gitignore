@@ -16,3 +16,7 @@ scripts/.studio-token-b
 scripts/test/integration/create-site.json
 # Local chat scenario overrides (copy from scenarios/chat-scenarios.example.json)
 scripts/test/scenarios/chat-scenarios.json
+
+# Generated test run output (run-all.sh, run-chat-scenarios.mjs, rest-contracts.sh)
+scripts/test/.run-all-report.jsonl
+scripts/test/*.report.jsonl
