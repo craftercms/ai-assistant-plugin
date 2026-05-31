@@ -4,6 +4,7 @@
     {
       "id": "recipe_1779227205002",
       "title": "Propose DCO blog idea (Slack)",
+      "description": "Turn 1: author pasted a URL and wants a chat draft or summary (named topics). FetchHttpUrl only — final markdown must include ## Draft body with *Draft title:*, *Outline:*, and full *Draft blog:*. No WriteContent, no form defs, no repository create.",
       "chatEmoji": "\ud83d\udca1",
       "chatLineSuffix": "workflow",
       "toolsLoopAuthorUrlExclusive": true,
@@ -24,11 +25,47 @@
       ],
       "toolsLoopFetchHttpUrlWireMaxChars": 8000,
       "toolsLoopMaxFetchHttpUrlCalls": 1,
+      "deterministicMatch": [
+        {
+          "priority": 92,
+          "routerReason": "deterministic_draft_dco_blog",
+          "respectDontMatchHints": true,
+          "when": {
+            "allOf": [
+              { "authorMatchesRegex": "(?i)https?://[^\\s<>\"\\)\\]\\u00a0]+" },
+              {
+                "anyOf": [
+                  { "authorMatchesRegex": "(?i)\\bdraft\\b[^\\n]{0,120}\\b(?:blog|article|post)\\b" },
+                  { "authorMatchesRegex": "(?i)\\b(?:blog|article|post)\\b[^\\n]{0,80}\\bdraft\\b" },
+                  { "authorMatchesRegex": "(?i)\\bsummariz(?:e|ing)\\b[^\\n]{0,120}\\b(?:blog|article|post|topics)\\b" },
+                  { "authorMatchesRegex": "(?i)\\bfrom\\s+this\\s*:\\s*https?://" }
+                ]
+              },
+              {
+                "authorContainsNone": [
+                  "create a new",
+                  "save to repository",
+                  "make a post",
+                  "create a post",
+                  "save the draft",
+                  "WriteContent",
+                  "make a post from this draft",
+                  "post from this draft"
+                ]
+              }
+            ]
+          }
+        }
+      ],
       "matchHints": [
         "draft a blog",
         "draft blog",
+        "draft an article",
+        "draft article",
         "summarize from",
         "summarizing from",
+        "summarizing these",
+        "summarizing topics",
         "from this:",
         "from this url"
       ],
