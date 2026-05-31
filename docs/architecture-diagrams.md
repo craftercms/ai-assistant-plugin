@@ -19,6 +19,7 @@ Visual reference for the **Studio AI Assistant** plugin: system context, configu
 | **Scripted tools** | Site Groovy under **`user-tools/`**, invoked via **`InvokeSiteUserTool`**. |
 | **MCP tools** | Remote tools registered as **`mcp_<server>_<name>`** when **`mcpEnabled`** is true. |
 | **Recipe skills** | **Intent recipes** — orchestration that runs **before** the tools loop (match, prefetch, prelude, optional **`toolsLoopDisable`**). They route and prepare tool use; they are not another wire name beside `GetContent`. |
+| **Turn goal** | Plain-language objective for **this author message only** — classified by the intent router as **`turnGoal`** (+ optional **`successCriteria`**) and propagated through SSE telemetry and tools-loop prompts via **`AuthoringTurnGoal`**. |
 
 ---
 
@@ -29,7 +30,7 @@ Visual reference for the **Studio AI Assistant** plugin: system context, configu
 | **Administrators** | [Configuration model](#configuration-model-design) · [Setup workflow](#administrator-setup-workflow) · [Project Tools map](#project-tools-configuration-map) | What to configure, where files live, recommended order |
 | **Authors (users)** | [Author surfaces](#author-experience-user) · [Interactive chat journey](#interactive-chat-journey-user) | Where chat appears in Studio and what happens on send |
 | **Integrators / extension developers** | [Logical architecture](#logical-architecture-design) · [Site extension layout](#site-extension-layout-developer) · [Build pipeline](#build-and-deploy-pipeline-developer) | Scripts, tools, MCP, Rollup outputs |
-| **Plugin maintainers** | [System context](#system-context-architecture) · [Stream request path](#interactive-chat-request-path-developer) · [Component registration](#studio-ui-component-registration-developer) | End-to-end server and UI wiring |
+| **Plugin maintainers** | [System context](#system-context-architecture) · [Stream request path](#interactive-chat-request-path-developer) · [Turn goal propagation](#turn-goal-propagation-developer) · [Component registration](#studio-ui-component-registration-developer) | End-to-end server and UI wiring |
 
 ---
 
@@ -108,8 +109,8 @@ flowchart TB
   end
 
   subgraph orchestration["Orchestration (JVM)"]
-    Recipes["Router.route\n(intent recipe prelude, optional)"]
-    Orch["AiOrchestration"]
+    Recipes["Router.route\n(JSON classifier · AuthoringTurnGoal)"]
+    Orch["AiOrchestration\n(tools loop · turn goal in prompts)"]
     Tools["StudioAiToolRegistry\nAiOrchestrationTools.build\n+ StudioToolOperations"]
     Stream --> Recipes
     Recipes --> Orch
@@ -156,7 +157,7 @@ flowchart TB
 
   subgraph siteScripts["config/studio/scripts/aiassistant/"]
     ToolsJson["config/tools.json"]
-    RecipesJson["intent-recipes.json"]
+    RecipesJson["config/intent-recipes.json"]
     PromptsMd["prompts/*.md"]
     UserTools["user-tools/registry.json\n+ *.groovy"]
     ScriptLlm["llm/{id}/runtime.groovy"]
@@ -233,7 +234,7 @@ flowchart LR
   subgraph paths["Saved under config/studio/"]
     P1["scripts/aiassistant/config/studio-ui.json\n+ bulk form-definition edits"]
     P2["ai-assistant/agents.json"]
-    P3["scripts/aiassistant/intent-recipes.json\n+ tools.json flags"]
+    P3["scripts/aiassistant/config/intent-recipes.json\n+ tools.json flags"]
     P4["scripts/aiassistant/config/tools.json\nllm/ · imagegen/ · user-tools/"]
     P5["scripts/aiassistant/config/secrets.json"]
     P6["scripts/aiassistant/prompts/*.md"]
@@ -295,7 +296,7 @@ sequenceDiagram
 
   A->>UI: Type message / pick quick prompt
   UI->>S: POST /ai/stream (agentId, prompt, context)
-  Note over S: Merge agents.json · optional intent recipes · run tools
+  Note over S: Merge agents.json · intent routing SSE<br/>(turnGoal · recipe outcome) · run tools
   S-->>UI: SSE text chunks (+ tool-progress lines)
   L-->>S: Model tokens / tool calls
   S-->>UI: metadata.completed
@@ -318,18 +319,46 @@ flowchart TD
   POST["POST stream.post.groovy"] --> Body["Parse JSON body\nagentId · prompt · llm · …"]
   Body --> Merge["AiAssistantCentralAgentsMerge\nfill missing llm/model from agents.json"]
   Merge --> Norm["StudioAiLlmKind.normalize"]
-  Norm --> IR{intentRecipeRouting.enabled?}
-  IR -->|yes| Prelude["Router.route\nmatch · prefetch · prelude\n(AuthoringIntentRecipeEngine inside)"]
+  Norm --> Kind{Tools-loop LLM?}
+  Kind -->|no · claude etc.| Orch
+  Kind -->|yes| IR{intentRecipeRouting.enabled?}
+  IR -->|yes| Prelude["Router.route\nmatchPass · JSON-only router LLM\nAuthoringTurnGoal wire"]
   IR -->|no| Orch
-  Prelude --> Orch["AiOrchestration.chatStreamWithSpringAi"]
+  Prelude --> Orch["AiOrchestration.chatStreamWithSpringAi\napplyIntentRecipeRouteEffects"]
   Orch --> Branch{llm transport}
-  Branch -->|openAI xAI deepSeek llama gemini| Loop["Tools-loop RestClient\n+ StudioAiToolRegistry"]
-  Branch -->|claude| Anthropic["Spring AI Anthropic tool loop"]
+  Branch -->|openAI xAI deepSeek llama gemini| Loop["Tools-loop RestClient\n+ StudioAiToolRegistry\n(turn goal in user/system)"]
+  Branch -->|claude| Anthropic["Spring AI Anthropic tool loop\n(no intent prelude — not tools-loop LLM)"]
   Branch -->|script:id| Script["Site scriptLlm runtime.groovy"]
   Loop --> Tools["StudioToolOperations\ncontent · search · deploy · …"]
-  Loop --> SSE["SSE frames to client"]
+  Loop --> SSE["SSE frames to client\nintent-recipe-routing · tool-progress"]
   Anthropic --> SSE
   Script --> SSE
+```
+
+---
+
+<a id="turn-goal-propagation-developer"></a>
+
+## Turn goal propagation (developer)
+
+How **`turnGoal`** / **`successCriteria`** flow from the intent router into the tools loop (detail in [intent-recipe-routing.md](internals/intent-recipe-routing.md#turn-goal-through-the-tools-loop)).
+
+```mermaid
+flowchart TD
+  Author["Author message<br/>(Current request slice)"] --> Match["Router.matchPass"]
+  Match --> Json["AuthoringIntentRecipeRouter.parseRouterJson<br/>extractJsonPayload · mode · turnGoal"]
+  Json --> Resolve["AuthoringTurnGoal.resolveFromRouterDecision"]
+  Resolve --> Wire["wireAuthorTurnGoal<br/>(matched · chat_only · tool · plan)"]
+  Wire --> Tel["intentRecipeRouting SSE<br/>turnGoal · successCriteria"]
+  Wire --> Prefix["userTextForToolsLoop prefix"]
+  Wire --> Bundle["toolsLoopSessionBundle"]
+  Bundle --> Orch["AiOrchestration tools loop"]
+  Prefix --> Orch
+  Orch --> Sys["appendToSystemWireMessage"]
+  Orch --> Mid["formatMidLoopReminder between rounds"]
+  Sys --> LLM["LLM tool selection"]
+  Mid --> LLM
+  LLM --> Tools["GetContent · WriteContent · GenerateImage · …"]
 ```
 
 ---
@@ -426,7 +455,7 @@ Optional site-authored extensions under `config/studio/scripts/aiassistant/`.
 flowchart TB
   Root["config/studio/scripts/aiassistant/"]
   Root --> Config["config/tools.json"]
-  Root --> Recipes["intent-recipes.json"]
+  Root --> Recipes["config/intent-recipes.json"]
   Root --> Prompts["prompts/*.md"]
   Root --> UT["user-tools/\nregistry.json + *.groovy"]
   Root --> LLM["llm/{id}/runtime.groovy"]
@@ -495,6 +524,9 @@ flowchart TD
 | Topic | Document |
 |-------|----------|
 | Intent recipe prelude (detailed flowchart) | [intent-recipe-routing.md](internals/intent-recipe-routing.md) |
+| Intent routing & turn goal (spec contract) | [spec.md § Intent recipe routing](internals/spec.md#intent-recipe-routing-turn-goal) |
+| Turn goal propagation (diagram above) | [intent-recipe-routing.md — Turn goal through the tools loop](internals/intent-recipe-routing.md#turn-goal-through-the-tools-loop) |
+| **`intent-recipe-routing`** SSE frame | [stream-endpoint-design.md § Intent recipe routing SSE](internals/stream-endpoint-design.md#intent-recipe-routing-sse) |
 | SSE contract & stream URL | [stream-endpoint-design.md](internals/stream-endpoint-design.md) |
 | REST body fields, MCP, tools | [chat-and-tools-runtime.md](internals/chat-and-tools-runtime.md) |
 | Product surfaces & contracts | [spec.md](internals/spec.md) |

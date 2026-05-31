@@ -851,6 +851,66 @@ ${asstLine}"""
     return authorCurrentRequestLooksLikeImageOnlyGenerate(fullPrompt)
   }
 
+  private static final Pattern GENERATE_IMAGE_EXPLICIT_OF_SUBJECT = Pattern.compile(
+    '(?is)\\b(?:image|picture|illustration|drawing|photo|artwork|graphic|render|logo|banner|cover|icon)\\s+of\\b\\s+\\S'
+  )
+
+  /**
+   * Author named a concrete bitmap subject in their own words (e.g. “image of monkeys”, “draw a blue circle”),
+   * not merely “generate an image for this page”.
+   */
+  static boolean authorGenerateImageHasExplicitSubject(String authorVisible) {
+    def u = stripStudioInjectedPromptBlocks((authorVisible ?: '').toString())?.trim()
+    if (!u) {
+      return false
+    }
+    if (GENERATE_IMAGE_EXPLICIT_OF_SUBJECT.matcher(u).find()) {
+      def after = u.replaceFirst(
+        /(?is).*\b(?:image|picture|illustration|drawing|photo|artwork|graphic|render|logo|banner|cover|icon)\s+of\s+/,
+        ''
+      )?.trim()
+      if (after && !after.matches(/(?is)^(this|the)\s+page\b.*/)) {
+        return true
+      }
+    }
+    if (u.matches(/(?is).*\b(?:draw|sketch|paint|illustrate)\s+(?:me\s+)?(?:an?\s+|the\s+)?(?!image\b)(?!picture\b)[a-z][a-z0-9\-\\s]{2,}\b.*/)) {
+      if (!u.matches(/(?is).*\b(?:for|on|about)\s+(?:this|the)\s+page\b.*/)) {
+        return true
+      }
+    }
+    if (u.matches(/(?is).*\b(?:generate|create|make)\s+(?:me\s+)?(?:an?\s+)?(?:simple\s+|abstract\s+|small\s+|256x256\s+)*[a-z0-9][a-z0-9\-\\s]{2,}\b.*/)) {
+      if (!u.matches(/(?is).*\b(?:for|on|about)\s+(?:this|the)\s+page\b.*/)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  /**
+   * Anchored preview item is open and the author wants generated art whose subject lives in page content
+   * (GetContent before GenerateImage), not a subject they already stated explicitly.
+   */
+  static boolean authorGenerateImageRequiresPageContextFirst(String anchorCarrier, String authorVisible) {
+    String probe = (authorVisible ?: '').toString().trim() ?
+      authorVisible.toString() :
+      (anchorCarrier ?: '').toString()
+    if (!authorCurrentRequestLooksLikeImageOnlyGenerate(probe)) {
+      return false
+    }
+    if (authorGenerateImageHasExplicitSubject(authorVisible ?: probe)) {
+      return false
+    }
+    def anchor = extractAnchoredRepositoryPath((anchorCarrier ?: '').toString())
+    if (!anchor?.trim()) {
+      return false
+    }
+    if (authorRefersToAnchoredOpenStudioItemForAuthorText(anchorCarrier, authorVisible ?: probe)) {
+      return true
+    }
+    def v = stripStudioInjectedPromptBlocks((authorVisible ?: '').toString())?.trim()
+    return v && v.matches(/(?is).*\b(?:for|on|about)\s+(?:this|the)\s+page\b.*/)
+  }
+
   private static final Pattern SHORT_CMS_CONTINUATION_AFFIRMATION = Pattern.compile(
     '(?is)^(yes|yeah|yep|ok|okay|let\'?s\\s+do\\s+it|do\\s+it|go\\s+ahead|please\\s+do|sure|confirm|sounds\\s+good|proceed)[\\s!.?]*$'
   )

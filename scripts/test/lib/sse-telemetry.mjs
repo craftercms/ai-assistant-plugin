@@ -61,9 +61,19 @@ export function summarizeSseTelemetry(events) {
     .filter((r) => r.outcome === 'matched' && r.recipeId)
     .map((r) => r.recipeId);
 
+  /** @type {{ turnGoal: string, successCriteria: string, outcome: string }[]} */
+  const turnGoals = recipeRouting
+    .map((r) => ({
+      turnGoal: String(r.raw?.turnGoal ?? '').trim(),
+      successCriteria: String(r.raw?.successCriteria ?? '').trim(),
+      outcome: r.outcome,
+    }))
+    .filter((g) => g.turnGoal);
+
   return {
     recipeRouting,
     matchedRecipes,
+    turnGoals,
     toolPhases,
     toolStartCounts,
     generateImagePrompts,
@@ -102,6 +112,29 @@ export function evaluateExpectations(telemetry, expect) {
       } else {
         failures.push(msg);
       }
+    }
+  }
+
+  if (exp.forbidRecipeId != null) {
+    const forbid = String(exp.forbidRecipeId).trim();
+    const matched = telemetry.recipeRouting.some(
+      (r) => r.recipeId === forbid && r.outcome === 'matched',
+    );
+    if (matched) {
+      failures.push(`forbid matched recipe ${forbid}; routing should not whole-turn match that recipe`);
+    }
+  }
+
+  if (exp.deferToPlanLoop === true) {
+    const ok =
+      telemetry.recipeRouting.some(
+        (r) => r.outcome === 'plan' || r.raw?.deferToPlanLoop === true,
+      );
+    if (!ok) {
+      const seen = telemetry.recipeRouting
+        .map((r) => `${r.recipeId || '?'}(${r.outcome || '?'})`)
+        .join(', ');
+      failures.push(`expected deferToPlanLoop / outcome=plan; saw [${seen || 'none'}]`);
     }
   }
 
@@ -157,6 +190,24 @@ export function evaluateExpectations(telemetry, expect) {
     const prompts = telemetry.generateImagePrompts || [];
     if (!prompts.length) {
       failures.push('expected GenerateImage SSE metadata generateImagePrompt; saw none');
+    }
+  }
+
+  if (exp.turnGoalPresent === true) {
+    const goals = telemetry.turnGoals || [];
+    if (!goals.length) {
+      failures.push('expected intentRecipeRouting.turnGoal in SSE telemetry; saw none');
+    }
+  }
+
+  if (exp.turnGoalContains != null) {
+    const needle = String(exp.turnGoalContains).trim();
+    const goals = (telemetry.turnGoals || []).map((g) => g.turnGoal);
+    const hit = goals.some((g) => g.toLowerCase().includes(needle.toLowerCase()));
+    if (!hit) {
+      failures.push(
+        `expected turnGoal containing "${needle}"; saw [${goals.join(' | ') || 'none'}]`,
+      );
     }
   }
 

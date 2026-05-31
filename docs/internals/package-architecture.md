@@ -50,7 +50,7 @@ flowchart TB
 | Path | Role |
 |------|------|
 | `engine/turn/` | `AiOrchestration`, tools loop, SSE, plan, chat-completions wire |
-| `engine/routing/` | Intent routing facade (`Router`); implementations in `engine/routing/subrouting/` |
+| `engine/routing/` | Intent routing facade (`Router`); subrouting: `AuthoringIntentRecipeRouter`, `AuthoringTurnGoal`, `AuthoringIntentRoutingEngine`, `AuthoringIntentRecipeEngine`, catalog/plan helpers |
 | `engine/catalog/` | Per-request tool list assembly (`AiOrchestrationTools#build` → `StudioAiToolRegistry`), translate subgraph helpers, LLM/image resolvers |
 | `engine/policy/` | Tools-loop wire policy |
 | `engine/prompt/` | Tool prompt loading and overrides |
@@ -98,7 +98,7 @@ Per-site extensions live in git, loaded by **contrib** loaders:
 ```mermaid
 flowchart TB
   Root["config/studio/scripts/aiassistant/"]
-  Root --> Config["config/tools.json · intent-recipes.json"]
+  Root --> Config["config/tools.json · config/intent-recipes.json"]
   Root --> UT["user-tools/registry.json + *.groovy"]
   Root --> LLM["llm/{id}/"]
   Root --> IMG["imagegen/{id}/"]

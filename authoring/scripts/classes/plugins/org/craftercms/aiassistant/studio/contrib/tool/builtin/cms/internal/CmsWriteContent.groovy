@@ -17,6 +17,8 @@ import java.util.LinkedHashSet
 import java.util.Locale
 import java.util.Set
 import java.util.TimeZone
+import java.util.UUID
+import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.ToolsLoopWriteVerification
 /** Repository write pipeline for {@link plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.WriteContentTool}. */
 final class CmsWriteContent {
 
@@ -159,6 +161,80 @@ private CmsWriteContent() {}
           'Refusing to write — use ContentExists on the path; if exists=false this is a new item (GetContent on an existing sibling for shape, not this path); if exists=true, GetContent and send the full item XML.'
       )
     }
+  }
+
+  /**
+   * Website pages live under {@code /site/website/.../{slug}/index.xml}; components elsewhere use a direct {@code .xml} file.
+   */
+  private static void assertWriteContentRepositoryPathRules(String pathLabel) {
+    if (!CmsRepositorySupport.isLikelyXmlRepositoryPath(pathLabel)) {
+      return
+    }
+    String p = (pathLabel ?: '').toString().trim()
+    if (!p.startsWith('/site/')) {
+      return
+    }
+    if (p.contains('{') || p.contains('}')) {
+      throw new IllegalArgumentException(
+        "Repository path '${pathLabel}' contains unresolved placeholders like {slug} or {year}. " +
+          'Use the concrete suggested path from prefetch (e.g. /site/website/articles/2026/05/my-article-slug/index.xml).'
+      )
+    }
+    String low = p.toLowerCase(Locale.ROOT)
+    if (low.startsWith('/site/website/')) {
+      if (low == '/site/website/index.xml' || low.endsWith('.level.xml')) {
+        return
+      }
+      if (low.endsWith('/index.xml')) {
+        return
+      }
+      throw new IllegalArgumentException(
+        "Website page path '${pathLabel}' must use the folder + index.xml pattern " +
+          '(e.g. /site/website/articles/2026/05/my-new-car/index.xml). ' +
+          'Exception: site home /site/website/index.xml. Do not write flat .xml files under /site/website/.'
+      )
+    }
+    if (low.endsWith('/index.xml')) {
+      throw new IllegalArgumentException(
+        "Component path '${pathLabel}' must not use {slug}/index.xml — folders under /site/ (outside /site/website/) are organizational only. " +
+          'Write a .xml file directly (e.g. /site/components/headers/main-header.xml). Mirror sibling GetContent paths.'
+      )
+    }
+  }
+
+  /** Extracts {@code <internal-name>} text from a Crafter item document. */
+  private static String extractInternalNameFromItemXml(String xmlUtf8) {
+    if (!xmlUtf8) {
+      return ''
+    }
+    def m = (xmlUtf8 =~ /(?is)<(?:[A-Za-z0-9_.-]+:)?internal-name\s*>\s*([^<]+?)\s*<\/(?:[A-Za-z0-9_.-]+:)?internal-name\s*>/)
+    if (m.find()) {
+      return (m.group(1) ?: '').trim()
+    }
+    return ''
+  }
+
+  /** Every {@code /site/.../*.xml} content item write must include a non-empty {@code internal-name}. */
+  private static void assertInternalNameInContentXml(String pathLabel, String xmlUtf8) {
+    if (!CmsRepositorySupport.isLikelyXmlRepositoryPath(pathLabel)) {
+      return
+    }
+    String p = (pathLabel ?: '').toString().trim().toLowerCase(Locale.ROOT)
+    if (!p.startsWith('/site/')) {
+      return
+    }
+    if (!looksLikeFullCrafterSiteContentItemDocument(pathLabel, xmlUtf8)) {
+      return
+    }
+    String name = extractInternalNameFromItemXml(xmlUtf8)
+    if (name) {
+      return
+    }
+    throw new IllegalArgumentException(
+      "contentXml for '${pathLabel}' is missing a non-empty <internal-name> element. " +
+        'Every WriteContent on a Crafter page or component must set internal-name (human-readable label). ' +
+        'GetContent on a sibling for shape if needed.'
+    )
   }
 
   /**
@@ -892,6 +968,369 @@ private CmsWriteContent() {}
     itemDoc.asXML()
   }
   /**
+   * Refuses contentXml that omits form-definition fields (required, minSize, or missing elements).
+   */
+  private static void assertFormDefinitionFieldCompliance(
+    StudioToolOperations ops,
+    String siteId,
+    String normalizedRepoPath,
+    String xmlUtf8
+  ) {
+    if (!ops || !xmlUtf8?.trim() || !normalizedRepoPath?.startsWith('/site/')) {
+      return
+    }
+    String ct = extractContentTypeIdFromItemXml(xmlUtf8)
+    if (!ct?.trim()) {
+      return
+    }
+    String contentTypeId = ct.trim()
+    if (!contentTypeId.startsWith('/')) {
+      contentTypeId = "/${contentTypeId}"
+    }
+    String cfgPath = "/content-types${contentTypeId}/form-definition.xml"
+    String formXml
+    try {
+      formXml = ops.configurationServiceBean.getConfigurationAsString(siteId, 'studio', cfgPath, '')
+    } catch (Throwable t) {
+      log.debug('assertFormDefinitionFieldCompliance: could not load form {}: {}', cfgPath, t.message)
+      return
+    }
+    if (!formXml?.trim()) {
+      return
+    }
+    Map plan = FormDefinitionWriteContentValidator.buildValidationPlan(formXml.toString()) as Map
+    if (!FormDefinitionWriteContentValidator.planIsActionable(plan)) {
+      return
+    }
+    Map validation = FormDefinitionWriteContentValidator.validate(xmlUtf8, plan, normalizedRepoPath) as Map
+    if (Boolean.TRUE.equals(validation?.get('ok'))) {
+      return
+    }
+    List<String> errors = []
+    Object errObj = validation?.get('errors')
+    if (errObj instanceof List) {
+      for (Object o : (List) errObj) {
+        String e = o?.toString()?.trim()
+        if (e) {
+          errors.add(e)
+        }
+      }
+    }
+    if (errors.isEmpty()) {
+      errors.add('contentXml does not satisfy the content type form definition.')
+    }
+    StringBuilder msg = new StringBuilder(
+      "WriteContent rejected — contentXml for '${normalizedRepoPath}' is incomplete or non-compliant with form definition `${contentTypeId}`:\n"
+    )
+    errors.eachWithIndex { String line, int i ->
+      msg.append('\n').append(i + 1).append('. ').append(line)
+    }
+    List required = validation?.requiredFieldIds instanceof List ? (List) validation.requiredFieldIds : plan.requiredFieldIds
+    if (required instanceof List && !required.isEmpty()) {
+      msg.append('\n\nRequired fields: `').append(required.join('`, `')).append('`.')
+    }
+    msg.append('\n\nCall **GetContentTypeFormDefinition** and include **every** formFieldIds element with real values, then retry WriteContent.')
+    throw new IllegalArgumentException(msg.toString())
+  }
+
+  /**
+   * Normalize LLM XML before form validation (tools-loop gate) or final write: structural envelope,
+   * taxonomy checkbox defaults, and image-picker data URLs.
+   */
+  static String enrichContentXmlBeforeFormValidation(
+    StudioToolOperations ops,
+    String siteId,
+    String normalizedRepoPath,
+    String xmlUtf8
+  ) {
+    if (!xmlUtf8?.trim() || !normalizedRepoPath?.startsWith('/site/')) {
+      return xmlUtf8
+    }
+    String body = sanitizeUtf8BodyForXml10(xmlUtf8.toString())
+    body = normalizeCommonLlmXmlTagTypos(body)
+    body = applyStructuralEnvelopeDefaultsIfNeeded(ops, siteId, normalizedRepoPath, body)
+    try {
+      String withImg = applyRequiredImagePickerDataUrlDefaultsIfNeeded(ops, siteId, normalizedRepoPath, body)
+      if (withImg != null) {
+        body = withImg
+      }
+    } catch (Throwable ignored) {
+    }
+    try {
+      String withCb = applyRequiredCheckboxGroupTaxonomyDefaultsIfNeeded(ops, siteId, normalizedRepoPath, body)
+      if (withCb != null) {
+        body = withCb
+      }
+    } catch (Throwable ignored) {
+    }
+    return body
+  }
+
+  /**
+   * Fills missing Crafter structural envelope fields and migrates misplaced root content into repeat groups
+   * named in the form definition ({@link FormDefinitionWriteContentMaterials#repeatBindings}) before validation.
+   */
+  private static String applyStructuralEnvelopeDefaultsIfNeeded(
+    StudioToolOperations ops,
+    String siteId,
+    String normalizedRepoPath,
+    String xmlUtf8
+  ) {
+    if (!xmlUtf8?.trim() || !normalizedRepoPath?.toLowerCase(Locale.ROOT)?.endsWith('.xml')) {
+      return xmlUtf8
+    }
+    try {
+      Document doc = newHardenedSaxReader().read(new StringReader(xmlUtf8.toString()))
+      Element root = doc?.getRootElement()
+      if (root == null) {
+        return xmlUtf8
+      }
+      boolean changed = false
+      String path = normalizedRepoPath.trim()
+      String pathLower = path.toLowerCase(Locale.ROOT)
+
+      if (pathLower.contains('/site/website/') && pathLower.endsWith('/index.xml')) {
+        String slug = folderSlugFromIndexXmlPath(path)
+        if (slug && !elementTextTrim(root, 'folder-name')) {
+          ensureChildText(root, 'folder-name', slug)
+          changed = true
+        }
+        if (!elementTextTrim(root, 'file-name')) {
+          ensureChildText(root, 'file-name', 'index.xml')
+          changed = true
+        }
+      }
+
+      String oid = elementTextTrim(root, 'objectId')
+      if (!oid) {
+        oid = UUID.randomUUID().toString().toLowerCase(Locale.ROOT)
+        ensureChildText(root, 'objectId', oid)
+        changed = true
+      }
+      String expectedGroup = ToolsLoopWriteVerification.objectGroupFromUuid(oid)
+      if (expectedGroup && !expectedGroup.equalsIgnoreCase(elementTextTrim(root, 'objectGroupId'))) {
+        setChildText(root, 'objectGroupId', expectedGroup)
+        changed = true
+      }
+
+      String nowIso = isoUtcTimestampNow()
+      for (String tsField : ['createdDate', 'createdDate_dt', 'lastModifiedDate', 'lastModifiedDate_dt']) {
+        if (!elementTextTrim(root, tsField)) {
+          ensureChildText(root, tsField, nowIso)
+          changed = true
+        }
+      }
+
+      if (ops && siteId?.trim()) {
+        changed = applyFormPropertyDefaultsIfNeeded(ops, siteId, root) || changed
+        changed = migrateFlatBodyIntoRepeatGroupIfNeeded(ops, siteId, root) || changed
+      }
+
+      return changed ? doc.asXML() : xmlUtf8
+    } catch (Throwable t) {
+      log.debug('applyStructuralEnvelopeDefaultsIfNeeded skipped path={}: {}', normalizedRepoPath, t.message)
+      return xmlUtf8
+    }
+  }
+
+  private static boolean applyFormPropertyDefaultsIfNeeded(StudioToolOperations ops, String siteId, Element root) {
+    String ct = elementTextTrim(root, 'content-type')
+    if (!ct) {
+      return false
+    }
+    String cfgPath = "/content-types${ct.startsWith('/') ? ct : "/${ct}"}/form-definition.xml"
+    String formXml
+    try {
+      formXml = ops.configurationServiceBean.getConfigurationAsString(siteId, 'studio', cfgPath, '')
+    } catch (Throwable ignored) {
+      return false
+    }
+    if (!formXml?.trim()) {
+      return false
+    }
+    boolean changed = false
+    try {
+      Document formDoc = newHardenedSaxReader().read(new StringReader(formXml))
+      Element props = formDoc?.getRootElement()?.element('properties')
+      if (props != null) {
+        for (Element prop : props.elements('property')) {
+          String name = elementTextTrim(prop, 'name')
+          String value = elementTextTrim(prop, 'value')
+          if (!name || !value) {
+            continue
+          }
+          if (('display-template'.equals(name) || 'merge-strategy'.equals(name)) && !elementTextTrim(root, name)) {
+            ensureChildText(root, name, value)
+            changed = true
+          }
+        }
+      }
+      String formCt = elementTextTrim(formDoc.getRootElement(), 'content-type')
+      if (formCt && !elementTextTrim(root, 'content-type')) {
+        ensureChildText(root, 'content-type', formCt)
+        changed = true
+      }
+    } catch (Throwable ignored) {
+    }
+    return changed
+  }
+
+  private static boolean migrateFlatBodyIntoRepeatGroupIfNeeded(StudioToolOperations ops, String siteId, Element root) {
+    String ct = elementTextTrim(root, 'content-type')
+    if (!ct || !ops || !siteId?.trim()) {
+      return false
+    }
+    String cfgPath = "/content-types${ct.startsWith('/') ? ct : "/${ct}"}/form-definition.xml"
+    String formXml
+    try {
+      formXml = ops.configurationServiceBean.getConfigurationAsString(siteId, 'studio', cfgPath, '')
+    } catch (Throwable ignored) {
+      return false
+    }
+    if (!formXml?.trim()) {
+      return false
+    }
+    Map materials = FormDefinitionWriteContentMaterials.build(ops, siteId, formXml, '', null) as Map
+    List repeats = materials.repeatBindings as List
+    if (!repeats) {
+      return false
+    }
+    Map validationPlan = FormDefinitionWriteContentValidator.buildValidationPlan(formXml) as Map
+    List<String> formFieldIds = validationPlan.formFieldIds instanceof List ?
+      (List<String>) validationPlan.formFieldIds : []
+    Map misplaced = findMisplacedRootContentElement(root, formFieldIds)
+    if (!misplaced.content) {
+      return false
+    }
+    boolean changed = false
+    for (Object o : repeats) {
+      if (!(o instanceof Map)) {
+        continue
+      }
+      Map rb = (Map) o
+      String fieldId = (rb.fieldId ?: '').toString().trim()
+      List nested = rb.nestedFieldIds instanceof List ? (List) rb.nestedFieldIds : []
+      String nestedId = FormDefinitionWriteContentMaterials.pickNestedFieldForMigration(nested)
+      int minOccurs = (rb.minOccurs instanceof Number) ? ((Number) rb.minOccurs).intValue() : 1
+      if (!fieldId || !nestedId || minOccurs <= 0) {
+        continue
+      }
+      Element repeatEl = root.element(fieldId)
+      int itemCount = repeatEl != null ? repeatEl.elements('item').size() : 0
+      if (itemCount >= minOccurs) {
+        continue
+      }
+      if (repeatEl == null) {
+        repeatEl = root.addElement(fieldId)
+        changed = true
+      }
+      Element item = repeatEl.addElement('item')
+      ensureChildText(item, nestedId, misplaced.content)
+      changed = true
+      if (misplaced.elementName) {
+        Element stray = root.element(misplaced.elementName)
+        if (stray != null) {
+          root.remove(stray)
+        }
+      }
+      break
+    }
+    return changed
+  }
+
+  /**
+   * Root-level element with author copy that is not a form field id (common LLM mistake).
+   */
+  private static Map findMisplacedRootContentElement(Element root, List<String> formFieldIds) {
+    Map out = [elementName: '', content: '']
+    if (root == null) {
+      return out
+    }
+    Set<String> allowed = new LinkedHashSet<>(formFieldIds ?: [])
+    for (String guess : ['body', 'body_html', 'content', 'content_html', 'text', 'title', 'description']) {
+      if (allowed.contains(guess) || FormDefinitionWriteContentValidator.isStructuralEnvelopeElement(guess)) {
+        continue
+      }
+      String text = elementTextTrim(root, guess)
+      if (text) {
+        out.elementName = guess
+        out.content = text
+        return out
+      }
+    }
+    for (Element child : root.elements()) {
+      String name = child?.name
+      if (!name || allowed.contains(name) || FormDefinitionWriteContentValidator.isStructuralEnvelopeElement(name)) {
+        continue
+      }
+      String text = child.getTextTrim()
+      if (text?.length() >= 12) {
+        out.elementName = name
+        out.content = text
+        return out
+      }
+    }
+    return out
+  }
+
+  private static String folderSlugFromIndexXmlPath(String path) {
+    String p = (path ?: '').trim()
+    if (!p.toLowerCase(Locale.ROOT).endsWith('/index.xml')) {
+      return ''
+    }
+    p = p.substring(0, p.length() - '/index.xml'.length())
+    int slash = p.lastIndexOf('/')
+    return slash >= 0 ? p.substring(slash + 1) : p
+  }
+
+  private static String isoUtcTimestampNow() {
+    Calendar cal = Calendar.getInstance(TimeZone.getTimeZone('UTC'))
+    return String.format(
+      Locale.ROOT,
+      '%04d-%02d-%02dT%02d:%02d:%02d.%03dZ',
+      cal.get(Calendar.YEAR),
+      cal.get(Calendar.MONTH) + 1,
+      cal.get(Calendar.DAY_OF_MONTH),
+      cal.get(Calendar.HOUR_OF_DAY),
+      cal.get(Calendar.MINUTE),
+      cal.get(Calendar.SECOND),
+      cal.get(Calendar.MILLISECOND)
+    )
+  }
+
+  private static String elementTextTrim(Element parent, String childName) {
+    if (parent == null || !childName) {
+      return ''
+    }
+    Element c = parent.element(childName)
+    return c != null ? (c.getTextTrim() ?: '') : ''
+  }
+
+  private static void ensureChildText(Element parent, String childName, String value) {
+    if (parent == null || !childName || value == null) {
+      return
+    }
+    Element c = parent.element(childName)
+    if (c == null) {
+      c = parent.addElement(childName)
+    }
+    if (!c.getText()?.trim()) {
+      c.setText(value)
+    }
+  }
+
+  private static void setChildText(Element parent, String childName, String value) {
+    if (parent == null || !childName || value == null) {
+      return
+    }
+    Element c = parent.element(childName)
+    if (c == null) {
+      c = parent.addElement(childName)
+    }
+    c.setText(value)
+  }
+
+  /**
    * Write.
    * @param ops Caller-supplied input.
    * @param siteId Studio or repository context for this call.
@@ -922,24 +1361,7 @@ private CmsWriteContent() {}
           )
           safeBody = typoFixed
         }
-        try {
-          String withDataUrl = applyRequiredImagePickerDataUrlDefaultsIfNeeded(ops, siteId, normalized, safeBody)
-          if (withDataUrl != null && !withDataUrl.equals(safeBody)) {
-            log.info('writeContent: applied XB-style data URL for required empty image-picker(s) siteId={} path={}', siteId, normalized)
-            safeBody = withDataUrl
-          }
-        } catch (Throwable t) {
-          log.warn('writeContent: applyRequiredImagePickerDataUrlDefaultsIfNeeded skipped (non-fatal): {}', t.message)
-        }
-        try {
-          String withCb = applyRequiredCheckboxGroupTaxonomyDefaultsIfNeeded(ops, siteId, normalized, safeBody)
-          if (withCb != null && !withCb.equals(safeBody)) {
-            log.info('writeContent: applied taxonomy defaults for required checkbox-group field(s) siteId={} path={}', siteId, normalized)
-            safeBody = withCb
-          }
-        } catch (Throwable t) {
-          log.warn('writeContent: applyRequiredCheckboxGroupTaxonomyDefaultsIfNeeded skipped (non-fatal): {}', t.message)
-        }
+        safeBody = enrichContentXmlBeforeFormValidation(ops, siteId, normalized, safeBody)
       }
       if (!safeBody.trim()) {
         throw new IllegalArgumentException(
@@ -949,7 +1371,10 @@ private CmsWriteContent() {}
       }
       if (CmsRepositorySupport.isLikelyXmlRepositoryPath(normalized)) {
         assertCrafterSiteContentItemDocument(normalized, safeBody)
+        assertWriteContentRepositoryPathRules(normalized)
+        assertInternalNameInContentXml(normalized, safeBody)
         assertWellFormedUtf8Xml(normalized, safeBody)
+        assertFormDefinitionFieldCompliance(ops, siteId, normalized, safeBody)
       }
       byte[] bytes = safeBody.getBytes(StandardCharsets.UTF_8)
       boolean unlockAfterWrite = !(unlock != null && unlock.toString().equalsIgnoreCase('false'))

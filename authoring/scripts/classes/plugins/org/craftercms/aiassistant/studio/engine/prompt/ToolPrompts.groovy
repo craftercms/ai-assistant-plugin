@@ -37,7 +37,8 @@ class ToolPrompts {
 - Zero or many matches → ask the author; never fuzzy “closest” picks, catch-all defaults, or invented ids.
 - A **section listing** {@code index.xml} may use a different {@code <content-type>} than **child** pages beside it—use the matched type for the **new** item, not the open hub file’s type.
 ### Create tool order
-- **GetContentTypeFormDefinition** → **one sibling GetContent** (same type) when any exists → **WriteContent**.
+- **GetContentTypeFormDefinition** (resolved type + nested types on the form) → **Project authoring context** for site XML shape → **ContentExists** → **WriteContent**.
+- **GetContent** only for **verified** paths (taxonomy, shared refs named in project context) — **not** an arbitrary same-type item as a default template.
 - Do **not** use **ListPagesAndComponents** at large **size** once the type is known.'''
   }
 
@@ -126,6 +127,7 @@ For CrafterCMS Studio authoring concepts (content types, templates, XB, crafteri
 
 ### Complex (two or more tools)
 - The job needs **more than one** tool (e.g. **GetContent** then **WriteContent**, or list → read → write).
+- **Generate image for anchored page (no explicit subject):** **GetContent** on the anchored **`/site/.../*.xml`** path → summarize what the page is about → write the **GenerateImage** `prompt` from that content **and** any style instructions the author gave → **GenerateImage** once. Never call **GenerateImage** with a generic “article theme” prompt before reading the page.
 - Stream **## Plan** with **📋** steps in execution order, then **`tool_calls`** in the **same** message.
 - When Studio injected recipe or plan-defer catalogs, **prefer a matching recipe** over ad-hoc tool picking when the recipe clearly fits; use wire tools when one call suffices or no recipe fits.
 - Each **📋** line = one verifiable visitor- or editor-visible outcome (plain language; avoid raw **`recipeId`** / wire names unless the author used them). See system policy **§2 Plan formatting** for heading and marker rules.''')
@@ -185,15 +187,15 @@ Applies whenever you **create** a **new** page or component (**WriteContent** on
 **Sections:** identifiers → XML well-formedness → rich text → node-selectors → names/dates → tool order → images → taxonomy → project overrides.
 
 ### `objectId` and `objectGroupId`
-- Assign a **fresh UUID v4** (lowercase hex with hyphens, e.g. `c9f4a7d6-f8d7-4be5-a1d8-e1a4a90bfb5e`) to **each** distinct Crafter object: the root `<page>` / `<component>`, every **inline** embedded component under node-selectors, and any nested item that carries its own `objectId` in sibling examples.
-- `objectGroupId` is typically the **first four hex characters** of that item’s `objectId` (match a **GetContent** sibling on the same content type when unsure).
+- Assign a **fresh UUID v4** (lowercase hex with hyphens, e.g. `c9f4a7d6-f8d7-4be5-a1d8-e1a4a90bfb5e`) to **each** distinct Crafter object: the root `<page>` / `<component>`, every **inline** embedded component under node-selectors, and any nested item that carries its own `objectId`.
+- `objectGroupId` is typically the **first four hex characters** of that item’s `objectId` (see **Project authoring context** when the site defines otherwise).
 - **Forbidden:** `00000000-0000-0000-0000-000000000000`, `uuid-a` / `uuid-b`, `{UUID-B}`, `0000-0000-...`, reusing the **same** UUID for parent and child, or copying `objectId` values from prompt examples without generating new ones.
 
 ### Well-formed XML 1.0 (UTF-8)
 - **Balanced tags**, valid nesting, root element matches the content type (`<page>` or `<component>` per **GetContentTypeFormDefinition**).
 - **No** NUL (U+0000) or other illegal control characters in element text or attributes.
 - Spell node-selector children exactly — e.g. **`<disableFlattening>false</disableFlattening>`** (a typo on this tag breaks the whole write).
-- **Shared** node-selector **`<item>`** refs: when sibling **GetContent** shows **`<include>/site/...xml</include>`** matching **`<key>`**, keep **both** in **WriteContent**.
+- **Shared** node-selector **`<item>`** refs: when **Project authoring context** or a verified **GetContent** read shows **`<include>/site/...xml</include>`** matching **`<key>`**, keep **both** in **WriteContent**.
 
 ### Rich text (`*_html`) and HTML inside element text
 - **Project authoring context** wins on **CDATA vs escaped markup** (some sites forbid CDATA in `*_html`).
@@ -202,19 +204,24 @@ Applies whenever you **create** a **new** page or component (**WriteContent** on
 
 ### Inline embedded components and node-selectors
 - **Shared refs** (header, bio, taxonomy-backed pickers): `<key>` and `<include>` must be the **same** verified repository path ending in **`.xml`** — resolve with **GetContent** / **ResearchSiteContent** before **WriteContent**; **never** invent paths or slugs you did not verify.
-- **Inline / embedded collections** (e.g. `content_o`, repeat groups): parent field often has **`item-list="true"`**; each **`<item>`** may carry datasource/type attributes and a nested **`<component id="…">`** with its **own** `objectId` / `objectGroupId` — copy the **exact** layout from sibling **GetContent** + nested **GetContentTypeFormDefinition**; do **not** flatten to plain text when the sibling uses embedded components.
+- **Inline / embedded collections** (e.g. `content_o`, repeat groups): parent field often has **`item-list="true"`**; each **`<item>`** may carry datasource/type attributes and a nested **`<component id="…">`** with its **own** `objectId` / `objectGroupId` — follow **GetContentTypeFormDefinition** + **Project authoring context**; do **not** flatten to plain text when the site uses embedded components.
+
+### Repository paths (`path` / `contentPath`) — server-enforced
+- **Pages** under **`/site/website/`**: always **`…/{slug}/index.xml`** (e.g. `/site/website/articles/2026/05/my-new-car/index.xml`). **Exception:** site home **`/site/website/index.xml`**. **Never** a flat `.xml` beside folders (e.g. `/site/website/articles/my-post.xml` is rejected).
+- **Components** under **`/site/`** but **not** **`/site/website/`** (e.g. `/site/components/…`): use a **`.xml` file directly** — folders are for organization only; **do not** use `{slug}/index.xml`.
+- **WriteContent rejects** wrong path shapes before save.
 
 ### `internal-name`, titles, `file-name`, dates
-- `internal-name` and visible title fields come from the **author’s source** (chat draft, request) — **not** generic placeholders unless the author used that text.
-- `file-name` and folder/slug rules follow **GetContentTypeFormDefinition** and a **sibling GetContent** of the **same** `<content-type>` (e.g. `index.xml` + `folder-name` for folder pages).
-- Include `createdDate`, `createdDate_dt`, `lastModifiedDate`, `lastModifiedDate_dt` when the form def or sibling item shows them — use **Studio agent clock** for “now” unless the author supplied dates.
+- **`internal-name` is required on every WriteContent** — non-empty human-readable label in **contentXml** (server rejects missing/empty).
+- Visible title fields come from the **author’s source** (chat draft, request) — **not** generic placeholders unless the author used that text.
+- `file-name` and folder/slug rules follow **GetContentTypeFormDefinition** and **Project authoring context** (pages: `index.xml` inside the slug folder).
+- Include `createdDate`, `createdDate_dt`, `lastModifiedDate`, `lastModifiedDate_dt` when the form def or project context shows them — use **Studio agent clock** for “now” unless the author supplied dates.
 
 ### Tool order before the first **WriteContent** (new item)
 1. **GetContentTypeFormDefinition** for the resolved type (and each nested/inline type the form references).
-2. **GetContent** on **one existing** item with the same `<content-type>` — mirror **structure** only (field ids, node-selector layout, date formats, taxonomy element shape).
-3. **GetContent** / **ResearchSiteContent** on paths named in **Project authoring context** (taxonomy files, shared component refs) — copy **keys** only from those reads.
-4. **ContentExists** on the new path (`exists` must be false).
-5. **WriteContent** once with complete **contentXml** — field **values** from the author’s source, not copied sibling body/title text.
+2. **GetContent** / **ResearchSiteContent** on paths named in **Project authoring context** (taxonomy files, shared component refs) — copy **keys** only from those reads.
+3. **ContentExists** on the new path (`exists` must be false).
+4. **WriteContent** once with complete **contentXml** — field **values** from the author’s source.
 
 ### Required image-picker fields
 - When the author did **not** ask for specific art in **this** turn: **omit** the field or leave it empty; **WriteContent** may apply the Studio **sample** `data:image/png;base64,...` placeholder server-side for required top-level image-pickers.
@@ -223,7 +230,7 @@ Applies whenever you **create** a **new** page or component (**WriteContent** on
 
 ### Taxonomy / checkbox-group fields
 - Use only **keys** (and display values) from the site’s taxonomy datasource or **Project authoring context** — **GetContent** on the taxonomy files or datasource paths the project names before **WriteContent**.
-- Copy the **element shape** (`value_smv` vs `value`, `item-list`) from a **sibling GetContent** of the same content type when the form def does not spell it out.
+- Copy the **element shape** (`value_smv` vs `value`, `item-list`) from **Project authoring context** or a verified taxonomy **GetContent** when the form def does not spell it out.
 
 ### Project authoring context
 - When **Project authoring context** is injected, its **site-specific** rules (content type, `content_o` shape, taxonomy paths, verbatim draft copy) **override** generic examples in this section.''')
@@ -231,10 +238,10 @@ Applies whenever you **create** a **new** page or component (**WriteContent** on
 
   /**
    * Compact XML-shape + tool-order reminder for recipe hotpaths (create-from-chat-draft, new content item).
-   * Duplicates no site field ids — defers specifics to **Project authoring context** and sibling **GetContent**.
+   * Duplicates no site field ids — defers specifics to **Project authoring context** and form definitions.
    */
   static String getLlm_CREATE_REPOSITORY_ITEM_HOTPATH_XML() {
-    p('GENERAL_LLM_CREATE_REPOSITORY_ITEM_HOTPATH_XML', '''**XML + tools (new repository item):** Follow system **Create repository items — XML standards**. **Well-formed** document; HTML in `*_html` per project context (escape with `&lt;…&gt;` or CDATA — never bare tags in text nodes). Mirror **inline** `content_o` / node-selector layout from prefetch or sibling **GetContent**; distinct UUID v4 per object. **Order:** **GetContentTypeFormDefinition** → sibling **GetContent** (structure) → **GetContent** on paths from **Project authoring context** → **ContentExists** (false) → **WriteContent** once. **Write verification** rejects malformed or incomplete XML — fix tool errors and retry.''')
+    p('GENERAL_LLM_CREATE_REPOSITORY_ITEM_HOTPATH_XML', '''**XML + tools (new repository item):** Follow system **Create repository items — XML standards**. **Well-formed** document; HTML in `*_html` per project context (escape with `&lt;…&gt;` or CDATA — never bare tags in text nodes). Inline `content_o` / node-selector layout from **GetContentTypeFormDefinition** + **Project authoring context**; distinct UUID v4 per object. **Order:** **GetContentTypeFormDefinition** → **GetContent** on paths from **Project authoring context** → **ContentExists** (false) → **WriteContent** once. **Write verification** rejects malformed or incomplete XML — fix tool errors and retry.''')
   }
 
   /**
@@ -538,7 +545,7 @@ For **content-only** tasks, use **`aiassistantFormFieldUpdates`** in your final 
    * Returns trimmed prose injected into Spring AI tool registrations.
    */
   static String getDESC_WRITE_CONTENT() {
-    p('CMS_CONTENT_DESC_WRITE_CONTENT', 'Persists XML or FTL to the repository (the only tool that saves file bodies). Requires siteId, path or contentPath (must start with /), and full contentXml string. **Never** send an empty or whitespace-only contentXml (or a body that becomes empty after illegal characters are stripped) — that corrupts the repo and breaks Engine with Premature end of file. contentXml must match the existing file type: for pages/components, preserve the <page>/<component> tree and field element names from the content type — do not invent a new XML structure. The body must be well-formed XML 1.0 UTF-8: never embed NUL (U+0000) or other disallowed control characters; for `*_html` follow **Project authoring context** (escaped entities in element text vs CDATA). **Node-selector <item> children:** spell tags exactly — **<disableFlattening>false</disableFlattening>** (typo **</disableFlattenening>** breaks the write). **Shared node-selector refs:** when **GetContent** shows **<include>/site/...xml</include>** on an **<item>** (same path as **<key>**), keep **<include>** in **WriteContent**. **Inline embedded <component>** under `content_o` / collections: copy the **exact** `<item>` + nested `<component>` layout from sibling **GetContent** + **GetContentTypeFormDefinition** — each nested object needs its own UUID v4. **Image / asset paths (`*_s`, etc.):** only verified paths — omit required top-level image-pickers so the server may apply the sample placeholder. **New items:** follow system **Create repository items — XML standards** (UUIDs, sibling shape, **ContentExists** before first write). Optional unlock (default true). Call after update_content / update_template when you have the complete file. Returns ok:false with a hint if there was no git commit (usually identical body vs current file). Templates must reference static files under /static-assets/, not /static/.')
+    p('CMS_CONTENT_DESC_WRITE_CONTENT', 'Persists XML or FTL to the repository (the only tool that saves file bodies). Requires siteId, path or contentPath (must start with /), and full contentXml string. **Path rules (enforced):** **Pages** under `/site/website/` → `…/{slug}/index.xml` (e.g. `/site/website/articles/2026/05/my-new-car/index.xml`; exception: `/site/website/index.xml` home). **Components** under `/site/` outside `/site/website/` → a direct `.xml` file (e.g. `/site/components/headers/main-header.xml`) — folders organize only; **never** `{slug}/index.xml`. **Every** page/component write must include a **non-empty `<internal-name>`** in contentXml. **Never** send an empty or whitespace-only contentXml (or a body that becomes empty after illegal characters are stripped) — that corrupts the repo and breaks Engine with Premature end of file. contentXml must match the existing file type: for pages/components, preserve the <page>/<component> tree and field element names from the content type — do not invent a new XML structure. The body must be well-formed XML 1.0 UTF-8: never embed NUL (U+0000) or other disallowed control characters; for `*_html` follow **Project authoring context** (escaped entities in element text vs CDATA). **Node-selector <item> children:** spell tags exactly — **<disableFlattening>false</disableFlattening>** (typo **</disableFlattenening>** breaks the write). **Shared node-selector refs:** when **GetContent** shows **<include>/site/...xml</include>** on an **<item>** (same path as **<key>**), keep **<include>** in **WriteContent**. **Inline embedded <component>** under `content_o` / collections: copy the **exact** `<item>` + nested `<component>` layout from sibling **GetContent** + **GetContentTypeFormDefinition** — each nested object needs its own UUID v4. **Image / asset paths (`*_s`, etc.):** only verified paths — omit required top-level image-pickers so the server may apply the sample placeholder. **New items:** follow system **Create repository items — XML standards** (UUIDs, sibling shape, **ContentExists** before first write). Optional unlock (default true). Call after update_content / update_template when you have the complete file. Returns ok:false with a hint if there was no git commit (usually identical body vs current file). Templates must reference static files under /static-assets/, not /static/.')
   }
 
   /**
@@ -1028,7 +1035,9 @@ You receive:
 
 **Recipes beat tools:** When a recipe row clearly fits, use **mode `recipe`**. Use **mode `tool`** only when no recipe fits but one wire tool is the obvious single step. Use **mode `plan`** for multiple goals, unclear scope, or several tools/recipes in one turn.
 
-**Generated bitmap vs placeholder:** When the author asks to **create / draw / generate / make an image** (or **picture / illustration of …**) with a **specific subject**, use **`recipe`** **`generate_image`** when that row exists, or **`tool`** **`GenerateImage`**. Use **`GeneratePlaceholderImage`** only when a **required image-picker** needs a grey sample and the author did **not** ask for specific generated art.
+**Generated bitmap vs placeholder:** When the author asks to **create / draw / generate / make an image** (or **picture / illustration of …**) with a **specific subject they named in their own words**, use **`recipe`** **`generate_image`** when that row exists, or **`tool`** **`GenerateImage`**. Use **`GeneratePlaceholderImage`** only when a **required image-picker** needs a grey sample and the author did **not** ask for specific generated art.
+
+**Generate image for anchored page (no explicit subject):** When Studio metadata anchors **`/site/.../*.xml`** and the author asks to **generate / draw / create an image for this page** (or **the page**) **without naming a concrete image subject** (e.g. no “image of …” in their message), use **`mode plan`**: **GetContent** → summarize page topic from XML → craft **GenerateImage** `prompt` from that content plus author style instructions → **GenerateImage**. Do **not** use **`recipe`** **`generate_image`** for that case — the subject is in repository content, not the author text.
 
 **Summarize / describe anchored page (read-only):** When Studio metadata anchors **`/site/.../*.xml`** and the author wants a **summary, overview, or explanation** of **this page** (not edit, rewrite, translate, or publish), use **`recipe`** **`open_page_inquiry`**. Do **not** use **`modify_page_content`** for summarize-only turns — that recipe writes XML.
 
@@ -1040,14 +1049,18 @@ You receive:
 
 **Follow-ups:** Use prior memory for short replies ("make it shorter", "looks great — save that", "draft a post") without requiring the same keywords as turn 1.
 
-Reply with **JSON only** (no markdown fences, no prose):
-{"mode":"chat_only|recipe|tool|plan","recipeId":null,"toolName":null,"confidence":0.0,"reason":"one short sentence"}
+**Turn goal (required every reply):** State what the author wants **accomplished on this turn only** — not how you will implement it. Goals may shift each user message; classify the **current** author message.
+
+Reply with **JSON only** (no markdown fences, no prose before or after):
+{"mode":"chat_only|recipe|tool|plan","recipeId":null,"toolName":null,"confidence":0.0,"turnGoal":"one clear sentence: what success looks like for the author this turn","successCriteria":"optional short phrase: how to verify the turn succeeded","reason":"one short sentence: why this mode/recipe/tool"}
 
 Rules:
 - **confidence** (0–1): compared to site **minConfidence** (often 0.55) for **recipe** mode only.
+- **turnGoal**: required. Plain language the executor must follow for the whole turn (e.g. "Improve the open article with planet details and a new title", "Generate a hero image for this page from its story").
+- **successCriteria**: optional but preferred when repository writes or GenerateImage are involved.
 - **recipeId**: exact id from the recipe table when **mode** is **recipe**; otherwise **null**.
 - **toolName**: exact wire name from the tool table when **mode** is **tool**; otherwise **null**.
-- Do **not** output keys besides mode, recipeId, toolName, confidence, reason.'''
+- Do **not** output keys besides mode, recipeId, toolName, confidence, turnGoal, successCriteria, reason.'''
     )
   }
 }

@@ -1836,6 +1836,13 @@ private AuthoringIntentRecipeCatalog() {}
     if (nodeCands instanceof List && !((List) nodeCands).isEmpty()) {
       overlay.put('toolsLoopNodeSelectorCandidates', new ArrayList<>((List) nodeCands))
     }
+    Object formPlan = sup.formValidationPlan
+    if (formPlan instanceof Map && !((Map) formPlan).isEmpty()) {
+      overlay.put('toolsLoopFormDefinitionValidationPlan', new LinkedHashMap<>((Map) formPlan))
+    }
+    if (Boolean.TRUE.equals(sup.toolsLoopFastPath)) {
+      overlay.put('toolsLoopFastPath', Boolean.TRUE)
+    }
     return Collections.unmodifiableMap(overlay)
   }
 
@@ -1881,6 +1888,10 @@ private AuthoringIntentRecipeCatalog() {}
     if (Boolean.TRUE.equals(tel.get('toolsLoopCreateFromChatDraftDraftExtractReady'))) {
       sb.append(
         '**Prior-chat draft** is in **[Prior conversation]** — build **contentXml** from **GetContentTypeFormDefinition** (parent + nested types); copy title/body verbatim from chat; do not copy sibling field values.\n'
+      )
+    } else if ('newContentItem'.equals(supplement) || 'new_content_item'.equals(tel.get('recipeId')?.toString()?.trim())) {
+      sb.append(
+        '**New item copy** from the **author request**; XML shape from **GetContentTypeFormDefinition** + **Project authoring context** — do not finish in prose until **WriteContent** returns ok.\n'
       )
     }
     if (ToolsLoopWriteVerification.isActiveVerificationId(tel.get('toolsLoopWriteVerification')?.toString())) {

@@ -10,6 +10,7 @@ import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.Autho
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentRecipeEngine
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentRecipePlanCompiler
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentRecipeRouter
+import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringTurnGoal
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentRoutingEngine
 import plugins.org.craftercms.aiassistant.studio.engine.turn.AiOrchestration
 import plugins.org.craftercms.aiassistant.studio.config.StudioAiAssistantProjectConfig
@@ -32,7 +33,10 @@ import java.util.Map
  *   <li><strong>Prefetch engine</strong> — {@link AuthoringIntentRoutingEngine} runs catalog {@code routingEngineSteps}
  *       (read-only JVM tools) and prepends markdown to the router prompt.</li>
  *   <li><strong>LLM router</strong> — {@link #matchPass} sends recipe + tool catalogs to the classifier;
- *       {@link AuthoringIntentRecipeRouter} parses JSON {@code mode}: {@code chat_only} | {@code recipe} | {@code tool} | {@code plan}.</li>
+ *       {@link AuthoringIntentRecipeRouter} parses JSON {@code mode}: {@code chat_only} | {@code recipe} | {@code tool} | {@code plan},
+ *       plus required {@code turnGoal} and optional {@code successCriteria}.</li>
+ *   <li><strong>Turn goal</strong> — {@link AuthoringTurnGoal} resolves fallbacks and wires the goal into
+ *       {@code userTextForToolsLoop}, session bundle, and SSE telemetry for every outcome branch.</li>
  *   <li><strong>Outcome</strong> — {@link #route} wires the tools loop:
  *     <ul>
  *       <li>{@code recipe} + confidence → {@link #attachMatchedRecipe} (recipe prefetch, prelude, policy on telemetry)</li>
@@ -46,7 +50,8 @@ import java.util.Map
  * <h3>Subrouting package</h3>
  * <ul>
  *   <li>{@link AuthoringIntentRecipeCatalog} — bundled + site {@code intent-recipes.json}, router markdown, plan defer</li>
- *   <li>{@link AuthoringIntentRecipeRouter} — parse router JSON</li>
+ *   <li>{@link AuthoringIntentRecipeRouter} — parse router JSON ({@code turnGoal}, {@code successCriteria})</li>
+ *   <li>{@link AuthoringTurnGoal} — resolve and propagate author turn goal through the tools loop</li>
  *   <li>{@link AuthoringIntentRoutingEngine} — catalog prefetch passes ({@code initial}, {@code before_router})</li>
  *   <li>{@link AuthoringIntentRecipeEngine} — recipe {@code engineSteps} prefetch + supplements</li>
  *   <li>{@link AuthoringIntentRecipePlanCompiler} — execution plan for confirmation steps</li>
@@ -510,6 +515,7 @@ final class Router {
       AiOrchestration.putRefineToolsTelemetryIfPresentForRouting(matchedTel, toolsLoopSessionBundle)
       putRoutingEngineTelemetryIfPresent(matchedTel, toolsLoopSessionBundle)
     }
+    wireAuthorTurnGoal(matchedRoute, toolsLoopSessionBundle, author, activePass)
     return matchedRoute
   }
 
@@ -532,11 +538,15 @@ final class Router {
     String cand = author.cand?.toString()
 
     if ('chat_only'.equals(routingMode) || Boolean.TRUE.equals(activePass.toolsLoopDisable)) {
-      return wireChatOnlyOutcome(ops, cfg, result, userTextAfterGuard, cand, activePass, catalogTel, routingEnginePrefix, conf, minC, toolsLoopSessionBundle)
+      return wireChatOnlyOutcome(
+        ops, cfg, result, userTextAfterGuard, cand, author, activePass, catalogTel, routingEnginePrefix, conf, minC, toolsLoopSessionBundle
+      )
     }
 
     if ('tool'.equals(routingMode) && activePass.toolsLoopAllowlist instanceof List) {
-      return wireSingleToolOutcome(ops, cfg, result, userTextAfterGuard, cand, activePass, catalogTel, routingEnginePrefix, conf, minC, toolsLoopSessionBundle)
+      return wireSingleToolOutcome(
+        ops, cfg, result, userTextAfterGuard, cand, author, activePass, catalogTel, routingEnginePrefix, conf, minC, toolsLoopSessionBundle
+      )
     }
 
     return wirePlanOrNoMatchOutcome(
@@ -563,6 +573,7 @@ final class Router {
     Map result,
     String userTextAfterGuard,
     String cand,
+    Map author,
     Map activePass,
     Map catalogTel,
     String routingEnginePrefix,
@@ -583,6 +594,9 @@ final class Router {
     ]
     chatTel.putAll(catalogTel)
     putRoutingEngineTelemetryIfPresent(chatTel, toolsLoopSessionBundle)
+    wireAuthorTurnGoal(result, toolsLoopSessionBundle, author, activePass)
+    chatTel.turnGoal = activePass.turnGoal?.toString()?.trim() ?: ''
+    chatTel.successCriteria = activePass.successCriteria?.toString()?.trim() ?: ''
     return attachTelemetry(ops, cfg, result, 'chat_only', chatTel)
   }
 
@@ -593,6 +607,7 @@ final class Router {
     Map result,
     String userTextAfterGuard,
     String cand,
+    Map author,
     Map activePass,
     Map catalogTel,
     String routingEnginePrefix,
@@ -617,6 +632,9 @@ final class Router {
     ]
     toolTel.putAll(catalogTel)
     putRoutingEngineTelemetryIfPresent(toolTel, toolsLoopSessionBundle)
+    wireAuthorTurnGoal(result, toolsLoopSessionBundle, author, activePass)
+    toolTel.turnGoal = activePass.turnGoal?.toString()?.trim() ?: ''
+    toolTel.successCriteria = activePass.successCriteria?.toString()?.trim() ?: ''
     return attachTelemetry(ops, cfg, result, 'router_tool', toolTel)
   }
 
@@ -656,6 +674,10 @@ final class Router {
     Map planDeferCatalogTel = [:]
     if (deferPlan) {
       noMatchHint = ToolPrompts.getLlm_AUTHORING_INTENT_ROUTING_DEFER_PLAN_HINT()
+      if (AuthoringPreviewContext.authorGenerateImageRequiresPageContextFirst(cand, routerVisible)) {
+        noMatchHint += '\n\n[Studio — generate image for anchored page]\n'
+        noMatchHint += 'Use **Complex** plan: **GetContent** on the anchored path → identify what the page is about → craft the **GenerateImage** `prompt` from that content **plus** any style/subject instructions in the author message → **GenerateImage** once. Do not guess the subject before **GetContent**.\n'
+      }
       String catalogForProbe = activePass.catalogMd?.toString()?.trim() ?:
         AuthoringIntentRecipeCatalog.toRouterCatalogMarkdown(recipes ?: [])
       String deferCatalogBlock =
@@ -693,6 +715,9 @@ final class Router {
       noMatchTel.putAll(planDeferCatalogTel)
     }
     putRoutingEngineTelemetryIfPresent(noMatchTel, toolsLoopSessionBundle)
+    wireAuthorTurnGoal(result, toolsLoopSessionBundle, author, activePass)
+    noMatchTel.turnGoal = activePass.turnGoal?.toString()?.trim() ?: ''
+    noMatchTel.successCriteria = activePass.successCriteria?.toString()?.trim() ?: ''
     return attachTelemetry(ops, cfg, result, deferPlan ? 'plan' : 'no_match', noMatchTel)
   }
 
@@ -751,6 +776,16 @@ final class Router {
       }
       sb.append('\n\n## Prior conversation\n\n').append(prior)
     }
+    String anchor = AuthoringPreviewContext.extractAnchoredRepositoryPath(
+      (orchestrationWireForSiteContext ?: '').toString()
+    )?.trim()
+    if (anchor) {
+      sb.append('\n\n## Studio open item (this turn)\n\n')
+      sb.append("Repository path: ${anchor}. ")
+      sb.append('When the author asks to generate art **for this page** without naming a concrete image subject, ')
+      sb.append('use **mode plan** (GetContent on the anchored item first, then GenerateImage). ')
+      sb.append('Use **recipe generate_image** only when the author states a specific image subject in their own words.\n')
+    }
     sb.append('\n\n## Author message (this turn)\n\n').append((currentTurnVisible ?: '').toString().trim())
     return sb.toString().trim()
   }
@@ -773,6 +808,9 @@ final class Router {
     String probe = (authorVisible ?: '').toString().trim() ?
       authorVisible.toString() :
       (wirePrompt ?: '').toString()
+    if (AuthoringPreviewContext.authorGenerateImageRequiresPageContextFirst(wirePrompt, authorVisible ?: probe)) {
+      return decision
+    }
     if (!AuthoringPreviewContext.authorVisibleSuggestsIntentRecipeGenerateImage(probe)) {
       return decision
     }
@@ -812,6 +850,86 @@ final class Router {
       ]
     }
     return decision
+  }
+
+  /**
+   * Anchored “generate image for this page” without an explicit subject → plan defer (GetContent before GenerateImage).
+   */
+  private static Map applyAnchoredGenerateImagePlanDefer(
+    Map out,
+    String wirePrompt,
+    String authorVisible,
+    String rid,
+    String mode,
+    String toolName,
+    double conf,
+    double minC,
+    String reason
+  ) {
+    if (!(out instanceof Map)) {
+      return out ?: [:]
+    }
+    if (!AuthoringPreviewContext.authorGenerateImageRequiresPageContextFirst(wirePrompt, authorVisible)) {
+      return out
+    }
+    boolean generateImageRecipe = 'recipe'.equals(mode) && 'generate_image'.equals(rid)
+    boolean generateImageTool = 'tool'.equals(mode) && 'GenerateImage'.equals(toolName)
+    if (!generateImageRecipe && !generateImageTool) {
+      return out
+    }
+    log.info(
+      'Intent recipe routing: anchored generate-image without explicit subject — plan defer (was mode={} recipeId={} toolName={})',
+      mode,
+      rid ?: '(null)',
+      toolName ?: '(null)'
+    )
+    out.matched = false
+    out.deferToPlanLoop = Boolean.TRUE
+    out.matchPass = 'router_plan_anchored_generate_image'
+    out.routingMode = 'plan'
+    out.routerRecipeId = rid ?: 'generate_image'
+    out.remove('recipe')
+    out.remove('recipeId')
+    out.routerReason = reason?.trim() ?:
+      'Author wants generated art for the anchored page; read page content before GenerateImage.'
+    out.routerConfidence = conf
+    out.minConfidence = minC
+    return out
+  }
+
+  /** When catalog {@code multiGoalDefer} signals multiple goal groups, prefer plan over a single recipe match. */
+  private static Map applyMultiGoalPlanDeferIfSignaled(
+    Map out,
+    List recipes,
+    Map routeCtx,
+    Map routingCfg,
+    String rid,
+    double conf,
+    double minC,
+    String reason
+  ) {
+    if (!(out instanceof Map) || !Boolean.TRUE.equals(out.matched)) {
+      return out
+    }
+    if (!AuthoringIntentRecipeCatalog.authorSuggestsMultiGoalDefer(recipes, routeCtx, routingCfg)) {
+      return out
+    }
+    log.info(
+      'Intent recipe routing: multiGoalDefer signaled — plan mode (was recipeId={} confidence={})',
+      rid ?: '(null)',
+      conf
+    )
+    out.matched = false
+    out.deferToPlanLoop = Boolean.TRUE
+    out.matchPass = 'router_plan_multi_goal'
+    out.routingMode = 'plan'
+    out.routerRecipeId = rid
+    out.remove('recipe')
+    out.remove('recipeId')
+    out.routerReason = reason?.trim() ?: 'Multiple intent groups signaled; use plan mode.'
+    out.routerConfidence = conf
+    out.minConfidence = minC
+    return out
   }
 
   /**
@@ -866,7 +984,10 @@ final class Router {
 
   /**
    * LLM classifier pass: optional prefetch, then {@code llmCompleter} with router system prompt.
-   * @param llmCompleter {@code (projectCfg, systemPrompt, userMessage) -> rawJson}
+   * Resolves {@code turnGoal} and {@code successCriteria} via {@link AuthoringTurnGoal#resolveFromRouterDecision}.
+   *
+   * @param llmCompleter {@code (projectCfg, systemPrompt, userMessage) -> rawJson} — must return JSON-only text
+   *        ({@link plugins.org.craftercms.aiassistant.studio.engine.turn.AiOrchestration#intentRouterJsonCompletionOnly})
    */
   static Map matchPass(
     List recipes,
@@ -956,6 +1077,8 @@ final class Router {
     out.routingMode = mode
     out.routerReason = reason
 
+    String anchorPath = AuthoringPreviewContext.extractAnchoredRepositoryPath(wireForMemory)?.trim() ?: ''
+
     log.info(
       'Intent recipe routing: LLM router mode={} recipeId={} toolName={} confidence={} reason={}',
       mode,
@@ -968,13 +1091,31 @@ final class Router {
     if ('chat_only'.equals(mode)) {
       out.matchPass = 'router_chat_only'
       out.toolsLoopDisable = Boolean.TRUE
+      assignMatchPassTurnGoal(out, decision, visible, anchorPath)
       return out
     }
 
     if ('tool'.equals(mode) && toolName) {
+      out = applyAnchoredGenerateImagePlanDefer(
+        out,
+        wireForMemory,
+        visible,
+        rid,
+        mode,
+        toolName,
+        conf,
+        minC,
+        reason
+      )
+      if (Boolean.TRUE.equals(out.deferToPlanLoop)) {
+        out.routerRecipeFound = rid ? AuthoringIntentRecipeCatalog.findRecipeById(recipes, rid) != null : false
+        assignMatchPassTurnGoal(out, decision, visible, anchorPath)
+        return out
+      }
       out.matchPass = 'router_tool'
       out.toolsLoopAllowlist = [toolName]
       out.deferToPlanLoop = false
+      assignMatchPassTurnGoal(out, decision, visible, anchorPath)
       return out
     }
 
@@ -988,6 +1129,29 @@ final class Router {
         out.skipRecipePrefetch = false
         out.matchPass = 'router'
         AuthoringIntentRecipeCatalog.copyRecipeToolsLoopPolicyToRoutingPass(out, recipe)
+        out = applyAnchoredGenerateImagePlanDefer(
+          out,
+          wireForMemory,
+          visible,
+          rid,
+          mode,
+          toolName,
+          conf,
+          minC,
+          reason
+        )
+        if (Boolean.TRUE.equals(out.deferToPlanLoop)) {
+          out.routerRecipeFound = true
+          assignMatchPassTurnGoal(out, decision, visible, anchorPath)
+          return out
+        }
+        out = applyMultiGoalPlanDeferIfSignaled(out, recipes, routeCtx, routingCfg, rid, conf, minC, reason)
+        if (Boolean.TRUE.equals(out.deferToPlanLoop)) {
+          out.routerRecipeFound = true
+          assignMatchPassTurnGoal(out, decision, visible, anchorPath)
+          return out
+        }
+        assignMatchPassTurnGoal(out, decision, visible, anchorPath)
         return out
       }
       log.info(
@@ -1002,7 +1166,36 @@ final class Router {
     out.matchPass = 'router_plan'
     out.routerRecipeId = rid
     out.routerRecipeFound = rid ? AuthoringIntentRecipeCatalog.findRecipeById(recipes, rid) != null : false
+    assignMatchPassTurnGoal(out, decision, visible, anchorPath)
     return out
+  }
+
+  /**
+   * Resolves {@code turnGoal} / {@code successCriteria} from final pass state (after plan-defer rewrites).
+   */
+  private static void assignMatchPassTurnGoal(Map out, Map decision, String visible, String anchorPath) {
+    if (!(out instanceof Map)) {
+      return
+    }
+    Map goalDecision = decision instanceof Map ? new LinkedHashMap(decision) : [:]
+    String mode = out.routingMode?.toString()?.trim()?.toLowerCase() ?:
+      goalDecision.mode?.toString()?.trim()?.toLowerCase() ?: 'plan'
+    String rid = out.recipeId?.toString()?.trim() ?:
+      out.routerRecipeId?.toString()?.trim() ?:
+      goalDecision.recipeId?.toString()?.trim()
+    if (Boolean.TRUE.equals(out.deferToPlanLoop)) {
+      goalDecision.mode = 'plan'
+      goalDecision.remove('turnGoal')
+      goalDecision.remove('successCriteria')
+      String rr = out.routerReason?.toString()?.trim()
+      if (rr) {
+        goalDecision.reason = rr
+      }
+      mode = 'plan'
+    }
+    Map goalResolved = AuthoringTurnGoal.resolveFromRouterDecision(goalDecision, visible, anchorPath, rid, mode)
+    out.turnGoal = goalResolved.turnGoal?.toString() ?: ''
+    out.successCriteria = goalResolved.successCriteria?.toString() ?: ''
   }
 
   /** Attaches {@code intentRecipeRoutingTelemetry} to {@code result} for SSE and session logs. */
@@ -1129,6 +1322,9 @@ final class Router {
     }
     if (prefetchSupplementId) {
       String prefetchWirePrompt = (fullWirePrompt ?: visible ?: '').toString()
+      if (!prefetchWirePrompt.trim() && visible?.trim()) {
+        prefetchWirePrompt = visible.toString()
+      }
       supplementResult = AuthoringIntentRecipeEngine.runPrefetchSupplement(
         prefetchSupplementId,
         ops,
@@ -1162,8 +1358,7 @@ final class Router {
         ]
       }
     }
-    boolean newItemNeedsSiblingShape =
-      'new_content_item'.equals(rid) || 'createFromChatDraft'.equals(prefetchSupplementId)
+    boolean newItemNeedsSiblingShape = 'createFromChatDraft'.equals(prefetchSupplementId)
     Map newContentItemSiblingHot = newItemNeedsSiblingShape ?
       AuthoringIntentRecipeEngine.buildNewContentItemSiblingReadDirective(prefetch) :
       [directive: '', siblingGetContentPresent: Boolean.TRUE]
@@ -1305,5 +1500,39 @@ final class Router {
   /** Finds a recipe by {@code id} in the catalog list. */
   static Map findRecipeById(List recipes, String recipeId) {
     return AuthoringIntentRecipeCatalog.findRecipeById(recipes, recipeId)
+  }
+
+  /**
+   * Prepends turn-goal block to tools-loop input and stores goal on the session bundle and route telemetry.
+   *
+   * @param result route outcome map (mutated by {@link AuthoringTurnGoal#wireIntoRouteResult})
+   * @param toolsLoopSessionBundle session bundle for the tools loop
+   * @param author match-pass context ({@code cand}, {@code routerVisible})
+   * @param activePass classifier pass result ({@code turnGoal}, {@code routerDecision}, etc.)
+   */
+  private static void wireAuthorTurnGoal(Map result, Map toolsLoopSessionBundle, Map author, Map activePass) {
+    if (!(result instanceof Map) || !(author instanceof Map)) {
+      return
+    }
+    String anchor = AuthoringPreviewContext.extractAnchoredRepositoryPath(author.cand?.toString() ?: '')?.trim() ?: ''
+    String turnGoal = activePass?.turnGoal?.toString()?.trim()
+    String successCriteria = activePass?.successCriteria?.toString()?.trim()
+    if (!turnGoal) {
+      Map decision = activePass?.routerDecision instanceof Map ? (Map) activePass.routerDecision : [:]
+      Map resolved = AuthoringTurnGoal.resolveFromRouterDecision(
+        decision,
+        author.routerVisible?.toString(),
+        anchor,
+        activePass?.recipeId?.toString() ?: activePass?.routerRecipeId?.toString(),
+        activePass?.routingMode?.toString()
+      )
+      turnGoal = resolved.turnGoal?.toString()?.trim() ?: ''
+      successCriteria = resolved.successCriteria?.toString()?.trim() ?: ''
+      if (activePass instanceof Map) {
+        activePass.turnGoal = turnGoal
+        activePass.successCriteria = successCriteria
+      }
+    }
+    AuthoringTurnGoal.wireIntoRouteResult(result, toolsLoopSessionBundle, turnGoal, successCriteria, anchor)
   }
 }

@@ -38416,28 +38416,32 @@ var recipes = [
 		id: "generate_image",
 		title: "Generate image (bitmap)",
 		chatEmoji: "🖼️",
-		toolsLoopForceTool: "GenerateImage",
 		toolsLoopExcludeTools: [
 			"GenerateTextNoTools"
 		],
-		description: "Author wants a new AI-generated image, illustration, art, logo, or picture",
+		description: "Author wants a new AI-generated image with a **specific subject they named** (e.g. “image of a red fox”, “draw a blue circle”). Not when the subject must come from an anchored page (“generate an image for this page”) — use plan mode and GetContent first.",
 		matchHints: [
-			"generate",
-			"draw",
-			"image",
-			"picture",
-			"illustration",
-			"hero",
-			"cover",
-			"banner",
-			"logo",
-			"artwork",
-			"graphic",
-			"bitmap",
-			"sketch",
-			"paint"
+			"generate an image of",
+			"generate a picture of",
+			"create an illustration of",
+			"draw a picture of",
+			"draw an image of",
+			"image of a",
+			"picture of a",
+			"illustration of",
+			"sketch a",
+			"paint a",
+			"logo for",
+			"banner showing",
+			"hero image of"
 		],
 		dontMatchHints: [
+			"this page",
+			"the page",
+			"for this page",
+			"for the page",
+			"on this page",
+			"about this page",
 			"latest news",
 			"headlines",
 			"breaking news",
@@ -38460,10 +38464,10 @@ var recipes = [
 		],
 		phases: {
 			context: [
-				"Build the GenerateImage prompt from the author's exact words plus any page/topic context already in the message; do not run GetContent unless subject detail for the prompt is still missing."
+				"Use the author's explicit image subject in the GenerateImage prompt. This recipe is for subjects the author named — not anchored-page art (that case uses plan mode and GetContent first)."
 			],
 			action: [
-				"Call GenerateImage in the first tool round with a concrete prompt; optional size/quality only when the author specified them."
+				"Call GenerateImage with a concrete prompt from the author's words; optional size/quality only when the author specified them."
 			],
 			confirmation: [
 				"Wrap up in short prose only — the bitmap appears in the Studio chat image strip, not markdown image syntax."
@@ -38665,11 +38669,20 @@ var recipes = [
 			"add a page",
 			"write a new"
 		],
-		matchedUserPrelude: "[Studio — create new repository item] Resolve **contentTypeId** with **ListStudioContentTypes** (exact catalog match on the author’s type phrase). **GetContentTypeFormDefinition** for that id. **GetContent** on one existing item of that type **before** **WriteContent** to learn XML shape (field ids, nesting, dates, objectId style) — map **new** copy from the author message; **do not** copy another item’s title, body, taxonomy, images, or bios unless the author asked to duplicate that item.",
+		toolsLoopPrefetchSupplement: "newContentItem",
+		toolsLoopRequireSuccessfulTools: [
+			"WriteContent"
+		],
+		prefetchSupplements: {
+			newContentItem: {
+				toolsLoopFastPath: true
+			}
+		},
+		matchedUserPrelude: "[Studio — create new repository item] Server prefetch resolves **contentTypeId**, form definition, **writeContentMaterials**, taxonomy keys, and suggested path. **Fast path:** emit **native tool_calls** with **one WriteContent** — **full** contentXml inline (skip ## Plan JSON placeholders). Populate every **requiredFieldIds** entry and minSize collections with **original** author copy (multiple paragraphs in repeat RTE fields). **WriteContent** is rejected when contentXml is incomplete or non-compliant.",
 		phases: {
 			context: {
 				hints: [
-					"ListStudioContentTypes (siteId only) then exact catalog match; GetContentTypeFormDefinition for resolved contentTypeId; GetContent on one sibling of the same type when siblings exist."
+					"ListStudioContentTypes (siteId only) then exact catalog match; GetContentTypeFormDefinition for resolved contentTypeId and nested types; Project authoring context for site-specific XML shape."
 				],
 				engineSteps: [
 					{
@@ -38682,8 +38695,8 @@ var recipes = [
 				]
 			},
 			action: [
-				"Resolve **contentTypeId** via **ListStudioContentTypes** (exact catalog match). **GetContentTypeFormDefinition** for **quickCreatePath** and required fields.",
-				"Before **WriteContent**, **GetContent** one existing item with the same `<content-type>` for **structure only** (element names, inline layout, date/objectId format). Populate fields with **new** author copy — not sibling field values.",
+				"Resolve **contentTypeId** via **ListStudioContentTypes** (exact catalog match). **GetContentTypeFormDefinition** for **quickCreatePath**, required fields, and each nested/inline type.",
+				"Build **contentXml** from form definitions + **Project authoring context** (not from an arbitrary existing item of the same type). **GetContent** only for verified taxonomy/shared paths the project names.",
 				"Required image-picker without art instructions: **GeneratePlaceholderImage** → **`dataUrl`** in **WriteContent** (or omit for default placeholder). **GenerateImage** only when the author explicitly asked for specific generated art.",
 				"**WriteContent** at a new path under **quickCreatePath**; optional **GetPreviewHtml** in confirmation."
 			],

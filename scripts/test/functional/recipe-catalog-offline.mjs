@@ -31,6 +31,17 @@ for (const r of doc.recipes || []) {
   const id = String(r.id || '').trim();
   if (!r.title) errors.push(`${id}: missing title`);
   if (!Array.isArray(r.matchHints) || !r.matchHints.length) errors.push(`${id}: missing matchHints`);
+  if (id === 'generate_image') {
+    const dont = (r.dontMatchHints || []).map((h) => String(h).toLowerCase());
+    for (const required of ['this page', 'for this page']) {
+      if (!dont.some((h) => h.includes(required))) {
+        errors.push(`${id}: dontMatchHints must include "${required}" (anchored page defer)`);
+      }
+    }
+    if (r.toolsLoopForceTool) {
+      errors.push(`${id}: toolsLoopForceTool must be omitted (plan defer for anchored page without subject)`);
+    }
+  }
 }
 
 if (doc.routingRecipeFamilies && typeof doc.routingRecipeFamilies === 'object') {

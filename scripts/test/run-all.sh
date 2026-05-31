@@ -131,6 +131,8 @@ if command -v node >/dev/null 2>&1; then
   node --check "${REPO_ROOT}/scripts/test/lib/chat-llm-env.mjs"
   node --check "${REPO_ROOT}/scripts/test/functional/sse-telemetry-offline.mjs"
   node --check "${REPO_ROOT}/scripts/test/lib/sse-telemetry.mjs"
+  node --check "${REPO_ROOT}/scripts/test/lib/router-json-parity.mjs"
+  node --check "${REPO_ROOT}/scripts/test/functional/router-json-offline.mjs"
   report_run "step1-offline" "tool-id-parity" "CORE_TOOLS vs UI tool id parity" \
     node "${REPO_ROOT}/scripts/test/functional/tool-id-parity.mjs"
   report_run "step1-offline" "recipe-catalog-offline" "Bundled intent recipe catalog JSON" \
@@ -141,6 +143,8 @@ if command -v node >/dev/null 2>&1; then
     node "${REPO_ROOT}/scripts/test/functional/concurrent-ice-panel-storage.mjs"
   report_run "step1-offline" "sse-telemetry-offline" "SSE telemetry expect helpers (GenerateImage caps)" \
     node "${REPO_ROOT}/scripts/test/functional/sse-telemetry-offline.mjs"
+  report_run "step1-offline" "router-json-offline" "Intent router JSON extract + parse parity" \
+    node "${REPO_ROOT}/scripts/test/functional/router-json-offline.mjs"
 fi
 export REST_CONTRACTS_SELFTEST=1
 "${REPO_ROOT}/scripts/test/functional/rest-contracts.sh"

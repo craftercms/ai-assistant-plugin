@@ -7,6 +7,7 @@
 | Document | Owns |
 |----------|------|
 | [stream-endpoint-design.md](stream-endpoint-design.md) | SSE/stream wire behavior and related server contracts |
+| [intent-recipe-routing.md](intent-recipe-routing.md) | Pre-tools intent classifier, recipe match/prefetch, **turn goal** propagation, routing telemetry |
 | [chat-and-tools-runtime.md](chat-and-tools-runtime.md) | Tool catalog, REST request/response fields, MCP client, operational troubleshooting contracts |
 | [../using-and-extending/studio-plugins-guide.md](../using-and-extending/studio-plugins-guide.md) | **Build & install**: `yarn package`, Rollup outputs, canonical source paths vs generated `authoring/` paths, plugin id / descriptor invariants |
 | [../using-and-extending/llm-configuration.md](../using-and-extending/llm-configuration.md) | **`<llm>`** identifiers, env + XML configuration, provider capability matrix, merge rules |
@@ -23,6 +24,8 @@
 - **Studio AI assistant** — The authoring-facing assistant in Crafter Studio that this plugin provides: the form-engine control, the Helper widget on the Tools Panel or preview toolbar, and optional autonomous scheduled runs.
 - **Agent catalog ids** — Chat rows in **`config/studio/ai-assistant/agents.json`** use **`agentId`** as the stable id sent on stream/chat as POST **`agentId`**.
 - **Optional remote tools** — Sites may add **MCP** servers, **user tools** (Groovy), or custom integrations; this plugin does not ship a separate remote chat product.
+- **Turn goal** — Plain-language objective for **this author message only** (`turnGoal`, optional `successCriteria`), classified before the tools loop and propagated into executor prompts and SSE telemetry. See § [Intent recipe routing & turn goal](#intent-recipe-routing-turn-goal).
+- **Intent recipes** — Pre-tools orchestration (match, prefetch, prelude, optional `toolsLoopDisable`); not a separate wire name beside `GetContent`. Configured in site **`intent-recipes.json`** + **`tools.json`** → **`intentRecipeRouting`**.
 
 ### Overview
 
@@ -31,7 +34,7 @@ This repository is a Crafter Studio plugin with **two main surfaces**:
 - **Interactive chat agent** — The Studio AI assistant surfaces above. Agents are configured per site; each agent selects an **LLM** and may enable **function tools**. Supported **`<llm>`** values, keys, and capabilities are listed in [llm-configuration.md](../using-and-extending/llm-configuration.md). Tools may include CMS operations, HTTP helpers, optional **MCP** remote tools when **`tools.json`** sets **`mcpEnabled: true`** (see [chat-and-tools-runtime.md](chat-and-tools-runtime.md#mcp-client-tools-streamable-http)), and site-defined Groovy tools.
 - **Experimental autonomous agent framework** — Optional **AutonomousAssistants** widget in the Tools Panel: **scheduled**, **server-side**, **in-memory** runs that reuse the interactive tool catalog for supported LLMs; see § [Autonomous assistants widget](#autonomous-assistants-widget-tools-panel).
 
-**Diagrams:** [Architecture & diagrams](../architecture-diagrams.md) — [system context](../architecture-diagrams.md#system-context-architecture), [logical layers](../architecture-diagrams.md#logical-architecture-design), [stream path](../architecture-diagrams.md#interactive-chat-request-path-developer), [component registration](../architecture-diagrams.md#studio-ui-component-registration-developer).
+**Diagrams:** [Architecture & diagrams](../architecture-diagrams.md) — [system context](../architecture-diagrams.md#system-context-architecture), [logical layers](../architecture-diagrams.md#logical-architecture-design), [stream path](../architecture-diagrams.md#interactive-chat-request-path-developer), [turn goal propagation](../architecture-diagrams.md#turn-goal-propagation-developer), [component registration](../architecture-diagrams.md#studio-ui-component-registration-developer).
 
 It currently focuses on:
 
@@ -284,6 +287,54 @@ You can configure one or more **chat** agents (`mode: chat` or omitted) so the t
 
 When the plugin’s **REST** chat or stream endpoints are used (`ai/agent/chat` or `ai/stream`), the server uses **`AiOrchestration`**, which selects the backend from **`llm`** in the JSON body (mirrors widget `<llm>`). **Spring AI** supplies several **`ChatModel`** integrations (including **`OpenAiChatModel`** for hosts on the **OpenAISpec** chat/tools wire, and **`AnthropicChatModel`** for Anthropic); Spring’s **`OpenAi*`** type names reflect that wire client shape, not “only OpenAI Inc.’s product.” Built-in tools-loop sessions are built by **`OpenAiSpecSpringAiLlmRuntime`**.
 
+<a id="intent-recipe-routing-turn-goal"></a>
+
+#### Intent recipe routing & turn goal (interactive chat)
+
+**Full pipeline:** **[intent-recipe-routing.md](intent-recipe-routing.md)** · **SSE shape:** **[stream-endpoint-design.md § Intent recipe routing SSE](stream-endpoint-design.md#intent-recipe-routing-sse)** · **Diagram:** [turn goal propagation](../architecture-diagrams.md#turn-goal-propagation-developer).
+
+Before the native **tools loop** runs on an interactive turn, the server may classify **what the author wants this message to accomplish** and optionally bind a whole-turn **intent recipe**. This prelude is **not** used for **autonomous** workers (they call **`llmHeadlessNativeToolsCompletion`** directly).
+
+**When the prelude runs**
+
+| Condition | Prelude |
+|-----------|---------|
+| **`llm`** uses the **tools-loop RestClient** path (`openAI`, `xAI`, `deepSeek`, `llama`, `gemini` / `genesis`, or **`script:{id}`** with tools-loop wire) | Eligible |
+| **`llm`** is **`claude`** (Anthropic tool loop) | **Skipped** |
+| POST **`omitTools: true`** or form-engine client-forward path that bypasses prelude | **Skipped** |
+| Site **`tools.json`** → **`intentRecipeRouting.enabled`** is **`false`** | **Skipped** (`outcome: skipped_disabled`) |
+| Preconditions fail (empty prompt, no API key, empty catalog, …) | **Skipped** (`skipped_*`); tools loop may still run **without** a turn goal |
+
+Entry: **`AiOrchestration.intentRecipeRoutingPrelude`** → **`Router.route`** → **`Router.matchPass`** (JSON-only LLM classifier). Classification uses the **`Current request:`** slice of the wire prompt as primary author text; repository anchor is context, not the sole routing signal.
+
+**Router LLM JSON** (parsed by **`AuthoringIntentRecipeRouter.parseRouterJson`**; **`extractJsonPayload`** tolerates leading prose before `{…}`):
+
+| Field | Required | Meaning |
+|-------|----------|---------|
+| **`mode`** | yes | **`chat_only`** \| **`recipe`** \| **`tool`** \| **`plan`** |
+| **`turnGoal`** | yes | Plain-language objective for **this turn only** (server fallbacks when omitted) |
+| **`successCriteria`** | no | Optional “done when …” verification phrase |
+| **`recipeId`** | when `mode: recipe` | Whole-turn recipe id from catalog |
+| **`toolName`** | when `mode: tool` | Single wired tool allowlist |
+| **`confidence`** | no | `0..1`; **`recipe`** binds only when ≥ **`intentRecipeRouting.minConfidence`** (default **0.55**) |
+| **`reason`** | no | Short classifier rationale (telemetry / fallbacks) |
+
+**Prelude outcomes** (`intentRecipeRoutingTelemetry.outcome`):
+
+| `outcome` | Effect |
+|-----------|--------|
+| **`matched`** | Recipe prefetch + prelude on **`userTextForToolsLoop`**; may set **`toolsLoopDisable`**, **`toolsLoopAllowlist`**, **`toolsLoopForceTool`** |
+| **`chat_only`** | Tools loop disabled for the turn |
+| **`router_tool`** | Tools loop restricted to one tool |
+| **`plan`** / **`no_match`** | Plan-defer hint + catalog; tools loop runs with **## Plan**; **`turnGoal`** guides tool choice |
+| **`skipped_*`** | Classifier not run or gate blocked; **no** **`turnGoal`** wired |
+
+**Turn goal propagation** (classifier outcomes only — not **`skipped_*`**): **`AuthoringTurnGoal.wireIntoRouteResult`** via **`Router.wireAuthorTurnGoal`** sets **`turnGoal`** / **`successCriteria`** on telemetry, prepends **`[Studio — turn goal …]`** to **`userTextForToolsLoop`**, and stores **`authorTurnGoalBlock`** on the session bundle. The tools-loop executor also receives **`AuthoringTurnGoal.appendToSystemWireMessage`** (system appendix) and **`formatMidLoopReminder`** (user message between tool rounds). Each new author message gets a **fresh** router classification; prior turns are context only.
+
+**Stream SSE:** On **`/ai/stream`**, after prelude completes, the server emits one early frame with **`metadata.status: "intent-recipe-routing"`** and **`metadata.intentRecipeRouting`** (full telemetry map, including **`turnGoal`**). When **`outcome: matched`**, optional **`text`** may carry a short recipe line for the chat UI. Non-stream **`/ai/agent/chat`** runs the same prelude logic but does **not** emit this SSE row.
+
+**Configuration:** Project Tools → **Recipes** tab; **`config/studio/scripts/aiassistant/config/tools.json`** → **`intentRecipeRouting`**; site catalog **`config/studio/scripts/aiassistant/config/intent-recipes.json`** ( **`customRecipesPath`** ). Admin overview: **[configuration-guide §9.0](../using-and-extending/configuration-guide.md#cg-9-0)**.
+
 - **`openAI`** / **`xAI`** / **`deepSeek`** / **`llama`** / **`gemini`**: **`OpenAiChatModel`** with **`StudioAiToolRegistry`** / **`AiOrchestrationTools.build`** (GetContent, **ListContentDependencyScope**, WriteContent, ListPagesAndComponents, **GenerateImage**, etc.) and native tool calling when tools are enabled.
 - **`claude`**: **`AnthropicChatModel`** with the Spring AI Anthropic tool loop (`AiOrchestrationTools` registration path for Claude).
 - **`WriteContent` (site `*.xml`):** For **required** top-level **image-picker** fields that are still **empty**, **`StudioToolOperations`** may set the field text to a **`data:image/png;base64,...`** placeholder generated in-process (same pattern as studio-ui **`generatePlaceholderImageDataUrl`** / Experience Builder). No fixed repository path and no copying of arbitrary form **defaultValue** text into the item. For **required** or **`minSize`‑constrained** top-level **`checkbox-group`** fields backed by a **taxonomy** datasource (datasource **`type`** contains `taxonomy`, e.g. simple taxonomy), **`WriteContent`** may append **`item`** rows (`key` + typed value element such as **`value_smv`**) from the taxonomy list XML under **`/site/...`** until the constraint is satisfied (deterministic order: first unused keys from the taxonomy file).
@@ -333,8 +384,9 @@ A single **streaming** endpoint accepts `agentId`, `prompt`, optional `llm` / `l
 ### Related Docs
 
 - **[llm-configuration.md](../using-and-extending/llm-configuration.md)** — Supported `<llm>` ids, required configuration, env + XML; autonomous widget allowed `llm` values.
+- **[intent-recipe-routing.md](intent-recipe-routing.md)** — Pre-tools classifier, recipe prefetch, turn goal, telemetry, maintainer checklist.
 - **[chat-and-tools-runtime.md](chat-and-tools-runtime.md)** — tools family, SSE, REST body fields, agent skills, MCP, key precedence, troubleshooting.
-- **[stream-endpoint-design.md](stream-endpoint-design.md)** — SSE contract and stream `/ai/stream` behavior.
+- **[stream-endpoint-design.md](stream-endpoint-design.md)** — SSE contract and stream `/ai/stream` behavior (including **`intent-recipe-routing`** metadata).
 - **[studio-plugins-guide.md](../using-and-extending/studio-plugins-guide.md)** — Build and install guide for Crafter Studio plugins (plugin ID, paths, ui.xml, auth, Rollup, checklist). Use when creating or debugging plugins.
 - **Crafter Studio UI (reference):** [craftercms/studio-ui @ `support/4.x`](https://github.com/craftercms/studio-ui/tree/support/4.x) — Use this branch to see how Studio implements widgets, hooks (e.g. `useActiveSiteId`, `useCurrentPreviewItem`, `useActiveUser`), and config; build features and code consistently with Studio.
 

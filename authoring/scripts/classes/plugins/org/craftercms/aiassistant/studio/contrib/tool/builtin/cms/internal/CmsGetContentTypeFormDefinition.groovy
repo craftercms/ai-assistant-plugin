@@ -42,6 +42,24 @@ private CmsGetContentTypeFormDefinition() {}
         )
       }
       Map out = [siteId: siteId, contentTypeId: normalized, path: cfgPath, formDefinitionXml: xml]
+      Map validationPlan = FormDefinitionWriteContentValidator.buildValidationPlan(xml.toString()) as Map
+      if (FormDefinitionWriteContentValidator.planIsActionable(validationPlan)) {
+        out.formValidationPlan = validationPlan
+        out.formFieldIds = validationPlan.formFieldIds
+        out.requiredFieldIds = validationPlan.requiredFieldIds
+        out.minSizeFields = validationPlan.minSizeFields
+        Map writeMaterials = FormDefinitionWriteContentMaterials.build(
+          ops, siteId, xml.toString(), '', validationPlan
+        ) as Map
+        if (writeMaterials && !writeMaterials.isEmpty()) {
+          out.writeContentMaterials = FormDefinitionWriteContentMaterials.compactForPrefetchEnvelope(writeMaterials)
+          out.writeContentMaterialsMarkdown = (writeMaterials.authoringMarkdown ?: '').toString()
+        }
+        out.hint =
+          'Populate **requiredFieldIds** and satisfy **minSizeFields** before WriteContent. ' +
+            'Use **writeContentMaterials** (standard envelope + taxonomy keys + repeat examples from form datasources). ' +
+            'Include `<content-type>`, `<display-template>`, `<merge-strategy>`, `<objectId>`, `<objectGroupId>`, `<folder-name>`, and `<file-name>` (`index.xml` when the path ends in `/index.xml`).'
+      }
       CmsRepositorySupport.attachXmlReadDiagnostics(cfgPath, xml, out)
       out
     }

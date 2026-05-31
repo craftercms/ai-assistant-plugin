@@ -65,4 +65,64 @@ const passOk = evaluateExpectations(
 );
 assert(passOk.failures.length === 0, `unexpected failures: ${passOk.failures.join('; ')}`);
 
+const planTel = summarizeSseTelemetry([
+  {
+    metadata: {
+      status: 'intent-recipe-routing',
+      intentRecipeRouting: {
+        outcome: 'plan',
+        recipeId: 'generate_image',
+        deferToPlanLoop: true,
+      },
+    },
+  },
+  { metadata: { completed: true } },
+]);
+const planPass = evaluateExpectations(planTel, {
+  forbidRecipeId: 'generate_image',
+  deferToPlanLoop: true,
+});
+assert(planPass.failures.length === 0, `plan defer expectations: ${planPass.failures.join('; ')}`);
+
+const badMatch = summarizeSseTelemetry([
+  {
+    metadata: {
+      status: 'intent-recipe-routing',
+      intentRecipeRouting: { outcome: 'matched', recipeId: 'generate_image' },
+    },
+  },
+]);
+const badPass = evaluateExpectations(badMatch, { forbidRecipeId: 'generate_image' });
+assert(badPass.failures.length === 1, 'forbidRecipeId should fail on matched generate_image');
+
+const turnGoalTel = summarizeSseTelemetry([
+  {
+    metadata: {
+      status: 'intent-recipe-routing',
+      intentRecipeRouting: {
+        outcome: 'plan',
+        turnGoal: 'Generate an image for the page based on its content.',
+        successCriteria: 'GenerateImage succeeded.',
+      },
+    },
+  },
+  { metadata: { completed: true } },
+]);
+const turnGoalPass = evaluateExpectations(turnGoalTel, {
+  turnGoalPresent: true,
+  turnGoalContains: 'image',
+});
+assert(turnGoalPass.failures.length === 0, `turnGoal expectations: ${turnGoalPass.failures.join('; ')}`);
+
+const noTurnGoal = summarizeSseTelemetry([
+  {
+    metadata: {
+      status: 'intent-recipe-routing',
+      intentRecipeRouting: { outcome: 'plan' },
+    },
+  },
+]);
+const noTurnGoalFail = evaluateExpectations(noTurnGoal, { turnGoalPresent: true });
+assert(noTurnGoalFail.failures.length === 1, 'turnGoalPresent should fail when turnGoal absent');
+
 console.log('sse-telemetry-offline: OK');

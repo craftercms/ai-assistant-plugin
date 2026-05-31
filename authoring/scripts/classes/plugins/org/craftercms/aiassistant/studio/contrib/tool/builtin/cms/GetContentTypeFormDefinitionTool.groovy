@@ -39,12 +39,28 @@ class GetContentTypeFormDefinitionTool extends AbstractStudioAiTool {
    * Resolves {@code contentTypeId} from the item XML at {@code contentPath} when provided, warns on mismatched
    * explicit ids, then loads the form definition via {@link plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations#getContentTypeFormDefinition}.
    */
+  /** {@code /page/article} and similar config paths are content-type ids, not repository item paths. */
+  private static boolean looksLikeStudioContentTypeId(String path) {
+    String p = (path ?: '').toString().trim()
+    if (!p.startsWith('/')) {
+      return false
+    }
+    if (p.startsWith('/site/') || p.startsWith('/config/')) {
+      return false
+    }
+    return p.startsWith('/page/') || p.startsWith('/component/') || '/taxonomy'.equals(p)
+  }
+
   @Override
   Map execute(Map input, StudioAiToolContext ctx) {
     def siteId = ctx.ops.resolveEffectiveSiteId(input?.siteId?.toString()?.trim())
     if (!siteId) throw new IllegalArgumentException('Missing required field: siteId')
     def contentPath = input?.contentPath?.toString()?.trim()
     def contentTypeId = input?.contentTypeId?.toString()?.trim()
+    if (contentPath && !contentTypeId && looksLikeStudioContentTypeId(contentPath)) {
+      contentTypeId = contentPath.startsWith('/') ? contentPath : "/${contentPath}"
+      contentPath = null
+    }
     if (contentPath) {
       def item = CmsGetContent.read(ctx.ops, siteId, contentPath)
       def xml = item?.contentXml?.toString()

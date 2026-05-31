@@ -1,12 +1,12 @@
 # Intent Recipe Routing (Pre-Tools) and Tools Loop
 
-Companion to **[`chat-and-tools-runtime.md`](chat-and-tools-runtime.md)** and **[`spec.md`](spec.md)**. Describes how preview chat classifies an author turn **before** the native tools loop runs, and how that classification affects tool availability, prefetch, and prompts.
+Companion to **[`chat-and-tools-runtime.md`](chat-and-tools-runtime.md)** and **[`spec.md`](spec.md)** (§ [Intent recipe routing & turn goal](spec.md#intent-recipe-routing-turn-goal) — wire/SSE contract summary). Describes how preview chat classifies an author turn **before** the native tools loop runs, and how that classification affects tool availability, prefetch, and prompts.
 
 **Audience:** Maintainers debugging `intent-recipe-routing` SSE telemetry, `skipped_eligibility`, wrong recipe matches, or tools firing on chat-only turns.
 
-**Configuration:** Project Tools → AI Assistant → **Recipes** tab (`config/studio/scripts/aiassistant/config/tools.json` → `intentRecipeRouting` flags + site recipe catalog). Bundled defaults ship in the plugin JAR: `authoring/scripts/classes/plugins/org/craftercms/aiassistant/engine/routing/authoring-intent-recipes-default.json`. Site overrides: default **`config/studio/scripts/aiassistant/config/intent-recipes.json`** (Project Tools sets **`customRecipesPath`** in `tools.json` on save; routing reads that path only when configured). Admin overview: **[configuration-guide.md §9.0](../using-and-extending/configuration-guide.md#cg-9-0)**. **Broader architecture:** [Architecture & diagrams](../architecture-diagrams.md#logical-architecture-design) (`Router.route` prelude before the tools loop).
+**Configuration:** Project Tools → AI Assistant → **Recipes** tab (`config/studio/scripts/aiassistant/config/tools.json` → `intentRecipeRouting` flags + site recipe catalog). Bundled defaults ship in the plugin JAR: `authoring/scripts/classes/plugins/org/craftercms/aiassistant/studio/engine/routing/authoring-intent-recipes-default.json`. Site overrides: default **`config/studio/scripts/aiassistant/config/intent-recipes.json`** (Project Tools sets **`customRecipesPath`** in `tools.json` on save; routing reads that path only when configured). Admin overview: **[configuration-guide.md §9.0](../using-and-extending/configuration-guide.md#cg-9-0)**. **Broader architecture:** [Architecture & diagrams](../architecture-diagrams.md#logical-architecture-design) (`Router.route` prelude before the tools loop).
 
-**Code entry point:** `plugins.org.craftercms.aiassistant.engine.routing.Router.route(...)` — `AiOrchestration.intentRecipeRoutingPrelude` delegates here only. Classifier, catalog markdown, routing-engine prefetch, and recipe attach live under `engine/routing/` and `engine/routing/subrouting/`.
+**Code entry point:** `plugins.org.craftercms.aiassistant.studio.engine.routing.Router.route(...)` — `AiOrchestration.intentRecipeRoutingPrelude` delegates here only. Classifier, catalog markdown, routing-engine prefetch, turn goal, and recipe attach live under `engine/routing/` and `engine/routing/subrouting/`.
 
 **Not in this prelude:** **Autonomous** scheduled runs (`AutonomousAssistantWorker`) skip intent routing and call `AiOrchestration.llmHeadlessNativeToolsCompletion` directly.
 
@@ -35,17 +35,20 @@ One **interactive** turn, tools-loop LLM, `intentRecipeRouting.enabled: true`, s
 flowchart TD
   Turn([Author message this turn]) --> Pre{Prelude guards OK?}
   Pre -->|no| Skip[skipped_* — tools loop or error]
-  Pre -->|yes| Classify[Router.matchPass]
-  Classify --> Out{Classifier outcome}
+  Pre -->|yes| Classify["Router.matchPass<br/>JSON-only LLM classifier"]
+  Classify --> Goal["AuthoringTurnGoal<br/>turnGoal + successCriteria"]
+  Goal --> Out{Classifier outcome}
   Out -->|matched recipe| Recipe[Prefetch + prelude]
   Out -->|chat_only| Prose[Prose only]
   Out -->|router_tool| OneTool[Single-tool allowlist]
   Out -->|plan / no_match| PlanHint[Plan defer + catalog]
-  Recipe --> Loop[Tools loop]
-  OneTool --> Loop
-  PlanHint --> Loop
-  Skip --> Loop
-  Loop --> Done([Turn complete])
+  Recipe --> Wire["wireAuthorTurnGoal<br/>SSE + userText prefix"]
+  OneTool --> Wire
+  PlanHint --> Wire
+  Skip --> Loop["Tools loop<br/>(no turn goal — skipped prelude)"]
+  Wire --> LoopGoal["Tools loop<br/>goal in system + mid-loop reminders"]
+  LoopGoal --> Done([Turn complete])
+  Loop --> Done
   Prose --> Done
 ```
 
@@ -54,9 +57,10 @@ flowchart TD
 | Branch | Meaning |
 |--------|---------|
 | **Whole-turn recipe** (`mode: recipe`) | Classifier picks one recipe id at or above **`minConfidence`** — server runs recipe prefetch + prelude before (or instead of) tools. |
-| **Chat only** (`mode: chat_only`) | Tools loop disabled for the turn (creative / research prose, etc.). |
+| **Chat only** (`mode: chat_only`) | Tools loop disabled for the turn (creative / research prose, etc.). Turn goal still resolved and emitted in telemetry. |
 | **Single tool** (`mode: tool`) | Tools loop restricted to one wired tool name (`outcome: router_tool`). |
-| **Plan defer** (`mode: plan` or recipe below confidence) | **## Plan** hint + optional catalog block; tools loop plans per step (`outcome: plan` or `no_match`). |
+| **Plan defer** (`mode: plan` or recipe below confidence) | **## Plan** hint + optional catalog block; tools loop plans per step (`outcome: plan` or `no_match`). **`turnGoal`** keeps the executor aligned even when no whole-turn recipe matches. |
+| **Turn goal** | Classifier outcomes only (`matched`, `chat_only`, `router_tool`, `plan` / `no_match`) — not **`skipped_*`** prelude exits. Required **`turnGoal`** from router JSON (with fallbacks) wired into SSE, **`userTextForToolsLoop`**, session bundle, and tools-loop prompts when the classifier runs. |
 
 Recipe JSON still defines **`deterministicMatch`** rules — used for **plan-step hints** inside the tools loop (`matchRecipesForPlanSteps`), not as the primary whole-turn gate. The phased diagram in **[Default flow](#default-flow-shipped--preview-chat-tools-loop-llms)** matches **`Router.route`**.
 
@@ -102,14 +106,15 @@ flowchart TD
 
   C["C · Router.matchPass"]
   C --> C0["routingEngineSteps: initial, before_router"]
-  C0 --> C1["LLM JSON: chat_only | recipe | tool | plan"]
-  C1 --> C2["Server corrections"]
-  C2 --> Cbranch{mode + confidence}
+  C0 --> C1["LLM JSON-only<br/>mode · recipeId · toolName · turnGoal · successCriteria"]
+  C1 --> C2["parseRouterJson + extractJsonPayload<br/>+ server corrections"]
+  C2 --> C3["AuthoringTurnGoal.resolveFromRouterDecision"]
+  C3 --> Cbranch{mode + confidence}
 
-  Cbranch -->|recipe ≥ minConfidence| D1["D · attachMatchedRecipe"]
-  Cbranch -->|chat_only| D2["D · outcome chat_only"]
-  Cbranch -->|tool| D3["D · outcome router_tool"]
-  Cbranch -->|plan / weak recipe| D4["D · plan defer + catalog"]
+  Cbranch -->|recipe ≥ minConfidence| D1["D · attachMatchedRecipe<br/>+ wireAuthorTurnGoal"]
+  Cbranch -->|chat_only| D2["D · outcome chat_only<br/>+ wireAuthorTurnGoal"]
+  Cbranch -->|tool| D3["D · outcome router_tool<br/>+ wireAuthorTurnGoal"]
+  Cbranch -->|plan / weak recipe| D4["D · plan defer + catalog<br/>+ wireAuthorTurnGoal"]
 
   D1 --> D1off{toolsLoopDisable?}
   D1off -->|yes| EndProse([Prose reply only])
@@ -117,11 +122,12 @@ flowchart TD
   D2 --> EndProse
   D3 --> E
   D4 --> E
-  Bskip --> E
-  BskipElig --> E
+  Bskip --> Eskip["E · tools loop<br/>(no turn goal)"]
+  BskipElig --> Eskip
 
-  E["E · Native tools loop<br/>## Plan · tool_calls · plan-step hints"]
+  E["E · Native tools loop<br/>turn goal in user + system · mid-loop reminders<br/>## Plan · tool_calls · plan-step hints"]
   E --> Done([Turn complete])
+  Eskip --> Done
 ```
 
 ### Default path — example turns (anchored page open)
@@ -132,7 +138,8 @@ flowchart TD
 | Write a short story about … | B → C1 `mode: chat_only` or recipe `llm_research` with tools off → **no E** |
 | Update the hero text to … | B → C1 `mode: recipe` **`modify_page_content`** → D prefetch → **E** WriteContent |
 | Look up … on the web (single goal) | B → C1 `mode: tool` **`SerpApiWebSearch`** / **`WebSearch`** or recipe `web_research` → **E** |
-| Multi-intent / ambiguous wording | B → C1 `mode: plan` → D plan defer catalog → **E** (## Plan + tools per step) |
+| Multi-intent / ambiguous wording | B → C1 `mode: plan` → D plan defer catalog → **E** (## Plan + tools per step; **`turnGoal`** guides tool choice) |
+| Anchored: “create an image for this page” | B → C1 `mode: plan` → D plan defer → **E** GetContent → GenerateImage (**`turnGoal`** names page-context image) |
 | Prior turn: draft prose; current: “save this” / “make it a post” | B → C1 `mode: recipe` **`new_content_item`** → D **`createFromChatDraft`** prefetch → **E** WriteContent (model supplies field ids from form def) |
 
 ### Telemetry outcomes (default prelude)
@@ -271,15 +278,49 @@ See **[Routing at a glance](#routing-at-a-glance-default)** for the simplified d
    - Wired tools catalog (`toRouterToolsCatalogMarkdown`)
    - Current-turn visible text + optional prior conversation block
 
-   **`AuthoringIntentRecipeRouter.parseRouterJson`** returns **`mode`**: `chat_only` | `recipe` | `tool` | `plan`, plus `recipeId`, `toolName`, `confidence`, `reason`.
+   **`AuthoringIntentRecipeRouter.parseRouterJson`** returns **`mode`**: `chat_only` | `recipe` | `tool` | `plan`, plus `recipeId`, `toolName`, `confidence`, `reason`, required **`turnGoal`**, and optional **`successCriteria`**. The router completion uses **JSON-only** simple completion (no refine tools) so prose from prior turns does not break parsing; **`extractJsonPayload`** strips leading markdown when a `{…}` object is present.
 
-3. **Server corrections** — Examples: force **`open_page_inquiry`** for read-only page summary asks; image-generation routing adjustment (`applyAuthorGeneratedImageRoutingCorrection`).
+3. **Turn goal resolution** — **`AuthoringTurnGoal.resolveFromRouterDecision`** fills missing `turnGoal` / `successCriteria` from router `reason`, author visible text, recipe id, and routing mode. **`Router.wireAuthorTurnGoal`** on **classifier outcomes** (`matched`, `chat_only`, `router_tool`, `plan` / `no_match`) calls **`AuthoringTurnGoal.wireIntoRouteResult`**, which:
+   - Sets **`intentRecipeRoutingTelemetry.turnGoal`** and **`successCriteria`** (SSE / debug log)
+   - Prepends **`[Studio — turn goal …]`** to **`userTextForToolsLoop`**
+   - Stores **`authorTurnGoal`**, **`authorTurnSuccessCriteria`**, **`authorTurnGoalBlock`** on the session bundle
 
-4. **Wire outcome** — `Router.route` branches:
+4. **Server corrections** — Examples: force **`open_page_inquiry`** for read-only page summary asks; image-generation routing adjustment (`applyAuthorGeneratedImageRoutingCorrection`).
+
+5. **Wire outcome** — `Router.route` branches:
    - **`recipe`** + confidence ≥ **`minConfidence`** → `attachMatchedRecipe` (`matchPass: router`, `outcome: matched`)
    - **`chat_only`** → tools off (`matchPass: router_chat_only`, `outcome: chat_only`)
    - **`tool`** → `toolsLoopAllowlist` (`matchPass: router_tool`, `outcome: router_tool`)
    - **`plan`** or recipe below confidence → plan defer hint + catalog (`matchPass: router_plan`, `outcome: plan` or `no_match`)
+
+### Turn goal through the tools loop
+
+<a id="turn-goal-through-the-tools-loop"></a>
+
+After routing, the executor (tools-loop LLM) receives the turn goal at three reinforcement points:
+
+```mermaid
+flowchart LR
+  Router["Router.matchPass<br/>turnGoal in JSON"] --> Resolve["AuthoringTurnGoal<br/>resolve + wireIntoRouteResult"]
+  Resolve --> SSE["SSE telemetry<br/>intentRecipeRouting.turnGoal"]
+  Resolve --> User["userTextForToolsLoop<br/>[Studio — turn goal …] prefix"]
+  Resolve --> Bundle["Session bundle<br/>authorTurnGoalBlock"]
+  Bundle --> Sys["System prompt appendix"]
+  Bundle --> Mid["Mid-loop user reminders<br/>between tool rounds"]
+  User --> Loop["Tools loop LLM"]
+  Sys --> Loop
+  Mid --> Loop
+```
+
+| Stage | Mechanism |
+|-------|-----------|
+| User message | **`[Studio — turn goal …]`** block prepended to **`userTextForToolsLoop`** |
+| System message | **`AuthoringTurnGoal.appendToSystemWireMessage`** appends goal + execution policy |
+| Mid-loop | **`AuthoringTurnGoal.formatMidLoopReminder`** injected as a user message between tool rounds |
+
+**Class:** `AuthoringTurnGoal` (`engine/routing/subrouting/AuthoringTurnGoal.groovy`). The goal **mutates every author message** — each turn gets a fresh router classification and goal; prior turns are context only.
+
+**Offline tests:** `scripts/test/functional/router-json-offline.mjs` (JSON extract/parse); scenario `expect.turnGoalPresent` / `turnGoalContains` via `lib/sse-telemetry.mjs`.
 
 ### Plan-step deterministic hints (inside tools loop, not prelude)
 
@@ -428,6 +469,7 @@ When a matched recipe has Confirmation **`engineSteps`**, the loop runs **`maybe
 |------|----------|
 | **Routing entry point** | `engine/routing/Router.groovy` (`route`, `matchPass`, `attachMatchedRecipe`) |
 | Classifier JSON parse | `engine/routing/subrouting/AuthoringIntentRecipeRouter.groovy` |
+| Turn goal resolve + wire | `engine/routing/subrouting/AuthoringTurnGoal.groovy` |
 | Routing-engine prefetch passes | `engine/routing/subrouting/AuthoringIntentRoutingEngine.groovy` |
 | Eligibility + current-turn signals | `engine/context/AuthoringPreviewContext.groovy` |
 | Recipe catalog, plan-defer context, plan-step deterministic match | `AuthoringIntentRecipeCatalog.groovy`, `AuthoringIntentRecipeWhen.groovy` |
@@ -463,8 +505,10 @@ When a matched recipe has Confirmation **`engineSteps`**, the loop runs **`maybe
 - `confirmationServerStepsExecuted`, `confirmationServerStepsOk`, `confirmationServerStepSummaries` — after JVM confirmation runs
 - `executionPlanStepCount` — steps in compiled execution plan
 - `routerReason`, `recipeFoundInCatalog`
+- **`turnGoal`** — plain-language objective for **this turn only** (required from router LLM; fallback when omitted)
+- **`successCriteria`** — optional verification phrase (e.g. after WriteContent or GenerateImage)
 
-Use these fields to see whether a turn failed at **preconditions**, **routing (match)**, optional **eligibility gate**, **tools loop execution**, or **confirmation** (pending vs executed vs ok).
+Use these fields to see whether a turn failed at **preconditions**, **routing (match)**, optional **eligibility gate**, **tools loop execution**, or **confirmation** (pending vs executed vs ok). When debugging wrong tool choice in **plan defer**, confirm **`turnGoal`** reflects the author’s current request (not a prior turn’s plan markdown).
 
 ---
 
@@ -476,8 +520,9 @@ When chat-only turns hit tools:
 2. Check `eligibilityGateEnabled` in telemetry — if false (default), ignore `skipped_eligibility` unless the site turned the gate on.
 3. If gate on: check `eligibilitySkipReason` — was routing skipped before match?
 4. If routing ran: `routingMode`, `matchPass`, and `recipeId` — was outcome `plan` vs `matched` vs `router_tool`?
-5. Grep competitors: structural `modify_page_content` should require `authorCurrentRequestSuggestsCmsTooling` on the wire.
-6. Confirm site deployed classes match repo (Groovy compile errors in preview context break the whole servlet).
+5. Check **`turnGoal`** and **`successCriteria`** in telemetry — does the executor’s objective match the author’s **current** message?
+6. Grep competitors: structural `modify_page_content` should require `authorCurrentRequestSuggestsCmsTooling` on the wire.
+7. Confirm site deployed classes match repo (Groovy compile errors in preview context break the whole servlet).
 
 **Site-agnostic rule:** Do not hardcode field ids, demo copy, or site paths in eligibility or structural competitors — resolution belongs in tools + form definition + author message (see `.cursor/rules/no-project-specific-content.mdc`).
 

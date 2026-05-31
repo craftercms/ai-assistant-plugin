@@ -1155,6 +1155,8 @@ private AuthoringIntentRecipeEngine() {}
     switch (id) {
       case 'createFromChatDraft':
         return runCreateFromPriorDraftSupplementalPrefetch(ops, projectCfg, wirePrompt, cfg)
+      case 'newContentItem':
+        return runNewContentItemSupplementalPrefetch(ops, projectCfg, wirePrompt, cfg)
       default:
         log.warn('AuthoringIntentRecipeEngine: unknown toolsLoopPrefetchSupplement id={}', id)
         return [:]
@@ -1196,9 +1198,274 @@ private AuthoringIntentRecipeEngine() {}
     switch (id) {
       case 'createFromChatDraft':
         return buildCreateFromPriorDraftHotpath(wirePrompt, supplemental)
+      case 'newContentItem':
+        return buildNewContentItemHotpath(wirePrompt, supplemental)
       default:
         return ''
     }
+  }
+
+  /**
+   * JVM prefetch for {@code newContentItem}: catalog match, form definition, and suggested path under
+   * {@code quickCreatePath}. XML shape comes from form defs + **Project authoring context** — not from
+   * arbitrary same-type items.
+   */
+  static Map runNewContentItemSupplementalPrefetch(
+    StudioToolOperations ops,
+    Map projectCfg,
+    String wirePrompt,
+    Map supplementConfig = null
+  ) {
+    Map empty = [
+      markdown                 : '',
+      prefetchSteps            : [],
+      resolvedContentTypeId    : '',
+      quickCreatePathTemplate  : '',
+      suggestedNewItemPath     : '',
+      bannedAnchorPath         : ''
+    ]
+
+    if (ops == null || projectCfg == null) {
+      return empty
+    }
+    if (!StudioAiAssistantProjectConfig.intentRecipeEngineEnabled(projectCfg)) {
+      return empty
+    }
+
+    String siteId = ops.resolveEffectiveSiteId(null)
+    Map bindings = ops.recipeEngineAuthoringBindings()
+    String anchorPath = (bindings?.get('contentPath') ?: '').toString().trim()
+    empty.bannedAnchorPath = anchorPath
+
+    String current = extractAuthorTextForNewContentPrefetch(wirePrompt)
+    List<String> phraseCandidates = inferCreateTypePhraseCandidates('', current)
+    String resolvedType = (supplementConfig?.resolvedContentTypeId ?: supplementConfig?.contentTypeId ?: '')
+      .toString().trim()
+
+    Map typesRes = CmsListStudioContentTypes.list(ops, siteId, false, null) as Map
+    List<Map> typeRows = []
+    Object ctObj = typesRes?.get('contentTypes')
+    if (ctObj instanceof List) {
+      for (Object row : (List) ctObj) {
+        if (row instanceof Map) {
+          typeRows.add((Map) row)
+        }
+      }
+    }
+
+    if (!resolvedType) {
+      for (String phrase : phraseCandidates) {
+        resolvedType = exactCatalogMatchContentTypeId(typeRows, phrase)
+        if (resolvedType) {
+          break
+        }
+      }
+    }
+
+    List<Map> stepSummaries = new ArrayList<>()
+    int stepIdx = 0
+
+    if (!resolvedType) {
+      return empty
+    }
+
+    Closure prefetchProgressListener =
+      supplementConfig?.recipePrefetchProgressListener instanceof Closure ?
+        (Closure) supplementConfig.recipePrefetchProgressListener :
+        null
+    Map formProgressInp = recipePrefetchToolProgressInput(
+      'GetContentTypeFormDefinition',
+      [siteId: siteId, contentTypeId: resolvedType]
+    )
+    String formXml = ''
+    boolean contextFormDefsPrefetched = Boolean.TRUE.equals(supplementConfig?.contextFormDefsPrefetched)
+    String injectedFormXml = (supplementConfig?.contextFormDefinitionXml ?: '').toString().trim()
+    long formT0 = System.currentTimeMillis()
+    if (injectedFormXml && !prefetchFieldLooksTruncated(injectedFormXml)) {
+      emitConfirmationProgress(prefetchProgressListener, 'GetContentTypeFormDefinition', 'start', formProgressInp, null, null, null)
+      formXml = injectedFormXml
+      stepSummaries.add([
+        index : stepIdx++,
+        tool  : 'GetContentTypeFormDefinition',
+        ok    : true,
+        result: [
+          ok                : true,
+          siteId            : siteId,
+          contentTypeId     : resolvedType,
+          formDefinitionXml : shrinkToolResultForPrefetch([formDefinitionXml: injectedFormXml], 12000).formDefinitionXml,
+          note              : 'Reused from recipe context engineSteps prefetch (no duplicate load)'
+        ]
+      ])
+      emitConfirmationProgress(
+        prefetchProgressListener,
+        'GetContentTypeFormDefinition',
+        'done',
+        formProgressInp,
+        null,
+        [ok: true, siteId: siteId, contentTypeId: resolvedType],
+        System.currentTimeMillis() - formT0
+      )
+    } else if (!contextFormDefsPrefetched) {
+      emitConfirmationProgress(prefetchProgressListener, 'GetContentTypeFormDefinition', 'start', formProgressInp, null, null, null)
+      try {
+        Map formRes = CmsGetContentTypeFormDefinition.load(ops, siteId, resolvedType) as Map
+        stepSummaries.add([index: stepIdx++, tool: 'GetContentTypeFormDefinition', ok: true, result: shrinkToolResultForPrefetch(formRes, 12000)])
+        formXml = (formRes?.formDefinitionXml ?: '').toString()
+        emitConfirmationProgress(
+          prefetchProgressListener,
+          'GetContentTypeFormDefinition',
+          'done',
+          formProgressInp,
+          null,
+          formRes,
+          System.currentTimeMillis() - formT0
+        )
+      } catch (Throwable tForm) {
+        stepSummaries.add([index: stepIdx++, tool: 'GetContentTypeFormDefinition', ok: false, error: tForm.message ?: tForm.toString()])
+        emitConfirmationProgress(
+          prefetchProgressListener,
+          'GetContentTypeFormDefinition',
+          'error',
+          formProgressInp,
+          tForm,
+          null,
+          System.currentTimeMillis() - formT0
+        )
+        empty.prefetchSteps = stepSummaries
+        empty.resolvedContentTypeId = resolvedType
+        return empty
+      }
+    }
+
+    String quickCreateTemplate = extractQuickCreatePathTemplate(formXml)
+    Map formValidationPlan = plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.FormDefinitionWriteContentValidator
+      .buildValidationPlan(formXml) as Map
+    String objectType = (formValidationPlan?.objectType ?: 'page').toString()
+    String titleFromRequest = inferTitleFromNewContentRequest(current)
+    if (!titleFromRequest?.trim()) {
+      titleFromRequest = inferTitleFromNewContentRequest(wirePrompt)
+    }
+    String suggestedPath = suggestNewItemPathFromQuickCreate(quickCreateTemplate, titleFromRequest, objectType)
+    if (!suggestedPath) {
+      suggestedPath = suggestNewItemPathFromQuickCreate(quickCreateTemplate, '', objectType)
+    }
+
+    Boolean suggestedPathExists = null
+    if (suggestedPath) {
+      try {
+        Map existsRes = CmsContentExists.probe(ops, siteId, suggestedPath, null) as Map
+        suggestedPathExists = Boolean.TRUE.equals(existsRes?.get('exists'))
+        stepSummaries.add([
+          index : stepIdx++,
+          tool  : 'ContentExists',
+          ok    : Boolean.TRUE.equals(existsRes?.get('ok')),
+          result: existsRes ?: [:]
+        ])
+        if (Boolean.TRUE.equals(suggestedPathExists)) {
+          String available = CmsRepositorySupport.resolveFirstAvailableRepositoryPath(
+            { String p -> CmsContentExists.probe(ops, siteId, p, null) as Map },
+            suggestedPath,
+            12
+          )
+          if (available && !available.equalsIgnoreCase(suggestedPath)) {
+            suggestedPath = available
+            suggestedPathExists = false
+            stepSummaries.add([
+              index : stepIdx++,
+              tool  : 'ContentExists',
+              ok    : true,
+              result: [
+                ok     : true,
+                path   : available,
+                exists : false,
+                note   : 'Alternate slug — original suggested path already exists in git'
+              ]
+            ])
+          }
+        }
+      } catch (Throwable tExists) {
+        stepSummaries.add([
+          index : stepIdx++,
+          tool  : 'ContentExists',
+          ok    : false,
+          error : tExists.message ?: tExists.toString(),
+          path  : suggestedPath
+        ])
+      }
+    }
+
+    boolean toolsLoopFastPath =
+      formXml?.trim() &&
+        Boolean.TRUE.equals(supplementConfig?.toolsLoopFastPath)
+
+    Map writeMaterials = plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.FormDefinitionWriteContentMaterials
+      .build(ops, siteId, formXml, suggestedPath, formValidationPlan) as Map
+    if (writeMaterials?.taxonomyBindings instanceof List) {
+      for (Object tbObj : (List) writeMaterials.taxonomyBindings) {
+        if (!(tbObj instanceof Map)) {
+          continue
+        }
+        String taxPath = ((Map) tbObj).taxonomyPath?.toString()?.trim()
+        if (!taxPath) {
+          continue
+        }
+        try {
+          Map taxRes = CmsGetContent.read(ops, siteId, taxPath) as Map
+          stepSummaries.add([
+            index : stepIdx++,
+            tool  : 'GetContent',
+            ok    : Boolean.TRUE.equals(taxRes?.get('ok')) || (taxRes?.contentXml ?: '').toString().trim(),
+            result: shrinkToolResultForPrefetch(taxRes ?: [path: taxPath], 8000)
+          ])
+        } catch (Throwable tTax) {
+          stepSummaries.add([
+            index : stepIdx++,
+            tool  : 'GetContent',
+            ok    : false,
+            error : tTax.message ?: tTax.toString(),
+            path  : taxPath
+          ])
+        }
+      }
+    }
+
+    Map envelope = [
+      flow                  : 'new_content_item',
+      resolvedContentTypeId : resolvedType,
+      quickCreatePath       : quickCreateTemplate,
+      suggestedNewItemPath  : suggestedPath,
+      suggestedPathExists   : suggestedPathExists,
+      titleFromAuthorRequest: titleFromRequest,
+      bannedAnchorPath      : anchorPath,
+      toolsLoopFastPath     : toolsLoopFastPath,
+      formValidationPlan    : formValidationPlan,
+      writeContentMaterials : plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.FormDefinitionWriteContentMaterials
+        .compactForPrefetchEnvelope(writeMaterials),
+      note                  : 'Build contentXml using writeContentMaterials (standard envelope + taxonomy keys from form datasources + repeat shape). Populate every requiredFieldIds entry.',
+      steps                 : stepSummaries
+    ]
+    String json = JsonOutput.toJson(envelope)
+    int maxTotal = StudioAiAssistantProjectConfig.intentRecipeEngineMaxTotalChars(projectCfg)
+    if (json.length() > maxTotal) {
+      json = json.substring(0, Math.max(0, maxTotal - 80)) + '\n…[new-content-item prefetch truncated]'
+    }
+
+    return [
+      markdown                 : '[Studio — new content item (server prefetch)]\n\n```json\n' + json + '\n```\n\n',
+      prefetchSteps            : stepSummaries,
+      resolvedContentTypeId    : resolvedType,
+      quickCreatePathTemplate  : quickCreateTemplate,
+      suggestedNewItemPath     : suggestedPath,
+      bannedAnchorPath         : anchorPath,
+      suggestedPathExists      : suggestedPathExists,
+      titleFromAuthorRequest   : titleFromRequest,
+      toolsLoopFastPath        : toolsLoopFastPath,
+      formValidationPlan       : formValidationPlan,
+      writeContentMaterials    : plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.FormDefinitionWriteContentMaterials
+        .compactForPrefetchEnvelope(writeMaterials),
+      writeContentMaterialsMarkdown: (writeMaterials?.authoringMarkdown ?: '').toString(),
+      prefetchSupplementConfig : supplementConfig instanceof Map ? supplementConfig : [:]
+    ]
   }
 
   /**
@@ -1344,11 +1611,14 @@ private AuthoringIntentRecipeEngine() {}
       log.warn('createFromChatDraft: contextFormDefsPrefetched=true but no contextFormDefinitionXml in supplement config')
     }
     String quickCreateTemplate = extractQuickCreatePathTemplate(formXml)
+    Map formValidationPlan = plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.FormDefinitionWriteContentValidator
+      .buildValidationPlan(formXml) as Map
+    String objectType = (formValidationPlan?.objectType ?: 'page').toString()
     String searchPrefix = quickCreatePathToSearchPrefix(quickCreateTemplate)
     String draftTitleFromPrior = PriorConversationDraftExtract.extractDraftTitle(prior, supplementConfig, projectCfg)
-    String suggestedPath = suggestNewItemPathFromQuickCreate(quickCreateTemplate, draftTitleFromPrior)
+    String suggestedPath = suggestNewItemPathFromQuickCreate(quickCreateTemplate, draftTitleFromPrior, objectType)
     if (!suggestedPath) {
-      suggestedPath = suggestNewItemPathFromQuickCreate(quickCreateTemplate, '')
+      suggestedPath = suggestNewItemPathFromQuickCreate(quickCreateTemplate, '', objectType)
     }
     int priorAssistantChars = PriorConversationDraftExtract.lastAssistantBlockText(prior).length()
 
@@ -1497,6 +1767,7 @@ private AuthoringIntentRecipeEngine() {}
       nodeSelectorCandidates       : nodeSelectorCandidates,
       priorDerivedRootFieldValues  : priorDerivedRootFieldValues,
       toolsLoopFastPath            : toolsLoopFastPath,
+      formValidationPlan           : formValidationPlan,
       siblingPath           : siblingPath,
       bannedAnchorPath      : anchorPath,
       draftExtractReady     : draftExtractReady,
@@ -1527,6 +1798,7 @@ private AuthoringIntentRecipeEngine() {}
       nodeSelectorCandidates       : nodeSelectorCandidates,
       priorDerivedRootFieldValues  : priorDerivedRootFieldValues,
       toolsLoopFastPath            : toolsLoopFastPath,
+      formValidationPlan           : formValidationPlan,
       prefetchSupplementConfig   : supplementConfig instanceof Map ? supplementConfig : [:]
     ]
   }
@@ -1985,6 +2257,117 @@ private AuthoringIntentRecipeEngine() {}
   }
 
   /**
+   * Hotpath directive after {@code newContentItem} prefetch — form defs and suggested path are server-resolved.
+   */
+  static String buildNewContentItemHotpath(String wirePrompt, Map supplemental) {
+    Map sup = supplemental instanceof Map ? supplemental : [:]
+    String anchor = (sup.bannedAnchorPath ?: '').toString().trim()
+    String resolved = (sup.resolvedContentTypeId ?: '').toString().trim()
+    String qcp = (sup.quickCreatePathTemplate ?: '').toString().trim()
+    String suggested = (sup.suggestedNewItemPath ?: '').toString().trim()
+    boolean fastPath = Boolean.TRUE.equals(sup.toolsLoopFastPath)
+    String titleHint = (sup.titleFromAuthorRequest ?: '').toString().trim()
+    Object suggestedExists = sup.suggestedPathExists
+    Map formValidationPlan = sup.formValidationPlan instanceof Map ? (Map) sup.formValidationPlan : [:]
+    List requiredFieldIds = formValidationPlan.requiredFieldIds instanceof List ?
+      (List) formValidationPlan.requiredFieldIds : []
+    List minSizeFields = formValidationPlan.minSizeFields instanceof List ?
+      (List) formValidationPlan.minSizeFields : []
+
+    StringBuilder sb = new StringBuilder()
+    sb.append('[Studio — create **new** repository item (server prefetch)]\n')
+    sb.append(
+      'Write **new** author copy from the **current request** — **not** the open preview item unless the author asked to edit that path.\n'
+    )
+    sb.append(
+      '**Do not** treat another repository item as an XML template just because it shares `<content-type>`. ' +
+        'Build shape from **GetContentTypeFormDefinition** (parent + every nested type on the form) and **Project authoring context**.\n'
+    )
+    if (anchor) {
+      sb.append('**Preview anchor (context only):** `').append(anchor).append('` — do not **WriteContent** here unless editing that item was requested.\n')
+    }
+    if (resolved) {
+      sb.append('**Resolved contentTypeId:** `').append(resolved).append('`.\n')
+      sb.append('**GetContentTypeFormDefinition:** pass **`contentTypeId`** `').append(resolved).append('` — **not** `contentPath` with `/page/...` (that is a type id, not a repository path).\n')
+    }
+    if (qcp) {
+      sb.append('**New item folder pattern** (form **quickCreatePath**): `').append(qcp).append('`.\n')
+    }
+    if (titleHint) {
+      sb.append('**Title hint (from author request):** ').append(titleHint).append(' — use for `<internal-name>`, slug, and body fields.\n')
+    }
+    if (suggested) {
+      sb.append('**Suggested WriteContent path (concrete — copy exactly; do not use `{slug}` or `{year}` placeholders):** `')
+        .append(suggested).append('`')
+      if (suggestedExists instanceof Boolean) {
+        sb.append(Boolean.TRUE.equals(suggestedExists) ?
+          ' — **exists=true** (pick another slug under quickCreatePath).' :
+          ' — **exists=false** (available).')
+      }
+      sb.append('\n')
+    }
+    if (requiredFieldIds) {
+      sb.append('**Required form fields (populate in contentXml):** `')
+        .append(requiredFieldIds.join('`, `')).append('`.\n')
+    }
+    if (minSizeFields) {
+      for (Object o : minSizeFields) {
+        if (!(o instanceof Map)) {
+          continue
+        }
+        Map spec = (Map) o
+        String fieldId = (spec.fieldId ?: '').toString().trim()
+        Object minSz = spec.minSize
+        if (fieldId && minSz != null) {
+          sb.append('**Collection `').append(fieldId).append('`:** minSize ')
+            .append(minSz).append(' item(s).\n')
+        }
+      }
+    }
+    if (fastPath) {
+      sb.append(
+        '**Fast path (prefetch complete — simple turn):** **Skip ## Plan** and **skip** fenced JSON `tool_uses` batches. ' +
+          'Server already ran catalog, form definition, taxonomy keys, and path checks. ' +
+          'Emit **native `tool_calls` only** with **one** **WriteContent** — **full** `<page>` XML in **contentXml** (never `<!-- placeholder -->` or deferred XML).\n'
+      )
+      sb.append(
+        plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.NewContentItemFastPathToolFilter
+          .buildAuthorCopyQualityHint(wirePrompt)
+      )
+    } else {
+      sb.append(
+        '**Form-definition checklist:** **GetContentTypeFormDefinition** for `').append(resolved ?: 'resolved contentTypeId').append('` and **each** nested/inline type the parent form references.\n'
+      )
+    }
+    sb.append(
+      '**Taxonomy / datasource-backed fields:** Prefetch **writeContentMaterials** lists allowed taxonomy **keys** and **example XML** per checkbox-group field — use those keys only; copy the element shape (`value_smv`, `item-list="true"`, etc.).\n'
+    )
+    sb.append(
+      '**GetContent** on taxonomy paths is **already in prefetch steps** when listed in writeContentMaterials — do not invent keys.\n'
+    )
+    sb.append(
+      '**WriteContent path:** Website pages use `…/your-slug/index.xml` (Crafter rule — WriteContent rejects flat `.xml` under `/site/website/`). Use the **concrete suggested path** below — never `{slug}` or `{year}` placeholders.\n'
+    )
+    sb.append(
+      '**WriteContent:** full `<page>` or `<component>` document only — never `NEW_CONTENT_XML_HERE` or markdown JSON. ' +
+        'Required envelope: `<internal-name>`, `<folder-name>` (kebab-case slug matching the path folder), `<objectId>`, `<objectGroupId>`, ' +
+        '`<content-type>`, `<display-template>`, `<merge-strategy>`, `<file-name>` (`index.xml` when path ends in `/index.xml`).\n'
+    )
+    Map wcm = sup.writeContentMaterials instanceof Map ? (Map) sup.writeContentMaterials : [:]
+    sb.append(
+      plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.FormDefinitionWriteContentMaterials
+        .formatRepeatBindingsHotpathHint(wcm.repeatBindings)
+    )
+    String materialsMd = (sup.writeContentMaterialsMarkdown ?: '').toString().trim()
+    if (materialsMd) {
+      sb.append('\n').append(materialsMd)
+    }
+    sb.append(ToolPrompts.getLlm_CREATE_REPOSITORY_ITEM_HOTPATH_XML()).append('\n')
+    sb.append('\n')
+    return sb.toString()
+  }
+
+  /**
    * When OpenSearch research returns no hits, pick one existing item of {@code contentTypeId} under {@code pathPrefix}.
    */
   static String resolveSiblingPathFromCatalogList(
@@ -2039,11 +2422,47 @@ private AuthoringIntentRecipeEngine() {}
   }
 
   /**
-   * Infer create type phrase candidates.
-   * @param priorBody Caller-supplied input.
-   * @param currentRequest Caller-supplied input.
-   * @return List<String> result.
+   * Author text for new-content prefetch when the wire is orchestration-shaped (Current request, injected blocks).
    */
+  static String extractAuthorTextForNewContentPrefetch(String wirePrompt) {
+    String s = (wirePrompt ?: '').toString()
+    String current = AuthoringPreviewContext.extractAuthorCurrentRequestVisible(s)?.trim()
+    if (current) {
+      return current
+    }
+    String clientBlock = AuthoringPreviewContext.extractOrchestrationClientAuthorBlock(s)?.trim()
+    if (clientBlock) {
+      return clientBlock
+    }
+    return AuthoringPreviewContext.stripStudioInjectedPromptBlocks(s)?.trim() ?: ''
+  }
+
+  /**
+   * Best-effort title/subject from a create-new-item author request (for slug / internal-name hints).
+   */
+  static String inferTitleFromNewContentRequest(String currentRequest) {
+    String s = (currentRequest ?: '').toString().trim()
+    if (!s) {
+      return ''
+    }
+    def about = (s =~ /(?is)\babout\s+(.+?)(?:\s+written\s+for\b|\s+for\s+kids\b|\s+aimed\s+at\b)/)
+    if (about.find()) {
+      String t = about.group(1).trim()
+      if (t.length() > 3) {
+        return t
+      }
+    }
+    def verb = (s =~ /(?is)(?:generate|create|write|add)\s+(?:an?\s+)?(?:new\s+)?(?:article|post|page|blog\s+post)\s+(?:about\s+)?(.+)/)
+    if (verb.find()) {
+      String t = verb.group(1).trim()
+      t = t.replaceAll(/(?is)\s+written\s+for\s+.*$/, '').trim()
+      if (t.length() > 3) {
+        return t
+      }
+    }
+    return ''
+  }
+
   static List<String> inferCreateTypePhraseCandidates(String priorBody, String currentRequest) {
     LinkedHashSet<String> phrases = new LinkedHashSet<>()
     String prior = (priorBody ?: '').toString()
@@ -2172,7 +2591,7 @@ private AuthoringIntentRecipeEngine() {}
    * @param draftTitle Caller-supplied input.
    * @return Text result, or empty or null when unavailable.
    */
-  static String suggestNewItemPathFromQuickCreate(String quickCreateTemplate, String draftTitle) {
+  static String suggestNewItemPathFromQuickCreate(String quickCreateTemplate, String draftTitle, String objectType = '') {
     String template = (quickCreateTemplate ?: '').toString().trim()
     if (!template) {
       return ''
@@ -2197,6 +2616,11 @@ private AuthoringIntentRecipeEngine() {}
     }
     if (!path.endsWith('/')) {
       path = path + '/'
+    }
+    String ot = (objectType ?: '').toString().trim().toLowerCase(Locale.ROOT)
+    boolean websitePage = 'page'.equals(ot) || path.startsWith('/site/website/')
+    if (websitePage) {
+      return path + slug + '/index.xml'
     }
     return path + slug + '.xml'
   }

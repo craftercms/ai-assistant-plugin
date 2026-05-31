@@ -74,6 +74,7 @@ To skip chat when using **`run-all.sh`**: **`RUN_ALL_SKIP_CHAT_SCENARIOS=1 ./scr
 
 - `tool-id-parity.mjs` — `StudioAiToolRegistry.CORE_TOOLS` wire names vs `STUDIO_AI_BUILTIN_TOOL_IDS` in TypeScript
 - `recipe-catalog-offline.mjs` — bundled `authoring-intent-recipes-default.json` structure
+- `router-json-offline.mjs` — intent router JSON extract/parse parity (`turnGoal`, prose-before-JSON)
 - `generate-tool-recipe-scenarios.mjs --check` — fixture coverage + committed JSON drift guard
 
 **Scenario files (generated; do not hand-edit):**
@@ -100,9 +101,13 @@ export CHAT_SITE_ID=your-site
 
 **Via `run-all.sh`:** step **5** runs the **full matrix** when not skipped — all **13 recipes** and **31 tools** with `CHAT_MATRIX_FULL=1`. **`run-tool-recipe-matrix.sh`** uses **`set -e`**: if the recipe pass exits non-zero, the **31-tool** pass does not run (use **`RUN_ALL_CONTINUE_ON_FAIL=1`** on **`run-all.sh`** to continue to step 6 anyway). Skip matrix: **`RUN_ALL_SKIP_TOOL_RECIPE_MATRIX=1`**.
 
-**Per-turn SSE assertions** in scenario JSON (`turn.expect`): `recipeId`, `toolsAny`, `toolsAll`, `forbidTools`, `maxToolStarts`, `maxToolStartCounts` (e.g. `{ "GenerateImage": 1 }`), `generateImagePromptSeen`. Implemented in `lib/sse-telemetry.mjs` and enforced by `run-chat-scenarios.mjs`.
+**Per-turn SSE assertions** in scenario JSON (`turn.expect`): `recipeId`, `recipeOutcome`, `forbidRecipeId`, `deferToPlanLoop`, `toolsAny`, `toolsAll`, `forbidTools`, `maxToolStarts`, `maxToolStartCounts` (e.g. `{ "GenerateImage": 1 }`), `generateImagePromptSeen`, `turnGoalPresent`, `turnGoalContains`. Implemented in `lib/sse-telemetry.mjs` and enforced by `run-chat-scenarios.mjs`.
+
+**Intent router JSON (offline):** `functional/router-json-offline.mjs` verifies `AuthoringIntentRecipeRouter.extractJsonPayload` / `parseRouterJson` parity (prose-before-JSON, fenced blocks, `turnGoal` / `successCriteria` fields). Runs in `run-all.sh` step 1.
 
 **GenerateImage once per turn:** server skips duplicate `GenerateImage` tool calls in the same chat turn; live check: `node scripts/test/functional/run-chat-scenarios.mjs scripts/test/scenarios/chat-scenarios-generate-image-once.json`.
+
+**Anchored “generate image for this page”:** must **plan-defer** (GetContent before GenerateImage), not whole-turn `generate_image` recipe; live check: `node scripts/test/functional/run-chat-scenarios.mjs scripts/test/scenarios/chat-scenarios-generate-image-page-routing.json`. Expect helpers: `forbidRecipeId`, `deferToPlanLoop`. The LLM must read page XML and craft the **GenerateImage** prompt — no server-side prompt rewrite.
 
 ## Concurrent users / sessions
 

@@ -16,7 +16,9 @@ import plugins.org.craftercms.aiassistant.studio.engine.routing.Router
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentRecipeBindings
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentRecipeCatalog
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentRecipeEngine
+import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentRoutingEngine
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentRecipePlanCompiler
+import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringTurnGoal
 import plugins.org.craftercms.aiassistant.studio.engine.turn.chatcompletions.ChatCompletionsToolWire
 import plugins.org.craftercms.aiassistant.studio.engine.catalog.AiOrchestrationTools
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
@@ -1876,7 +1878,11 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
   }
 
   /**
-   * When a matched recipe sets {@code toolsLoopDisable}, turn off tools for this turn (e.g. {@code llm_research}).
+   * Applies intent-routing side effects on the tools-loop session: disable tools, allowlists, caps, turn goal,
+   * and matched-recipe execution plan bindings.
+   *
+   * @param springAi orchestration session map ({@code useTools}, {@code tools}, {@code authorTurnGoal}, …)
+   * @param route result from {@link plugins.org.craftercms.aiassistant.studio.engine.routing.Router#route}
    */
   private static void applyIntentRecipeRouteEffects(Map springAi, Map route) {
     if (!(springAi instanceof Map)) {
@@ -1890,6 +1896,12 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
           null)
     if (!(tel instanceof Map)) {
       return
+    }
+    if (route?.authorTurnGoal != null) {
+      springAi.authorTurnGoal = route.authorTurnGoal.toString()
+    }
+    if (route?.authorTurnSuccessCriteria != null) {
+      springAi.authorTurnSuccessCriteria = route.authorTurnSuccessCriteria.toString()
     }
     String routingMode = tel.routingMode?.toString()?.trim()?.toLowerCase() ?: ''
     if ('chat_only'.equals(routingMode) || Boolean.TRUE.equals(tel.toolsLoopDisable)) {
@@ -2599,6 +2611,31 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
   }
 
   /**
+   * Engine preview URL for a repository path (falls back to anchor preview URL from wire).
+   */
+  private static String previewUrlForRepoPath(
+    String repoPath,
+    Map toolsLoopSessionBundle,
+    List<Map> wireMessages
+  ) {
+    String path = (repoPath ?: '').trim()
+    if (path) {
+      try {
+        def ops = toolsLoopSessionBundle?.get('studioOps')
+        if (ops instanceof StudioToolOperations) {
+          String siteId = ops.resolveEffectiveSiteId(null)
+          String url = AuthoringPreviewContext.buildEnginePreviewAbsoluteUrl(ops.request, siteId, path)
+          if (url?.trim()) {
+            return url.trim()
+          }
+        }
+      } catch (Throwable ignored) {
+      }
+    }
+    return enginePreviewUrlFromWire(wireMessages, toolsLoopSessionBundle)
+  }
+
+  /**
    * Minimal plan when tools without prose.
    * @param zeroBasedRound Caller-supplied input.
    * @return Text result, or empty or null when unavailable.
@@ -2662,12 +2699,13 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
     Map toolsLoopSessionBundle,
     int round,
     String agentId,
-    Map previewState
+    Map previewState,
+    String successfulWriteRepoPath = ''
   ) {
     if (!roundHadWriteSuccess || roundRanGetPreviewHtml || roundHadWriteFailure) {
       return
     }
-    String url = enginePreviewUrlFromWire(wireMessages, toolsLoopSessionBundle)
+    String url = previewUrlForRepoPath(successfulWriteRepoPath, toolsLoopSessionBundle, wireMessages)
     if (!url) {
       return
     }
@@ -3899,6 +3937,33 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
   }
 
   /**
+   * Intent router must reply with JSON only — refine tools would return prose and break
+   * {@link AuthoringIntentRecipeRouter#parseRouterJson}.
+   *
+   * @return raw assistant text from a simple completion (no tool calls)
+   */
+  private static String intentRouterJsonCompletionOnly(
+    String apiKey,
+    String model,
+    String systemText,
+    String userText,
+    String wireBaseUrl,
+    Map toolsLoopSessionBundle
+  ) {
+    return toolsLoopSimpleCompletionAssistantText(
+      apiKey,
+      model,
+      systemText,
+      userText,
+      512,
+      120_000,
+      'IntentRecipeRouter',
+      wireBaseUrl,
+      toolsLoopSessionBundle
+    )
+  }
+
+  /**
    * Intent refine / router LLM call: {@link AuthoringIntentRefineWithTools} when enabled, else simple completion.
    */
   private static String authoringIntentRefineCompletionOrSimple(
@@ -3964,17 +4029,13 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       ops,
       recipePrefetchProgressListener,
       { Map projectCfg, String systemPrompt, String userMessage ->
-        return authoringIntentRefineCompletionOrSimple(
+        return intentRouterJsonCompletionOnly(
           apiKey,
           model,
           systemPrompt,
           userMessage,
-          512,
-          120_000,
-          'IntentRecipeRouter',
           wireBaseUrl,
-          toolsLoopSessionBundle,
-          projectCfg
+          toolsLoopSessionBundle
         )
       }
     )
@@ -4776,6 +4837,167 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
   }
 
   /**
+   * {@code new_content_item} prefetch supplement active (form discovery + path hints before write).
+   */
+  private static boolean newContentItemPrefetchSupplementActive(Map intentTelLoop) {
+    if (!(intentTelLoop instanceof Map)) {
+      return false
+    }
+    String supplement = intentTelLoop.get('toolsLoopPrefetchSupplement')?.toString()?.trim() ?: ''
+    if ('newContentItem'.equals(supplement)) {
+      return true
+    }
+    return 'new_content_item'.equals(intentTelLoop.get('recipeId')?.toString()?.trim())
+  }
+
+  private static boolean writeContentXmlLooksLikePlaceholder(String contentXml) {
+    return plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.NewContentItemFastPathToolFilter
+      .contentXmlLooksLikePlaceholder(contentXml)
+  }
+
+  private static Map newContentItemFormValidationPlan(Map intentTelLoop) {
+    if (!(intentTelLoop instanceof Map)) {
+      return [:]
+    }
+    Object plan = intentTelLoop.get('toolsLoopFormDefinitionValidationPlan')
+    return plan instanceof Map ? (Map) plan : [:]
+  }
+
+  private static String formatFormValidationRejectionMessage(Map validation, Map validationPlan) {
+    List<String> errors = []
+    Object errObj = validation?.get('errors')
+    if (errObj instanceof List) {
+      for (Object o : (List) errObj) {
+        String e = o?.toString()?.trim()
+        if (e) {
+          errors.add(e)
+        }
+      }
+    }
+    List<String> required = []
+    Object reqObj = validation?.get('requiredFieldIds') ?: validationPlan?.get('requiredFieldIds')
+    if (reqObj instanceof List) {
+      for (Object o : (List) reqObj) {
+        String r = o?.toString()?.trim()
+        if (r) {
+          required.add(r)
+        }
+      }
+    }
+    StringBuilder msg = new StringBuilder(
+      'WriteContent **rejected** — **contentXml** does not satisfy the form definition'
+    )
+    if (errors) {
+      msg.append(': ').append(errors.join(' '))
+    }
+    msg.append('.')
+    if (required) {
+      msg.append(' **Required fields:** `').append(required.join('`, `')).append('`.')
+    }
+    msg.append(
+      ' Call **GetContentTypeFormDefinition** for the resolved **contentTypeId** (and nested types), populate every required field and minSize collection, then **WriteContent** again.'
+    )
+    return msg.toString()
+  }
+
+  /**
+   * Block placeholder {@code contentXml} on new-item create flows.
+   */
+  private static Map gateNewContentItemWriteContent(
+    String argsStr,
+    Map intentTelLoop,
+    JsonSlurper slurper,
+    StudioToolOperations ops
+  ) {
+    if (!newContentItemPrefetchSupplementActive(intentTelLoop)) {
+      return [proceed: true, argsStr: argsStr]
+    }
+    if (createFromChatDraftWriteVerificationActive(intentTelLoop)) {
+      return [proceed: true, argsStr: argsStr]
+    }
+    try {
+      Object parsed = slurper.parseText(argsStr ?: '{}')
+      if (!(parsed instanceof Map)) {
+        return [proceed: true, argsStr: argsStr]
+      }
+      Map args = (Map) parsed
+      String contentXml = args.get('contentXml')?.toString()
+      if (writeContentXmlLooksLikePlaceholder(contentXml)) {
+        Map validationPlan = newContentItemFormValidationPlan(intentTelLoop)
+        List requiredHint = validationPlan.requiredFieldIds instanceof List ?
+          (List) validationPlan.requiredFieldIds : []
+        String requiredSuffix = requiredHint ?
+          " Required fields: `${requiredHint.join('`, `')}`." : ''
+        return [
+          proceed : false,
+          toolOut : JsonOutput.toJson([
+            ok      : false,
+            message :
+              'WriteContent **rejected** — **contentXml** must be a **full** Crafter `<page>` or `<component>` document with real field values, not a placeholder (`NEW_CONTENT_XML_HERE`) or prose/JSON blob.' +
+                requiredSuffix +
+                ' Build from **GetContentTypeFormDefinition** (parent + nested types) and **Project authoring context**, then **WriteContent** again.',
+            requiredFieldIds: requiredHint,
+            nextStep: 'Build complete contentXml from form definitions + project authoring context + author copy; retry WriteContent via tool_calls.'
+          ])
+        ]
+      }
+      Map validationPlan = newContentItemFormValidationPlan(intentTelLoop)
+      if (plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.FormDefinitionWriteContentValidator
+        .planIsActionable(validationPlan)) {
+        String siteId = (args.get('siteId') ?: '').toString()
+        String repoPath = (args.get('path') ?: args.get('contentPath') ?: '').toString().trim()
+        if (repoPath.contains('{') || repoPath.contains('}')) {
+          return [
+            proceed : false,
+            toolOut : JsonOutput.toJson([
+              ok      : false,
+              message :
+                "WriteContent **rejected** — path `${repoPath}` contains unresolved placeholders (`{slug}`, `{year}`, etc.). " +
+                  'Use the **concrete suggested path** from prefetch (e.g. `/site/website/articles/2026/05/my-slug/index.xml`).',
+              nextStep: 'Retry WriteContent with the resolved repository path and complete contentXml.'
+            ])
+          ]
+        }
+        if (ops && contentXml?.trim() && repoPath) {
+          String enriched = plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.CmsWriteContent
+            .enrichContentXmlBeforeFormValidation(ops, siteId, repoPath, contentXml)
+          if (enriched && !enriched.equals(contentXml)) {
+            contentXml = enriched
+            args.put('contentXml', contentXml)
+            argsStr = JsonOutput.toJson(args)
+          }
+        }
+        Map validation = plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.FormDefinitionWriteContentValidator
+          .validate(contentXml, validationPlan, repoPath) as Map
+        if (!Boolean.TRUE.equals(validation?.get('ok'))) {
+          return [
+            proceed : false,
+            toolOut : JsonOutput.toJson([
+              ok               : false,
+              message          : formatFormValidationRejectionMessage(validation, validationPlan),
+              errors           : validation?.get('errors'),
+              requiredFieldIds : validation?.get('requiredFieldIds') ?: validationPlan?.get('requiredFieldIds'),
+              formFieldIds     : validation?.get('formFieldIds') ?: validationPlan?.get('formFieldIds'),
+              nextStep         : 'Populate every requiredFieldIds entry and minSize collections; retry WriteContent via tool_calls.'
+            ])
+          ]
+        }
+      }
+    } catch (Throwable gateEx) {
+      log.warn('Tools-loop: new-content-item WriteContent gate error: {}', gateEx.message)
+      return [
+        proceed : false,
+        toolOut : JsonOutput.toJson([
+          ok      : false,
+          message : "WriteContent **rejected** — could not validate contentXml: ${gateEx.message}",
+          nextStep: 'Call GetContentTypeFormDefinition, build complete contentXml, retry WriteContent.'
+        ])
+      ]
+    }
+    return [proceed: true, argsStr: argsStr]
+  }
+
+  /**
    * When recipe + supplement prefetch loaded discovery data, skip repeat read tools until WriteContent.
    */
   private static boolean toolsLoopSkipDiscoveryUntilWriteContent(
@@ -4783,10 +5005,14 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     Map intentTelLoop,
     Map<String, Boolean> requiredToolSuccess
   ) {
-    if (!createFromChatDraftWriteVerificationActive(intentTelLoop)) {
+    boolean newItemFast = newContentItemPrefetchSupplementActive(intentTelLoop) &&
+      (Boolean.TRUE.equals(intentTelLoop?.get('toolsLoopFastPath')) ||
+        Boolean.TRUE.equals(intentTelLoop?.get('toolsLoopFormDefsPrefetched')))
+    if (!createFromChatDraftWriteVerificationActive(intentTelLoop) && !newItemFast) {
       return false
     }
-    if (!createFromChatDraftToolsLoopFastPath(intentTelLoop) &&
+    if (createFromChatDraftWriteVerificationActive(intentTelLoop) &&
+      !createFromChatDraftToolsLoopFastPath(intentTelLoop) &&
       !Boolean.TRUE.equals(intentTelLoop?.get('toolsLoopFormDefsPrefetched'))) {
       return false
     }
@@ -4798,10 +5024,14 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       return false
     }
     String n = (fnName ?: '').trim()
+    if ('GetContentTypeFormDefinition'.equals(n)) {
+      return false
+    }
     return [
-      'GetContentTypeFormDefinition',
       'ListStudioContentTypes',
+      'GetContentTypeFormDefinition',
       'GetContent',
+      'ContentExists',
       'ResearchSiteContent',
       'ListPagesAndComponents'
     ].contains(n)
@@ -4943,6 +5173,37 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       String contentXml = args.get('contentXml')?.toString()
       if (!path?.trim() || !contentXml?.trim()) {
         return [proceed: true, argsStr: argsStr]
+      }
+      Map validationPlan = newContentItemFormValidationPlan(intentTelLoop)
+      if (plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.FormDefinitionWriteContentValidator
+        .planIsActionable(validationPlan)) {
+        String formSiteId = args.get('siteId')?.toString()?.trim()
+        if (!formSiteId) {
+          formSiteId = ops.resolveEffectiveSiteId('')
+        }
+        if (ops && contentXml?.trim() && path?.trim()) {
+          String enriched = plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.CmsWriteContent
+            .enrichContentXmlBeforeFormValidation(ops, formSiteId, path, contentXml)
+          if (enriched && !enriched.equals(contentXml)) {
+            contentXml = enriched
+            args.put('contentXml', contentXml)
+            argsStr = JsonOutput.toJson(args)
+          }
+        }
+        Map formValidation = plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.FormDefinitionWriteContentValidator
+          .validate(contentXml, validationPlan, path) as Map
+        if (!Boolean.TRUE.equals(formValidation?.get('ok'))) {
+          return [
+            proceed : false,
+            toolOut : JsonOutput.toJson([
+              ok               : false,
+              message          : formatFormValidationRejectionMessage(formValidation, validationPlan),
+              errors           : formValidation?.get('errors'),
+              requiredFieldIds : formValidation?.get('requiredFieldIds') ?: validationPlan?.get('requiredFieldIds'),
+              nextStep         : 'Populate every requiredFieldIds entry and minSize collections; retry WriteContent via tool_calls.'
+            ])
+          ]
+        }
       }
       String siteId = args.get('siteId')?.toString()?.trim()
       if (!siteId) {
@@ -6053,6 +6314,32 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           )
         }
       }
+      boolean fastPathPlaceholderWriteDropped = false
+      int fastPathDiscoveryDropped = 0
+      if (runList instanceof List && !runList.isEmpty()) {
+        Map filterResult = plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.NewContentItemFastPathToolFilter
+          .filterRunList(runList, intentTelLoop, slurper) as Map
+        List filtered = filterResult.filtered instanceof List ? (List) filterResult.filtered : runList
+        fastPathPlaceholderWriteDropped = Boolean.TRUE.equals(filterResult.placeholderWriteDropped)
+        fastPathDiscoveryDropped = filterResult.discoveryDropped instanceof Number ?
+          ((Number) filterResult.discoveryDropped).intValue() : 0
+        if (fastPathDiscoveryDropped > 0 || fastPathPlaceholderWriteDropped) {
+          runList = filtered
+          if (runList.isEmpty()) {
+            msgCopy.remove('tool_calls')
+          } else {
+            msgCopy.put('tool_calls', new ArrayList(runList))
+          }
+          log.info(
+            'Tools-loop: new-content-item fast path filtered tool_calls agentId={} round={} discoveryDropped={} placeholderWriteDropped={} remaining={}',
+            agentId,
+            round,
+            fastPathDiscoveryDropped,
+            fastPathPlaceholderWriteDropped,
+            runList.size()
+          )
+        }
+      }
       boolean willRunTools = runList instanceof List && !runList.isEmpty()
       if (willRunTools && round > 0) {
         if (toolsLoopRunListHasExecutableTools(
@@ -6122,11 +6409,29 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       }
       mutateAssistantWireContentElideKnownGenerateImageDataUrls(msgCopy, generateImageDataUrlByToolCallId)
       wireMessages << msgCopy
+      if (!willRunTools &&
+        plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.NewContentItemFastPathToolFilter
+          .isFastPath(intentTelLoop) &&
+        toolsLoopRequiredToolsStillPending(requiredToolSuccess) &&
+        (fastPathPlaceholderWriteDropped || fastPathDiscoveryDropped > 0)) {
+        wireMessages << [
+          role   : 'user',
+          content: plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.NewContentItemFastPathToolFilter
+            .buildPlaceholderWriteNudge(intentTelLoop)
+        ]
+        log.info(
+          'Tools-loop: injected new-content-item fast path WriteContent nudge (placeholder plan JSON dropped) agentId={} round={}',
+          agentId,
+          round
+        )
+        continue
+      }
       if (willRunTools) {
         boolean repoMutationThisRound = false
         boolean anySuccessfulFetchHttpUrl = false
         boolean roundHadWriteAttempt = false
         boolean roundHadWriteSuccess = false
+        String roundSuccessfulWriteRepoPath = ''
         boolean roundHadWriteFailure = false
         boolean roundRanGetPreviewHtml = false
         Map previewState = [
@@ -6254,13 +6559,20 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
             Map skipInp = toolProgressInputFromArgsJson(argsStr, slurper, fnName)
             long skipT0 = System.currentTimeMillis()
             writeToolProgressSse(ssePreToolAssistantText, fnName, 'start', skipInp, null, null, null)
+            Map validationPlan = newContentItemFormValidationPlan(intentTelLoop)
+            List requiredHint = validationPlan.requiredFieldIds instanceof List ?
+              (List) validationPlan.requiredFieldIds : []
+            String requiredSuffix = requiredHint ?
+              " Required fields for WriteContent: `${requiredHint.join('`, `')}`." : ''
             String skipOut = JsonOutput.toJson([
               ok                              : true,
               skippedUntilWriteContentPending : true,
               tool                            : fnName,
               message                         :
-                "${fnName} skipped: recipe-engine prefetch already includes **formDefinitionXml** and discovery data for this turn. " +
-                  'Use the prefetch JSON bindings — do not reload. Call **ContentExists** on your new path, then **WriteContent** once with full **contentXml** from **[Prior conversation]**.'
+                "${fnName} skipped: recipe-engine prefetch already includes catalog, form definition, taxonomy keys, and suggested path. " +
+                  (newContentItemPrefetchSupplementActive(intentTelLoop) ?
+                    'Emit **native tool_calls** with **WriteContent** only — **full** contentXml inline (no ## Plan JSON placeholders).' + requiredSuffix :
+                    'Use the prefetch JSON bindings — do not reload. Call **ContentExists** on your new path, then **WriteContent** once with full **contentXml** from **[Prior conversation]**.')
             ])
             writeToolProgressSse(
               ssePreToolAssistantText,
@@ -6366,6 +6678,35 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           } else {
             try {
               if ('WriteContent'.equals(fnName)) {
+                Map siblingGate = gateNewContentItemWriteContent(argsStr, intentTelLoop, slurper, ops)
+                if (Boolean.FALSE.equals(siblingGate.proceed)) {
+                  Map wcInp = toolProgressInputFromArgsJson(argsStr, slurper)
+                  long wcT0 = System.currentTimeMillis()
+                  writeToolProgressSse(ssePreToolAssistantText, 'WriteContent', 'start', wcInp, null, null, null)
+                  toolOut = siblingGate.toolOut?.toString() ?: ''
+                  roundHadWriteAttempt = true
+                  roundHadWriteFailure = true
+                  Object sibGateParsed = null
+                  try {
+                    sibGateParsed = slurper.parseText(toolOut)
+                  } catch (Throwable ignoredSibGateParse) {
+                  }
+                  writeToolProgressSse(
+                    ssePreToolAssistantText,
+                    'WriteContent',
+                    'warn',
+                    wcInp,
+                    null,
+                    sibGateParsed,
+                    System.currentTimeMillis() - wcT0
+                  )
+                  log.warn(
+                    'Tools-loop: WriteContent blocked by new-content-item placeholder gate agentId={} round={}',
+                    agentId,
+                    round
+                  )
+                } else {
+                argsStr = (siblingGate.argsStr ?: argsStr).toString()
                 Map gate = gateCreateFromChatDraftWriteContent(argsStr, intentTelLoop, ops, slurper)
                 if (Boolean.FALSE.equals(gate.proceed)) {
                   Map wcInp = toolProgressInputFromArgsJson(argsStr, slurper)
@@ -6401,6 +6742,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
                   toolOut = ChatCompletionsToolWire.runWithNativeToolCallId(id) {
                     tcb.call(argsStr)
                   }
+                }
                 }
               } else {
                 toolOut = ChatCompletionsToolWire.runWithNativeToolCallId(id) {
@@ -6471,6 +6813,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
                     String wpath = repoPathFromToolArgsMap(wArgs)
                     if (wpath) {
                       writeContentPathsThisTurn.add(wpath.toLowerCase(Locale.ROOT))
+                      roundSuccessfulWriteRepoPath = wpath
                       if (ops != null) {
                         try {
                           AuthoringIntentRecipeBindings.updateCurrentFromWrite(ops, wpath, wArgs)
@@ -6601,7 +6944,8 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           toolsLoopSessionBundle,
           round,
           agentId,
-          previewState
+          previewState,
+          roundSuccessfulWriteRepoPath
         )
         if (previewState.lastPreviewContentGoalFound instanceof Boolean) {
           lastPreviewContentGoalFound = previewState.lastPreviewContentGoalFound
@@ -6629,6 +6973,10 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
                 '**Stop** calling **WriteContent** with invented or partial XML. Call **GetContent** on the anchored path, edit **one** existing field element in that full **contentXml**, then **WriteContent** the **entire** file once.\n'
           ]
         }
+        String turnGoalReminder = AuthoringTurnGoal.formatMidLoopReminder(toolsLoopSessionBundle)
+        if (turnGoalReminder?.trim() && round < maxRounds - 1 && !finished) {
+          wireMessages << [role: 'user', content: turnGoalReminder]
+        }
         if (anySuccessfulFetchHttpUrl) {
           try {
             String anchor = buildAuthoringIntentAnchorMessageForReferenceFetch(wireMessages)
@@ -6646,7 +6994,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
         if (repoMutationThisRound &&
           roundHadWriteSuccess &&
           lastPreviewContentGoalFound == Boolean.TRUE) {
-          String previewUrl = enginePreviewUrlFromWire(wireMessages, toolsLoopSessionBundle)
+          String previewUrl = previewUrlForRepoPath(roundSuccessfulWriteRepoPath, toolsLoopSessionBundle, wireMessages)
           assistantAccum = synthesizePlanExecutionAfterVerifiedWrite(
             frozenAuthorOutcomePhrase ?: lastPreviewContentGoalPhrase,
             previewUrl
@@ -6922,6 +7270,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     }
     Map<String, FunctionToolCallback> byName = toolCallbacksByName(effectiveTools)
     List<Map> wireMessages = deepCloneWireMessages(baseWire)
+    AuthoringTurnGoal.appendToSystemWireMessage(wireMessages, toolsLoopSessionBundle)
     Map wmUser = lastUserWireMessage(wireMessages)
     Map<String, String> cqGenerateImageDataUrlByToolCallId = new LinkedHashMap<>()
     Map loopOut = runNativeToolLoopToAssistantText(
