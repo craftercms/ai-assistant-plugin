@@ -13,7 +13,7 @@ Stable site facts for **blog drafting** and **`/component/post`** persistence. R
 | Author asks to save but prior chat has **no** `*Draft blog:*` body | **Blocked** | Do **not** WriteContent. Ask them to redo Turn 1 (URL draft) first. |
 | Unsure | **Turn 1 default** | Do **not** call WriteContent, ListStudioContentTypes, GetContentTypeFormDefinition, GeneratePlaceholderImage, or ResearchSiteContent. |
 
-**Turn 1 recipe (when router matches):** `recipe_1779227205002` — allowlist is **FetchHttpUrl** only; server runs Slack after confirmation.
+**Turn 1 recipe (when router matches):** `recipe_1779227205002` — when author pasted a URL, **FetchHttpUrl** on that URL only; server runs Slack after confirmation.
 
 ---
 
@@ -29,7 +29,7 @@ Stable site facts for **blog drafting** and **`/component/post`** persistence. R
 **Required output** — include a **## Draft body** section with:
 
 ```text
-Author voice: **{pick one voice below}**
+Author voice: **{Russ | Mike | Sara}**
 *Draft title:* {working title}
 *Outline:*
 - {one bullet per topic the author named — mandatory coverage}
@@ -38,7 +38,7 @@ Author voice: **{pick one voice below}**
 {full article — at least 6–8 paragraphs, grounded in the fetch}
 ```
 
-Also include short **## root** (pitch) and **## craftercmsAlignment** (bullets). Put the **long article only** under `*Draft blog:*`, not in root.
+Also include **## Work notes** (and **## Author idea** when the author supplied a concrete seed), short **## root** / **## craftercmsAlignment** per recipe when applicable. Put the **long article only** under `*Draft blog:*`.
 
 **Rules:**
 
@@ -46,9 +46,15 @@ Also include short **## root** (pitch) and **## craftercmsAlignment** (bullets).
 - Do **not** end with only a tools status or an empty draft header.
 - Do **not** invent repository paths or XML on Turn 1 — Turn 2 handles persistence.
 
-### Author voice (Turn 1)
+### Author voices (Turn 1 — pick one)
 
-Pick one DCO blog author persona and spell it in `Author voice: **Name**` (bold). Example mapping used on this site: voice **Sara** → bio **Sarah Miller** at `/site/components/bio/29217b50-23b3-92e8-a30a-fe0778dbc6f5.xml` (Turn 2 resolves via prefetch — do not put bio paths in Turn 1 prose).
+| Voice | Use when |
+|-------|----------|
+| **Russ** | Platform engineering, AI in delivery, standards, developer experience |
+| **Mike** | Business/strategy, ROI, operating model, executive-readable insight |
+| **Sara** | News/events peg, what happened this week for ContentOps practitioners |
+
+Turn 2 maps voice → bio via prefetch (`authorBios`); do not put bio paths in Turn 1 prose.
 
 ---
 
@@ -70,16 +76,16 @@ Pick one DCO blog author persona and spell it in `Author voice: **Name**` (bold)
 | From | Into XML |
 |------|----------|
 | `*Draft title:*` (trim outer whitespace only) | `internal-name`, `headline_s`, `pageTitle_s`; inline rich_text `internal-name` = `{title} - Content` |
-| `*Draft blog:*` (every paragraph, full length) | Inline **`content_html`** — one `&lt;p&gt;…&lt;/p&gt;` per paragraph; **XML-escape** only (`<`, `>`, `&`); **no** CDATA |
-| First sentence of draft body | `pageDescription_s` (≤250 chars), `blurb_t` (≤150 chars) |
+| `*Draft blog:*` (every paragraph, full length) | Inline **`content_html`** — one `&lt;p&gt;…&lt;/p&gt;` per paragraph; **XML-escape** only; **no** CDATA |
+| SEO | `blurb_t`, `pageDescription_s` — **empty** unless the draft itself contained that exact text |
 
-**Forbidden on Turn 2:** summarize, shorten, rephrase, merge paragraphs, or stop after a few paragraphs.
+**Forbidden on Turn 2:** summarize, shorten, rephrase, merge paragraphs, invent blurbs/teasers, or stop after a few paragraphs.
 
 ### Turn 2 tool flow
 
-1. Use recipe **prefetch** (`postForm`, `richTextForm`, `taxonomyTopics`, `taxonomyTags`, `authorBios`, `suggestedNewItemPath`) — do not re-fetch form defs unless prefetch is missing.
+1. Use recipe **prefetch** (`postForm`, `richTextForm`, `taxonomyTopics`, `taxonomyTags`, `authorBios`, `suggestedNewItemPath`).
 2. **ContentExists** on chosen path (expect **false** for new item).
-3. **WriteContent** once with full **contentXml**. If validation fails, fix listed errors and retry — do not guess missing fields.
+3. **WriteContent** once with full **contentXml**. Fix validation errors from server messages only.
 
 ### Pre-write checklist
 
@@ -88,11 +94,11 @@ Pick one DCO blog author persona and spell it in `Author voice: **Name**` (bold)
 | Title fields | `internal-name`, `headline_s`, `pageTitle_s` = verbatim `*Draft title:*` |
 | Body | Full `*Draft blog:*` in inline `content_html` under `content_o` |
 | Path = file-name | Same `{slug}.xml` in **contentPath** and root `<file-name>` |
-| UUIDs | **Two** distinct v4 UUIDs — post (A) and inline rich_text (B); never reuse one ID |
-| `authorBio_o` | One item; `<key>` = `<include>` = real path from prefetch **`authorBios`** (UUID `.xml` filename) matching **Author voice:** |
-| `categories_o` / `tags_o` | Keys from prefetch **`taxonomyTopics`** / **`taxonomyTags`** only; strong thematic fit; `<value_smv>` labels (not `value_s`); omit if nothing fits |
-| `mainImage_s` | Empty or omit — placeholder handled on write |
-| Dates | ISO-8601 `createdDate*` / `lastModifiedDate*` on post and inline component |
+| UUIDs | **Two** distinct v4 UUIDs — post (A) and inline rich_text (B) |
+| `authorBio_o` | Real path from prefetch **`authorBios`** matching **Author voice:** |
+| `categories_o` / `tags_o` | Keys from prefetch; `<value_smv>` labels; omit if nothing fits |
+| `mainImage_s` | Empty or omit — placeholder on write |
+| Dates | ISO-8601 on post and inline component |
 
 ---
 
@@ -118,7 +124,7 @@ Body lives in **`content_o`** as **one inline** `/component/rich_text` — not b
 - `<component id="…">` is **inside** `<item>`, not a sibling.
 - Post root order: `content-type`, `display-template`, `no-template-required`, `merge-strategy`, `objectGroupId`, `objectId`, `file-name`, `folder-name`, `content_o`, `authorBio_o`, `categories_o`, `tags_o`, `mainImage_s`, `blurb_t`, `internal-name`, `pageTitle_s`, `pageDescription_s`, `headline_s`, dates.
 
-**Forbidden:** `<content_o><rich_text>…`, CDATA for `content_html`, one UUID for both objects, invented bio paths (`unknown_bio.xml`, `sara.xml`), taxonomy keys not in prefetch, weak tag padding (`aws`, `open-source` on unrelated articles).
+**Forbidden:** `<content_o><rich_text>…`, CDATA for `content_html`, one UUID for both objects, invented bio paths, taxonomy keys not in prefetch.
 
 ---
 
@@ -126,7 +132,7 @@ Body lives in **`content_o`** as **one inline** `/component/rich_text` — not b
 
 | Author says | Expected path |
 |-------------|----------------|
-| “Draft / summarize from this URL” + topics | Turn 1 — `recipe_1779227205002` or plan with FetchHttpUrl + markdown draft |
+| “Draft / summarize from this URL” + topics | Turn 1 — `recipe_1779227205002` |
 | “Make a post from this draft” / “save this” (with prior `*Draft blog:*`) | Turn 2 — `new_content_item_from_chat_draft` |
 
 When Turn 1 markers are missing, **never** jump to Turn 2 XML work — redo the chat draft first.

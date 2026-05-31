@@ -1,7 +1,7 @@
 {
   "id": "recipe_1779227205002",
-  "title": "Propose DCO blog idea (Slack)",
-  "description": "Turn 1: author pasted a URL and wants a chat draft or summary (named topics). FetchHttpUrl only — final markdown must include ## Draft body with *Draft title:*, *Outline:*, and full *Draft blog:*. No WriteContent, no form defs, no repository create.",
+  "title": "Draft blog from author URL (Turn 1 — chat only)",
+  "description": "Turn 1: author pasted http(s) URL and wants a chat draft or summary (named topics). FetchHttpUrl on that URL only; final markdown must include ## Draft body with *Draft title:*, *Outline:*, and full *Draft blog:*. No WriteContent, no form defs, no CMS save.",
   "chatEmoji": "💡",
   "chatLineSuffix": "workflow",
   "toolsLoopAuthorUrlExclusive": true,
