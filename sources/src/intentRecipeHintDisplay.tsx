@@ -1,4 +1,5 @@
-import { Box, Typography } from '@mui/material';
+import { Box } from '@mui/material';
+import AiAssistantMarkdownPreview from './AiAssistantMarkdownPreview';
 
 const LONG_HINT_CHARS = 220;
 
@@ -20,8 +21,6 @@ export function IntentRecipeHintLine(props: { hint: string; index: number }) {
       <Box
         key={`hint-${index}`}
         sx={{
-          maxHeight: 96,
-          overflow: 'auto',
           px: 1,
           py: 0.75,
           borderRadius: 1,
@@ -30,16 +29,14 @@ export function IntentRecipeHintLine(props: { hint: string; index: number }) {
           borderColor: 'divider'
         }}
       >
-        <Typography variant="caption" component="div" sx={{ fontSize: 12, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
-          {hint}
-        </Typography>
+        <AiAssistantMarkdownPreview value={hint} compact maxHeightPx={280} />
       </Box>
     );
   }
 
   return (
-    <Typography key={`hint-${index}`} variant="body2" sx={{ fontSize: 13, lineHeight: 1.4 }}>
-      {hint}
-    </Typography>
+    <Box key={`hint-${index}`} sx={{ fontSize: 13, lineHeight: 1.4 }}>
+      <AiAssistantMarkdownPreview value={hint} compact />
+    </Box>
   );
 }

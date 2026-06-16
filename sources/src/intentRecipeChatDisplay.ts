@@ -1,3 +1,5 @@
+import { resolveSlackColonEmojiToken } from './slackColonEmoji';
+
 /** Fallback when server does not send {@code recipeChatLine} (catalog {@code chatDefaults.prefixEmoji}). */
 export const INTENT_RECIPE_CHAT_PREFIX_EMOJI = '🥗';
 
@@ -19,8 +21,12 @@ export function formatIntentRecipeChatLineFromRecipe(
 ): string {
   const title = String(recipe.title ?? recipe.id ?? '').trim();
   if (!title) return '';
-  const prefix = String(recipe.chatPrefixEmoji ?? defaults?.prefixEmoji ?? INTENT_RECIPE_CHAT_PREFIX_EMOJI).trim();
-  const emoji = String(recipe.chatEmoji ?? defaults?.fallbackEmoji ?? INTENT_RECIPE_CHAT_FALLBACK_EMOJI).trim();
+  const prefix = resolveSlackColonEmojiToken(
+    String(recipe.chatPrefixEmoji ?? defaults?.prefixEmoji ?? INTENT_RECIPE_CHAT_PREFIX_EMOJI).trim()
+  );
+  const emoji = resolveSlackColonEmojiToken(
+    String(recipe.chatEmoji ?? defaults?.fallbackEmoji ?? INTENT_RECIPE_CHAT_FALLBACK_EMOJI).trim()
+  );
   const suffix = String(recipe.chatLineSuffix ?? defaults?.lineSuffix ?? 'workflow').trim() || 'workflow';
   return `${prefix} ${emoji} **${title}** ${suffix}\n`;
 }

@@ -1,22 +1,75 @@
-import { Autocomplete, Box, Stack, TextField, Typography } from '@mui/material';
+import { useEffect, useState } from 'react';
+import { Autocomplete, Box, CircularProgress, Stack, TextField, Typography } from '@mui/material';
+import { writeConfiguration } from '@craftercms/studio-ui/services/configuration';
+import { firstValueFrom } from 'rxjs';
 import AiAssistantMarkdownEditor from './AiAssistantMarkdownEditor';
 import type { IntentRecipe } from './aiAssistantIntentRecipesModel';
 import { INTENT_RECIPE_WIRE_TOOL_OPTIONS } from './aiAssistantIntentRecipesModel';
+import { fetchStudioConfigFileUtf8 } from './aiAssistantScriptsApi';
 
 const TOOLS_LOOP_WIRE_OPTIONS = [...INTENT_RECIPE_WIRE_TOOL_OPTIONS];
 
 export interface AiAssistantIntentRecipeToolsLoopFieldsProps {
   recipe: IntentRecipe;
   onChange: (recipe: IntentRecipe) => void;
+  siteId?: string;
+  /** Parent calls before Done / Save to persist an external prelude file when dirty. */
+  preludeFileSaveRef?: React.MutableRefObject<(() => Promise<void>) | null>;
+}
+
+function normalizeStudioModulePath(path: string): string {
+  return path.trim().replace(/^\/+/, '');
 }
 
 /** Recipe tools-loop policy: force tool, allowlist, excludes, fetch caps, prelude. */
 export default function AiAssistantIntentRecipeToolsLoopFields(props: AiAssistantIntentRecipeToolsLoopFieldsProps) {
-  const { recipe, onChange } = props;
+  const { recipe, onChange, siteId, preludeFileSaveRef } = props;
+  const preludePath = normalizeStudioModulePath(recipe.matchedUserPreludePath ?? '');
+  const usesPreludeFile = Boolean(preludePath);
+
+  const [preludeFileBody, setPreludeFileBody] = useState('');
+  const [preludeFileLoading, setPreludeFileLoading] = useState(false);
+  const [preludeFileDirty, setPreludeFileDirty] = useState(false);
 
   const patchRecipe = (partial: Partial<IntentRecipe>) => {
     onChange({ ...recipe, ...partial });
   };
+
+  useEffect(() => {
+    if (!siteId || !preludePath) {
+      setPreludeFileBody('');
+      setPreludeFileDirty(false);
+      setPreludeFileLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setPreludeFileLoading(true);
+    void fetchStudioConfigFileUtf8(siteId, preludePath).then((text) => {
+      if (cancelled) return;
+      setPreludeFileBody(text);
+      setPreludeFileDirty(false);
+      setPreludeFileLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [siteId, preludePath]);
+
+  useEffect(() => {
+    if (!preludeFileSaveRef) return;
+    if (!siteId || !preludePath) {
+      preludeFileSaveRef.current = null;
+      return;
+    }
+    preludeFileSaveRef.current = async () => {
+      if (!preludeFileDirty) return;
+      await firstValueFrom(writeConfiguration(siteId, preludePath, 'studio', preludeFileBody));
+      setPreludeFileDirty(false);
+    };
+    return () => {
+      preludeFileSaveRef.current = null;
+    };
+  }, [siteId, preludePath, preludeFileBody, preludeFileDirty, preludeFileSaveRef]);
 
   return (
     <Stack spacing={2}>
@@ -112,8 +165,8 @@ export default function AiAssistantIntentRecipeToolsLoopFields(props: AiAssistan
       </Stack>
       <Box>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-          Matched user prelude — prepended to the tools-loop user message when this recipe matches. Use an external
-          markdown file for long preludes (readable in git); inline text is the fallback when the file is missing.
+          Matched user prelude — prepended to the tools-loop user message when this recipe matches. Long preludes can
+          live in a markdown file (readable in git); otherwise edit inline below.
         </Typography>
         <TextField
           label="Prelude file (studio module path)"
@@ -121,26 +174,45 @@ export default function AiAssistantIntentRecipeToolsLoopFields(props: AiAssistan
           fullWidth
           value={recipe.matchedUserPreludePath ?? ''}
           onChange={(e) => {
-            const t = e.target.value.trim();
+            const t = normalizeStudioModulePath(e.target.value);
             patchRecipe({ matchedUserPreludePath: t || undefined });
           }}
           placeholder="scripts/aiassistant/recipes/preludes/my-recipe-matched-user-prelude.md"
-          helperText="Optional. When set, the server loads prelude text from this path instead of the field below."
+          helperText={
+            usesPreludeFile
+              ? 'Server loads prelude text from this file at runtime. Edit the file contents below.'
+              : 'Optional. When set, prelude text is read from this path instead of the inline field.'
+          }
           InputProps={{ sx: { fontFamily: 'monospace' } }}
           sx={{ mb: 2 }}
         />
+        {usesPreludeFile && preludeFileLoading ? (
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+            <CircularProgress size={18} />
+            <Typography variant="body2" color="text.secondary">
+              Loading <code>{preludePath}</code>…
+            </Typography>
+          </Stack>
+        ) : null}
         <AiAssistantMarkdownEditor
-          value={recipe.matchedUserPrelude ?? ''}
+          value={usesPreludeFile ? preludeFileBody : (recipe.matchedUserPrelude ?? '')}
           onChange={(next) => {
+            if (usesPreludeFile) {
+              setPreludeFileBody(next);
+              setPreludeFileDirty(true);
+              return;
+            }
             const t = next.trim();
             patchRecipe({ matchedUserPrelude: t ? next : undefined });
           }}
+          readOnly={usesPreludeFile && (preludeFileLoading || !siteId)}
           minHeightPx={320}
-          defaultView="split"
           helperText={
-            recipe.matchedUserPreludePath
-              ? 'Inline prelude is ignored when Prelude file is set. Clear the path to edit inline.'
-              : 'Use headings and lists; preview shows how authors will read injected orchestration text.'
+            usesPreludeFile
+              ? preludeFileDirty
+                ? `Unsaved changes to ${preludePath} — use Done or Save recipes to write the file.`
+                : `Editing ${preludePath}`
+              : 'Whitespace and line breaks are preserved. Use headings and lists for orchestration blocks.'
           }
         />
       </Box>

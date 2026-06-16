@@ -9,6 +9,7 @@ import {
   phaseHints
 } from './aiAssistantIntentRecipesModel';
 import { IntentRecipeHintLine } from './intentRecipeHintDisplay';
+import { replaceSlackColonEmojisInText, resolveSlackColonEmojiToken } from './slackColonEmoji';
 
 const PHASE_LABELS: Record<IntentRecipePhaseKey, string> = {
   context: 'Context',
@@ -26,7 +27,7 @@ function confirmationStepArgSummary(args: Record<string, string> | undefined): s
     const short = text.length > 48 ? `${text.slice(0, 45)}…` : text;
     chips.push(short);
   }
-  if (icon) chips.push(icon);
+  if (icon) chips.push(resolveSlackColonEmojiToken(icon));
   if (thread) chips.push(`thread: ${thread}`);
   return chips;
 }
@@ -114,8 +115,14 @@ function EngineStepCard(props: {
       ) : null}
       {isSlack && confirmationStepArgSummary(step.args).length > 0 ? (
         <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
-          {confirmationStepArgSummary(step.args).map((label) => (
-            <Chip key={label} size="small" label={label} variant="outlined" sx={{ fontFamily: 'monospace', fontSize: 11 }} />
+          {confirmationStepArgSummary(step.args).map((label, i) => (
+            <Chip
+              key={`${label}-${i}`}
+              size="small"
+              label={replaceSlackColonEmojisInText(label)}
+              variant="outlined"
+              sx={{ fontFamily: 'monospace', fontSize: 11 }}
+            />
           ))}
         </Stack>
       ) : null}

@@ -7,11 +7,13 @@ export interface AiAssistantIntentRecipeGeneralFieldsProps {
   recipe: IntentRecipe;
   onChange: (recipe: IntentRecipe) => void;
   idReadOnly?: boolean;
+  siteId?: string;
+  preludeFileSaveRef?: React.MutableRefObject<(() => Promise<void>) | null>;
 }
 
 /** Recipe metadata, match rules, and tools-loop policy (editor General tab). */
 export default function AiAssistantIntentRecipeGeneralFields(props: AiAssistantIntentRecipeGeneralFieldsProps) {
-  const { recipe, onChange, idReadOnly } = props;
+  const { recipe, onChange, idReadOnly, siteId, preludeFileSaveRef } = props;
 
   const patchRecipe = (partial: Partial<IntentRecipe>) => {
     onChange({ ...recipe, ...partial });
@@ -79,7 +81,12 @@ export default function AiAssistantIntentRecipeGeneralFields(props: AiAssistantI
           />
         )}
       />
-      <AiAssistantIntentRecipeToolsLoopFields recipe={recipe} onChange={onChange} />
+      <AiAssistantIntentRecipeToolsLoopFields
+        recipe={recipe}
+        onChange={onChange}
+        siteId={siteId}
+        preludeFileSaveRef={preludeFileSaveRef}
+      />
       <Autocomplete
         multiple
         freeSolo

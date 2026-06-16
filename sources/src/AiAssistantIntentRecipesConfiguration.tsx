@@ -178,6 +178,13 @@ const AiAssistantIntentRecipesConfiguration = forwardRef<
   /** Project recipes file snapshot when a recipe edit session starts (Cancel restores this). */
   const [editSessionCustomFile, setEditSessionCustomFile] = useState<IntentRecipesFile | null>(null);
   const dirtyBeforeRecipeEditRef = useRef(false);
+  const preludeFileSaveRef = useRef<(() => Promise<void>) | null>(null);
+
+  const savePendingPreludeFile = useCallback(async () => {
+    if (preludeFileSaveRef.current) {
+      await preludeFileSaveRef.current();
+    }
+  }, []);
 
   const recipeOrder = useMemo(() => {
     if (customFile.recipeOrder?.length) {
@@ -334,11 +341,17 @@ const AiAssistantIntentRecipesConfiguration = forwardRef<
     setEditingRecipe(true);
   }, [customFile, dirty]);
 
-  const finishRecipeEdit = useCallback(() => {
+  const finishRecipeEdit = useCallback(async () => {
     if (recipeDraft) {
       const v = validateRecipe(recipeDraft);
       if (!v.ok) {
         setSaveError(v.message);
+        return;
+      }
+      try {
+        await savePendingPreludeFile();
+      } catch (e) {
+        setSaveError(e instanceof Error ? e.message : String(e));
         return;
       }
       setCustomFile((f) => {
@@ -353,7 +366,7 @@ const AiAssistantIntentRecipesConfiguration = forwardRef<
     }
     setEditSessionCustomFile(null);
     setEditingRecipe(false);
-  }, [recipeDraft]);
+  }, [recipeDraft, savePendingPreludeFile]);
 
   const cancelRecipeEdit = useCallback(() => {
     if (editSessionCustomFile) {
@@ -567,6 +580,7 @@ const AiAssistantIntentRecipesConfiguration = forwardRef<
       const recipesRel = intentRecipesStudioRel(toolsPolicy);
       setSaving(true);
       try {
+        await savePendingPreludeFile();
         const routing = toolsPolicy.intentRecipeRouting;
         const customPath = routing.customRecipesPath.trim() || `/${INTENT_RECIPES_JSON_REL}`;
         const toolsBody = serializeToolsPolicyToJson({
@@ -589,7 +603,7 @@ const AiAssistantIntentRecipesConfiguration = forwardRef<
         setSaving(false);
       }
     },
-    [buildCustomFileForSave, recipeDraft, siteId, toolsPolicy]
+    [buildCustomFileForSave, recipeDraft, savePendingPreludeFile, siteId, toolsPolicy]
   );
 
   const confirmRevertToBuiltIn = useCallback(async () => {
@@ -805,6 +819,8 @@ const AiAssistantIntentRecipesConfiguration = forwardRef<
               onChange={patchRecipeDraft}
               idReadOnly={idReadOnly}
               immersive
+              siteId={siteId}
+              preludeFileSaveRef={preludeFileSaveRef}
             />
           </Box>
           <Stack
@@ -814,7 +830,7 @@ const AiAssistantIntentRecipesConfiguration = forwardRef<
             sx={{ flexShrink: 0, px: 2, py: 1.5, borderTop: 1, borderColor: 'divider' }}
           >
             <Button onClick={cancelRecipeEdit}>Cancel</Button>
-            <Button variant="contained" onClick={finishRecipeEdit}>
+            <Button variant="contained" onClick={() => void finishRecipeEdit()}>
               Done
             </Button>
           </Stack>

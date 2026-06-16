@@ -1,8 +1,8 @@
 const { Fragment, jsx: jsx$1, jsxs } = craftercms.libs?.reactJsxRuntime;
 const require$$2 = craftercms.libs?.reactJsxRuntime && Object.prototype.hasOwnProperty.call(craftercms.libs?.reactJsxRuntime, 'default') ? craftercms.libs?.reactJsxRuntime['default'] : craftercms.libs?.reactJsxRuntime;
-const { useTheme, Box, CircularProgress, Typography, TableContainer, Paper, Table: Table$1, TableHead, TableBody, TableRow, TableCell, Stack: Stack$1, Tooltip, IconButton, Tabs, Tab, Button, Divider, TextField, Chip, FormControlLabel, Switch, Popover, paperClasses, GlobalStyles, Menu, MenuItem, ListItemIcon, ListItemText, Dialog, DialogContent, Alert, FormControl, InputLabel, Select, List, ListItem, Checkbox, ListItemButton, Badge, DialogTitle, DialogActions, Avatar, useMediaQuery, Slider, ListItemSecondaryAction, ListSubheader, FormLabel, FormGroup, Autocomplete, Snackbar, Link: Link$1, RadioGroup, Radio, InputAdornment } = craftercms.libs.MaterialUI;
+const { useTheme, Typography, Box, TableContainer, Paper, Table: Table$1, TableHead, TableBody, TableRow, TableCell, Stack: Stack$1, Tooltip, IconButton, Tabs, Tab, CircularProgress, Button, Divider, TextField, Chip, FormControlLabel, Switch, Popover, paperClasses, GlobalStyles, Menu, MenuItem, ListItemIcon, ListItemText, Dialog, DialogContent, Alert, FormControl, InputLabel, Select, List, ListItem, Checkbox, ListItemButton, Badge, DialogTitle, DialogActions, Avatar, useMediaQuery, Slider, ListItemSecondaryAction, ListSubheader, FormLabel, FormGroup, Autocomplete, Snackbar, Link: Link$1, RadioGroup, Radio, InputAdornment } = craftercms.libs.MaterialUI;
 const React = craftercms.libs.React;
-const { useEffect, useRef, useState, useCallback, useMemo, useLayoutEffect, useSyncExternalStore, forwardRef, useImperativeHandle, createElement } = craftercms.libs.React;
+const { useEffect, useMemo, useState, useRef, useCallback, useLayoutEffect, useSyncExternalStore, forwardRef, useImperativeHandle, createElement } = craftercms.libs.React;
 const React__default = craftercms.libs.React && Object.prototype.hasOwnProperty.call(craftercms.libs.React, 'default') ? craftercms.libs.React['default'] : craftercms.libs.React;
 const MinimizedBar = craftercms.components.MinimizedBar && Object.prototype.hasOwnProperty.call(craftercms.components.MinimizedBar, 'default') ? craftercms.components.MinimizedBar['default'] : craftercms.components.MinimizedBar;
 const DialogHeader = craftercms.components.DialogHeader && Object.prototype.hasOwnProperty.call(craftercms.components.DialogHeader, 'default') ? craftercms.components.DialogHeader['default'] : craftercms.components.DialogHeader;
@@ -28464,443 +28464,124 @@ function rehypeSanitize(options) {
   }
 }
 
-/*
- * Copyright (C) 2007-2022 Crafter Software Corporation. All Rights Reserved.
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License version 3 as published by
- * the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
-
-const showSystemNotification = /*#__PURE__*/ createAction('SHOW_SYSTEM_NOTIFICATION');
-// endregion
-
-const IMPORT_SCRIPT_PATH = '/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/authoring/import-image-from-url';
 /**
- * Studio {@code PluginController.runScript} wraps the script return map under {@code result}
- * (see {@code ResultConstants.RESULT_KEY_RESULT}).
+ * Slack-style {@code :short_name:} tokens for Studio UI (recipe swimlane chips, chat markdown, workflow emoji).
+ * Unknown names are left unchanged.
  */
-function unwrapPluginScriptBody$4(body) {
-    if (!body || typeof body !== 'object')
-        return body;
-    const o = body;
-    const inner = o.result;
-    if (inner && typeof inner === 'object' && !Array.isArray(inner))
-        return inner;
-    return body;
+const SLACK_COLON_EMOJI = {
+    '+1': '👍',
+    '-1': '👎',
+    arrow_down: '⬇️',
+    arrow_left: '⬅️',
+    arrow_right: '➡️',
+    arrow_up: '⬆️',
+    bulb: '💡',
+    dart: '🎯',
+    gear: '⚙️',
+    hammer_and_wrench: '🛠️',
+    link: '🔗',
+    memo: '📝',
+    pencil2: '✏️',
+    pushpin: '📌',
+    rocket: '🚀',
+    thought_balloon: '💭',
+    white_check_mark: '✅',
+    warning: '⚠️',
+    x: '❌',
+    books: '📚',
+    book: '📖',
+    clipboard: '📋',
+    light_bulb: '💡',
+    mag: '🔍',
+    microscope: '🔬',
+    newspaper: '📰',
+    page_facing_up: '📄',
+    spiral_note_pad: '🗒️',
+    speech_balloon: '💬',
+    star: '⭐',
+    tada: '🎉',
+    thumbsup: '👍',
+    thumbsdown: '👎',
+    wrench: '🔧',
+    zap: '⚡',
+    chart_with_upwards_trend: '📈',
+    bar_chart: '📊',
+    calendar: '📅',
+    clock1: '🕐',
+    email: '📧',
+    envelope: '✉️',
+    eyes: '👀',
+    fire: '🔥',
+    globe_with_meridians: '🌐',
+    heart: '❤️',
+    information_source: 'ℹ️',
+    key: '🔑',
+    lock: '🔒',
+    package: '📦',
+    point_right: '👉',
+    question: '❓',
+    recycle: '♻️',
+    robot_face: '🤖',
+    rotating_light: '🚨',
+    seedling: '🌱',
+    shield: '🛡️',
+    sparkles: '✨',
+    siren: '🚨',
+    stopwatch: '⏱️',
+    trophy: '🏆',
+    umbrella: '☂️',
+    vertical_traffic_light: '🚦',
+    wave: '👋',
+    writing_hand: '✍️'
+};
+const COLON_EMOJI_RE = /:([a-z0-9_+-]+):/gi;
+const MARKDOWN_FENCE_RE$1 = /(`{3,}|~{3,})[^\n]*\n[\s\S]*?\1/g;
+function slackColonEmojiNameToUnicode(name) {
+    const key = name.trim().toLowerCase();
+    return SLACK_COLON_EMOJI[key];
 }
-const importPromises = new Map();
-function cacheKey(siteId, imageUrl, repoPath) {
-    return `${siteId}\n${imageUrl}\n${repoPath}`;
+/** When {@code value} is exactly {@code :name:}, return the Unicode emoji if known. */
+function resolveSlackColonEmojiToken(value) {
+    const t = value.trim();
+    const m = /^:([a-z0-9_+-]+):$/i.exec(t);
+    if (!m) {
+        return value;
+    }
+    return slackColonEmojiNameToUnicode(m[1]) ?? value;
 }
-/**
- * Server downloads {@code imageUrl} and writes under {@code repoPath} (with {@code {yyyy}} macros).
- * Returns the repository path (e.g. {@code /static-assets/...}) suitable for XB asset drag.
- */
-async function importRemoteImageToRepo(siteId, imageUrl, repoPath, signal) {
-    const trimmedSite = siteId?.trim() || '';
-    const trimmedUrl = imageUrl?.trim() || '';
-    const trimmedPath = (repoPath).trim();
-    if (!trimmedSite)
-        throw new Error('importRemoteImageToRepo: missing siteId');
-    if (!trimmedUrl)
-        throw new Error('importRemoteImageToRepo: missing imageUrl');
-    const key = cacheKey(trimmedSite, trimmedUrl, trimmedPath);
-    const existing = importPromises.get(key);
-    if (existing)
-        return existing;
-    const p = (async () => {
-        try {
-            const url = `${IMPORT_SCRIPT_PATH}?siteId=${encodeURIComponent(trimmedSite)}`;
-            const res = await fetch(url, {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Accept: 'application/json',
-                    ...buildStudioAuthHeaders()
-                },
-                body: JSON.stringify({ imageUrl: trimmedUrl, repoPath: trimmedPath }),
-                signal
-            });
-            const raw = (await res.json().catch(() => ({})));
-            const data = unwrapPluginScriptBody$4(raw);
-            if (!res.ok || data.ok === false) {
-                throw new Error(data.message || `Import failed (${res.status})`);
-            }
-            const rel = data.relativeUrl?.trim();
-            if (!rel)
-                throw new Error('Import response missing relativeUrl');
-            importPromises.delete(key);
-            return rel;
+/** Replace every {@code :name:} token in prose. */
+function replaceSlackColonEmojisInText(text) {
+    if (!text || !text.includes(':')) {
+        return text;
+    }
+    return text.replace(COLON_EMOJI_RE, (full, name) => slackColonEmojiNameToUnicode(name) ?? full);
+}
+function textHasMarkdownFences$1(text) {
+    return text.includes('```') || text.includes('~~~');
+}
+/** Replace colon emojis outside fenced code blocks (safe for assistant markdown). */
+function replaceSlackColonEmojisOutsideMarkdownFences(text) {
+    if (!text || !text.includes(':')) {
+        return text;
+    }
+    if (!textHasMarkdownFences$1(text)) {
+        return replaceSlackColonEmojisInText(text);
+    }
+    const parts = [];
+    let last = 0;
+    let m;
+    MARKDOWN_FENCE_RE$1.lastIndex = 0;
+    while ((m = MARKDOWN_FENCE_RE$1.exec(text)) !== null) {
+        if (m.index > last) {
+            parts.push(replaceSlackColonEmojisInText(text.slice(last, m.index)));
         }
-        catch (e) {
-            importPromises.delete(key);
-            throw e;
-        }
-    })();
-    importPromises.set(key, p);
-    return p;
-}
-function isProbablyRemoteImageUrl(src) {
-    const s = src?.trim() ?? '';
-    return /^https?:\/\//i.test(s);
-}
-/** True when dropping from chat should run {@link importRemoteImageToRepo} (https URL or raster {@code data:image}). */
-function isImageUrlImportableOnDrop(src) {
-    const s = src?.trim() ?? '';
-    if (!s)
-        return false;
-    if (isProbablyRemoteImageUrl(s))
-        return true;
-    return /^data:image\//i.test(s);
-}
-
-/**
- * Turn an inline {@code data:image/...;base64,...} into an object URL for {@code <img src>}.
- * Avoids {@code fetch(data:...)} (blocked or flaky in some embeds) and keeps revoke scoped to the effect closure
- * so React 18 StrictMode cannot revoke a URL that state still references.
- */
-function dataImageToObjectUrl(dataUrl) {
-    const s = dataUrl.trim();
-    const comma = s.indexOf(',');
-    if (comma < 0 || comma >= s.length - 1)
-        return null;
-    const header = s.slice(0, comma);
-    if (!/;base64/i.test(header))
-        return null;
-    const mimeMatch = /^data:([^;]+)/i.exec(s);
-    const mime = mimeMatch?.[1]?.trim() || 'image/png';
-    const b64 = s.slice(comma + 1).replace(/\s/g, '');
-    const binary = atob(b64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
+        parts.push(m[0]);
+        last = m.index + m[0].length;
     }
-    return URL.createObjectURL(new Blob([bytes], { type: mime }));
-}
-function fileNameFromUrl(src) {
-    try {
-        const u = new URL(src, typeof window !== 'undefined' ? window.location.origin : 'https://local');
-        const seg = u.pathname.split('/').filter(Boolean).pop();
-        if (seg && seg.includes('.'))
-            return seg;
+    if (last < text.length) {
+        parts.push(replaceSlackColonEmojisInText(text.slice(last)));
     }
-    catch {
-        // ignore
-    }
-    if (src.startsWith('/') && src.includes('.')) {
-        const seg = src.split('/').filter(Boolean).pop();
-        if (seg)
-            return seg;
-    }
-    return 'image.png';
-}
-function mimeFromUrl(src) {
-    const lower = src.toLowerCase();
-    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg'))
-        return 'image/jpeg';
-    if (lower.endsWith('.webp'))
-        return 'image/webp';
-    if (lower.endsWith('.gif'))
-        return 'image/gif';
-    if (lower.endsWith('.svg'))
-        return 'image/svg+xml';
-    return 'image/png';
-}
-/**
- * Build a {@link SearchItem}-shaped payload for {@link assetDragStarted}, matching PreviewAssetsPanel / MediaCard.
- * Remote URLs stay as-is until drop; {@link installRemoteImageDropImportBridge} imports on {@code UPDATE_FIELD_VALUE_OPERATION}.
- */
-function searchItemFromImageSrc(src, alt) {
-    const name = (alt && alt.trim()) || fileNameFromUrl(src);
-    const now = new Date().toISOString();
-    return {
-        path: src,
-        name,
-        type: 'Image',
-        mimeType: mimeFromUrl(src),
-        previewUrl: src,
-        lastModifier: '',
-        lastModified: now,
-        size: 0,
-        snippets: ''
-    };
-}
-const DRAG_CARD_THUMB_W = 112;
-const DRAG_CARD_THUMB_H = 72;
-/**
- * Drag preview card. {@code setDragImage} must run synchronously in {@code dragstart}, so the blob used
- * for the thumbnail is prefetched earlier; we only clone an already-decoded {@code <img>} (hidden blob
- * preview or the visible chat image). Import/drop still uses the original URL path.
- */
-function attachRepresentativeDragCard(e, title, sourceImg, blobThumbImg, useBlobThumb) {
-    const dt = e.dataTransfer;
-    if (!dt)
-        return;
-    dt.effectAllowed = 'copy';
-    const pad = 8;
-    const el = document.createElement('div');
-    el.style.cssText = `position:fixed;right:12px;bottom:12px;width:132px;padding:${pad}px;background:linear-gradient(145deg,#2d2d2d,#1a1a1a);color:#fff;border-radius:8px;z-index:2147483647;box-shadow:0 6px 20px rgba(0,0,0,0.4);pointer-events:none;border:1px solid rgba(255,255,255,0.12)`;
-    let thumbEl = null;
-    const blobReady = useBlobThumb &&
-        blobThumbImg &&
-        blobThumbImg.complete &&
-        blobThumbImg.naturalWidth > 0;
-    const sourceReady = sourceImg &&
-        sourceImg.complete &&
-        (sourceImg.naturalWidth > 0 || sourceImg.getBoundingClientRect().width > 0);
-    if (blobReady && blobThumbImg) {
-        const thumb = blobThumbImg.cloneNode(true);
-        thumb.removeAttribute('draggable');
-        thumb.style.cssText = `display:block;width:${DRAG_CARD_THUMB_W}px;height:${DRAG_CARD_THUMB_H}px;object-fit:cover;border-radius:4px;margin-bottom:6px;background:#1a1a1a`;
-        el.appendChild(thumb);
-        thumbEl = thumb;
-    }
-    else if (sourceReady && sourceImg) {
-        const thumb = sourceImg.cloneNode(true);
-        thumb.removeAttribute('draggable');
-        thumb.style.cssText = `display:block;width:${DRAG_CARD_THUMB_W}px;height:${DRAG_CARD_THUMB_H}px;object-fit:cover;border-radius:4px;margin-bottom:6px;background:#1a1a1a`;
-        el.appendChild(thumb);
-        thumbEl = thumb;
-    }
-    else {
-        const icon = document.createElement('div');
-        icon.textContent = '🖼';
-        icon.style.cssText = 'font-size:22px;line-height:1;margin-bottom:4px;text-align:center';
-        el.appendChild(icon);
-    }
-    const line2 = document.createElement('div');
-    line2.textContent = title.length > 42 ? `${title.slice(0, 39)}…` : title || 'Image';
-    line2.style.cssText = 'font:11px/1.35 system-ui,sans-serif;opacity:0.92;word-break:break-word';
-    el.appendChild(line2);
-    const line3 = document.createElement('div');
-    line3.textContent = 'Drop on image field';
-    line3.style.cssText = 'font:10px/1.2 system-ui,sans-serif;opacity:0.65;margin-top:4px';
-    el.appendChild(line3);
-    document.body.appendChild(el);
-    void el.offsetHeight;
-    const sr = sourceImg?.getBoundingClientRect();
-    let hx = el.offsetWidth / 2;
-    let hy = el.offsetHeight / 2;
-    if (thumbEl && sr && sr.width > 0 && sr.height > 0) {
-        const ox = Math.max(0, Math.min(e.clientX - sr.left, sr.width));
-        const oy = Math.max(0, Math.min(e.clientY - sr.top, sr.height));
-        hx = pad + (ox / sr.width) * DRAG_CARD_THUMB_W;
-        hy = pad + (oy / sr.height) * DRAG_CARD_THUMB_H;
-    }
-    try {
-        dt.setDragImage(el, hx, hy);
-    }
-    catch {
-        el.remove();
-        return;
-    }
-    return () => {
-        el.remove();
-    };
-}
-function StudioDraggableImage(props) {
-    const { src, alt } = props;
-    const theme = useTheme();
-    const dispatch = useDispatch();
-    const imgRef = useRef(null);
-    const blobImgRef = useRef(null);
-    const blobUrlRef = useRef(null);
-    const removeGhostRef = useRef(null);
-    const activeSiteId = useActiveSiteId();
-    const effectiveSite = activeSiteId?.trim() || '';
-    const [blobPreviewUrl, setBlobPreviewUrl] = useState(null);
-    /** When set, {@code <img>} uses the object URL (CSP-safe) instead of the wire {@code src}. */
-    const [blobDecoded, setBlobDecoded] = useState(false);
-    const [blobLoading, setBlobLoading] = useState(false);
-    /** Ephemeral provider URLs: we only preview via one {@code fetch}→blob; no silent {@code <img src=https…>} fallback. */
-    const [remoteHttpFetchFailed, setRemoteHttpFetchFailed] = useState(false);
-    useEffect(() => {
-        return () => {
-            removeGhostRef.current?.();
-            removeGhostRef.current = null;
-        };
-    }, []);
-    const trimmed = src?.trim() ?? '';
-    const isRemote = trimmed ? isProbablyRemoteImageUrl(trimmed) : false;
-    const isAbsoluteHttp = trimmed.startsWith('http://') || trimmed.startsWith('https://');
-    /**
-     * Prefer an object URL for {@code <img src>}: Studio CSP often allows {@code blob:} while blocking {@code data:},
-     * and revoking is tied to this effect's closure (avoids React 18 StrictMode revoking a URL state still points at).
-     * Drop/import still uses the original {@code trimmed} wire URL.
-     */
-    useEffect(() => {
-        const ac = new AbortController();
-        let objectUrl = null;
-        const revokeOwned = () => {
-            if (objectUrl) {
-                URL.revokeObjectURL(objectUrl);
-                objectUrl = null;
-            }
-            blobUrlRef.current = null;
-        };
-        setBlobPreviewUrl(null);
-        setBlobDecoded(false);
-        setBlobLoading(false);
-        setRemoteHttpFetchFailed(false);
-        if (!trimmed) {
-            return () => {
-                ac.abort();
-                revokeOwned();
-            };
-        }
-        if (/^data:image\//i.test(trimmed)) {
-            setBlobLoading(true);
-            try {
-                const u = dataImageToObjectUrl(trimmed);
-                if (u && !ac.signal.aborted) {
-                    objectUrl = u;
-                    blobUrlRef.current = u;
-                    setBlobPreviewUrl(u);
-                    setBlobDecoded(true);
-                }
-                else if (!ac.signal.aborted) {
-                    setBlobDecoded(true);
-                }
-            }
-            catch {
-                if (!ac.signal.aborted) {
-                    setBlobDecoded(true);
-                }
-            }
-            if (!ac.signal.aborted) {
-                setBlobLoading(false);
-            }
-            return () => {
-                ac.abort();
-                revokeOwned();
-            };
-        }
-        const fetchUrl = trimmed.startsWith('http://') || trimmed.startsWith('https://')
-            ? trimmed
-            : new URL(trimmed, typeof window !== 'undefined' ? window.location.href : 'https://local').href;
-        const init = {
-            signal: ac.signal,
-            credentials: isProbablyRemoteImageUrl(trimmed) ? 'omit' : 'same-origin',
-            mode: isProbablyRemoteImageUrl(trimmed) ? 'cors' : 'same-origin'
-        };
-        setBlobLoading(true);
-        void fetch(fetchUrl, init)
-            .then((r) => {
-            if (!r.ok)
-                throw new Error(String(r.status));
-            return r.blob();
-        })
-            .then((blob) => {
-            if (ac.signal.aborted)
-                return;
-            const u = URL.createObjectURL(blob);
-            objectUrl = u;
-            blobUrlRef.current = u;
-            setBlobPreviewUrl(u);
-            setBlobDecoded(true);
-            setBlobLoading(false);
-        })
-            .catch(() => {
-            if (ac.signal.aborted)
-                return;
-            revokeOwned();
-            setBlobPreviewUrl(null);
-            setBlobLoading(false);
-            setBlobDecoded(true);
-            if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-                setRemoteHttpFetchFailed(true);
-            }
-        });
-        return () => {
-            ac.abort();
-            setBlobLoading(false);
-            revokeOwned();
-        };
-    }, [trimmed]);
-    const onDragStart = useCallback((e) => {
-        if (!trimmed)
-            return;
-        if (isRemote && !effectiveSite) {
-            dispatch(showSystemNotification({
-                message: 'Cannot drag remote image: no active site. Open a project in Studio.'
-            }));
-            e.preventDefault();
-            return;
-        }
-        removeGhostRef.current?.();
-        const cardTitle = (alt ?? '').trim() || fileNameFromUrl(trimmed);
-        const useBlob = Boolean(blobPreviewUrl && blobDecoded);
-        const removeGhost = attachRepresentativeDragCard(e, cardTitle, imgRef.current, blobImgRef.current, useBlob);
-        removeGhostRef.current = typeof removeGhost === 'function' ? removeGhost : null;
-        dispatch(setPreviewEditMode({ editMode: true }));
-        const asset = searchItemFromImageSrc(trimmed, alt ?? undefined);
-        const previewBase = typeof window !== 'undefined' && window.authoring
-            ?.previewAppBaseUri;
-        if (previewBase && trimmed.startsWith('/')) {
-            asset.previewUrl = `${previewBase}${trimmed}?${Date.now()}`;
-        }
-        getHostToGuestBus().next(assetDragStarted({ asset }));
-    }, [trimmed, isRemote, effectiveSite, alt, dispatch, blobPreviewUrl, blobDecoded]);
-    const onDragEnd = useCallback(() => {
-        removeGhostRef.current?.();
-        removeGhostRef.current = null;
-        getHostToGuestBus().next(assetDragEnded());
-    }, []);
-    if (!trimmed)
-        return null;
-    const canDrag = !isRemote || Boolean(effectiveSite);
-    const caption = isRemote
-        ? 'Drag onto an image field in preview (imports when you drop)'
-        : 'Drag into preview to place (like Assets panel)';
-    const showBlobDisplay = Boolean(blobPreviewUrl && blobDecoded);
-    const displaySrc = showBlobDisplay ? blobPreviewUrl : trimmed;
-    return (jsxs(Box, { sx: {
-            my: 1,
-            display: 'inline-block',
-            maxWidth: '100%',
-            position: 'relative',
-            verticalAlign: 'top',
-            borderRadius: 1,
-            border: `1px solid ${theme.palette.mode === 'dark' ? theme.palette.grey[700] : theme.palette.grey[300]}`,
-            overflow: 'hidden',
-            bgcolor: theme.palette.mode === 'dark' ? theme.palette.grey[900] : theme.palette.grey[50]
-        }, children: [jsx$1("img", { ref: (el) => {
-                    imgRef.current = el;
-                    blobImgRef.current = showBlobDisplay ? el : null;
-                }, src: displaySrc, alt: alt ?? '', loading: "lazy", draggable: canDrag, onDragStart: onDragStart, onDragEnd: onDragEnd, style: {
-                    display: 'block',
-                    maxWidth: '100%',
-                    height: 'auto',
-                    maxHeight: 320,
-                    cursor: canDrag ? 'grab' : 'default',
-                    opacity: 1
-                } }), blobLoading && !showBlobDisplay && (jsx$1(Box, { sx: {
-                    position: 'absolute',
-                    inset: 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    bgcolor: 'rgba(0,0,0,0.28)',
-                    pointerEvents: 'none'
-                }, children: jsx$1(CircularProgress, { size: 28, sx: { color: '#fff' } }) })), isAbsoluteHttp && remoteHttpFetchFailed && (jsx$1(Typography, { variant: "caption", color: "text.secondary", component: "p", sx: { px: 1, py: 0.5, m: 0 }, children: "Preview unavailable \u2014 drag still imports the remote URL." })), jsxs(Box, { sx: {
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 0.5,
-                    px: 1,
-                    py: 0.5,
-                    borderTop: `1px solid ${theme.palette.mode === 'dark' ? theme.palette.grey[700] : theme.palette.grey[300]}`,
-                    bgcolor: theme.palette.mode === 'dark' ? theme.palette.grey[800] : theme.palette.grey[100]
-                }, children: [jsx$1(DragIndicatorRounded, { sx: { fontSize: 18, opacity: 0.7, color: 'text.secondary' } }), jsx$1(Typography, { variant: "caption", color: "text.secondary", sx: { userSelect: 'none' }, children: blobLoading ? 'Preparing drag image preview...' : caption })] })] }));
+    return parts.join('');
 }
 
 /**
@@ -29046,7 +28727,7 @@ function textHasAssistantMarkdownImageMarkers(text) {
 const MARKDOWN_FENCE_RE = /(`{3,}|~{3,})[^\n]*\n[\s\S]*?\1/g;
 /** Apply data:image compaction only outside fenced code blocks (preserve literal examples in fences). */
 function preprocessAssistantMarkdownImagesSegment(text, longDataImageBlobRefMap) {
-    const normalized = normalizeLlmLiteralEscapes(text);
+    const normalized = replaceSlackColonEmojisOutsideMarkdownFences(normalizeLlmLiteralEscapes(text));
     const compactData = compactAllDataImageBase64Runs(normalized);
     const withBareWrapped = wrapBareLongDataImageUrlsAsMarkdown(compactData);
     const shortened = replaceLongDataImageMarkdownWithBlobRefs(withBareWrapped, longDataImageBlobRefMap);
@@ -29060,7 +28741,10 @@ function preprocessAssistantMarkdownImages(text) {
         return { displayText: '', longDataImageBlobRefMap };
     }
     if (!textHasAssistantMarkdownImageMarkers(raw)) {
-        return { displayText: normalizeLlmLiteralEscapes(raw), longDataImageBlobRefMap };
+        return {
+            displayText: replaceSlackColonEmojisOutsideMarkdownFences(normalizeLlmLiteralEscapes(raw)),
+            longDataImageBlobRefMap
+        };
     }
     if (!textHasMarkdownFences(raw)) {
         return {
@@ -29447,8 +29131,8 @@ function CodeBlock(props) {
     const isMarkdownDraft = lang === 'markdown' || lang === 'md';
     const isTextFencedAsMarkdown = (lang === 'text' || lang === 'txt') && fencedCodeValueLooksLikeAssistantMarkdown(value);
     const renderMarkdownFencedBlock = isMarkdownDraft || isTextFencedAsMarkdown;
-    const [htmlMode, setHtmlMode] = useState('preview');
-    const [mdMode, setMdMode] = useState('preview');
+    const [htmlMode, setHtmlMode] = useState('source');
+    const [mdMode, setMdMode] = useState('source');
     const header = (jsxs(Stack$1, { direction: "row", alignItems: "center", justifyContent: "space-between", sx: {
             px: 1,
             py: 0.5,
@@ -29690,6 +29374,445 @@ function GenerateImagePromptCaption({ prompt }) {
         }, children: [jsx$1(Typography, { component: "span", variant: "caption", sx: { fontWeight: 600, color: 'text.primary', mr: 0.5 }, children: "Prompt used:" }), text] }));
 }
 
+/*
+ * Copyright (C) 2007-2022 Crafter Software Corporation. All Rights Reserved.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License version 3 as published by
+ * the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+const showSystemNotification = /*#__PURE__*/ createAction('SHOW_SYSTEM_NOTIFICATION');
+// endregion
+
+const IMPORT_SCRIPT_PATH = '/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/authoring/import-image-from-url';
+/**
+ * Studio {@code PluginController.runScript} wraps the script return map under {@code result}
+ * (see {@code ResultConstants.RESULT_KEY_RESULT}).
+ */
+function unwrapPluginScriptBody$4(body) {
+    if (!body || typeof body !== 'object')
+        return body;
+    const o = body;
+    const inner = o.result;
+    if (inner && typeof inner === 'object' && !Array.isArray(inner))
+        return inner;
+    return body;
+}
+const importPromises = new Map();
+function cacheKey(siteId, imageUrl, repoPath) {
+    return `${siteId}\n${imageUrl}\n${repoPath}`;
+}
+/**
+ * Server downloads {@code imageUrl} and writes under {@code repoPath} (with {@code {yyyy}} macros).
+ * Returns the repository path (e.g. {@code /static-assets/...}) suitable for XB asset drag.
+ */
+async function importRemoteImageToRepo(siteId, imageUrl, repoPath, signal) {
+    const trimmedSite = siteId?.trim() || '';
+    const trimmedUrl = imageUrl?.trim() || '';
+    const trimmedPath = (repoPath).trim();
+    if (!trimmedSite)
+        throw new Error('importRemoteImageToRepo: missing siteId');
+    if (!trimmedUrl)
+        throw new Error('importRemoteImageToRepo: missing imageUrl');
+    const key = cacheKey(trimmedSite, trimmedUrl, trimmedPath);
+    const existing = importPromises.get(key);
+    if (existing)
+        return existing;
+    const p = (async () => {
+        try {
+            const url = `${IMPORT_SCRIPT_PATH}?siteId=${encodeURIComponent(trimmedSite)}`;
+            const res = await fetch(url, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json',
+                    ...buildStudioAuthHeaders()
+                },
+                body: JSON.stringify({ imageUrl: trimmedUrl, repoPath: trimmedPath }),
+                signal
+            });
+            const raw = (await res.json().catch(() => ({})));
+            const data = unwrapPluginScriptBody$4(raw);
+            if (!res.ok || data.ok === false) {
+                throw new Error(data.message || `Import failed (${res.status})`);
+            }
+            const rel = data.relativeUrl?.trim();
+            if (!rel)
+                throw new Error('Import response missing relativeUrl');
+            importPromises.delete(key);
+            return rel;
+        }
+        catch (e) {
+            importPromises.delete(key);
+            throw e;
+        }
+    })();
+    importPromises.set(key, p);
+    return p;
+}
+function isProbablyRemoteImageUrl(src) {
+    const s = src?.trim() ?? '';
+    return /^https?:\/\//i.test(s);
+}
+/** True when dropping from chat should run {@link importRemoteImageToRepo} (https URL or raster {@code data:image}). */
+function isImageUrlImportableOnDrop(src) {
+    const s = src?.trim() ?? '';
+    if (!s)
+        return false;
+    if (isProbablyRemoteImageUrl(s))
+        return true;
+    return /^data:image\//i.test(s);
+}
+
+/**
+ * Turn an inline {@code data:image/...;base64,...} into an object URL for {@code <img src>}.
+ * Avoids {@code fetch(data:...)} (blocked or flaky in some embeds) and keeps revoke scoped to the effect closure
+ * so React 18 StrictMode cannot revoke a URL that state still references.
+ */
+function dataImageToObjectUrl(dataUrl) {
+    const s = dataUrl.trim();
+    const comma = s.indexOf(',');
+    if (comma < 0 || comma >= s.length - 1)
+        return null;
+    const header = s.slice(0, comma);
+    if (!/;base64/i.test(header))
+        return null;
+    const mimeMatch = /^data:([^;]+)/i.exec(s);
+    const mime = mimeMatch?.[1]?.trim() || 'image/png';
+    const b64 = s.slice(comma + 1).replace(/\s/g, '');
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return URL.createObjectURL(new Blob([bytes], { type: mime }));
+}
+function fileNameFromUrl(src) {
+    try {
+        const u = new URL(src, typeof window !== 'undefined' ? window.location.origin : 'https://local');
+        const seg = u.pathname.split('/').filter(Boolean).pop();
+        if (seg && seg.includes('.'))
+            return seg;
+    }
+    catch {
+        // ignore
+    }
+    if (src.startsWith('/') && src.includes('.')) {
+        const seg = src.split('/').filter(Boolean).pop();
+        if (seg)
+            return seg;
+    }
+    return 'image.png';
+}
+function mimeFromUrl(src) {
+    const lower = src.toLowerCase();
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg'))
+        return 'image/jpeg';
+    if (lower.endsWith('.webp'))
+        return 'image/webp';
+    if (lower.endsWith('.gif'))
+        return 'image/gif';
+    if (lower.endsWith('.svg'))
+        return 'image/svg+xml';
+    return 'image/png';
+}
+/**
+ * Build a {@link SearchItem}-shaped payload for {@link assetDragStarted}, matching PreviewAssetsPanel / MediaCard.
+ * Remote URLs stay as-is until drop; {@link installRemoteImageDropImportBridge} imports on {@code UPDATE_FIELD_VALUE_OPERATION}.
+ */
+function searchItemFromImageSrc(src, alt) {
+    const name = (alt && alt.trim()) || fileNameFromUrl(src);
+    const now = new Date().toISOString();
+    return {
+        path: src,
+        name,
+        type: 'Image',
+        mimeType: mimeFromUrl(src),
+        previewUrl: src,
+        lastModifier: '',
+        lastModified: now,
+        size: 0,
+        snippets: ''
+    };
+}
+const DRAG_CARD_THUMB_W = 112;
+const DRAG_CARD_THUMB_H = 72;
+/**
+ * Drag preview card. {@code setDragImage} must run synchronously in {@code dragstart}, so the blob used
+ * for the thumbnail is prefetched earlier; we only clone an already-decoded {@code <img>} (hidden blob
+ * preview or the visible chat image). Import/drop still uses the original URL path.
+ */
+function attachRepresentativeDragCard(e, title, sourceImg, blobThumbImg, useBlobThumb) {
+    const dt = e.dataTransfer;
+    if (!dt)
+        return;
+    dt.effectAllowed = 'copy';
+    const pad = 8;
+    const el = document.createElement('div');
+    el.style.cssText = `position:fixed;right:12px;bottom:12px;width:132px;padding:${pad}px;background:linear-gradient(145deg,#2d2d2d,#1a1a1a);color:#fff;border-radius:8px;z-index:2147483647;box-shadow:0 6px 20px rgba(0,0,0,0.4);pointer-events:none;border:1px solid rgba(255,255,255,0.12)`;
+    let thumbEl = null;
+    const blobReady = useBlobThumb &&
+        blobThumbImg &&
+        blobThumbImg.complete &&
+        blobThumbImg.naturalWidth > 0;
+    const sourceReady = sourceImg &&
+        sourceImg.complete &&
+        (sourceImg.naturalWidth > 0 || sourceImg.getBoundingClientRect().width > 0);
+    if (blobReady && blobThumbImg) {
+        const thumb = blobThumbImg.cloneNode(true);
+        thumb.removeAttribute('draggable');
+        thumb.style.cssText = `display:block;width:${DRAG_CARD_THUMB_W}px;height:${DRAG_CARD_THUMB_H}px;object-fit:cover;border-radius:4px;margin-bottom:6px;background:#1a1a1a`;
+        el.appendChild(thumb);
+        thumbEl = thumb;
+    }
+    else if (sourceReady && sourceImg) {
+        const thumb = sourceImg.cloneNode(true);
+        thumb.removeAttribute('draggable');
+        thumb.style.cssText = `display:block;width:${DRAG_CARD_THUMB_W}px;height:${DRAG_CARD_THUMB_H}px;object-fit:cover;border-radius:4px;margin-bottom:6px;background:#1a1a1a`;
+        el.appendChild(thumb);
+        thumbEl = thumb;
+    }
+    else {
+        const icon = document.createElement('div');
+        icon.textContent = '🖼';
+        icon.style.cssText = 'font-size:22px;line-height:1;margin-bottom:4px;text-align:center';
+        el.appendChild(icon);
+    }
+    const line2 = document.createElement('div');
+    line2.textContent = title.length > 42 ? `${title.slice(0, 39)}…` : title || 'Image';
+    line2.style.cssText = 'font:11px/1.35 system-ui,sans-serif;opacity:0.92;word-break:break-word';
+    el.appendChild(line2);
+    const line3 = document.createElement('div');
+    line3.textContent = 'Drop on image field';
+    line3.style.cssText = 'font:10px/1.2 system-ui,sans-serif;opacity:0.65;margin-top:4px';
+    el.appendChild(line3);
+    document.body.appendChild(el);
+    void el.offsetHeight;
+    const sr = sourceImg?.getBoundingClientRect();
+    let hx = el.offsetWidth / 2;
+    let hy = el.offsetHeight / 2;
+    if (thumbEl && sr && sr.width > 0 && sr.height > 0) {
+        const ox = Math.max(0, Math.min(e.clientX - sr.left, sr.width));
+        const oy = Math.max(0, Math.min(e.clientY - sr.top, sr.height));
+        hx = pad + (ox / sr.width) * DRAG_CARD_THUMB_W;
+        hy = pad + (oy / sr.height) * DRAG_CARD_THUMB_H;
+    }
+    try {
+        dt.setDragImage(el, hx, hy);
+    }
+    catch {
+        el.remove();
+        return;
+    }
+    return () => {
+        el.remove();
+    };
+}
+function StudioDraggableImage$1(props) {
+    const { src, alt } = props;
+    const theme = useTheme();
+    const dispatch = useDispatch();
+    const imgRef = useRef(null);
+    const blobImgRef = useRef(null);
+    const blobUrlRef = useRef(null);
+    const removeGhostRef = useRef(null);
+    const activeSiteId = useActiveSiteId();
+    const effectiveSite = activeSiteId?.trim() || '';
+    const [blobPreviewUrl, setBlobPreviewUrl] = useState(null);
+    /** When set, {@code <img>} uses the object URL (CSP-safe) instead of the wire {@code src}. */
+    const [blobDecoded, setBlobDecoded] = useState(false);
+    const [blobLoading, setBlobLoading] = useState(false);
+    /** Ephemeral provider URLs: we only preview via one {@code fetch}→blob; no silent {@code <img src=https…>} fallback. */
+    const [remoteHttpFetchFailed, setRemoteHttpFetchFailed] = useState(false);
+    useEffect(() => {
+        return () => {
+            removeGhostRef.current?.();
+            removeGhostRef.current = null;
+        };
+    }, []);
+    const trimmed = src?.trim() ?? '';
+    const isRemote = trimmed ? isProbablyRemoteImageUrl(trimmed) : false;
+    const isAbsoluteHttp = trimmed.startsWith('http://') || trimmed.startsWith('https://');
+    /**
+     * Prefer an object URL for {@code <img src>}: Studio CSP often allows {@code blob:} while blocking {@code data:},
+     * and revoking is tied to this effect's closure (avoids React 18 StrictMode revoking a URL state still points at).
+     * Drop/import still uses the original {@code trimmed} wire URL.
+     */
+    useEffect(() => {
+        const ac = new AbortController();
+        let objectUrl = null;
+        const revokeOwned = () => {
+            if (objectUrl) {
+                URL.revokeObjectURL(objectUrl);
+                objectUrl = null;
+            }
+            blobUrlRef.current = null;
+        };
+        setBlobPreviewUrl(null);
+        setBlobDecoded(false);
+        setBlobLoading(false);
+        setRemoteHttpFetchFailed(false);
+        if (!trimmed) {
+            return () => {
+                ac.abort();
+                revokeOwned();
+            };
+        }
+        if (/^data:image\//i.test(trimmed)) {
+            setBlobLoading(true);
+            try {
+                const u = dataImageToObjectUrl(trimmed);
+                if (u && !ac.signal.aborted) {
+                    objectUrl = u;
+                    blobUrlRef.current = u;
+                    setBlobPreviewUrl(u);
+                    setBlobDecoded(true);
+                }
+                else if (!ac.signal.aborted) {
+                    setBlobDecoded(true);
+                }
+            }
+            catch {
+                if (!ac.signal.aborted) {
+                    setBlobDecoded(true);
+                }
+            }
+            if (!ac.signal.aborted) {
+                setBlobLoading(false);
+            }
+            return () => {
+                ac.abort();
+                revokeOwned();
+            };
+        }
+        const fetchUrl = trimmed.startsWith('http://') || trimmed.startsWith('https://')
+            ? trimmed
+            : new URL(trimmed, typeof window !== 'undefined' ? window.location.href : 'https://local').href;
+        const init = {
+            signal: ac.signal,
+            credentials: isProbablyRemoteImageUrl(trimmed) ? 'omit' : 'same-origin',
+            mode: isProbablyRemoteImageUrl(trimmed) ? 'cors' : 'same-origin'
+        };
+        setBlobLoading(true);
+        void fetch(fetchUrl, init)
+            .then((r) => {
+            if (!r.ok)
+                throw new Error(String(r.status));
+            return r.blob();
+        })
+            .then((blob) => {
+            if (ac.signal.aborted)
+                return;
+            const u = URL.createObjectURL(blob);
+            objectUrl = u;
+            blobUrlRef.current = u;
+            setBlobPreviewUrl(u);
+            setBlobDecoded(true);
+            setBlobLoading(false);
+        })
+            .catch(() => {
+            if (ac.signal.aborted)
+                return;
+            revokeOwned();
+            setBlobPreviewUrl(null);
+            setBlobLoading(false);
+            setBlobDecoded(true);
+            if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+                setRemoteHttpFetchFailed(true);
+            }
+        });
+        return () => {
+            ac.abort();
+            setBlobLoading(false);
+            revokeOwned();
+        };
+    }, [trimmed]);
+    const onDragStart = useCallback((e) => {
+        if (!trimmed)
+            return;
+        if (isRemote && !effectiveSite) {
+            dispatch(showSystemNotification({
+                message: 'Cannot drag remote image: no active site. Open a project in Studio.'
+            }));
+            e.preventDefault();
+            return;
+        }
+        removeGhostRef.current?.();
+        const cardTitle = (alt ?? '').trim() || fileNameFromUrl(trimmed);
+        const useBlob = Boolean(blobPreviewUrl && blobDecoded);
+        const removeGhost = attachRepresentativeDragCard(e, cardTitle, imgRef.current, blobImgRef.current, useBlob);
+        removeGhostRef.current = typeof removeGhost === 'function' ? removeGhost : null;
+        dispatch(setPreviewEditMode({ editMode: true }));
+        const asset = searchItemFromImageSrc(trimmed, alt ?? undefined);
+        const previewBase = typeof window !== 'undefined' && window.authoring
+            ?.previewAppBaseUri;
+        if (previewBase && trimmed.startsWith('/')) {
+            asset.previewUrl = `${previewBase}${trimmed}?${Date.now()}`;
+        }
+        getHostToGuestBus().next(assetDragStarted({ asset }));
+    }, [trimmed, isRemote, effectiveSite, alt, dispatch, blobPreviewUrl, blobDecoded]);
+    const onDragEnd = useCallback(() => {
+        removeGhostRef.current?.();
+        removeGhostRef.current = null;
+        getHostToGuestBus().next(assetDragEnded());
+    }, []);
+    if (!trimmed)
+        return null;
+    const canDrag = !isRemote || Boolean(effectiveSite);
+    const caption = isRemote
+        ? 'Drag onto an image field in preview (imports when you drop)'
+        : 'Drag into preview to place (like Assets panel)';
+    const showBlobDisplay = Boolean(blobPreviewUrl && blobDecoded);
+    const displaySrc = showBlobDisplay ? blobPreviewUrl : trimmed;
+    return (jsxs(Box, { sx: {
+            my: 1,
+            display: 'inline-block',
+            maxWidth: '100%',
+            position: 'relative',
+            verticalAlign: 'top',
+            borderRadius: 1,
+            border: `1px solid ${theme.palette.mode === 'dark' ? theme.palette.grey[700] : theme.palette.grey[300]}`,
+            overflow: 'hidden',
+            bgcolor: theme.palette.mode === 'dark' ? theme.palette.grey[900] : theme.palette.grey[50]
+        }, children: [jsx$1("img", { ref: (el) => {
+                    imgRef.current = el;
+                    blobImgRef.current = showBlobDisplay ? el : null;
+                }, src: displaySrc, alt: alt ?? '', loading: "lazy", draggable: canDrag, onDragStart: onDragStart, onDragEnd: onDragEnd, style: {
+                    display: 'block',
+                    maxWidth: '100%',
+                    height: 'auto',
+                    maxHeight: 320,
+                    cursor: canDrag ? 'grab' : 'default',
+                    opacity: 1
+                } }), blobLoading && !showBlobDisplay && (jsx$1(Box, { sx: {
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    bgcolor: 'rgba(0,0,0,0.28)',
+                    pointerEvents: 'none'
+                }, children: jsx$1(CircularProgress, { size: 28, sx: { color: '#fff' } }) })), isAbsoluteHttp && remoteHttpFetchFailed && (jsx$1(Typography, { variant: "caption", color: "text.secondary", component: "p", sx: { px: 1, py: 0.5, m: 0 }, children: "Preview unavailable \u2014 drag still imports the remote URL." })), jsxs(Box, { sx: {
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 0.5,
+                    px: 1,
+                    py: 0.5,
+                    borderTop: `1px solid ${theme.palette.mode === 'dark' ? theme.palette.grey[700] : theme.palette.grey[300]}`,
+                    bgcolor: theme.palette.mode === 'dark' ? theme.palette.grey[800] : theme.palette.grey[100]
+                }, children: [jsx$1(DragIndicatorRounded, { sx: { fontSize: 18, opacity: 0.7, color: 'text.secondary' } }), jsx$1(Typography, { variant: "caption", color: "text.secondary", sx: { userSelect: 'none' }, children: blobLoading ? 'Preparing drag image preview...' : caption })] })] }));
+}
+
 /**
  * Renders GenerateImage output as {@link StudioDraggableImage} tiles. Sources come from
  * {@link combineGeneratedImageSources} (SSE metadata + same-turn text recovery for large {@code data:} URLs).
@@ -29698,7 +29821,7 @@ function AssistantChatGeneratedImages(props) {
     const uniq = useMemo(() => [...new Set(props.sources.filter((s) => typeof s === 'string' && s.trim().length > 12).map((s) => s.trim()))], [props.sources]);
     if (!uniq.length)
         return null;
-    return (jsx$1(Stack$1, { spacing: 1.25, sx: { my: 1, maxWidth: '100%' }, "data-aiassistant-generated-images": true, children: uniq.map((src, i) => (jsx$1(Box, { sx: { alignSelf: 'flex-start', maxWidth: '100%' }, children: jsx$1(StudioDraggableImage, { src: src, alt: "" }) }, `${i}-${src.slice(0, 64)}`))) }));
+    return (jsx$1(Stack$1, { spacing: 1.25, sx: { my: 1, maxWidth: '100%' }, "data-aiassistant-generated-images": true, children: uniq.map((src, i) => (jsx$1(Box, { sx: { alignSelf: 'flex-start', maxWidth: '100%' }, children: jsx$1(StudioDraggableImage$1, { src: src, alt: "" }) }, `${i}-${src.slice(0, 64)}`))) }));
 }
 
 /**
@@ -29847,8 +29970,8 @@ function formatIntentRecipeChatLineFromRecipe(recipe, defaults) {
     const title = String(recipe.title ?? recipe.id ?? '').trim();
     if (!title)
         return '';
-    const prefix = String(recipe.chatPrefixEmoji ?? defaults?.prefixEmoji ?? INTENT_RECIPE_CHAT_PREFIX_EMOJI).trim();
-    const emoji = String(recipe.chatEmoji ?? defaults?.fallbackEmoji ?? INTENT_RECIPE_CHAT_FALLBACK_EMOJI).trim();
+    const prefix = resolveSlackColonEmojiToken(String(recipe.chatPrefixEmoji ?? defaults?.prefixEmoji ?? INTENT_RECIPE_CHAT_PREFIX_EMOJI).trim());
+    const emoji = resolveSlackColonEmojiToken(String(recipe.chatEmoji ?? defaults?.fallbackEmoji ?? INTENT_RECIPE_CHAT_FALLBACK_EMOJI).trim());
     const suffix = String(recipe.chatLineSuffix ?? defaults?.lineSuffix ?? 'workflow').trim() || 'workflow';
     return `${prefix} ${emoji} **${title}** ${suffix}\n`;
 }
@@ -32588,7 +32711,7 @@ function AiAssistantChat(props) {
                                             : 'Use voice instead of typing (browser speech recognition)', children: jsx$1("span", { children: jsx$1(IconButton, { color: voiceListening ? 'error' : 'default', onClick: () => toggleVoiceInput(), disabled: sending, "aria-label": voiceListening ? 'Stop voice input' : 'Start voice input', "aria-pressed": voiceListening, children: jsx$1(MicRounded, {}) }) }) })) : null, jsx$1(Tooltip, { title: sending ? 'Wait for the response to finish, or tap Stop beside Working' : 'Send', children: jsx$1("span", { children: jsx$1(IconButton, { color: "primary", onMouseDown: (e) => {
                                                 // Keep focus on the prompt through click so layout does not collapse before send fires.
                                                 e.preventDefault();
-                                            }, onClick: () => startSend(draft), disabled: !canSend || sending, "aria-label": "Send", children: jsx$1(SendRounded, {}) }) }) })] })] }), verificationPrompts.length > 0 && !sending ? (jsxs(Box, { sx: { mt: 1.25, px: 0.25, minWidth: 0, width: '100%' }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", sx: { display: 'block', mb: 0.75 }, children: "Optional checks \u2014 click to send as the next prompt" }), jsx$1(Stack$1, { spacing: 0.75, sx: { width: '100%', minWidth: 0 }, children: verificationPrompts.map((vp, idx) => (jsx$1(Chip, { label: vp.length > 96 ? `${vp.slice(0, 93)}…` : vp, size: "small", variant: "outlined", clickable: true, disabled: sending, onClick: () => startSend(vp, vp), sx: {
+                                            }, onClick: () => startSend(draft), disabled: !canSend || sending, "aria-label": "Send", children: jsx$1(SendRounded, {}) }) }) })] })] }), verificationPrompts.length > 0 && !sending ? (jsxs(Box, { sx: { mt: 1.25, px: 0.25, minWidth: 0, width: '100%' }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", sx: { display: 'block', mb: 0.75 }, children: "Optional checks \u2014 click to send as the next prompt" }), jsx$1(Stack$1, { spacing: 0.75, sx: { width: '100%', minWidth: 0 }, children: verificationPrompts.map((vp, idx) => (jsx$1(Chip, { label: replaceSlackColonEmojisInText(vp.length > 96 ? `${vp.slice(0, 93)}…` : vp), size: "small", variant: "outlined", clickable: true, disabled: sending, onClick: () => startSend(vp, vp), sx: {
                                     width: '100%',
                                     maxWidth: '100%',
                                     height: 'auto',
@@ -32602,7 +32725,7 @@ function AiAssistantChat(props) {
                                         overflowWrap: 'anywhere',
                                         wordBreak: 'break-word'
                                     }
-                                } }, `cq-verify-${idx}-${vp.slice(0, 48)}`))) })] })) : null, followUpActionPrompts.length > 0 && !sending ? (jsxs(Box, { sx: { mt: verificationPrompts.length > 0 ? 1 : 1.25, px: 0.25, minWidth: 0, width: '100%' }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", sx: { display: 'block', mb: 0.75 }, children: "Suggested follow-ups \u2014 click to send as the next prompt" }), jsx$1(Stack$1, { spacing: 0.75, sx: { width: '100%', minWidth: 0 }, children: followUpActionPrompts.map((fp, idx) => (jsx$1(Chip, { label: fp.length > 96 ? `${fp.slice(0, 93)}…` : fp, size: "small", variant: "outlined", color: "primary", clickable: true, disabled: sending, onClick: () => startSend(fp, fp), sx: {
+                                } }, `cq-verify-${idx}-${vp.slice(0, 48)}`))) })] })) : null, followUpActionPrompts.length > 0 && !sending ? (jsxs(Box, { sx: { mt: verificationPrompts.length > 0 ? 1 : 1.25, px: 0.25, minWidth: 0, width: '100%' }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", sx: { display: 'block', mb: 0.75 }, children: "Suggested follow-ups \u2014 click to send as the next prompt" }), jsx$1(Stack$1, { spacing: 0.75, sx: { width: '100%', minWidth: 0 }, children: followUpActionPrompts.map((fp, idx) => (jsx$1(Chip, { label: replaceSlackColonEmojisInText(fp.length > 96 ? `${fp.slice(0, 93)}…` : fp), size: "small", variant: "outlined", color: "primary", clickable: true, disabled: sending, onClick: () => startSend(fp, fp), sx: {
                                     width: '100%',
                                     maxWidth: '100%',
                                     height: 'auto',
@@ -38872,7 +38995,7 @@ const INTENT_RECIPES_JSON_REL = 'scripts/aiassistant/config/intent-recipes.json'
 const INTENT_RECIPE_PHASE_KEYS = ['context', 'action', 'confirmation'];
 /** First user-perceived grapheme (emoji-safe). */
 function normalizeChatEmoji(input) {
-    const t = String(input ?? '').trim();
+    const t = resolveSlackColonEmojiToken(String(input ?? '').trim());
     if (!t)
         return '';
     try {
@@ -73934,72 +74057,64 @@ function AiAssistantStudioCodeEditor(props) {
             }, onChange: readOnly || !onChange ? undefined : (v) => onChange(v) }) }));
 }
 
-/**
- * Markdown authoring for project context, prompt overrides, and recipe preludes —
- * CodeMirror source + rendered preview (not a plain multiline {@code TextField}).
- */
+/** Markdown source editor (CodeMirror) — whitespace-safe; no preview/split tabs. */
 function AiAssistantMarkdownEditor(props) {
-    const { value, onChange, readOnly = false, minHeightPx = 280, flexFill = false, defaultView = 'split', helperText, id } = props;
-    const theme = useTheme();
-    const isNarrow = useMediaQuery(theme.breakpoints.down('md'));
-    const initialView = readOnly
-        ? 'preview'
-        : isNarrow
-            ? 'edit'
-            : defaultView;
-    const [view, setView] = useState(initialView);
-    const showEdit = view === 'edit' || view === 'split';
-    const showPreview = view === 'preview' || view === 'split';
-    const paneMinHeight = Math.max(200, minHeightPx);
-    const rootSx = useMemo(() => flexFill
-        ? {
-            flex: '1 1 auto',
-            minHeight: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            alignSelf: 'stretch'
-        }
-        : { display: 'flex', flexDirection: 'column' }, [flexFill]);
-    const paneSx = useMemo(() => flexFill
-        ? {
-            flex: '1 1 0',
-            minHeight: 0,
-            minWidth: 0,
-            display: 'flex',
-            flexDirection: 'column'
-        }
-        : {
-            flex: '1 1 0',
-            minHeight: paneMinHeight,
-            minWidth: 0,
-            display: 'flex',
-            flexDirection: 'column'
-        }, [flexFill, paneMinHeight]);
-    return (jsxs(Box, { id: id, sx: rootSx, children: [jsxs(Tabs, { value: view, onChange: (_, next) => setView(next), sx: { minHeight: 36, mb: helperText ? 0.5 : 1, flexShrink: 0 }, children: [!readOnly ? jsx$1(Tab, { label: "Edit", value: "edit", sx: { minHeight: 36, py: 0.5 } }) : null, jsx$1(Tab, { label: readOnly ? 'Rendered' : 'Preview', value: "preview", sx: { minHeight: 36, py: 0.5 } }), !readOnly && !isNarrow ? (jsx$1(Tab, { label: "Split", value: "split", sx: { minHeight: 36, py: 0.5 } })) : null, readOnly ? jsx$1(Tab, { label: "Source", value: "edit", sx: { minHeight: 36, py: 0.5 } }) : null] }), helperText ? (jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 1, flexShrink: 0 }, children: helperText })) : null, jsxs(Box, { sx: {
-                    display: 'flex',
-                    flexDirection: { xs: 'column', md: view === 'split' ? 'row' : 'column' },
-                    gap: view === 'split' ? 2 : 0,
-                    flex: flexFill ? '1 1 auto' : undefined,
-                    minHeight: flexFill ? 0 : paneMinHeight
-                }, children: [showEdit ? (jsxs(Box, { sx: paneSx, children: [view === 'split' ? (jsx$1(Typography, { variant: "caption", color: "text.secondary", sx: { mb: 0.5, flexShrink: 0 }, children: "Markdown source" })) : null, jsx$1(AiAssistantStudioCodeEditor, { value: value, onChange: readOnly ? undefined : onChange, language: "markdown", readOnly: readOnly, flexFill: flexFill || view === 'split', minHeightPx: paneMinHeight })] })) : null, showPreview ? (jsxs(Box, { sx: {
-                            ...paneSx,
-                            overflow: 'auto',
-                            border: 1,
-                            borderColor: 'divider',
-                            borderRadius: 1,
-                            px: 2,
-                            py: 1.5,
-                            bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'background.paper'
-                        }, children: [view === 'split' ? (jsx$1(Typography, { variant: "caption", color: "text.secondary", sx: { mb: 0.5, display: 'block', flexShrink: 0 }, children: "Rendered preview" })) : null, value.trim() ? (jsx$1(MarkdownMessage, { text: value })) : (jsx$1(Typography, { variant: "body2", color: "text.secondary", fontStyle: "italic", children: "Nothing to preview yet." }))] })) : null] })] }));
+    const { value, onChange, readOnly = false, minHeightPx = 280, flexFill = false, helperText, id } = props;
+    return (jsxs(Box, { id: id, sx: flexFill ? { flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column' } : undefined, children: [helperText ? (jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 1, flexShrink: 0 }, children: helperText })) : null, jsx$1(AiAssistantStudioCodeEditor, { language: "markdown", value: value, onChange: readOnly ? undefined : onChange, readOnly: readOnly, minHeightPx: minHeightPx, flexFill: flexFill })] }));
 }
 
 const TOOLS_LOOP_WIRE_OPTIONS = [...INTENT_RECIPE_WIRE_TOOL_OPTIONS];
+function normalizeStudioModulePath(path) {
+    return path.trim().replace(/^\/+/, '');
+}
 /** Recipe tools-loop policy: force tool, allowlist, excludes, fetch caps, prelude. */
 function AiAssistantIntentRecipeToolsLoopFields(props) {
-    const { recipe, onChange } = props;
+    const { recipe, onChange, siteId, preludeFileSaveRef } = props;
+    const preludePath = normalizeStudioModulePath(recipe.matchedUserPreludePath ?? '');
+    const usesPreludeFile = Boolean(preludePath);
+    const [preludeFileBody, setPreludeFileBody] = useState('');
+    const [preludeFileLoading, setPreludeFileLoading] = useState(false);
+    const [preludeFileDirty, setPreludeFileDirty] = useState(false);
     const patchRecipe = (partial) => {
         onChange({ ...recipe, ...partial });
     };
+    useEffect(() => {
+        if (!siteId || !preludePath) {
+            setPreludeFileBody('');
+            setPreludeFileDirty(false);
+            setPreludeFileLoading(false);
+            return;
+        }
+        let cancelled = false;
+        setPreludeFileLoading(true);
+        void fetchStudioConfigFileUtf8(siteId, preludePath).then((text) => {
+            if (cancelled)
+                return;
+            setPreludeFileBody(text);
+            setPreludeFileDirty(false);
+            setPreludeFileLoading(false);
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [siteId, preludePath]);
+    useEffect(() => {
+        if (!preludeFileSaveRef)
+            return;
+        if (!siteId || !preludePath) {
+            preludeFileSaveRef.current = null;
+            return;
+        }
+        preludeFileSaveRef.current = async () => {
+            if (!preludeFileDirty)
+                return;
+            await firstValueFrom(writeConfiguration(siteId, preludePath, 'studio', preludeFileBody));
+            setPreludeFileDirty(false);
+        };
+        return () => {
+            preludeFileSaveRef.current = null;
+        };
+    }, [siteId, preludePath, preludeFileBody, preludeFileDirty, preludeFileSaveRef]);
     return (jsxs(Stack$1, { spacing: 2, children: [jsx$1(Typography, { variant: "subtitle2", children: "Tools loop (orchestration)" }), jsxs(Typography, { variant: "body2", color: "text.secondary", children: ["Applied when this recipe matches: round-0 ", jsx$1("strong", { children: "tool_choice" }), ", tool allowlist, and server fetch limits. Names must match built-in wire tools (e.g. ", jsx$1("strong", { children: "WebSearch" }), ", ", jsx$1("strong", { children: "SerpApiWebSearch" }), ",", ' ', jsx$1("strong", { children: "FetchHttpUrl" }), ")."] }), jsx$1(Autocomplete, { freeSolo: true, options: TOOLS_LOOP_WIRE_OPTIONS, value: recipe.toolsLoopForceTool ?? '', onInputChange: (_, v, reason) => {
                     if (reason === 'input') {
                         patchRecipe({ toolsLoopForceTool: v.trim() || undefined });
@@ -74017,24 +74132,33 @@ function AiAssistantIntentRecipeToolsLoopFields(props) {
                             patchRecipe({
                                 toolsLoopFetchHttpUrlWireMaxChars: t === '' ? undefined : Math.max(256, Math.min(24000, Number(t) || 0))
                             });
-                        }, inputProps: { min: 256, max: 24000 }, sx: { flex: '0 0 220px' } })] }), jsxs(Box, { children: [jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 1 }, children: "Matched user prelude \u2014 prepended to the tools-loop user message when this recipe matches. Use an external markdown file for long preludes (readable in git); inline text is the fallback when the file is missing." }), jsx$1(TextField, { label: "Prelude file (studio module path)", size: "small", fullWidth: true, value: recipe.matchedUserPreludePath ?? '', onChange: (e) => {
-                            const t = e.target.value.trim();
+                        }, inputProps: { min: 256, max: 24000 }, sx: { flex: '0 0 220px' } })] }), jsxs(Box, { children: [jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 1 }, children: "Matched user prelude \u2014 prepended to the tools-loop user message when this recipe matches. Long preludes can live in a markdown file (readable in git); otherwise edit inline below." }), jsx$1(TextField, { label: "Prelude file (studio module path)", size: "small", fullWidth: true, value: recipe.matchedUserPreludePath ?? '', onChange: (e) => {
+                            const t = normalizeStudioModulePath(e.target.value);
                             patchRecipe({ matchedUserPreludePath: t || undefined });
-                        }, placeholder: "scripts/aiassistant/recipes/preludes/my-recipe-matched-user-prelude.md", helperText: "Optional. When set, the server loads prelude text from this path instead of the field below.", InputProps: { sx: { fontFamily: 'monospace' } }, sx: { mb: 2 } }), jsx$1(AiAssistantMarkdownEditor, { value: recipe.matchedUserPrelude ?? '', onChange: (next) => {
+                        }, placeholder: "scripts/aiassistant/recipes/preludes/my-recipe-matched-user-prelude.md", helperText: usesPreludeFile
+                            ? 'Server loads prelude text from this file at runtime. Edit the file contents below.'
+                            : 'Optional. When set, prelude text is read from this path instead of the inline field.', InputProps: { sx: { fontFamily: 'monospace' } }, sx: { mb: 2 } }), usesPreludeFile && preludeFileLoading ? (jsxs(Stack$1, { direction: "row", spacing: 1, alignItems: "center", sx: { mb: 1 }, children: [jsx$1(CircularProgress, { size: 18 }), jsxs(Typography, { variant: "body2", color: "text.secondary", children: ["Loading ", jsx$1("code", { children: preludePath }), "\u2026"] })] })) : null, jsx$1(AiAssistantMarkdownEditor, { value: usesPreludeFile ? preludeFileBody : (recipe.matchedUserPrelude ?? ''), onChange: (next) => {
+                            if (usesPreludeFile) {
+                                setPreludeFileBody(next);
+                                setPreludeFileDirty(true);
+                                return;
+                            }
                             const t = next.trim();
                             patchRecipe({ matchedUserPrelude: t ? next : undefined });
-                        }, minHeightPx: 320, defaultView: "split", helperText: recipe.matchedUserPreludePath
-                            ? 'Inline prelude is ignored when Prelude file is set. Clear the path to edit inline.'
-                            : 'Use headings and lists; preview shows how authors will read injected orchestration text.' })] })] }));
+                        }, readOnly: usesPreludeFile && (preludeFileLoading || !siteId), minHeightPx: 320, helperText: usesPreludeFile
+                            ? preludeFileDirty
+                                ? `Unsaved changes to ${preludePath} — use Done or Save recipes to write the file.`
+                                : `Editing ${preludePath}`
+                            : 'Whitespace and line breaks are preserved. Use headings and lists for orchestration blocks.' })] })] }));
 }
 
 /** Recipe metadata, match rules, and tools-loop policy (editor General tab). */
 function AiAssistantIntentRecipeGeneralFields(props) {
-    const { recipe, onChange, idReadOnly } = props;
+    const { recipe, onChange, idReadOnly, siteId, preludeFileSaveRef } = props;
     const patchRecipe = (partial) => {
         onChange({ ...recipe, ...partial });
     };
-    return (jsxs(Stack$1, { spacing: 2, children: [jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 2, alignItems: "flex-start", children: [jsx$1(AiAssistantIntentRecipeEmojiField, { emoji: recipe.chatEmoji ?? '', title: recipe.title ?? '', recipeId: recipe.id, onChange: (chatEmoji) => patchRecipe({ chatEmoji: chatEmoji || undefined }) }), jsx$1(TextField, { label: "Recipe id", value: recipe.id, onChange: (e) => patchRecipe({ id: e.target.value.trim() }), size: "small", disabled: idReadOnly, sx: { flex: '0 0 220px' }, InputProps: { sx: { fontFamily: 'monospace' } } }), jsx$1(TextField, { label: "Title", value: recipe.title ?? '', onChange: (e) => patchRecipe({ title: e.target.value }), size: "small", fullWidth: true })] }), jsx$1(TextField, { label: "Description (router)", value: recipe.description ?? '', onChange: (e) => patchRecipe({ description: e.target.value }), size: "small", fullWidth: true, multiline: true, minRows: 2 }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.matchHints ?? [], onChange: (_, v) => patchRecipe({ matchHints: v.map(String) }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Match hints", size: "small", placeholder: "translate, publish, \u2026" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.dontMatchHints ?? [], onChange: (_, v) => patchRecipe({ dontMatchHints: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Don't match hints", size: "small", placeholder: "translate, publish, \u2026" })) }), jsx$1(AiAssistantIntentRecipeToolsLoopFields, { recipe: recipe, onChange: onChange }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.toolsLoopAllowlistBypassIfAuthorMentions ?? [], onChange: (_, v) => patchRecipe({
+    return (jsxs(Stack$1, { spacing: 2, children: [jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 2, alignItems: "flex-start", children: [jsx$1(AiAssistantIntentRecipeEmojiField, { emoji: recipe.chatEmoji ?? '', title: recipe.title ?? '', recipeId: recipe.id, onChange: (chatEmoji) => patchRecipe({ chatEmoji: chatEmoji || undefined }) }), jsx$1(TextField, { label: "Recipe id", value: recipe.id, onChange: (e) => patchRecipe({ id: e.target.value.trim() }), size: "small", disabled: idReadOnly, sx: { flex: '0 0 220px' }, InputProps: { sx: { fontFamily: 'monospace' } } }), jsx$1(TextField, { label: "Title", value: recipe.title ?? '', onChange: (e) => patchRecipe({ title: e.target.value }), size: "small", fullWidth: true })] }), jsx$1(TextField, { label: "Description (router)", value: recipe.description ?? '', onChange: (e) => patchRecipe({ description: e.target.value }), size: "small", fullWidth: true, multiline: true, minRows: 2 }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.matchHints ?? [], onChange: (_, v) => patchRecipe({ matchHints: v.map(String) }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Match hints", size: "small", placeholder: "translate, publish, \u2026" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.dontMatchHints ?? [], onChange: (_, v) => patchRecipe({ dontMatchHints: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Don't match hints", size: "small", placeholder: "translate, publish, \u2026" })) }), jsx$1(AiAssistantIntentRecipeToolsLoopFields, { recipe: recipe, onChange: onChange, siteId: siteId, preludeFileSaveRef: preludeFileSaveRef }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.toolsLoopAllowlistBypassIfAuthorMentions ?? [], onChange: (_, v) => patchRecipe({
                     toolsLoopAllowlistBypassIfAuthorMentions: v.length ? v.map(String) : undefined
                 }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Allowlist bypass keywords (optional)", size: "small" })) })] }));
 }
@@ -74271,6 +74395,82 @@ function AiAssistantIntentRecipePhaseHintsField(props) {
                                                     }, sx: { alignSelf: 'flex-start' }, children: "Generate action hint from tools" }), flowTools.length > 0 ? (jsxs(Typography, { variant: "body2", sx: { fontSize: 12, color: 'text.secondary' }, children: ["Preview: ", buildActionFlowHint(flowTools, flowMiddle, flowSuffix)] })) : null] })] })) : null] })] }) })] }));
 }
 
+function markdownSanitizeSchema() {
+    const srcProtocols = defaultSchema.protocols?.src ?? [];
+    return {
+        ...defaultSchema,
+        attributes: {
+            ...defaultSchema.attributes,
+            code: [...(defaultSchema.attributes?.code || []), ['className']]
+        },
+        protocols: {
+            ...defaultSchema.protocols,
+            src: [...new Set([...srcProtocols, 'http', 'https', 'mailto'])]
+        }
+    };
+}
+/** Renders markdown for Studio config previews (recipe swimlane, etc.). */
+function AiAssistantMarkdownPreview(props) {
+    const { value, compact = false, maxHeightPx } = props;
+    const theme = useTheme();
+    const sanitizeSchema = useMemo(() => markdownSanitizeSchema(), []);
+    const md = useMemo(() => replaceSlackColonEmojisOutsideMarkdownFences(value), [value]);
+    const bodySize = compact ? '0.75rem' : '0.8125rem';
+    const headingVariant = compact ? 'caption' : 'body2';
+    const mdComponents = useMemo(() => ({
+        h1: ({ children }) => (jsx$1(Typography, { variant: headingVariant, sx: { fontWeight: 700, mt: 0.75, mb: 0.35, fontSize: compact ? '0.8125rem' : undefined }, children: children })),
+        h2: ({ children }) => (jsx$1(Typography, { variant: headingVariant, sx: { fontWeight: 700, mt: 0.75, mb: 0.35, fontSize: compact ? '0.8125rem' : undefined }, children: children })),
+        h3: ({ children }) => (jsx$1(Typography, { variant: headingVariant, sx: { fontWeight: 700, mt: 0.5, mb: 0.25, fontSize: bodySize }, children: children })),
+        p: ({ children }) => (jsx$1(Typography, { variant: "body2", component: "div", sx: { fontSize: bodySize, lineHeight: 1.45, mb: 0.5, '&:last-child': { mb: 0 } }, children: children })),
+        ul: ({ children }) => (jsx$1(Box, { component: "ul", sx: { m: 0, pl: 2, mb: 0.5, fontSize: bodySize, lineHeight: 1.45 }, children: children })),
+        ol: ({ children }) => (jsx$1(Box, { component: "ol", sx: { m: 0, pl: 2, mb: 0.5, fontSize: bodySize, lineHeight: 1.45 }, children: children })),
+        li: ({ children }) => (jsx$1(Box, { component: "li", sx: { mb: 0.2, '& > p': { display: 'inline', m: 0 } }, children: children })),
+        strong: ({ children }) => (jsx$1(Box, { component: "strong", sx: { fontWeight: 700 }, children: children })),
+        em: ({ children }) => (jsx$1(Box, { component: "em", sx: { fontStyle: 'italic' }, children: children })),
+        a: ({ href, children }) => (jsx$1(Box, { component: "a", href: href, target: "_blank", rel: "noreferrer", sx: { color: theme.palette.primary.main, fontSize: 'inherit' }, children: children })),
+        code: ({ className, children }) => {
+            const raw = String(children ?? '').replace(/\n$/, '');
+            const isInline = !className;
+            if (isInline) {
+                return (jsx$1(Box, { component: "code", sx: {
+                        px: 0.35,
+                        fontFamily: 'ui-monospace, monospace',
+                        fontSize: compact ? '0.7rem' : '0.75rem',
+                        bgcolor: theme.palette.mode === 'dark' ? 'grey.800' : 'grey.200',
+                        borderRadius: 0.5
+                    }, children: raw }));
+            }
+            return (jsx$1(Box, { component: "pre", sx: {
+                    m: 0,
+                    my: 0.75,
+                    p: 0.75,
+                    overflow: 'auto',
+                    borderRadius: 1,
+                    fontSize: compact ? '0.7rem' : '0.75rem',
+                    bgcolor: theme.palette.mode === 'dark' ? 'grey.950' : 'grey.100',
+                    border: `1px solid ${theme.palette.mode === 'dark' ? theme.palette.grey[800] : theme.palette.grey[300]}`
+                }, children: jsx$1("code", { children: raw }) }));
+        },
+        table: ({ children }) => (jsx$1(TableContainer, { component: Paper, elevation: 0, sx: {
+                my: 0.75,
+                overflow: 'auto',
+                borderRadius: 1,
+                border: `1px solid ${theme.palette.divider}`,
+                bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.50'
+            }, children: jsx$1(Table$1, { size: "small", sx: { minWidth: 200, fontSize: bodySize }, children: children }) })),
+        thead: ({ children }) => jsx$1(TableHead, { children: children }),
+        tbody: ({ children }) => jsx$1(TableBody, { children: children }),
+        tr: ({ children }) => jsx$1(TableRow, { children: children }),
+        th: ({ children }) => (jsx$1(TableCell, { sx: { fontWeight: 700, fontSize: bodySize, py: 0.5, px: 1 }, children: children })),
+        td: ({ children }) => (jsx$1(TableCell, { sx: { fontSize: bodySize, py: 0.5, px: 1, verticalAlign: 'top' }, children: children }))
+    }), [theme, compact, bodySize, headingVariant]);
+    return (jsx$1(Box, { sx: {
+            ...(maxHeightPx != null ? { maxHeight: maxHeightPx, overflow: 'auto' } : {}),
+            '& :first-of-type': { mt: 0 },
+            '& :last-of-type': { mb: 0 }
+        }, children: jsx$1(Markdown, { remarkPlugins: [remarkGfm], rehypePlugins: [[rehypeSanitize, sanitizeSchema]], components: mdComponents, children: md }) }));
+}
+
 const LONG_HINT_CHARS = 220;
 function classifyIntentRecipeHint(hint) {
     const t = hint.trim();
@@ -74285,17 +74485,15 @@ function IntentRecipeHintLine(props) {
     const kind = classifyIntentRecipeHint(hint);
     if (kind === 'long') {
         return (jsx$1(Box, { sx: {
-                maxHeight: 96,
-                overflow: 'auto',
                 px: 1,
                 py: 0.75,
                 borderRadius: 1,
                 bgcolor: 'action.hover',
                 border: '1px solid',
                 borderColor: 'divider'
-            }, children: jsx$1(Typography, { variant: "caption", component: "div", sx: { fontSize: 12, lineHeight: 1.45, whiteSpace: 'pre-wrap' }, children: hint }) }, `hint-${index}`));
+            }, children: jsx$1(AiAssistantMarkdownPreview, { value: hint, compact: true, maxHeightPx: 280 }) }, `hint-${index}`));
     }
-    return (jsx$1(Typography, { variant: "body2", sx: { fontSize: 13, lineHeight: 1.4 }, children: hint }, `hint-${index}`));
+    return (jsx$1(Box, { sx: { fontSize: 13, lineHeight: 1.4 }, children: jsx$1(AiAssistantMarkdownPreview, { value: hint, compact: true }) }, `hint-${index}`));
 }
 
 const PHASE_LABELS = {
@@ -74315,7 +74513,7 @@ function confirmationStepArgSummary(args) {
         chips.push(short);
     }
     if (icon)
-        chips.push(icon);
+        chips.push(resolveSlackColonEmojiToken(icon));
     if (thread)
         chips.push(`thread: ${thread}`);
     return chips;
@@ -74346,7 +74544,7 @@ function EngineStepCard(props) {
     }
     const title = isLlmRefine ? `llmRefine` : step.tool;
     const profile = step.llmRefine?.trim();
-    return (jsxs(Paper, { variant: "outlined", sx: { p: 1.25, bgcolor, borderColor }, children: [jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", children: ["Step ", index + 1] }), jsxs(Stack$1, { direction: "row", spacing: 0.5, alignItems: "center", flexWrap: "wrap", useFlexGap: true, children: [jsx$1(Typography, { variant: "subtitle2", children: title }), profile ? (jsx$1(Chip, { size: "small", label: profile, variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } })) : null, isLlmRefine && step.outputFormat ? (jsx$1(Chip, { size: "small", label: step.outputFormat, variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } })) : null, step.as?.trim() ? (jsx$1(Chip, { size: "small", label: `as: ${step.as.trim()}`, color: "primary", variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } })) : null] }), caption ? (jsx$1(Typography, { variant: "caption", color: isConfirmation && confirmationKnown ? 'text.secondary' : 'warning.dark', children: caption })) : null, isLlmRefine && (step.refineHints?.length ?? 0) > 0 ? (jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mt: 0.5 }, children: [step.refineHints.length, " refine hint", step.refineHints.length === 1 ? '' : 's'] })) : null, isLlmRefine && (step.outputKeys?.length ?? 0) > 0 ? (jsx$1(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, sx: { mt: 0.75 }, children: step.outputKeys.map((key) => (jsx$1(Chip, { size: "small", label: key, variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } }, key))) })) : null, isSlack && confirmationStepArgSummary(step.args).length > 0 ? (jsx$1(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, sx: { mt: 0.75 }, children: confirmationStepArgSummary(step.args).map((label) => (jsx$1(Chip, { size: "small", label: label, variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } }, label))) })) : null, !isSlack && !isLlmRefine && step.args && Object.keys(step.args).length > 0 ? (jsx$1(Box, { component: "pre", sx: { mt: 0.75, mb: 0, fontSize: 11, whiteSpace: 'pre-wrap', fontFamily: 'monospace' }, children: JSON.stringify(step.args, null, 2) })) : null] }));
+    return (jsxs(Paper, { variant: "outlined", sx: { p: 1.25, bgcolor, borderColor }, children: [jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", children: ["Step ", index + 1] }), jsxs(Stack$1, { direction: "row", spacing: 0.5, alignItems: "center", flexWrap: "wrap", useFlexGap: true, children: [jsx$1(Typography, { variant: "subtitle2", children: title }), profile ? (jsx$1(Chip, { size: "small", label: profile, variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } })) : null, isLlmRefine && step.outputFormat ? (jsx$1(Chip, { size: "small", label: step.outputFormat, variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } })) : null, step.as?.trim() ? (jsx$1(Chip, { size: "small", label: `as: ${step.as.trim()}`, color: "primary", variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } })) : null] }), caption ? (jsx$1(Typography, { variant: "caption", color: isConfirmation && confirmationKnown ? 'text.secondary' : 'warning.dark', children: caption })) : null, isLlmRefine && (step.refineHints?.length ?? 0) > 0 ? (jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mt: 0.5 }, children: [step.refineHints.length, " refine hint", step.refineHints.length === 1 ? '' : 's'] })) : null, isLlmRefine && (step.outputKeys?.length ?? 0) > 0 ? (jsx$1(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, sx: { mt: 0.75 }, children: step.outputKeys.map((key) => (jsx$1(Chip, { size: "small", label: key, variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } }, key))) })) : null, isSlack && confirmationStepArgSummary(step.args).length > 0 ? (jsx$1(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, sx: { mt: 0.75 }, children: confirmationStepArgSummary(step.args).map((label, i) => (jsx$1(Chip, { size: "small", label: replaceSlackColonEmojisInText(label), variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } }, `${label}-${i}`))) })) : null, !isSlack && !isLlmRefine && step.args && Object.keys(step.args).length > 0 ? (jsx$1(Box, { component: "pre", sx: { mt: 0.75, mb: 0, fontSize: 11, whiteSpace: 'pre-wrap', fontFamily: 'monospace' }, children: JSON.stringify(step.args, null, 2) })) : null] }));
 }
 function PhaseColumn(props) {
     const { phaseKey, recipe } = props;
@@ -74504,7 +74702,7 @@ function PhaseEditor(props) {
                             } }, `step-${i}`)))) })] })] }));
 }
 function AiAssistantIntentRecipeEditor(props) {
-    const { recipe, onChange, idReadOnly, immersive } = props;
+    const { recipe, onChange, idReadOnly, immersive, siteId, preludeFileSaveRef } = props;
     const [editorTab, setEditorTab] = useState('general');
     const [phaseEdits, setPhaseEdits] = useState(() => recipeToPhaseEdits(recipe));
     useEffect(() => {
@@ -74519,7 +74717,7 @@ function AiAssistantIntentRecipeEditor(props) {
     };
     return (jsxs(Stack$1, { spacing: 2, sx: immersive
             ? { height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }
-            : undefined, children: [jsx$1(Tabs, { value: editorTab, onChange: (_, v) => setEditorTab(v), variant: "scrollable", scrollButtons: "auto", sx: immersive ? { flexShrink: 0, borderBottom: 1, borderColor: 'divider' } : undefined, children: EDITOR_TABS.map((k) => (jsx$1(Tab, { label: EDITOR_TAB_LABEL[k], value: k }, k))) }), jsxs(Box, { sx: immersive ? { flex: '1 1 auto', minHeight: 0, overflow: 'visible' } : undefined, children: [editorTab === 'general' ? (jsx$1(AiAssistantIntentRecipeGeneralFields, { recipe: recipe, onChange: onChange, idReadOnly: idReadOnly })) : null, INTENT_RECIPE_PHASE_KEYS.map((k) => editorTab === k ? (jsx$1(PhaseEditor, { phaseKey: k, state: phaseEdits[k], bindingNamesForHints: bindingNamesForHints, onChange: (n) => patchPhase(k, n) }, k)) : null), editorTab === 'preview' ? jsx$1(AiAssistantIntentRecipeSwimlane, { recipe: previewRecipe }) : null] })] }));
+            : undefined, children: [jsx$1(Tabs, { value: editorTab, onChange: (_, v) => setEditorTab(v), variant: "scrollable", scrollButtons: "auto", sx: immersive ? { flexShrink: 0, borderBottom: 1, borderColor: 'divider' } : undefined, children: EDITOR_TABS.map((k) => (jsx$1(Tab, { label: EDITOR_TAB_LABEL[k], value: k }, k))) }), jsxs(Box, { sx: immersive ? { flex: '1 1 auto', minHeight: 0, overflow: 'visible' } : undefined, children: [editorTab === 'general' ? (jsx$1(AiAssistantIntentRecipeGeneralFields, { recipe: recipe, onChange: onChange, idReadOnly: idReadOnly, siteId: siteId, preludeFileSaveRef: preludeFileSaveRef })) : null, INTENT_RECIPE_PHASE_KEYS.map((k) => editorTab === k ? (jsx$1(PhaseEditor, { phaseKey: k, state: phaseEdits[k], bindingNamesForHints: bindingNamesForHints, onChange: (n) => patchPhase(k, n) }, k)) : null), editorTab === 'preview' ? jsx$1(AiAssistantIntentRecipeSwimlane, { recipe: previewRecipe }) : null] })] }));
 }
 
 /**
@@ -74615,6 +74813,12 @@ const AiAssistantIntentRecipesConfiguration = forwardRef(function AiAssistantInt
     /** Project recipes file snapshot when a recipe edit session starts (Cancel restores this). */
     const [editSessionCustomFile, setEditSessionCustomFile] = useState(null);
     const dirtyBeforeRecipeEditRef = useRef(false);
+    const preludeFileSaveRef = useRef(null);
+    const savePendingPreludeFile = useCallback(async () => {
+        if (preludeFileSaveRef.current) {
+            await preludeFileSaveRef.current();
+        }
+    }, []);
     const recipeOrder = useMemo(() => {
         if (customFile.recipeOrder?.length) {
             return customFile.recipeOrder;
@@ -74736,11 +74940,18 @@ const AiAssistantIntentRecipesConfiguration = forwardRef(function AiAssistantInt
         setEditSessionCustomFile(cloneIntentRecipesFile(customFile));
         setEditingRecipe(true);
     }, [customFile, dirty]);
-    const finishRecipeEdit = useCallback(() => {
+    const finishRecipeEdit = useCallback(async () => {
         if (recipeDraft) {
             const v = validateRecipe(recipeDraft);
             if (!v.ok) {
                 setSaveError(v.message);
+                return;
+            }
+            try {
+                await savePendingPreludeFile();
+            }
+            catch (e) {
+                setSaveError(e instanceof Error ? e.message : String(e));
                 return;
             }
             setCustomFile((f) => {
@@ -74757,7 +74968,7 @@ const AiAssistantIntentRecipesConfiguration = forwardRef(function AiAssistantInt
         }
         setEditSessionCustomFile(null);
         setEditingRecipe(false);
-    }, [recipeDraft]);
+    }, [recipeDraft, savePendingPreludeFile]);
     const cancelRecipeEdit = useCallback(() => {
         if (editSessionCustomFile) {
             setCustomFile(editSessionCustomFile);
@@ -74940,6 +75151,7 @@ const AiAssistantIntentRecipesConfiguration = forwardRef(function AiAssistantInt
         const recipesRel = intentRecipesStudioRel(toolsPolicy);
         setSaving(true);
         try {
+            await savePendingPreludeFile();
             const routing = toolsPolicy.intentRecipeRouting;
             const customPath = routing.customRecipesPath.trim() || `/${INTENT_RECIPES_JSON_REL}`;
             const toolsBody = serializeToolsPolicyToJson({
@@ -74961,7 +75173,7 @@ const AiAssistantIntentRecipesConfiguration = forwardRef(function AiAssistantInt
         finally {
             setSaving(false);
         }
-    }, [buildCustomFileForSave, recipeDraft, siteId, toolsPolicy]);
+    }, [buildCustomFileForSave, recipeDraft, savePendingPreludeFile, siteId, toolsPolicy]);
     const confirmRevertToBuiltIn = useCallback(async () => {
         const id = pendingRevertId?.trim();
         if (!id || !siteId)
@@ -75032,7 +75244,7 @@ const AiAssistantIntentRecipesConfiguration = forwardRef(function AiAssistantInt
                     display: 'flex',
                     flexDirection: 'column',
                     overflow: 'hidden'
-                }, children: [jsxs(Stack$1, { direction: "row", spacing: 1, alignItems: "center", flexWrap: "wrap", useFlexGap: true, sx: { flexShrink: 0, px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider' }, children: [jsx$1(Typography, { component: "span", sx: { fontSize: '1.35rem', lineHeight: 1 }, "aria-hidden": true, children: selectedEntry.chatEmoji }), jsx$1(Typography, { variant: "subtitle1", sx: { flex: '1 1 auto', minWidth: 0 }, children: recipeDraft.title || recipeDraft.id }), sourceChip(selectedEntry), selectedEntry.source === 'override' ? (jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(RestartAltRounded, {}), onClick: () => resetBuiltInToBundled(selectedEntry.id), children: "Reset to built-in" })) : null, selectedEntry.source === 'custom' ? (jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), onClick: () => removeCustomRecipe(selectedEntry.id), children: "Delete project recipe" })) : null] }), jsx$1(Box, { sx: { flex: '1 1 auto', minHeight: 0, overflow: 'auto', p: 2, pt: 2.5 }, children: jsx$1(AiAssistantIntentRecipeEditor, { recipe: recipeDraft, onChange: patchRecipeDraft, idReadOnly: idReadOnly, immersive: true }, selectedEntry.id) }), jsxs(Stack$1, { direction: "row", justifyContent: "flex-end", spacing: 1, sx: { flexShrink: 0, px: 2, py: 1.5, borderTop: 1, borderColor: 'divider' }, children: [jsx$1(Button, { onClick: cancelRecipeEdit, children: "Cancel" }), jsx$1(Button, { variant: "contained", onClick: finishRecipeEdit, children: "Done" })] })] })) : null, !editingRecipe && recipesSectionTab === 'catalog' ? (jsxs(Box, { sx: {
+                }, children: [jsxs(Stack$1, { direction: "row", spacing: 1, alignItems: "center", flexWrap: "wrap", useFlexGap: true, sx: { flexShrink: 0, px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider' }, children: [jsx$1(Typography, { component: "span", sx: { fontSize: '1.35rem', lineHeight: 1 }, "aria-hidden": true, children: selectedEntry.chatEmoji }), jsx$1(Typography, { variant: "subtitle1", sx: { flex: '1 1 auto', minWidth: 0 }, children: recipeDraft.title || recipeDraft.id }), sourceChip(selectedEntry), selectedEntry.source === 'override' ? (jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(RestartAltRounded, {}), onClick: () => resetBuiltInToBundled(selectedEntry.id), children: "Reset to built-in" })) : null, selectedEntry.source === 'custom' ? (jsx$1(Button, { size: "small", color: "error", startIcon: jsx$1(DeleteOutlineRounded, {}), onClick: () => removeCustomRecipe(selectedEntry.id), children: "Delete project recipe" })) : null] }), jsx$1(Box, { sx: { flex: '1 1 auto', minHeight: 0, overflow: 'auto', p: 2, pt: 2.5 }, children: jsx$1(AiAssistantIntentRecipeEditor, { recipe: recipeDraft, onChange: patchRecipeDraft, idReadOnly: idReadOnly, immersive: true, siteId: siteId, preludeFileSaveRef: preludeFileSaveRef }, selectedEntry.id) }), jsxs(Stack$1, { direction: "row", justifyContent: "flex-end", spacing: 1, sx: { flexShrink: 0, px: 2, py: 1.5, borderTop: 1, borderColor: 'divider' }, children: [jsx$1(Button, { onClick: cancelRecipeEdit, children: "Cancel" }), jsx$1(Button, { variant: "contained", onClick: () => void finishRecipeEdit(), children: "Done" })] })] })) : null, !editingRecipe && recipesSectionTab === 'catalog' ? (jsxs(Box, { sx: {
                     display: 'grid',
                     gridTemplateColumns: { xs: '1fr', md: 'minmax(220px, 280px) 1fr' },
                     gap: 2,
@@ -76053,7 +76265,7 @@ function AiAssistantScriptsSandboxConfiguration(props) {
                                     display: 'flex',
                                     flexDirection: 'column',
                                     pt: 1
-                                }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 1, flexShrink: 0 }, children: jsx$1("code", { children: editorStudioPath }) }), jsx$1(Box, { sx: { flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', mb: 1 }, children: inferStudioSandboxEditorLanguage(editorStudioPath) === 'markdown' ? (jsx$1(AiAssistantMarkdownEditor, { value: editorBody, onChange: (v) => setEditorBody(v), flexFill: true, minHeightPx: 400, defaultView: "split" }, editorStudioPath)) : (jsx$1(AiAssistantStudioCodeEditor, { language: inferStudioSandboxEditorLanguage(editorStudioPath), value: editorBody, onChange: (v) => setEditorBody(v), flexFill: true, minHeightPx: 400 }, editorStudioPath)) }), jsx$1(Button, { size: "small", sx: { mt: 0, flexShrink: 0, alignSelf: 'flex-start' }, onClick: () => setEditorBody(editorStub), children: "Reset to stub" })] }), jsxs(DialogActions, { sx: { flexShrink: 0 }, children: [jsx$1(Button, { onClick: () => {
+                                }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 1, flexShrink: 0 }, children: jsx$1("code", { children: editorStudioPath }) }), jsx$1(Box, { sx: { flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', mb: 1 }, children: inferStudioSandboxEditorLanguage(editorStudioPath) === 'markdown' ? (jsx$1(AiAssistantMarkdownEditor, { value: editorBody, onChange: (v) => setEditorBody(v), flexFill: true, minHeightPx: 400 }, editorStudioPath)) : (jsx$1(AiAssistantStudioCodeEditor, { language: inferStudioSandboxEditorLanguage(editorStudioPath), value: editorBody, onChange: (v) => setEditorBody(v), flexFill: true, minHeightPx: 400 }, editorStudioPath)) }), jsx$1(Button, { size: "small", sx: { mt: 0, flexShrink: 0, alignSelf: 'flex-start' }, onClick: () => setEditorBody(editorStub), children: "Reset to stub" })] }), jsxs(DialogActions, { sx: { flexShrink: 0 }, children: [jsx$1(Button, { onClick: () => {
                                             setEditorFullscreen(false);
                                             setEditorOpen(false);
                                         }, children: "Cancel" }), jsx$1(Button, { variant: "contained", disabled: savingEditor, onClick: () => void saveEditor(), children: savingEditor ? 'Saving…' : 'Save' })] })] }), jsxs(Dialog, { open: promptReadOpen, onClose: () => {
@@ -76094,7 +76306,7 @@ function AiAssistantScriptsSandboxConfiguration(props) {
                                         display: 'flex',
                                         flexDirection: 'column'
                                     }
-                                    : undefined, children: [promptReadLoading ? jsx$1(Typography, { variant: "body2", children: "Loading\u2026" }) : null, promptReadError ? (jsx$1(Alert, { severity: "error", sx: { mb: 2 }, onClose: () => setPromptReadError(null), children: promptReadError })) : null, !promptReadLoading && !promptReadError ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 0.5 }, children: ["Default (no site override): classpath ", jsxs("code", { children: ["prompts/", promptReadKey, ".md"] }), " if bundled, otherwise the built-in Groovy literal.", promptReadDefaultTrunc ? ' Truncated in this response for size.' : ''] }), jsx$1(Box, { sx: { mb: 2 }, children: jsx$1(AiAssistantMarkdownEditor, { readOnly: true, value: promptReadDefault, minHeightPx: promptReadFullscreen ? 360 : 280, defaultView: "preview" }) }), jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 0.5 }, children: ["Site file ", jsxs("code", { children: ["/scripts/aiassistant/prompts/", promptReadKey, ".md"] }), " (raw). Non-blank file wins for this site. ", promptReadSiteEffective ? 'Override is active.' : 'Empty or whitespace only — default applies.', ' ', promptReadSiteTrunc ? 'Truncated in this response for size.' : ''] }), jsx$1(AiAssistantMarkdownEditor, { readOnly: true, value: promptReadSite, minHeightPx: promptReadFullscreen ? 300 : 240, defaultView: "preview" })] })) : null] }), jsxs(DialogActions, { sx: { flexShrink: 0 }, children: [jsx$1(Button, { onClick: () => {
+                                    : undefined, children: [promptReadLoading ? jsx$1(Typography, { variant: "body2", children: "Loading\u2026" }) : null, promptReadError ? (jsx$1(Alert, { severity: "error", sx: { mb: 2 }, onClose: () => setPromptReadError(null), children: promptReadError })) : null, !promptReadLoading && !promptReadError ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 0.5 }, children: ["Default (no site override): classpath ", jsxs("code", { children: ["prompts/", promptReadKey, ".md"] }), " if bundled, otherwise the built-in Groovy literal.", promptReadDefaultTrunc ? ' Truncated in this response for size.' : ''] }), jsx$1(Box, { sx: { mb: 2 }, children: jsx$1(AiAssistantMarkdownEditor, { readOnly: true, value: promptReadDefault, minHeightPx: promptReadFullscreen ? 360 : 280 }) }), jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 0.5 }, children: ["Site file ", jsxs("code", { children: ["/scripts/aiassistant/prompts/", promptReadKey, ".md"] }), " (raw). Non-blank file wins for this site. ", promptReadSiteEffective ? 'Override is active.' : 'Empty or whitespace only — default applies.', ' ', promptReadSiteTrunc ? 'Truncated in this response for size.' : ''] }), jsx$1(AiAssistantMarkdownEditor, { readOnly: true, value: promptReadSite, minHeightPx: promptReadFullscreen ? 300 : 240 })] })) : null] }), jsxs(DialogActions, { sx: { flexShrink: 0 }, children: [jsx$1(Button, { onClick: () => {
                                             setPromptReadFullscreen(false);
                                             setPromptReadOpen(false);
                                             setPromptReadKey(null);

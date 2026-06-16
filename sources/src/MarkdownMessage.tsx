@@ -20,7 +20,11 @@ import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
-import StudioDraggableImage from './StudioDraggableImage';
+import {
+  replaceSlackColonEmojisOutsideMarkdownFences,
+  replaceSlackColonEmojisInText,
+  resolveSlackColonEmojiToken
+} from './slackColonEmoji';
 
 /**
  * LLM streaming payloads sometimes leave escape sequences as the two-character
@@ -171,7 +175,7 @@ function preprocessAssistantMarkdownImagesSegment(
   text: string,
   longDataImageBlobRefMap: Map<string, string>
 ): string {
-  const normalized = normalizeLlmLiteralEscapes(text);
+  const normalized = replaceSlackColonEmojisOutsideMarkdownFences(normalizeLlmLiteralEscapes(text));
   const compactData = compactAllDataImageBase64Runs(normalized);
   const withBareWrapped = wrapBareLongDataImageUrlsAsMarkdown(compactData);
   const shortened = replaceLongDataImageMarkdownWithBlobRefs(withBareWrapped, longDataImageBlobRefMap);
@@ -189,7 +193,10 @@ export function preprocessAssistantMarkdownImages(text: string): {
     return { displayText: '', longDataImageBlobRefMap };
   }
   if (!textHasAssistantMarkdownImageMarkers(raw)) {
-    return { displayText: normalizeLlmLiteralEscapes(raw), longDataImageBlobRefMap };
+    return {
+      displayText: replaceSlackColonEmojisOutsideMarkdownFences(normalizeLlmLiteralEscapes(raw)),
+      longDataImageBlobRefMap
+    };
   }
   if (!textHasMarkdownFences(raw)) {
     return {
@@ -710,8 +717,8 @@ function CodeBlock(props: {
   const isTextFencedAsMarkdown =
     (lang === 'text' || lang === 'txt') && fencedCodeValueLooksLikeAssistantMarkdown(value);
   const renderMarkdownFencedBlock = isMarkdownDraft || isTextFencedAsMarkdown;
-  const [htmlMode, setHtmlMode] = useState<'preview' | 'source'>('preview');
-  const [mdMode, setMdMode] = useState<'preview' | 'source'>('preview');
+  const [htmlMode, setHtmlMode] = useState<'preview' | 'source'>('source');
+  const [mdMode, setMdMode] = useState<'preview' | 'source'>('source');
 
   const header = (
     <Stack

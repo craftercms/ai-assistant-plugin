@@ -59,8 +59,8 @@ import {
   buildMcpToolsPreviewBody,
   type ToolsPolicyFormState
 } from './aiAssistantToolsMcpUiModel';
-import AiAssistantStudioCodeEditor, { inferStudioSandboxEditorLanguage } from './AiAssistantStudioCodeEditor';
 import AiAssistantMarkdownEditor from './AiAssistantMarkdownEditor';
+import AiAssistantStudioCodeEditor, { inferStudioSandboxEditorLanguage } from './AiAssistantStudioCodeEditor';
 import {
   appendRegistryTool,
   hintsFromMultiline,
@@ -1359,7 +1359,6 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
                     onChange={(v) => setEditorBody(v)}
                     flexFill
                     minHeightPx={400}
-                    defaultView="split"
                   />
                 ) : (
                   <AiAssistantStudioCodeEditor
@@ -1479,7 +1478,6 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
                       readOnly
                       value={promptReadDefault}
                       minHeightPx={promptReadFullscreen ? 360 : 280}
-                      defaultView="preview"
                     />
                   </Box>
                   <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
@@ -1491,7 +1489,6 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
                     readOnly
                     value={promptReadSite}
                     minHeightPx={promptReadFullscreen ? 300 : 240}
-                    defaultView="preview"
                   />
                 </>
               ) : null}

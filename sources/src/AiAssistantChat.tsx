@@ -60,6 +60,7 @@ import {
 } from './assistantGeneratedImageChat';
 import { getSpeechRecognitionCtor } from './browserSpeechRecognition';
 import { intentRoutingDisplayMarkdown } from './intentRecipeChatDisplay';
+import { replaceSlackColonEmojisInText } from './slackColonEmoji';
 import { STUDIO_AI_DEFAULT_IMAGE_MODEL } from './studioAiOrchestrationToolIds';
 /** When llm is openAI: send default image model when agent/panel snapshot omitted it (server applies the same default). */
 function resolveWireImageModel(llm: string | undefined, imageModel: string | undefined): string | undefined {
@@ -3407,7 +3408,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
               {verificationPrompts.map((vp, idx) => (
                 <Chip
                   key={`cq-verify-${idx}-${vp.slice(0, 48)}`}
-                  label={vp.length > 96 ? `${vp.slice(0, 93)}…` : vp}
+                  label={replaceSlackColonEmojisInText(vp.length > 96 ? `${vp.slice(0, 93)}…` : vp)}
                   size="small"
                   variant="outlined"
                   clickable
@@ -3442,7 +3443,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
               {followUpActionPrompts.map((fp, idx) => (
                 <Chip
                   key={`cq-follow-${idx}-${fp.slice(0, 48)}`}
-                  label={fp.length > 96 ? `${fp.slice(0, 93)}…` : fp}
+                  label={replaceSlackColonEmojisInText(fp.length > 96 ? `${fp.slice(0, 93)}…` : fp)}
                   size="small"
                   variant="outlined"
                   color="primary"

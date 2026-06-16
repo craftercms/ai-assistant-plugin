@@ -280,10 +280,12 @@ export interface AiAssistantIntentRecipeEditorProps {
   idReadOnly?: boolean;
   /** Fills parent panel height (recipe edit takeover in project settings). */
   immersive?: boolean;
+  siteId?: string;
+  preludeFileSaveRef?: React.MutableRefObject<(() => Promise<void>) | null>;
 }
 
 export default function AiAssistantIntentRecipeEditor(props: AiAssistantIntentRecipeEditorProps) {
-  const { recipe, onChange, idReadOnly, immersive } = props;
+  const { recipe, onChange, idReadOnly, immersive, siteId, preludeFileSaveRef } = props;
   const [editorTab, setEditorTab] = useState<EditorTab>('general');
   const [phaseEdits, setPhaseEdits] = useState(() => recipeToPhaseEdits(recipe));
 
@@ -322,7 +324,13 @@ export default function AiAssistantIntentRecipeEditor(props: AiAssistantIntentRe
       </Tabs>
       <Box sx={immersive ? { flex: '1 1 auto', minHeight: 0, overflow: 'visible' } : undefined}>
         {editorTab === 'general' ? (
-          <AiAssistantIntentRecipeGeneralFields recipe={recipe} onChange={onChange} idReadOnly={idReadOnly} />
+          <AiAssistantIntentRecipeGeneralFields
+            recipe={recipe}
+            onChange={onChange}
+            idReadOnly={idReadOnly}
+            siteId={siteId}
+            preludeFileSaveRef={preludeFileSaveRef}
+          />
         ) : null}
         {INTENT_RECIPE_PHASE_KEYS.map((k) =>
           editorTab === k ? (

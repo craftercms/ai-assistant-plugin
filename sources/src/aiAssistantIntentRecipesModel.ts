@@ -150,9 +150,11 @@ export type IntentRecipeListEntry = {
   recipe: IntentRecipe;
 };
 
+import { resolveSlackColonEmojiToken } from './slackColonEmoji';
+
 /** First user-perceived grapheme (emoji-safe). */
 export function normalizeChatEmoji(input: string): string {
-  const t = String(input ?? '').trim();
+  const t = resolveSlackColonEmojiToken(String(input ?? '').trim());
   if (!t) return '';
   try {
     if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
