@@ -60,6 +60,7 @@ import {
   type ToolsPolicyFormState
 } from './aiAssistantToolsMcpUiModel';
 import AiAssistantStudioCodeEditor, { inferStudioSandboxEditorLanguage } from './AiAssistantStudioCodeEditor';
+import AiAssistantMarkdownEditor from './AiAssistantMarkdownEditor';
 import {
   appendRegistryTool,
   hintsFromMultiline,
@@ -1351,14 +1352,25 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
                 <code>{editorStudioPath}</code>
               </Typography>
               <Box sx={{ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', mb: 1 }}>
-                <AiAssistantStudioCodeEditor
-                  key={editorStudioPath}
-                  language={inferStudioSandboxEditorLanguage(editorStudioPath)}
-                  value={editorBody}
-                  onChange={(v) => setEditorBody(v)}
-                  flexFill
-                  minHeightPx={400}
-                />
+                {inferStudioSandboxEditorLanguage(editorStudioPath) === 'markdown' ? (
+                  <AiAssistantMarkdownEditor
+                    key={editorStudioPath}
+                    value={editorBody}
+                    onChange={(v) => setEditorBody(v)}
+                    flexFill
+                    minHeightPx={400}
+                    defaultView="split"
+                  />
+                ) : (
+                  <AiAssistantStudioCodeEditor
+                    key={editorStudioPath}
+                    language={inferStudioSandboxEditorLanguage(editorStudioPath)}
+                    value={editorBody}
+                    onChange={(v) => setEditorBody(v)}
+                    flexFill
+                    minHeightPx={400}
+                  />
+                )}
               </Box>
               <Button size="small" sx={{ mt: 0, flexShrink: 0, alignSelf: 'flex-start' }} onClick={() => setEditorBody(editorStub)}>
                 Reset to stub
@@ -1463,11 +1475,11 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
                     {promptReadDefaultTrunc ? ' Truncated in this response for size.' : ''}
                   </Typography>
                   <Box sx={{ mb: 2 }}>
-                    <AiAssistantStudioCodeEditor
-                      language="markdown"
+                    <AiAssistantMarkdownEditor
                       readOnly
                       value={promptReadDefault}
                       minHeightPx={promptReadFullscreen ? 360 : 280}
+                      defaultView="preview"
                     />
                   </Box>
                   <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
@@ -1475,11 +1487,11 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
                     site. {promptReadSiteEffective ? 'Override is active.' : 'Empty or whitespace only — default applies.'}{' '}
                     {promptReadSiteTrunc ? 'Truncated in this response for size.' : ''}
                   </Typography>
-                  <AiAssistantStudioCodeEditor
-                    language="markdown"
+                  <AiAssistantMarkdownEditor
                     readOnly
                     value={promptReadSite}
                     minHeightPx={promptReadFullscreen ? 300 : 240}
+                    defaultView="preview"
                   />
                 </>
               ) : null}

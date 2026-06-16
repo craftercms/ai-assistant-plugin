@@ -129,6 +129,8 @@ export type IntentRecipe = {
   /** Server cap on {@code FetchHttpUrl} calls per turn (web-research recipes). */
   toolsLoopMaxFetchHttpUrlCalls?: number;
   matchedUserPrelude?: string;
+  /** Studio module path to markdown prelude (e.g. {@code scripts/aiassistant/recipes/preludes/my-recipe.md}). */
+  matchedUserPreludePath?: string;
 };
 
 export type IntentRecipesFile = {

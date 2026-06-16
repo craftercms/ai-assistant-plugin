@@ -1,4 +1,5 @@
-import { Autocomplete, Stack, TextField, Typography } from '@mui/material';
+import { Autocomplete, Box, Stack, TextField, Typography } from '@mui/material';
+import AiAssistantMarkdownEditor from './AiAssistantMarkdownEditor';
 import type { IntentRecipe } from './aiAssistantIntentRecipesModel';
 import { INTENT_RECIPE_WIRE_TOOL_OPTIONS } from './aiAssistantIntentRecipesModel';
 
@@ -109,16 +110,40 @@ export default function AiAssistantIntentRecipeToolsLoopFields(props: AiAssistan
           sx={{ flex: '0 0 220px' }}
         />
       </Stack>
-      <TextField
-        label="Matched user prelude"
-        value={recipe.matchedUserPrelude ?? ''}
-        onChange={(e) => patchRecipe({ matchedUserPrelude: e.target.value.trim() || undefined })}
-        size="small"
-        fullWidth
-        multiline
-        minRows={3}
-        helperText="Prepended to the tools-loop user message when this recipe matches (markdown)."
-      />
+      <Box>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          Matched user prelude — prepended to the tools-loop user message when this recipe matches. Use an external
+          markdown file for long preludes (readable in git); inline text is the fallback when the file is missing.
+        </Typography>
+        <TextField
+          label="Prelude file (studio module path)"
+          size="small"
+          fullWidth
+          value={recipe.matchedUserPreludePath ?? ''}
+          onChange={(e) => {
+            const t = e.target.value.trim();
+            patchRecipe({ matchedUserPreludePath: t || undefined });
+          }}
+          placeholder="scripts/aiassistant/recipes/preludes/my-recipe-matched-user-prelude.md"
+          helperText="Optional. When set, the server loads prelude text from this path instead of the field below."
+          InputProps={{ sx: { fontFamily: 'monospace' } }}
+          sx={{ mb: 2 }}
+        />
+        <AiAssistantMarkdownEditor
+          value={recipe.matchedUserPrelude ?? ''}
+          onChange={(next) => {
+            const t = next.trim();
+            patchRecipe({ matchedUserPrelude: t ? next : undefined });
+          }}
+          minHeightPx={320}
+          defaultView="split"
+          helperText={
+            recipe.matchedUserPreludePath
+              ? 'Inline prelude is ignored when Prelude file is set. Clear the path to edit inline.'
+              : 'Use headings and lists; preview shows how authors will read injected orchestration text.'
+          }
+        />
+      </Box>
     </Stack>
   );
 }

@@ -2080,8 +2080,19 @@ private AuthoringIntentRecipeCatalog() {}
     sb.toString()
   }
 
-  /** Optional extra author-facing prelude text from the recipe row ({@code matchedUserPrelude}). */
-  static String matchedUserPrelude(Map recipe) {
+  /** Optional extra author-facing prelude from inline {@code matchedUserPrelude} or {@code matchedUserPreludePath}. */
+  static String matchedUserPrelude(Map recipe, def ops = null, String siteId = null) {
+    String pathRel = recipe?.get('matchedUserPreludePath')?.toString()?.trim() ?: ''
+    if (pathRel && ops != null && siteId?.trim()) {
+      String normalized = pathRel.startsWith('/') ? pathRel.substring(1) : pathRel
+      try {
+        String fromFile = ops.readStudioConfigurationUtf8(siteId.trim(), normalized)?.trim() ?: ''
+        if (fromFile) {
+          return fromFile
+        }
+      } catch (Throwable ignored) {
+      }
+    }
     String p = recipe?.get('matchedUserPrelude')?.toString()?.trim()
     return p ?: ''
   }

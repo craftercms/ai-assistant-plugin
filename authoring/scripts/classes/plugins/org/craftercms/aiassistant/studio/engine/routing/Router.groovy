@@ -1400,6 +1400,11 @@ final class Router {
       (Map<String, Map>) pfb.initialBindings :
       [:]
     Map<String, Map> recipeCurrentBindings = AuthoringIntentRecipeBindings.deepCopyBindingMap(recipeInitialBindings)
+    String catalogSiteId = ''
+    try {
+      catalogSiteId = ops?.resolveEffectiveSiteId('')?.toString()?.trim() ?: ''
+    } catch (Throwable ignoredSite) {
+    }
     String prelude =
       AuthoringIntentRecipeCatalog.formatMatchedRecipePrelude(
         recipe,
@@ -1410,18 +1415,13 @@ final class Router {
         recipeCurrentBindings,
         visible
       )
-    String orchPrelude = AuthoringIntentRecipeCatalog.matchedUserPrelude(recipe)
+    String orchPrelude = AuthoringIntentRecipeCatalog.matchedUserPrelude(recipe, ops, catalogSiteId)
     String preludeOverride = (matchedUserPreludeOverride ?: '').toString().trim()
     if (preludeOverride) {
       orchPrelude = preludeOverride
     }
     if (orchPrelude) {
       prelude = orchPrelude + '\n\n' + prelude
-    }
-    String catalogSiteId = ''
-    try {
-      catalogSiteId = ops?.resolveEffectiveSiteId('')?.toString()?.trim() ?: ''
-    } catch (Throwable ignoredSite) {
     }
     Map execPlan = AuthoringIntentRecipePlanCompiler.compile(recipe)
     Map matchedTelExtra = new LinkedHashMap<>()

@@ -39543,544 +39543,6 @@ function AiAssistantIntentRecipeEmojiField(props) {
                                 }, sx: { minWidth: 36, fontSize: '1.2rem', lineHeight: 1, p: 0.5 }, children: e }, e))) })] }) })] }));
 }
 
-const TOOLS_LOOP_WIRE_OPTIONS = [...INTENT_RECIPE_WIRE_TOOL_OPTIONS];
-/** Recipe tools-loop policy: force tool, allowlist, excludes, fetch caps, prelude. */
-function AiAssistantIntentRecipeToolsLoopFields(props) {
-    const { recipe, onChange } = props;
-    const patchRecipe = (partial) => {
-        onChange({ ...recipe, ...partial });
-    };
-    return (jsxs(Stack$1, { spacing: 2, children: [jsx$1(Typography, { variant: "subtitle2", children: "Tools loop (orchestration)" }), jsxs(Typography, { variant: "body2", color: "text.secondary", children: ["Applied when this recipe matches: round-0 ", jsx$1("strong", { children: "tool_choice" }), ", tool allowlist, and server fetch limits. Names must match built-in wire tools (e.g. ", jsx$1("strong", { children: "WebSearch" }), ", ", jsx$1("strong", { children: "SerpApiWebSearch" }), ",", ' ', jsx$1("strong", { children: "FetchHttpUrl" }), ")."] }), jsx$1(Autocomplete, { freeSolo: true, options: TOOLS_LOOP_WIRE_OPTIONS, value: recipe.toolsLoopForceTool ?? '', onInputChange: (_, v, reason) => {
-                    if (reason === 'input') {
-                        patchRecipe({ toolsLoopForceTool: v.trim() || undefined });
-                    }
-                }, onChange: (_, v) => {
-                    const value = typeof v === 'string' ? v : (v?.toString() ?? '');
-                    patchRecipe({ toolsLoopForceTool: value.trim() || undefined });
-                }, renderInput: (params) => (jsx$1(TextField, { ...params, label: "Force tool (round 0)", size: "small", placeholder: "WebSearch", helperText: "Required first tool call. If disabled in tools.json, the turn fails with \u201CRecipe tool unavailable\u201D.", InputProps: { ...params.InputProps, sx: { fontFamily: 'monospace' } } })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: TOOLS_LOOP_WIRE_OPTIONS, value: recipe.toolsLoopAllowlist ?? [], onChange: (_, v) => patchRecipe({ toolsLoopAllowlist: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Tools-loop allowlist", size: "small", helperText: "Only these tools are registered for the turn (unless bypass keywords match)." })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: TOOLS_LOOP_WIRE_OPTIONS, value: recipe.toolsLoopExcludeTools ?? [], onChange: (_, v) => patchRecipe({ toolsLoopExcludeTools: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Exclude tools", size: "small", helperText: "Removed from the session tool list when this recipe matches." })) }), jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 2, children: [jsx$1(TextField, { label: "Max FetchHttpUrl calls per turn", type: "number", size: "small", value: recipe.toolsLoopMaxFetchHttpUrlCalls ?? '', onChange: (e) => {
-                            const t = e.target.value.trim();
-                            patchRecipe({
-                                toolsLoopMaxFetchHttpUrlCalls: t === '' ? undefined : Math.max(0, Math.min(10, Number(t) || 0))
-                            });
-                        }, inputProps: { min: 0, max: 10 }, sx: { flex: '0 0 220px' } }), jsx$1(TextField, { label: "FetchHttpUrl wire max chars", type: "number", size: "small", value: recipe.toolsLoopFetchHttpUrlWireMaxChars ?? '', onChange: (e) => {
-                            const t = e.target.value.trim();
-                            patchRecipe({
-                                toolsLoopFetchHttpUrlWireMaxChars: t === '' ? undefined : Math.max(256, Math.min(24000, Number(t) || 0))
-                            });
-                        }, inputProps: { min: 256, max: 24000 }, sx: { flex: '0 0 220px' } })] }), jsx$1(TextField, { label: "Matched user prelude", value: recipe.matchedUserPrelude ?? '', onChange: (e) => patchRecipe({ matchedUserPrelude: e.target.value.trim() || undefined }), size: "small", fullWidth: true, multiline: true, minRows: 3, helperText: "Prepended to the tools-loop user message when this recipe matches (markdown)." })] }));
-}
-
-/** Recipe metadata, match rules, and tools-loop policy (editor General tab). */
-function AiAssistantIntentRecipeGeneralFields(props) {
-    const { recipe, onChange, idReadOnly } = props;
-    const patchRecipe = (partial) => {
-        onChange({ ...recipe, ...partial });
-    };
-    return (jsxs(Stack$1, { spacing: 2, children: [jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 2, alignItems: "flex-start", children: [jsx$1(AiAssistantIntentRecipeEmojiField, { emoji: recipe.chatEmoji ?? '', title: recipe.title ?? '', recipeId: recipe.id, onChange: (chatEmoji) => patchRecipe({ chatEmoji: chatEmoji || undefined }) }), jsx$1(TextField, { label: "Recipe id", value: recipe.id, onChange: (e) => patchRecipe({ id: e.target.value.trim() }), size: "small", disabled: idReadOnly, sx: { flex: '0 0 220px' }, InputProps: { sx: { fontFamily: 'monospace' } } }), jsx$1(TextField, { label: "Title", value: recipe.title ?? '', onChange: (e) => patchRecipe({ title: e.target.value }), size: "small", fullWidth: true })] }), jsx$1(TextField, { label: "Description (router)", value: recipe.description ?? '', onChange: (e) => patchRecipe({ description: e.target.value }), size: "small", fullWidth: true, multiline: true, minRows: 2 }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.matchHints ?? [], onChange: (_, v) => patchRecipe({ matchHints: v.map(String) }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Match hints", size: "small", placeholder: "translate, publish, \u2026" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.dontMatchHints ?? [], onChange: (_, v) => patchRecipe({ dontMatchHints: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Don't match hints", size: "small", placeholder: "translate, publish, \u2026" })) }), jsx$1(AiAssistantIntentRecipeToolsLoopFields, { recipe: recipe, onChange: onChange }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.toolsLoopAllowlistBypassIfAuthorMentions ?? [], onChange: (_, v) => patchRecipe({
-                    toolsLoopAllowlistBypassIfAuthorMentions: v.length ? v.map(String) : undefined
-                }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Allowlist bypass keywords (optional)", size: "small" })) })] }));
-}
-
-/**
- * Prefetch {@code engineSteps} args — aligned with
- * {@code AuthoringIntentRecipeEngine#executeReadOnlyTool} and {@code #resolveArgValue}.
- */
-const PREFETCH_BINDING_TOKENS = [
-    { token: '$siteId', description: 'Studio project id for the current author session' },
-    { token: '$contentPath', description: 'Open form/preview item path (e.g. /site/website/.../index.xml)' },
-    { token: '$contentTypeId', description: 'Content type id when already known from Studio context' },
-    { token: '$previewUrl', description: 'Engine preview URL when available' },
-    {
-        token: '$step0.fieldName',
-        description: 'Field from a prior step result (0-based index), e.g. $step0.contentXml'
-    },
-    {
-        token: '$initial.pageItem.contentXml',
-        description: 'Named prefetch snapshot at turn start (step as: pageItem)'
-    },
-    {
-        token: '$current.pageItem.contentXml',
-        description: 'Same binding after WriteContent on the item path (falls back to initial)'
-    },
-    {
-        token: '{{initial.pageItem}}',
-        description: 'Expanded in phase hints when the recipe matches (server prelude)'
-    },
-    {
-        token: '{{current.pageItem}}',
-        description: 'Expanded after writes in the same turn when available'
-    }
-];
-const INTENT_RECIPE_PREFETCH_TOOL_DOCS = {
-    GetContent: {
-        summary: 'Read repository XML for the anchored or specified path (read-only prefetch).',
-        args: [
-            { name: 'siteId', required: true, description: 'Project id', example: '$siteId' },
-            {
-                name: 'path',
-                required: true,
-                description: 'Repository path (alias: contentPath)',
-                example: '$contentPath'
-            },
-            { name: 'contentPath', description: 'Same as path', example: '$contentPath' },
-            { name: 'commitId', description: 'Optional git commit id / commitRef for historical read' }
-        ],
-        defaultArgs: { siteId: '$siteId', path: '$contentPath' }
-    },
-    GetContentTypeFormDefinition: {
-        summary: 'Load form-definition XML for the item’s content type (via contentPath or contentTypeId).',
-        args: [
-            { name: 'siteId', required: true, description: 'Project id', example: '$siteId' },
-            {
-                name: 'contentPath',
-                description: 'Item path; content type inferred from item XML (preferred in recipes)',
-                example: '$contentPath'
-            },
-            { name: 'contentTypeId', description: 'Direct type id when path is not used', example: '$contentTypeId' }
-        ],
-        defaultArgs: { siteId: '$siteId', contentPath: '$contentPath' }
-    },
-    ListContentTranslationScope: {
-        summary: 'Tree of translatable paths for batch translation (read-only scope discovery).',
-        args: [
-            { name: 'siteId', required: true, description: 'Project id', example: '$siteId' },
-            { name: 'contentPath', required: true, description: 'Root page/item path', example: '$contentPath' },
-            { name: 'path', description: 'Alias for contentPath' },
-            { name: 'maxItems', description: 'Optional cap on items in tree' },
-            { name: 'maxDepth', description: 'Optional depth limit' },
-            { name: 'chunkSize', description: 'Optional chunk size for large trees' }
-        ],
-        defaultArgs: { siteId: '$siteId', contentPath: '$contentPath' }
-    },
-    ListContentDependencyScope: {
-        summary: 'Dependency scope tree (same arg shape as ListContentTranslationScope).',
-        args: [
-            { name: 'siteId', required: true, description: 'Project id', example: '$siteId' },
-            { name: 'contentPath', required: true, description: 'Root path', example: '$contentPath' },
-            { name: 'maxItems', description: 'Optional cap' },
-            { name: 'maxDepth', description: 'Optional depth limit' }
-        ],
-        defaultArgs: { siteId: '$siteId', contentPath: '$contentPath' }
-    },
-    ListStudioContentTypes: {
-        summary: 'List content types in the project (e.g. before creating a new item).',
-        args: [
-            { name: 'siteId', required: true, description: 'Project id', example: '$siteId' },
-            {
-                name: 'searchable',
-                description: 'Boolean — false lists all types; true limits to searchable types',
-                example: 'false'
-            },
-            { name: 'contentPath', description: 'Optional path hint for filtering' }
-        ],
-        defaultArgs: { siteId: '$siteId', searchable: false }
-    },
-    GetContentVersionHistory: {
-        summary: 'Git version history for a content path (read-only).',
-        args: [
-            { name: 'siteId', required: true, description: 'Project id', example: '$siteId' },
-            { name: 'path', required: true, description: 'Repository path', example: '$contentPath' },
-            { name: 'contentPath', description: 'Alias for path' }
-        ],
-        defaultArgs: { siteId: '$siteId', path: '$contentPath' }
-    },
-    GetPreviewHtml: {
-        summary: 'Fetch rendered preview HTML from Engine (confirmation phase).',
-        args: [
-            {
-                name: 'url',
-                description: 'Preview URL (alias: previewUrl)',
-                example: '$previewUrl'
-            },
-            { name: 'previewUrl', description: 'Same as url', example: '$previewUrl' },
-            { name: 'siteId', description: 'Optional project id for preview auth', example: '$siteId' },
-            { name: 'previewToken', description: 'Optional preview token when required by Engine' }
-        ],
-        defaultArgs: { url: '$previewUrl', siteId: '$siteId' }
-    }
-};
-function prefetchToolDoc(tool) {
-    const t = tool?.trim();
-    if (!t)
-        return undefined;
-    return INTENT_RECIPE_PREFETCH_TOOL_DOCS[t];
-}
-function defaultPrefetchArgsJsonForTool(tool) {
-    const doc = prefetchToolDoc(tool);
-    if (!doc)
-        return null;
-    return JSON.stringify(doc.defaultArgs, null, 2);
-}
-
-function AiAssistantIntentRecipePrefetchArgsHelp(props) {
-    const { tool, onInsertDefaultArgs } = props;
-    const doc = prefetchToolDoc(tool);
-    if (!doc) {
-        return (jsx$1(Alert, { severity: "warning", sx: { py: 0.5 }, children: jsxs(Typography, { variant: "body2", children: ["No built-in reference for ", jsx$1("strong", { children: tool || '(pick a tool)' }), ". Prefetch only supports read-only tools documented in the plugin. Copy args from a bundled recipe or see", ' ', jsx$1("code", { children: "AuthoringIntentRecipeEngine.groovy" }), "."] }) }));
-    }
-    return (jsxs(Stack$1, { spacing: 1, children: [jsx$1(Typography, { variant: "body2", color: "text.secondary", children: doc.summary }), jsxs(Table$1, { size: "small", sx: { '& td, & th': { py: 0.5, px: 1 } }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Arg" }), jsx$1(TableCell, { children: "Required" }), jsx$1(TableCell, { children: "Description" }), jsx$1(TableCell, { children: "Example" })] }) }), jsx$1(TableBody, { children: doc.args.map((a) => (jsxs(TableRow, { children: [jsx$1(TableCell, { sx: { fontFamily: 'monospace', fontSize: 12 }, children: a.name }), jsx$1(TableCell, { children: a.required ? 'yes' : '' }), jsx$1(TableCell, { children: a.description }), jsx$1(TableCell, { sx: { fontFamily: 'monospace', fontSize: 11 }, children: a.example ?? '' })] }, a.name))) })] }), onInsertDefaultArgs ? (jsxs(Button, { size: "small", variant: "text", onClick: onInsertDefaultArgs, sx: { alignSelf: 'flex-start' }, children: ["Insert default args for ", tool] })) : null] }));
-}
-function AiAssistantIntentRecipePrefetchBindingsHelp() {
-    return (jsxs(Box, { children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", gutterBottom: true, children: "Placeholders for prefetch step arguments" }), jsxs(Table$1, { size: "small", sx: { '& td, & th': { py: 0.5, px: 1 } }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Token" }), jsx$1(TableCell, { children: "Meaning" })] }) }), jsx$1(TableBody, { children: PREFETCH_BINDING_TOKENS.map((b) => (jsxs(TableRow, { children: [jsx$1(TableCell, { sx: { fontFamily: 'monospace', fontSize: 12 }, children: b.token }), jsx$1(TableCell, { children: b.description })] }, b.token))) })] })] }));
-}
-
-const PHASE_LABELS$1 = {
-    context: 'Context',
-    action: 'Action',
-    confirmation: 'Confirmation'
-};
-function AiAssistantIntentRecipePhaseHintsField(props) {
-    const { phaseKey, hintsLines, bindingNames = [], onChange } = props;
-    const hintChips = useMemo(() => hintLinesToArray(hintsLines), [hintsLines]);
-    const templates = INTENT_RECIPE_HINT_TEMPLATES[phaseKey];
-    const [helperFlyoutAnchor, setHelperFlyoutAnchor] = useState(null);
-    const [templatePick, setTemplatePick] = useState(null);
-    const [flowTools, setFlowTools] = useState([]);
-    const [flowMiddle, setFlowMiddle] = useState('revise XML');
-    const [flowSuffix, setFlowSuffix] = useState('preserve <page>/<component> structure and node-selector shapes.');
-    useEffect(() => {
-        if (phaseKey !== 'action' || hintChips.length === 0)
-            return;
-        const parsed = parseActionFlowHint(hintChips[0]);
-        if (parsed.tools.length > 0) {
-            setFlowTools(parsed.tools);
-            setFlowMiddle(parsed.middleStep);
-            setFlowSuffix(parsed.suffix);
-        }
-    }, [phaseKey, hintChips[0]]);
-    const setHintChips = useCallback((next) => onChange(hintArrayToLines(next)), [onChange]);
-    const appendToolToNewHint = (tool) => {
-        const t = tool.trim();
-        if (!t)
-            return;
-        const last = hintChips[hintChips.length - 1] ?? '';
-        if (!last) {
-            setHintChips([`Use ${t}`]);
-            return;
-        }
-        if (last.includes('→')) {
-            setHintChips([...hintChips.slice(0, -1), `${last} → ${t}`]);
-        }
-        else if (/\bUse\b/i.test(last)) {
-            setHintChips([...hintChips.slice(0, -1), `${last} or ${t}`]);
-        }
-        else {
-            setHintChips([...hintChips, `Use ${t}`]);
-        }
-    };
-    const applyActionFlow = () => {
-        const generated = buildActionFlowHint(flowTools, flowMiddle, flowSuffix);
-        const rest = hintChips.slice(1);
-        setHintChips([generated, ...rest]);
-    };
-    const appendTemplateLine = (line) => {
-        const t = line.trim();
-        if (!t)
-            return;
-        const lines = hintLinesToArray(hintsLines);
-        if (lines.includes(t))
-            return;
-        onChange(hintArrayToLines([...lines, t]));
-    };
-    return (jsxs(Stack$1, { spacing: 2, children: [jsx$1(TextField, { label: `${PHASE_LABELS$1[phaseKey]} hints`, value: hintsLines, onChange: (e) => onChange(e.target.value), placeholder: "One hint per line", helperText: "One hint per line. Edit directly or insert a template below.", fullWidth: true, multiline: true, minRows: 10, maxRows: 18, InputLabelProps: { shrink: true }, sx: {
-                    mt: 0.5,
-                    '& .MuiInputLabel-root': {
-                        zIndex: 1,
-                        bgcolor: 'background.paper',
-                        px: 0.5
-                    },
-                    '& .MuiInputBase-root': {
-                        alignItems: 'flex-start',
-                        py: 1.5,
-                        px: 1.5
-                    },
-                    '& .MuiInputBase-inputMultiline': {
-                        lineHeight: 1.6,
-                        fontSize: '0.9375rem'
-                    }
-                } }), templates.length > 0 ? (jsx$1(Autocomplete, { freeSolo: true, options: templates, value: templatePick, onChange: (_, v) => {
-                    const line = (v ?? '').toString().trim();
-                    if (line) {
-                        appendTemplateLine(line);
-                    }
-                    setTemplatePick(null);
-                }, renderInput: (params) => (jsx$1(TextField, { ...params, size: "small", label: "Insert template line", placeholder: "Pick a bundled hint to append" })) })) : null, jsx$1(Stack$1, { direction: "row", justifyContent: "flex-end", children: jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(BuildRounded, {}), onClick: (e) => setHelperFlyoutAnchor(e.currentTarget), "aria-haspopup": "dialog", "aria-expanded": Boolean(helperFlyoutAnchor), children: "Tools & placeholders\u2026" }) }), jsx$1(Popover, { open: Boolean(helperFlyoutAnchor), anchorEl: helperFlyoutAnchor, onClose: () => setHelperFlyoutAnchor(null), anchorOrigin: { vertical: 'bottom', horizontal: 'right' }, transformOrigin: { vertical: 'top', horizontal: 'right' }, slotProps: { paper: { sx: { maxWidth: 520 } } }, children: jsxs(Box, { sx: { p: 2, maxHeight: 'min(70vh, 560px)', overflow: 'auto' }, children: [jsxs(Typography, { variant: "subtitle2", gutterBottom: true, children: ["Insert into ", PHASE_LABELS$1[phaseKey].toLowerCase(), " hints"] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 2 }, children: "Tool names and placeholders for hints; token reference for prefetch step JSON args below." }), jsxs(Stack$1, { spacing: 2, children: [jsx$1(AiAssistantIntentRecipePrefetchBindingsHelp, {}), jsxs(Box, { children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 0.75 }, children: "Tool wire names (hints)" }), jsx$1(Box, { sx: { display: 'flex', flexWrap: 'wrap', gap: 0.5 }, children: INTENT_RECIPE_WIRE_TOOL_OPTIONS.map((tool) => (jsx$1(Chip, { label: tool, size: "small", variant: "outlined", onClick: () => appendToolToNewHint(tool), sx: { fontFamily: 'monospace', fontSize: 11, cursor: 'pointer' } }, tool))) })] }), bindingNames.length > 0 ? (jsxs(Box, { children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 0.75 }, children: "Prefetch placeholders (from engine step bindings)" }), jsx$1(Box, { sx: { display: 'flex', flexWrap: 'wrap', gap: 0.5 }, children: bindingNames.flatMap((name) => [
-                                                jsx$1(Chip, { label: `{{initial.${name}}}`, size: "small", variant: "outlined", onClick: () => setHintChips([...hintChips, `{{initial.${name}}}`]), sx: { fontFamily: 'monospace', fontSize: 11, cursor: 'pointer' } }, `initial-${name}`),
-                                                jsx$1(Chip, { label: `{{current.${name}}}`, size: "small", variant: "outlined", onClick: () => setHintChips([...hintChips, `{{current.${name}}}`]), sx: { fontFamily: 'monospace', fontSize: 11, cursor: 'pointer' } }, `current-${name}`)
-                                            ]) })] })) : (jsxs(Typography, { variant: "caption", color: "text.secondary", children: ["Add prefetch engine steps below to enable placeholder chips for", ' ', jsx$1("code", { children: '{{initial.name}}' }), " / ", jsx$1("code", { children: '{{current.name}}' }), "."] })), phaseKey === 'action' ? (jsxs(Paper, { variant: "outlined", sx: { p: 1.5, bgcolor: 'action.hover' }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Action tool flow" }), jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 1.5 }, children: ["Build one hint like", ' ', jsx$1("em", { children: "Use update_content or GetContent \u2192 revise XML \u2192 WriteContent; preserve structure\u2026" })] }), jsxs(Stack$1, { spacing: 1.5, children: [jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [...INTENT_RECIPE_WIRE_TOOL_OPTIONS], value: flowTools, onChange: (_, v) => setFlowTools(v.map(String).filter(Boolean)), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Tools in flow (ordered)", size: "small", placeholder: "update_content, GetContent, WriteContent" })), renderTags: (value, getTagProps) => value.map((option, index) => (createElement(Chip, { ...getTagProps({ index }), key: `${option}-${index}`, label: option, size: "small", sx: { fontFamily: 'monospace', fontSize: 11 } }))) }), jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 1, children: [jsx$1(TextField, { label: "After \u2192", value: flowMiddle, onChange: (e) => setFlowMiddle(e.target.value), size: "small", fullWidth: true, placeholder: "revise XML" }), jsx$1(TextField, { label: "After ;", value: flowSuffix, onChange: (e) => setFlowSuffix(e.target.value), size: "small", fullWidth: true, placeholder: "preserve <page>/<component> structure\u2026" })] }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(AutoFixHighRounded, {}), onClick: () => {
-                                                        applyActionFlow();
-                                                        setHelperFlyoutAnchor(null);
-                                                    }, sx: { alignSelf: 'flex-start' }, children: "Generate action hint from tools" }), flowTools.length > 0 ? (jsxs(Typography, { variant: "body2", sx: { fontSize: 12, color: 'text.secondary' }, children: ["Preview: ", buildActionFlowHint(flowTools, flowMiddle, flowSuffix)] })) : null] })] })) : null] })] }) })] }));
-}
-
-const LONG_HINT_CHARS = 220;
-function classifyIntentRecipeHint(hint) {
-    const t = hint.trim();
-    if (!t)
-        return 'compact';
-    if (t.length >= LONG_HINT_CHARS)
-        return 'long';
-    return 'compact';
-}
-function IntentRecipeHintLine(props) {
-    const { hint, index } = props;
-    const kind = classifyIntentRecipeHint(hint);
-    if (kind === 'long') {
-        return (jsx$1(Box, { sx: {
-                maxHeight: 96,
-                overflow: 'auto',
-                px: 1,
-                py: 0.75,
-                borderRadius: 1,
-                bgcolor: 'action.hover',
-                border: '1px solid',
-                borderColor: 'divider'
-            }, children: jsx$1(Typography, { variant: "caption", component: "div", sx: { fontSize: 12, lineHeight: 1.45, whiteSpace: 'pre-wrap' }, children: hint }) }, `hint-${index}`));
-    }
-    return (jsx$1(Typography, { variant: "body2", sx: { fontSize: 13, lineHeight: 1.4 }, children: hint }, `hint-${index}`));
-}
-
-const PHASE_LABELS = {
-    context: 'Context',
-    action: 'Action',
-    confirmation: 'Confirmation'
-};
-function confirmationStepArgSummary(args) {
-    if (!args)
-        return [];
-    const chips = [];
-    const text = String(args.text ?? args.message ?? '').trim();
-    const icon = String(args.iconEmoji ?? '').trim();
-    const thread = String(args.threadTs ?? '').trim();
-    if (text) {
-        const short = text.length > 48 ? `${text.slice(0, 45)}…` : text;
-        chips.push(short);
-    }
-    if (icon)
-        chips.push(icon);
-    if (thread)
-        chips.push(`thread: ${thread}`);
-    return chips;
-}
-function EngineStepCard(props) {
-    const { step, index, phaseKey } = props;
-    const isConfirmation = phaseKey === 'confirmation';
-    const isLlmRefine = step.tool === 'llmRefine' || Boolean(step.llmRefine?.trim());
-    const isSlack = step.tool === 'SlackPostMessage';
-    const prefetchAllowlisted = INTENT_RECIPE_READ_ONLY_TOOLS.includes(step.tool);
-    const confirmationKnown = INTENT_RECIPE_CONFIRMATION_STEP_TOOLS.includes(isLlmRefine ? 'llmRefine' : step.tool);
-    let bgcolor = 'action.hover';
-    let borderColor = 'divider';
-    let caption = null;
-    if (isConfirmation) {
-        bgcolor = 'background.paper';
-        borderColor = 'primary.light';
-        if (!confirmationKnown) {
-            bgcolor = 'warning.light';
-            borderColor = 'warning.main';
-            caption = 'Unknown confirmation step — verify server allowlist.';
-        }
-    }
-    else if (!prefetchAllowlisted) {
-        bgcolor = 'warning.light';
-        borderColor = 'warning.main';
-        caption = 'Not in read-only prefetch allowlist — server will skip at runtime.';
-    }
-    const title = isLlmRefine ? `llmRefine` : step.tool;
-    const profile = step.llmRefine?.trim();
-    return (jsxs(Paper, { variant: "outlined", sx: { p: 1.25, bgcolor, borderColor }, children: [jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", children: ["Step ", index + 1] }), jsxs(Stack$1, { direction: "row", spacing: 0.5, alignItems: "center", flexWrap: "wrap", useFlexGap: true, children: [jsx$1(Typography, { variant: "subtitle2", children: title }), profile ? (jsx$1(Chip, { size: "small", label: profile, variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } })) : null, isLlmRefine && step.outputFormat ? (jsx$1(Chip, { size: "small", label: step.outputFormat, variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } })) : null, step.as?.trim() ? (jsx$1(Chip, { size: "small", label: `as: ${step.as.trim()}`, color: "primary", variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } })) : null] }), caption ? (jsx$1(Typography, { variant: "caption", color: isConfirmation && confirmationKnown ? 'text.secondary' : 'warning.dark', children: caption })) : null, isLlmRefine && (step.refineHints?.length ?? 0) > 0 ? (jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mt: 0.5 }, children: [step.refineHints.length, " refine hint", step.refineHints.length === 1 ? '' : 's'] })) : null, isLlmRefine && (step.outputKeys?.length ?? 0) > 0 ? (jsx$1(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, sx: { mt: 0.75 }, children: step.outputKeys.map((key) => (jsx$1(Chip, { size: "small", label: key, variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } }, key))) })) : null, isSlack && confirmationStepArgSummary(step.args).length > 0 ? (jsx$1(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, sx: { mt: 0.75 }, children: confirmationStepArgSummary(step.args).map((label) => (jsx$1(Chip, { size: "small", label: label, variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } }, label))) })) : null, !isSlack && !isLlmRefine && step.args && Object.keys(step.args).length > 0 ? (jsx$1(Box, { component: "pre", sx: { mt: 0.75, mb: 0, fontSize: 11, whiteSpace: 'pre-wrap', fontFamily: 'monospace' }, children: JSON.stringify(step.args, null, 2) })) : null] }));
-}
-function PhaseColumn(props) {
-    const { phaseKey, recipe } = props;
-    const hints = phaseHints(recipe, phaseKey);
-    const steps = phaseEngineSteps(recipe, phaseKey);
-    const otherHints = hints;
-    const stepsLabel = phaseKey === 'confirmation' ? 'Confirmation steps (server)' : 'Prefetch steps (read-only tools)';
-    return (jsxs(Paper, { variant: "outlined", sx: {
-            flex: '1 1 0',
-            minWidth: 200,
-            maxHeight: { md: 420 },
-            p: 1.5,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 1,
-            minHeight: 160,
-            bgcolor: 'background.paper',
-            overflow: 'hidden'
-        }, children: [jsx$1(Typography, { variant: "overline", color: "text.secondary", sx: { lineHeight: 1.2, flexShrink: 0 }, children: PHASE_LABELS[phaseKey] }), jsxs(Box, { sx: { flex: 1, minHeight: 0, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 1 }, children: [otherHints.length > 0 ? (jsxs(Stack$1, { spacing: 0.75, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Phase hints" }), otherHints.map((h, i) => (jsx$1(IntentRecipeHintLine, { hint: h, index: i }, `${phaseKey}-hint-${i}`)))] })) : null, hints.length === 0 ? (jsx$1(Typography, { variant: "body2", color: "text.disabled", sx: { fontSize: 13 }, children: "No phase hints" })) : null, steps.length > 0 ? (jsxs(Stack$1, { spacing: 1, sx: { mt: 0.5 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: stepsLabel }), steps.map((step, i) => (jsx$1(EngineStepCard, { step: step, index: i, phaseKey: phaseKey }, `${phaseKey}-step-${i}`)))] })) : null] })] }));
-}
-/**
- * Phased swimlane (Context → Action → Confirmation) aligned with server {@code AuthoringIntentRecipeCatalog}.
- */
-function AiAssistantIntentRecipeSwimlane(props) {
-    const { recipe } = props;
-    const prefetchSteps = [
-        ...phaseEngineSteps(recipe, 'context'),
-        ...phaseEngineSteps(recipe, 'action')
-    ];
-    const confirmationSteps = phaseEngineSteps(recipe, 'confirmation');
-    return (jsxs(Stack$1, { spacing: 2, children: [jsx$1(Box, { sx: {
-                    display: 'flex',
-                    flexDirection: { xs: 'column', md: 'row' },
-                    alignItems: { xs: 'stretch', md: 'flex-start' },
-                    gap: 1
-                }, children: INTENT_RECIPE_PHASE_KEYS.map((key, idx) => (jsxs(Box, { sx: { display: 'flex', flex: '1 1 0', alignItems: 'stretch', gap: 1, minWidth: 0 }, children: [jsx$1(PhaseColumn, { phaseKey: key, recipe: recipe }), idx < INTENT_RECIPE_PHASE_KEYS.length - 1 ? (jsx$1(Box, { sx: {
-                                display: { xs: 'none', md: 'flex' },
-                                alignItems: 'center',
-                                flexShrink: 0,
-                                color: 'text.disabled',
-                                pt: 4
-                            }, children: jsx$1(ArrowForwardRounded, { fontSize: "small" }) })) : null] }, key))) }), confirmationSteps.length > 0 ? (jsxs(Paper, { variant: "outlined", sx: { p: 1.5, bgcolor: 'action.hover' }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", gutterBottom: true, children: "Confirmation execution order (after tools loop)" }), jsx$1(Stack$1, { direction: "row", flexWrap: "wrap", useFlexGap: true, spacing: 0.5, alignItems: "center", children: confirmationSteps.map((step, i) => (jsxs(Box, { sx: { display: 'flex', alignItems: 'center', gap: 0.5 }, children: [i > 0 ? jsx$1(ArrowForwardRounded, { sx: { fontSize: 14, color: 'text.disabled' } }) : null, jsx$1(Chip, { size: "small", label: step.tool === 'llmRefine' ? `llmRefine (${step.llmRefine || '…'})` : step.tool, variant: "outlined", color: "primary" })] }, `conf-${i}`))) })] })) : null, prefetchSteps.length > 0 ? (jsxs(Paper, { variant: "outlined", sx: { p: 1.5, bgcolor: 'background.default' }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", gutterBottom: true, children: "Prefetch steps (context \u2192 action, when configured)" }), jsx$1(Stack$1, { direction: "row", flexWrap: "wrap", useFlexGap: true, spacing: 0.5, alignItems: "center", children: prefetchSteps.map((step, i) => (jsxs(Box, { sx: { display: 'flex', alignItems: 'center', gap: 0.5 }, children: [i > 0 ? jsx$1(ArrowForwardRounded, { sx: { fontSize: 14, color: 'text.disabled' } }) : null, jsx$1(Chip, { size: "small", label: step.tool, variant: "outlined" })] }, `prefetch-${i}`))) })] })) : null] }));
-}
-
-const PHASE_TAB_LABELS = {
-    context: 'Context',
-    action: 'Action',
-    confirmation: 'Confirmation'
-};
-const EDITOR_TABS = ['general', ...INTENT_RECIPE_PHASE_KEYS, 'preview'];
-const EDITOR_TAB_LABEL = {
-    general: 'General',
-    context: PHASE_TAB_LABELS.context,
-    action: PHASE_TAB_LABELS.action,
-    confirmation: PHASE_TAB_LABELS.confirmation,
-    preview: 'Preview'
-};
-function parseArgsJson(text) {
-    const t = text.trim();
-    if (!t)
-        return undefined;
-    try {
-        const o = JSON.parse(t);
-        if (!o || typeof o !== 'object' || Array.isArray(o))
-            return undefined;
-        return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, String(v ?? '')]));
-    }
-    catch {
-        return undefined;
-    }
-}
-function argsToJsonText(args) {
-    if (!args || Object.keys(args).length === 0)
-        return '';
-    return JSON.stringify(args, null, 2);
-}
-function EngineStepRow(props) {
-    const { step, index, onChange, onRemove, onDragStart, onDragOver, onDrop, onDragEnd, dragging } = props;
-    const [argsText, setArgsText] = useState(() => argsToJsonText(step.args));
-    const toolName = (step.tool || '').trim();
-    useEffect(() => {
-        setArgsText(argsToJsonText(step.args));
-    }, [step.tool, step.args]);
-    const applyDefaultArgs = () => {
-        const json = defaultPrefetchArgsJsonForTool(toolName);
-        if (!json)
-            return;
-        const parsed = parseArgsJson(json);
-        if (parsed) {
-            setArgsText(json);
-            onChange({ ...step, args: parsed });
-        }
-    };
-    const onToolChange = (v) => {
-        const nextTool = v.trim();
-        const next = { ...step, tool: nextTool };
-        const hasArgs = step.args && Object.keys(step.args).length > 0;
-        if (!hasArgs && nextTool) {
-            const json = defaultPrefetchArgsJsonForTool(nextTool);
-            const parsed = json ? parseArgsJson(json) : undefined;
-            if (parsed) {
-                next.args = parsed;
-                setArgsText(json);
-            }
-        }
-        onChange(next);
-    };
-    return (jsx$1(Paper, { variant: "outlined", draggable: true, onDragStart: () => onDragStart(index), onDragEnd: onDragEnd, onDragOver: (e) => {
-            e.preventDefault();
-            onDragOver(index);
-        }, onDrop: (e) => {
-            e.preventDefault();
-            onDrop();
-        }, sx: {
-            p: 1.5,
-            opacity: dragging ? 0.5 : 1,
-            cursor: 'grab',
-            bgcolor: 'action.hover'
-        }, children: jsxs(Stack$1, { direction: "row", spacing: 1, alignItems: "flex-start", children: [jsx$1(DragIndicatorRounded, { sx: { color: 'text.disabled', mt: 1, flexShrink: 0 }, fontSize: "small" }), jsxs(Stack$1, { spacing: 1.5, sx: { flex: 1, minWidth: 0 }, children: [jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 1, children: [jsx$1(TextField, { label: "Binding name (as)", value: step.as ?? '', onChange: (e) => onChange({ ...step, as: e.target.value.trim() || undefined }), size: "small", placeholder: "pageItem", sx: { flex: '0 0 160px' }, InputProps: { sx: { fontFamily: 'monospace' } } }), jsx$1(Autocomplete, { freeSolo: true, size: "small", options: [...INTENT_RECIPE_READ_ONLY_TOOLS], value: step.tool || '', onInputChange: (_, v) => onToolChange(v), sx: { flex: 1, minWidth: 0 }, renderInput: (params) => (jsx$1(TextField, { ...params, label: "Tool", helperText: "Read-only tools only \u2014 see arg reference below." })) })] }), toolName ? (jsx$1(AiAssistantIntentRecipePrefetchArgsHelp, { tool: toolName, onInsertDefaultArgs: applyDefaultArgs })) : null, jsx$1(TextField, { label: "Args (JSON)", value: argsText, onChange: (e) => {
-                                setArgsText(e.target.value);
-                                const parsed = parseArgsJson(e.target.value);
-                                onChange({ ...step, args: parsed });
-                            }, size: "small", fullWidth: true, multiline: true, minRows: 3, placeholder: defaultPrefetchArgsJsonForTool(toolName) ?? '{\n  "siteId": "$siteId"\n}', InputProps: { sx: { fontFamily: 'monospace', fontSize: 12 } } })] }), jsx$1(IconButton, { size: "small", "aria-label": "Remove step", onClick: onRemove, sx: { mt: 0.5 }, children: jsx$1(DeleteOutlineRounded, { fontSize: "small" }) })] }) }));
-}
-function PhaseEditor(props) {
-    const { phaseKey, state, bindingNamesForHints, onChange } = props;
-    const [dragIndex, setDragIndex] = useState(null);
-    const [dropIndex, setDropIndex] = useState(null);
-    const reorderSteps = useCallback((from, to) => {
-        if (from === to)
-            return;
-        const steps = [...state.engineSteps];
-        const [moved] = steps.splice(from, 1);
-        steps.splice(to, 0, moved);
-        onChange({ ...state, engineSteps: steps });
-    }, [state, onChange]);
-    return (jsxs(Stack$1, { spacing: 2, children: [jsx$1(AiAssistantIntentRecipePhaseHintsField, { phaseKey: phaseKey, hintsLines: state.hintsLines, bindingNames: bindingNamesForHints, onChange: (hintsLines) => onChange({ ...state, hintsLines }) }), jsxs(Box, { children: [jsxs(Typography, { variant: "subtitle2", sx: { mb: 1 }, children: ["Prefetch steps (", phaseKey, ")"] }), jsx$1(Stack$1, { direction: "row", justifyContent: "flex-end", alignItems: "center", sx: { mb: 1 }, children: jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: () => onChange({
-                                ...state,
-                                engineSteps: [...state.engineSteps, { tool: 'GetContent', args: { siteId: '$siteId', path: '$contentPath' } }]
-                            }), children: "Add step" }) }), jsx$1(Stack$1, { spacing: 1, children: state.engineSteps.length === 0 ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No engine steps \u2014 hints only for this phase." })) : (state.engineSteps.map((step, i) => (jsx$1(EngineStepRow, { step: step, index: i, dragging: dragIndex === i, onChange: (next) => {
-                                const steps = [...state.engineSteps];
-                                steps[i] = next;
-                                onChange({ ...state, engineSteps: steps });
-                            }, onRemove: () => {
-                                const steps = state.engineSteps.filter((_, j) => j !== i);
-                                onChange({ ...state, engineSteps: steps });
-                            }, onDragStart: (idx) => setDragIndex(idx), onDragOver: (idx) => setDropIndex(idx), onDrop: () => {
-                                if (dragIndex != null && dropIndex != null)
-                                    reorderSteps(dragIndex, dropIndex);
-                                setDragIndex(null);
-                                setDropIndex(null);
-                            }, onDragEnd: () => {
-                                setDragIndex(null);
-                                setDropIndex(null);
-                            } }, `step-${i}`)))) })] })] }));
-}
-function AiAssistantIntentRecipeEditor(props) {
-    const { recipe, onChange, idReadOnly, immersive } = props;
-    const [editorTab, setEditorTab] = useState('general');
-    const [phaseEdits, setPhaseEdits] = useState(() => recipeToPhaseEdits(recipe));
-    useEffect(() => {
-        setPhaseEdits(recipeToPhaseEdits(recipe));
-    }, [recipe.id]);
-    const previewRecipe = useMemo(() => recipeFromPhaseEdits(recipe, phaseEdits), [recipe, phaseEdits]);
-    const bindingNamesForHints = useMemo(() => declaredBindingNames(previewRecipe), [previewRecipe]);
-    const patchPhase = (key, next) => {
-        const merged = { ...phaseEdits, [key]: next };
-        setPhaseEdits(merged);
-        onChange(recipeFromPhaseEdits(recipe, merged));
-    };
-    return (jsxs(Stack$1, { spacing: 2, sx: immersive
-            ? { height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }
-            : undefined, children: [jsx$1(Tabs, { value: editorTab, onChange: (_, v) => setEditorTab(v), variant: "scrollable", scrollButtons: "auto", sx: immersive ? { flexShrink: 0, borderBottom: 1, borderColor: 'divider' } : undefined, children: EDITOR_TABS.map((k) => (jsx$1(Tab, { label: EDITOR_TAB_LABEL[k], value: k }, k))) }), jsxs(Box, { sx: immersive ? { flex: '1 1 auto', minHeight: 0, overflow: 'visible' } : undefined, children: [editorTab === 'general' ? (jsx$1(AiAssistantIntentRecipeGeneralFields, { recipe: recipe, onChange: onChange, idReadOnly: idReadOnly })) : null, INTENT_RECIPE_PHASE_KEYS.map((k) => editorTab === k ? (jsx$1(PhaseEditor, { phaseKey: k, state: phaseEdits[k], bindingNamesForHints: bindingNamesForHints, onChange: (n) => patchPhase(k, n) }, k)) : null), editorTab === 'preview' ? jsx$1(AiAssistantIntentRecipeSwimlane, { recipe: previewRecipe }) : null] })] }));
-}
-
-/**
- * Read-only recipe panel: swimlane visualization and metadata. Full editor opens on demand.
- */
-function AiAssistantIntentRecipeView(props) {
-    const { recipe, entry, onEdit } = props;
-    const bindingNames = declaredBindingNames(recipe);
-    const chatEmoji = resolveRecipeChatEmoji(recipe);
-    return (jsxs(Stack$1, { spacing: 2, children: [jsxs(Stack$1, { direction: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 1, flexWrap: "wrap", children: [jsxs(Box, { sx: { minWidth: 0 }, children: [jsxs(Stack$1, { direction: "row", spacing: 1, alignItems: "center", sx: { mb: recipe.description ? 1 : 0 }, children: [jsx$1(Typography, { component: "span", sx: { fontSize: '1.5rem', lineHeight: 1 }, "aria-hidden": true, children: chatEmoji }), jsx$1(Typography, { variant: "subtitle2", children: recipe.title || recipe.id })] }), recipe.description ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 1 }, children: recipe.description })) : null, recipe.matchHints && recipe.matchHints.length > 0 ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", sx: { mb: 0.5 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Match:" }), recipe.matchHints.map((h) => (jsx$1(Chip, { size: "small", label: h, variant: "outlined" }, `m:${h}`)))] })) : null, recipe.dontMatchHints && recipe.dontMatchHints.length > 0 ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Don't match:" }), recipe.dontMatchHints.map((h) => (jsx$1(Chip, { size: "small", label: h, variant: "outlined", color: "warning" }, `d:${h}`)))] })) : null, recipe.toolsLoopForceTool ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", sx: { mb: 0.5 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Force tool:" }), jsx$1(Chip, { size: "small", label: recipe.toolsLoopForceTool, variant: "outlined", color: "primary" })] })) : null, recipe.toolsLoopAllowlist && recipe.toolsLoopAllowlist.length > 0 ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", sx: { mb: 0.5 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Allowlist:" }), recipe.toolsLoopAllowlist.map((t) => (jsx$1(Chip, { size: "small", label: t, variant: "outlined" }, `a:${t}`)))] })) : null, recipe.toolsLoopExcludeTools && recipe.toolsLoopExcludeTools.length > 0 ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", sx: { mb: 0.5 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Exclude:" }), recipe.toolsLoopExcludeTools.map((t) => (jsx$1(Chip, { size: "small", label: t, variant: "outlined", color: "warning" }, `x:${t}`)))] })) : null] }), jsx$1(Button, { size: "small", variant: "contained", startIcon: jsx$1(EditRounded, {}), onClick: onEdit, children: "Edit recipe" })] }), bindingNames.length > 0 ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Prefetch:" }), bindingNames.map((n) => (jsx$1(Chip, { size: "small", label: n, variant: "outlined" }, n)))] })) : null, jsx$1(AiAssistantIntentRecipeSwimlane, { recipe: recipe }), entry.source === 'bundled' ? (jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Built-in recipe \u2014 Edit to customize for your project." })) : null] }));
-}
-
-function AiAssistantIntentRecipeRoutingFields(props) {
-    const { value: valueProp, onChange } = props;
-    const value = valueProp ?? defaultIntentRecipeRoutingFormState();
-    const patch = (partial) => onChange({ ...value, ...partial });
-    return (jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Intent recipe routing" }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Optional pre-tools LLM router: chooses chat-only, a single tool, a matched recipe (with prefetch), or defers to the plan loop. Recipe match hints are synonyms for the router catalog only." }), jsxs(Stack$1, { spacing: 2, children: [jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.enabled, onChange: (_, c) => patch({ enabled: c }), size: "small" }), label: "Enable intent recipe router" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.engineEnabled, onChange: (_, c) => patch({ engineEnabled: c }), size: "small", disabled: !value.enabled }), label: "Prefetch engine (server read-only tool steps before tools loop)" }), jsx$1(TextField, { label: "Min confidence (0\u20131)", value: value.minConfidence, onChange: (ev) => patch({ minConfidence: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled, helperText: "Router must meet this confidence to apply a recipe (default 0.55)." }), jsx$1(TextField, { label: "Custom recipes path (optional)", value: value.customRecipesPath, onChange: (ev) => patch({ customRecipesPath: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled, placeholder: "/scripts/aiassistant/config/intent-recipes.json", helperText: "Studio module path; merged over bundled defaults by recipe id." }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.eligibilityGateEnabled, onChange: (_, c) => patch({ eligibilityGateEnabled: c }), size: "small", disabled: !value.enabled }), label: "Eligibility gate (filter short / non-CMS messages before routing)" }), jsx$1(TextField, { label: "Prefetch max steps (optional)", value: value.engineMaxSteps, onChange: (ev) => patch({ engineMaxSteps: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled || !value.engineEnabled, placeholder: "8", helperText: "Cap read-only prefetch steps in the recipe engine. Leave empty for server default." }), jsx$1(TextField, { label: "Prefetch max total characters (optional)", value: value.engineMaxTotalChars, onChange: (ev) => patch({ engineMaxTotalChars: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled || !value.engineEnabled, placeholder: "200000", helperText: "Total characters loaded across prefetch steps. Leave empty for server default." }), jsx$1(TextField, { label: "Prefetch max field characters (optional)", value: value.engineMaxFieldChars, onChange: (ev) => patch({ engineMaxFieldChars: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled || !value.engineEnabled, placeholder: "120000", helperText: "Per-field cap during prefetch. Leave empty for server default." })] })] }));
-}
-
 function _extends() {
   return _extends = Object.assign ? Object.assign.bind() : function (n) {
     for (var e = 1; e < arguments.length; e++) {
@@ -74472,6 +73934,611 @@ function AiAssistantStudioCodeEditor(props) {
             }, onChange: readOnly || !onChange ? undefined : (v) => onChange(v) }) }));
 }
 
+/**
+ * Markdown authoring for project context, prompt overrides, and recipe preludes —
+ * CodeMirror source + rendered preview (not a plain multiline {@code TextField}).
+ */
+function AiAssistantMarkdownEditor(props) {
+    const { value, onChange, readOnly = false, minHeightPx = 280, flexFill = false, defaultView = 'split', helperText, id } = props;
+    const theme = useTheme();
+    const isNarrow = useMediaQuery(theme.breakpoints.down('md'));
+    const initialView = readOnly
+        ? 'preview'
+        : isNarrow
+            ? 'edit'
+            : defaultView;
+    const [view, setView] = useState(initialView);
+    const showEdit = view === 'edit' || view === 'split';
+    const showPreview = view === 'preview' || view === 'split';
+    const paneMinHeight = Math.max(200, minHeightPx);
+    const rootSx = useMemo(() => flexFill
+        ? {
+            flex: '1 1 auto',
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignSelf: 'stretch'
+        }
+        : { display: 'flex', flexDirection: 'column' }, [flexFill]);
+    const paneSx = useMemo(() => flexFill
+        ? {
+            flex: '1 1 0',
+            minHeight: 0,
+            minWidth: 0,
+            display: 'flex',
+            flexDirection: 'column'
+        }
+        : {
+            flex: '1 1 0',
+            minHeight: paneMinHeight,
+            minWidth: 0,
+            display: 'flex',
+            flexDirection: 'column'
+        }, [flexFill, paneMinHeight]);
+    return (jsxs(Box, { id: id, sx: rootSx, children: [jsxs(Tabs, { value: view, onChange: (_, next) => setView(next), sx: { minHeight: 36, mb: helperText ? 0.5 : 1, flexShrink: 0 }, children: [!readOnly ? jsx$1(Tab, { label: "Edit", value: "edit", sx: { minHeight: 36, py: 0.5 } }) : null, jsx$1(Tab, { label: readOnly ? 'Rendered' : 'Preview', value: "preview", sx: { minHeight: 36, py: 0.5 } }), !readOnly && !isNarrow ? (jsx$1(Tab, { label: "Split", value: "split", sx: { minHeight: 36, py: 0.5 } })) : null, readOnly ? jsx$1(Tab, { label: "Source", value: "edit", sx: { minHeight: 36, py: 0.5 } }) : null] }), helperText ? (jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 1, flexShrink: 0 }, children: helperText })) : null, jsxs(Box, { sx: {
+                    display: 'flex',
+                    flexDirection: { xs: 'column', md: view === 'split' ? 'row' : 'column' },
+                    gap: view === 'split' ? 2 : 0,
+                    flex: flexFill ? '1 1 auto' : undefined,
+                    minHeight: flexFill ? 0 : paneMinHeight
+                }, children: [showEdit ? (jsxs(Box, { sx: paneSx, children: [view === 'split' ? (jsx$1(Typography, { variant: "caption", color: "text.secondary", sx: { mb: 0.5, flexShrink: 0 }, children: "Markdown source" })) : null, jsx$1(AiAssistantStudioCodeEditor, { value: value, onChange: readOnly ? undefined : onChange, language: "markdown", readOnly: readOnly, flexFill: flexFill || view === 'split', minHeightPx: paneMinHeight })] })) : null, showPreview ? (jsxs(Box, { sx: {
+                            ...paneSx,
+                            overflow: 'auto',
+                            border: 1,
+                            borderColor: 'divider',
+                            borderRadius: 1,
+                            px: 2,
+                            py: 1.5,
+                            bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'background.paper'
+                        }, children: [view === 'split' ? (jsx$1(Typography, { variant: "caption", color: "text.secondary", sx: { mb: 0.5, display: 'block', flexShrink: 0 }, children: "Rendered preview" })) : null, value.trim() ? (jsx$1(MarkdownMessage, { text: value })) : (jsx$1(Typography, { variant: "body2", color: "text.secondary", fontStyle: "italic", children: "Nothing to preview yet." }))] })) : null] })] }));
+}
+
+const TOOLS_LOOP_WIRE_OPTIONS = [...INTENT_RECIPE_WIRE_TOOL_OPTIONS];
+/** Recipe tools-loop policy: force tool, allowlist, excludes, fetch caps, prelude. */
+function AiAssistantIntentRecipeToolsLoopFields(props) {
+    const { recipe, onChange } = props;
+    const patchRecipe = (partial) => {
+        onChange({ ...recipe, ...partial });
+    };
+    return (jsxs(Stack$1, { spacing: 2, children: [jsx$1(Typography, { variant: "subtitle2", children: "Tools loop (orchestration)" }), jsxs(Typography, { variant: "body2", color: "text.secondary", children: ["Applied when this recipe matches: round-0 ", jsx$1("strong", { children: "tool_choice" }), ", tool allowlist, and server fetch limits. Names must match built-in wire tools (e.g. ", jsx$1("strong", { children: "WebSearch" }), ", ", jsx$1("strong", { children: "SerpApiWebSearch" }), ",", ' ', jsx$1("strong", { children: "FetchHttpUrl" }), ")."] }), jsx$1(Autocomplete, { freeSolo: true, options: TOOLS_LOOP_WIRE_OPTIONS, value: recipe.toolsLoopForceTool ?? '', onInputChange: (_, v, reason) => {
+                    if (reason === 'input') {
+                        patchRecipe({ toolsLoopForceTool: v.trim() || undefined });
+                    }
+                }, onChange: (_, v) => {
+                    const value = typeof v === 'string' ? v : (v?.toString() ?? '');
+                    patchRecipe({ toolsLoopForceTool: value.trim() || undefined });
+                }, renderInput: (params) => (jsx$1(TextField, { ...params, label: "Force tool (round 0)", size: "small", placeholder: "WebSearch", helperText: "Required first tool call. If disabled in tools.json, the turn fails with \u201CRecipe tool unavailable\u201D.", InputProps: { ...params.InputProps, sx: { fontFamily: 'monospace' } } })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: TOOLS_LOOP_WIRE_OPTIONS, value: recipe.toolsLoopAllowlist ?? [], onChange: (_, v) => patchRecipe({ toolsLoopAllowlist: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Tools-loop allowlist", size: "small", helperText: "Only these tools are registered for the turn (unless bypass keywords match)." })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: TOOLS_LOOP_WIRE_OPTIONS, value: recipe.toolsLoopExcludeTools ?? [], onChange: (_, v) => patchRecipe({ toolsLoopExcludeTools: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Exclude tools", size: "small", helperText: "Removed from the session tool list when this recipe matches." })) }), jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 2, children: [jsx$1(TextField, { label: "Max FetchHttpUrl calls per turn", type: "number", size: "small", value: recipe.toolsLoopMaxFetchHttpUrlCalls ?? '', onChange: (e) => {
+                            const t = e.target.value.trim();
+                            patchRecipe({
+                                toolsLoopMaxFetchHttpUrlCalls: t === '' ? undefined : Math.max(0, Math.min(10, Number(t) || 0))
+                            });
+                        }, inputProps: { min: 0, max: 10 }, sx: { flex: '0 0 220px' } }), jsx$1(TextField, { label: "FetchHttpUrl wire max chars", type: "number", size: "small", value: recipe.toolsLoopFetchHttpUrlWireMaxChars ?? '', onChange: (e) => {
+                            const t = e.target.value.trim();
+                            patchRecipe({
+                                toolsLoopFetchHttpUrlWireMaxChars: t === '' ? undefined : Math.max(256, Math.min(24000, Number(t) || 0))
+                            });
+                        }, inputProps: { min: 256, max: 24000 }, sx: { flex: '0 0 220px' } })] }), jsxs(Box, { children: [jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 1 }, children: "Matched user prelude \u2014 prepended to the tools-loop user message when this recipe matches. Use an external markdown file for long preludes (readable in git); inline text is the fallback when the file is missing." }), jsx$1(TextField, { label: "Prelude file (studio module path)", size: "small", fullWidth: true, value: recipe.matchedUserPreludePath ?? '', onChange: (e) => {
+                            const t = e.target.value.trim();
+                            patchRecipe({ matchedUserPreludePath: t || undefined });
+                        }, placeholder: "scripts/aiassistant/recipes/preludes/my-recipe-matched-user-prelude.md", helperText: "Optional. When set, the server loads prelude text from this path instead of the field below.", InputProps: { sx: { fontFamily: 'monospace' } }, sx: { mb: 2 } }), jsx$1(AiAssistantMarkdownEditor, { value: recipe.matchedUserPrelude ?? '', onChange: (next) => {
+                            const t = next.trim();
+                            patchRecipe({ matchedUserPrelude: t ? next : undefined });
+                        }, minHeightPx: 320, defaultView: "split", helperText: recipe.matchedUserPreludePath
+                            ? 'Inline prelude is ignored when Prelude file is set. Clear the path to edit inline.'
+                            : 'Use headings and lists; preview shows how authors will read injected orchestration text.' })] })] }));
+}
+
+/** Recipe metadata, match rules, and tools-loop policy (editor General tab). */
+function AiAssistantIntentRecipeGeneralFields(props) {
+    const { recipe, onChange, idReadOnly } = props;
+    const patchRecipe = (partial) => {
+        onChange({ ...recipe, ...partial });
+    };
+    return (jsxs(Stack$1, { spacing: 2, children: [jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 2, alignItems: "flex-start", children: [jsx$1(AiAssistantIntentRecipeEmojiField, { emoji: recipe.chatEmoji ?? '', title: recipe.title ?? '', recipeId: recipe.id, onChange: (chatEmoji) => patchRecipe({ chatEmoji: chatEmoji || undefined }) }), jsx$1(TextField, { label: "Recipe id", value: recipe.id, onChange: (e) => patchRecipe({ id: e.target.value.trim() }), size: "small", disabled: idReadOnly, sx: { flex: '0 0 220px' }, InputProps: { sx: { fontFamily: 'monospace' } } }), jsx$1(TextField, { label: "Title", value: recipe.title ?? '', onChange: (e) => patchRecipe({ title: e.target.value }), size: "small", fullWidth: true })] }), jsx$1(TextField, { label: "Description (router)", value: recipe.description ?? '', onChange: (e) => patchRecipe({ description: e.target.value }), size: "small", fullWidth: true, multiline: true, minRows: 2 }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.matchHints ?? [], onChange: (_, v) => patchRecipe({ matchHints: v.map(String) }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Match hints", size: "small", placeholder: "translate, publish, \u2026" })) }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.dontMatchHints ?? [], onChange: (_, v) => patchRecipe({ dontMatchHints: v.length ? v.map(String) : undefined }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Don't match hints", size: "small", placeholder: "translate, publish, \u2026" })) }), jsx$1(AiAssistantIntentRecipeToolsLoopFields, { recipe: recipe, onChange: onChange }), jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [], value: recipe.toolsLoopAllowlistBypassIfAuthorMentions ?? [], onChange: (_, v) => patchRecipe({
+                    toolsLoopAllowlistBypassIfAuthorMentions: v.length ? v.map(String) : undefined
+                }), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Allowlist bypass keywords (optional)", size: "small" })) })] }));
+}
+
+/**
+ * Prefetch {@code engineSteps} args — aligned with
+ * {@code AuthoringIntentRecipeEngine#executeReadOnlyTool} and {@code #resolveArgValue}.
+ */
+const PREFETCH_BINDING_TOKENS = [
+    { token: '$siteId', description: 'Studio project id for the current author session' },
+    { token: '$contentPath', description: 'Open form/preview item path (e.g. /site/website/.../index.xml)' },
+    { token: '$contentTypeId', description: 'Content type id when already known from Studio context' },
+    { token: '$previewUrl', description: 'Engine preview URL when available' },
+    {
+        token: '$step0.fieldName',
+        description: 'Field from a prior step result (0-based index), e.g. $step0.contentXml'
+    },
+    {
+        token: '$initial.pageItem.contentXml',
+        description: 'Named prefetch snapshot at turn start (step as: pageItem)'
+    },
+    {
+        token: '$current.pageItem.contentXml',
+        description: 'Same binding after WriteContent on the item path (falls back to initial)'
+    },
+    {
+        token: '{{initial.pageItem}}',
+        description: 'Expanded in phase hints when the recipe matches (server prelude)'
+    },
+    {
+        token: '{{current.pageItem}}',
+        description: 'Expanded after writes in the same turn when available'
+    }
+];
+const INTENT_RECIPE_PREFETCH_TOOL_DOCS = {
+    GetContent: {
+        summary: 'Read repository XML for the anchored or specified path (read-only prefetch).',
+        args: [
+            { name: 'siteId', required: true, description: 'Project id', example: '$siteId' },
+            {
+                name: 'path',
+                required: true,
+                description: 'Repository path (alias: contentPath)',
+                example: '$contentPath'
+            },
+            { name: 'contentPath', description: 'Same as path', example: '$contentPath' },
+            { name: 'commitId', description: 'Optional git commit id / commitRef for historical read' }
+        ],
+        defaultArgs: { siteId: '$siteId', path: '$contentPath' }
+    },
+    GetContentTypeFormDefinition: {
+        summary: 'Load form-definition XML for the item’s content type (via contentPath or contentTypeId).',
+        args: [
+            { name: 'siteId', required: true, description: 'Project id', example: '$siteId' },
+            {
+                name: 'contentPath',
+                description: 'Item path; content type inferred from item XML (preferred in recipes)',
+                example: '$contentPath'
+            },
+            { name: 'contentTypeId', description: 'Direct type id when path is not used', example: '$contentTypeId' }
+        ],
+        defaultArgs: { siteId: '$siteId', contentPath: '$contentPath' }
+    },
+    ListContentTranslationScope: {
+        summary: 'Tree of translatable paths for batch translation (read-only scope discovery).',
+        args: [
+            { name: 'siteId', required: true, description: 'Project id', example: '$siteId' },
+            { name: 'contentPath', required: true, description: 'Root page/item path', example: '$contentPath' },
+            { name: 'path', description: 'Alias for contentPath' },
+            { name: 'maxItems', description: 'Optional cap on items in tree' },
+            { name: 'maxDepth', description: 'Optional depth limit' },
+            { name: 'chunkSize', description: 'Optional chunk size for large trees' }
+        ],
+        defaultArgs: { siteId: '$siteId', contentPath: '$contentPath' }
+    },
+    ListContentDependencyScope: {
+        summary: 'Dependency scope tree (same arg shape as ListContentTranslationScope).',
+        args: [
+            { name: 'siteId', required: true, description: 'Project id', example: '$siteId' },
+            { name: 'contentPath', required: true, description: 'Root path', example: '$contentPath' },
+            { name: 'maxItems', description: 'Optional cap' },
+            { name: 'maxDepth', description: 'Optional depth limit' }
+        ],
+        defaultArgs: { siteId: '$siteId', contentPath: '$contentPath' }
+    },
+    ListStudioContentTypes: {
+        summary: 'List content types in the project (e.g. before creating a new item).',
+        args: [
+            { name: 'siteId', required: true, description: 'Project id', example: '$siteId' },
+            {
+                name: 'searchable',
+                description: 'Boolean — false lists all types; true limits to searchable types',
+                example: 'false'
+            },
+            { name: 'contentPath', description: 'Optional path hint for filtering' }
+        ],
+        defaultArgs: { siteId: '$siteId', searchable: false }
+    },
+    GetContentVersionHistory: {
+        summary: 'Git version history for a content path (read-only).',
+        args: [
+            { name: 'siteId', required: true, description: 'Project id', example: '$siteId' },
+            { name: 'path', required: true, description: 'Repository path', example: '$contentPath' },
+            { name: 'contentPath', description: 'Alias for path' }
+        ],
+        defaultArgs: { siteId: '$siteId', path: '$contentPath' }
+    },
+    GetPreviewHtml: {
+        summary: 'Fetch rendered preview HTML from Engine (confirmation phase).',
+        args: [
+            {
+                name: 'url',
+                description: 'Preview URL (alias: previewUrl)',
+                example: '$previewUrl'
+            },
+            { name: 'previewUrl', description: 'Same as url', example: '$previewUrl' },
+            { name: 'siteId', description: 'Optional project id for preview auth', example: '$siteId' },
+            { name: 'previewToken', description: 'Optional preview token when required by Engine' }
+        ],
+        defaultArgs: { url: '$previewUrl', siteId: '$siteId' }
+    }
+};
+function prefetchToolDoc(tool) {
+    const t = tool?.trim();
+    if (!t)
+        return undefined;
+    return INTENT_RECIPE_PREFETCH_TOOL_DOCS[t];
+}
+function defaultPrefetchArgsJsonForTool(tool) {
+    const doc = prefetchToolDoc(tool);
+    if (!doc)
+        return null;
+    return JSON.stringify(doc.defaultArgs, null, 2);
+}
+
+function AiAssistantIntentRecipePrefetchArgsHelp(props) {
+    const { tool, onInsertDefaultArgs } = props;
+    const doc = prefetchToolDoc(tool);
+    if (!doc) {
+        return (jsx$1(Alert, { severity: "warning", sx: { py: 0.5 }, children: jsxs(Typography, { variant: "body2", children: ["No built-in reference for ", jsx$1("strong", { children: tool || '(pick a tool)' }), ". Prefetch only supports read-only tools documented in the plugin. Copy args from a bundled recipe or see", ' ', jsx$1("code", { children: "AuthoringIntentRecipeEngine.groovy" }), "."] }) }));
+    }
+    return (jsxs(Stack$1, { spacing: 1, children: [jsx$1(Typography, { variant: "body2", color: "text.secondary", children: doc.summary }), jsxs(Table$1, { size: "small", sx: { '& td, & th': { py: 0.5, px: 1 } }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Arg" }), jsx$1(TableCell, { children: "Required" }), jsx$1(TableCell, { children: "Description" }), jsx$1(TableCell, { children: "Example" })] }) }), jsx$1(TableBody, { children: doc.args.map((a) => (jsxs(TableRow, { children: [jsx$1(TableCell, { sx: { fontFamily: 'monospace', fontSize: 12 }, children: a.name }), jsx$1(TableCell, { children: a.required ? 'yes' : '' }), jsx$1(TableCell, { children: a.description }), jsx$1(TableCell, { sx: { fontFamily: 'monospace', fontSize: 11 }, children: a.example ?? '' })] }, a.name))) })] }), onInsertDefaultArgs ? (jsxs(Button, { size: "small", variant: "text", onClick: onInsertDefaultArgs, sx: { alignSelf: 'flex-start' }, children: ["Insert default args for ", tool] })) : null] }));
+}
+function AiAssistantIntentRecipePrefetchBindingsHelp() {
+    return (jsxs(Box, { children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", gutterBottom: true, children: "Placeholders for prefetch step arguments" }), jsxs(Table$1, { size: "small", sx: { '& td, & th': { py: 0.5, px: 1 } }, children: [jsx$1(TableHead, { children: jsxs(TableRow, { children: [jsx$1(TableCell, { children: "Token" }), jsx$1(TableCell, { children: "Meaning" })] }) }), jsx$1(TableBody, { children: PREFETCH_BINDING_TOKENS.map((b) => (jsxs(TableRow, { children: [jsx$1(TableCell, { sx: { fontFamily: 'monospace', fontSize: 12 }, children: b.token }), jsx$1(TableCell, { children: b.description })] }, b.token))) })] })] }));
+}
+
+const PHASE_LABELS$1 = {
+    context: 'Context',
+    action: 'Action',
+    confirmation: 'Confirmation'
+};
+function AiAssistantIntentRecipePhaseHintsField(props) {
+    const { phaseKey, hintsLines, bindingNames = [], onChange } = props;
+    const hintChips = useMemo(() => hintLinesToArray(hintsLines), [hintsLines]);
+    const templates = INTENT_RECIPE_HINT_TEMPLATES[phaseKey];
+    const [helperFlyoutAnchor, setHelperFlyoutAnchor] = useState(null);
+    const [templatePick, setTemplatePick] = useState(null);
+    const [flowTools, setFlowTools] = useState([]);
+    const [flowMiddle, setFlowMiddle] = useState('revise XML');
+    const [flowSuffix, setFlowSuffix] = useState('preserve <page>/<component> structure and node-selector shapes.');
+    useEffect(() => {
+        if (phaseKey !== 'action' || hintChips.length === 0)
+            return;
+        const parsed = parseActionFlowHint(hintChips[0]);
+        if (parsed.tools.length > 0) {
+            setFlowTools(parsed.tools);
+            setFlowMiddle(parsed.middleStep);
+            setFlowSuffix(parsed.suffix);
+        }
+    }, [phaseKey, hintChips[0]]);
+    const setHintChips = useCallback((next) => onChange(hintArrayToLines(next)), [onChange]);
+    const appendToolToNewHint = (tool) => {
+        const t = tool.trim();
+        if (!t)
+            return;
+        const last = hintChips[hintChips.length - 1] ?? '';
+        if (!last) {
+            setHintChips([`Use ${t}`]);
+            return;
+        }
+        if (last.includes('→')) {
+            setHintChips([...hintChips.slice(0, -1), `${last} → ${t}`]);
+        }
+        else if (/\bUse\b/i.test(last)) {
+            setHintChips([...hintChips.slice(0, -1), `${last} or ${t}`]);
+        }
+        else {
+            setHintChips([...hintChips, `Use ${t}`]);
+        }
+    };
+    const applyActionFlow = () => {
+        const generated = buildActionFlowHint(flowTools, flowMiddle, flowSuffix);
+        const rest = hintChips.slice(1);
+        setHintChips([generated, ...rest]);
+    };
+    const appendTemplateLine = (line) => {
+        const t = line.trim();
+        if (!t)
+            return;
+        const lines = hintLinesToArray(hintsLines);
+        if (lines.includes(t))
+            return;
+        onChange(hintArrayToLines([...lines, t]));
+    };
+    return (jsxs(Stack$1, { spacing: 2, children: [jsx$1(TextField, { label: `${PHASE_LABELS$1[phaseKey]} hints`, value: hintsLines, onChange: (e) => onChange(e.target.value), placeholder: "One hint per line", helperText: "One hint per line. Edit directly or insert a template below.", fullWidth: true, multiline: true, minRows: 10, maxRows: 18, InputLabelProps: { shrink: true }, sx: {
+                    mt: 0.5,
+                    '& .MuiInputLabel-root': {
+                        zIndex: 1,
+                        bgcolor: 'background.paper',
+                        px: 0.5
+                    },
+                    '& .MuiInputBase-root': {
+                        alignItems: 'flex-start',
+                        py: 1.5,
+                        px: 1.5
+                    },
+                    '& .MuiInputBase-inputMultiline': {
+                        lineHeight: 1.6,
+                        fontSize: '0.9375rem'
+                    }
+                } }), templates.length > 0 ? (jsx$1(Autocomplete, { freeSolo: true, options: templates, value: templatePick, onChange: (_, v) => {
+                    const line = (v ?? '').toString().trim();
+                    if (line) {
+                        appendTemplateLine(line);
+                    }
+                    setTemplatePick(null);
+                }, renderInput: (params) => (jsx$1(TextField, { ...params, size: "small", label: "Insert template line", placeholder: "Pick a bundled hint to append" })) })) : null, jsx$1(Stack$1, { direction: "row", justifyContent: "flex-end", children: jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(BuildRounded, {}), onClick: (e) => setHelperFlyoutAnchor(e.currentTarget), "aria-haspopup": "dialog", "aria-expanded": Boolean(helperFlyoutAnchor), children: "Tools & placeholders\u2026" }) }), jsx$1(Popover, { open: Boolean(helperFlyoutAnchor), anchorEl: helperFlyoutAnchor, onClose: () => setHelperFlyoutAnchor(null), anchorOrigin: { vertical: 'bottom', horizontal: 'right' }, transformOrigin: { vertical: 'top', horizontal: 'right' }, slotProps: { paper: { sx: { maxWidth: 520 } } }, children: jsxs(Box, { sx: { p: 2, maxHeight: 'min(70vh, 560px)', overflow: 'auto' }, children: [jsxs(Typography, { variant: "subtitle2", gutterBottom: true, children: ["Insert into ", PHASE_LABELS$1[phaseKey].toLowerCase(), " hints"] }), jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 2 }, children: "Tool names and placeholders for hints; token reference for prefetch step JSON args below." }), jsxs(Stack$1, { spacing: 2, children: [jsx$1(AiAssistantIntentRecipePrefetchBindingsHelp, {}), jsxs(Box, { children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 0.75 }, children: "Tool wire names (hints)" }), jsx$1(Box, { sx: { display: 'flex', flexWrap: 'wrap', gap: 0.5 }, children: INTENT_RECIPE_WIRE_TOOL_OPTIONS.map((tool) => (jsx$1(Chip, { label: tool, size: "small", variant: "outlined", onClick: () => appendToolToNewHint(tool), sx: { fontFamily: 'monospace', fontSize: 11, cursor: 'pointer' } }, tool))) })] }), bindingNames.length > 0 ? (jsxs(Box, { children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 0.75 }, children: "Prefetch placeholders (from engine step bindings)" }), jsx$1(Box, { sx: { display: 'flex', flexWrap: 'wrap', gap: 0.5 }, children: bindingNames.flatMap((name) => [
+                                                jsx$1(Chip, { label: `{{initial.${name}}}`, size: "small", variant: "outlined", onClick: () => setHintChips([...hintChips, `{{initial.${name}}}`]), sx: { fontFamily: 'monospace', fontSize: 11, cursor: 'pointer' } }, `initial-${name}`),
+                                                jsx$1(Chip, { label: `{{current.${name}}}`, size: "small", variant: "outlined", onClick: () => setHintChips([...hintChips, `{{current.${name}}}`]), sx: { fontFamily: 'monospace', fontSize: 11, cursor: 'pointer' } }, `current-${name}`)
+                                            ]) })] })) : (jsxs(Typography, { variant: "caption", color: "text.secondary", children: ["Add prefetch engine steps below to enable placeholder chips for", ' ', jsx$1("code", { children: '{{initial.name}}' }), " / ", jsx$1("code", { children: '{{current.name}}' }), "."] })), phaseKey === 'action' ? (jsxs(Paper, { variant: "outlined", sx: { p: 1.5, bgcolor: 'action.hover' }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Action tool flow" }), jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 1.5 }, children: ["Build one hint like", ' ', jsx$1("em", { children: "Use update_content or GetContent \u2192 revise XML \u2192 WriteContent; preserve structure\u2026" })] }), jsxs(Stack$1, { spacing: 1.5, children: [jsx$1(Autocomplete, { multiple: true, freeSolo: true, options: [...INTENT_RECIPE_WIRE_TOOL_OPTIONS], value: flowTools, onChange: (_, v) => setFlowTools(v.map(String).filter(Boolean)), renderInput: (params) => (jsx$1(TextField, { ...params, label: "Tools in flow (ordered)", size: "small", placeholder: "update_content, GetContent, WriteContent" })), renderTags: (value, getTagProps) => value.map((option, index) => (createElement(Chip, { ...getTagProps({ index }), key: `${option}-${index}`, label: option, size: "small", sx: { fontFamily: 'monospace', fontSize: 11 } }))) }), jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 1, children: [jsx$1(TextField, { label: "After \u2192", value: flowMiddle, onChange: (e) => setFlowMiddle(e.target.value), size: "small", fullWidth: true, placeholder: "revise XML" }), jsx$1(TextField, { label: "After ;", value: flowSuffix, onChange: (e) => setFlowSuffix(e.target.value), size: "small", fullWidth: true, placeholder: "preserve <page>/<component> structure\u2026" })] }), jsx$1(Button, { size: "small", variant: "outlined", startIcon: jsx$1(AutoFixHighRounded, {}), onClick: () => {
+                                                        applyActionFlow();
+                                                        setHelperFlyoutAnchor(null);
+                                                    }, sx: { alignSelf: 'flex-start' }, children: "Generate action hint from tools" }), flowTools.length > 0 ? (jsxs(Typography, { variant: "body2", sx: { fontSize: 12, color: 'text.secondary' }, children: ["Preview: ", buildActionFlowHint(flowTools, flowMiddle, flowSuffix)] })) : null] })] })) : null] })] }) })] }));
+}
+
+const LONG_HINT_CHARS = 220;
+function classifyIntentRecipeHint(hint) {
+    const t = hint.trim();
+    if (!t)
+        return 'compact';
+    if (t.length >= LONG_HINT_CHARS)
+        return 'long';
+    return 'compact';
+}
+function IntentRecipeHintLine(props) {
+    const { hint, index } = props;
+    const kind = classifyIntentRecipeHint(hint);
+    if (kind === 'long') {
+        return (jsx$1(Box, { sx: {
+                maxHeight: 96,
+                overflow: 'auto',
+                px: 1,
+                py: 0.75,
+                borderRadius: 1,
+                bgcolor: 'action.hover',
+                border: '1px solid',
+                borderColor: 'divider'
+            }, children: jsx$1(Typography, { variant: "caption", component: "div", sx: { fontSize: 12, lineHeight: 1.45, whiteSpace: 'pre-wrap' }, children: hint }) }, `hint-${index}`));
+    }
+    return (jsx$1(Typography, { variant: "body2", sx: { fontSize: 13, lineHeight: 1.4 }, children: hint }, `hint-${index}`));
+}
+
+const PHASE_LABELS = {
+    context: 'Context',
+    action: 'Action',
+    confirmation: 'Confirmation'
+};
+function confirmationStepArgSummary(args) {
+    if (!args)
+        return [];
+    const chips = [];
+    const text = String(args.text ?? args.message ?? '').trim();
+    const icon = String(args.iconEmoji ?? '').trim();
+    const thread = String(args.threadTs ?? '').trim();
+    if (text) {
+        const short = text.length > 48 ? `${text.slice(0, 45)}…` : text;
+        chips.push(short);
+    }
+    if (icon)
+        chips.push(icon);
+    if (thread)
+        chips.push(`thread: ${thread}`);
+    return chips;
+}
+function EngineStepCard(props) {
+    const { step, index, phaseKey } = props;
+    const isConfirmation = phaseKey === 'confirmation';
+    const isLlmRefine = step.tool === 'llmRefine' || Boolean(step.llmRefine?.trim());
+    const isSlack = step.tool === 'SlackPostMessage';
+    const prefetchAllowlisted = INTENT_RECIPE_READ_ONLY_TOOLS.includes(step.tool);
+    const confirmationKnown = INTENT_RECIPE_CONFIRMATION_STEP_TOOLS.includes(isLlmRefine ? 'llmRefine' : step.tool);
+    let bgcolor = 'action.hover';
+    let borderColor = 'divider';
+    let caption = null;
+    if (isConfirmation) {
+        bgcolor = 'background.paper';
+        borderColor = 'primary.light';
+        if (!confirmationKnown) {
+            bgcolor = 'warning.light';
+            borderColor = 'warning.main';
+            caption = 'Unknown confirmation step — verify server allowlist.';
+        }
+    }
+    else if (!prefetchAllowlisted) {
+        bgcolor = 'warning.light';
+        borderColor = 'warning.main';
+        caption = 'Not in read-only prefetch allowlist — server will skip at runtime.';
+    }
+    const title = isLlmRefine ? `llmRefine` : step.tool;
+    const profile = step.llmRefine?.trim();
+    return (jsxs(Paper, { variant: "outlined", sx: { p: 1.25, bgcolor, borderColor }, children: [jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", children: ["Step ", index + 1] }), jsxs(Stack$1, { direction: "row", spacing: 0.5, alignItems: "center", flexWrap: "wrap", useFlexGap: true, children: [jsx$1(Typography, { variant: "subtitle2", children: title }), profile ? (jsx$1(Chip, { size: "small", label: profile, variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } })) : null, isLlmRefine && step.outputFormat ? (jsx$1(Chip, { size: "small", label: step.outputFormat, variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } })) : null, step.as?.trim() ? (jsx$1(Chip, { size: "small", label: `as: ${step.as.trim()}`, color: "primary", variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } })) : null] }), caption ? (jsx$1(Typography, { variant: "caption", color: isConfirmation && confirmationKnown ? 'text.secondary' : 'warning.dark', children: caption })) : null, isLlmRefine && (step.refineHints?.length ?? 0) > 0 ? (jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mt: 0.5 }, children: [step.refineHints.length, " refine hint", step.refineHints.length === 1 ? '' : 's'] })) : null, isLlmRefine && (step.outputKeys?.length ?? 0) > 0 ? (jsx$1(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, sx: { mt: 0.75 }, children: step.outputKeys.map((key) => (jsx$1(Chip, { size: "small", label: key, variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } }, key))) })) : null, isSlack && confirmationStepArgSummary(step.args).length > 0 ? (jsx$1(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, sx: { mt: 0.75 }, children: confirmationStepArgSummary(step.args).map((label) => (jsx$1(Chip, { size: "small", label: label, variant: "outlined", sx: { fontFamily: 'monospace', fontSize: 11 } }, label))) })) : null, !isSlack && !isLlmRefine && step.args && Object.keys(step.args).length > 0 ? (jsx$1(Box, { component: "pre", sx: { mt: 0.75, mb: 0, fontSize: 11, whiteSpace: 'pre-wrap', fontFamily: 'monospace' }, children: JSON.stringify(step.args, null, 2) })) : null] }));
+}
+function PhaseColumn(props) {
+    const { phaseKey, recipe } = props;
+    const hints = phaseHints(recipe, phaseKey);
+    const steps = phaseEngineSteps(recipe, phaseKey);
+    const otherHints = hints;
+    const stepsLabel = phaseKey === 'confirmation' ? 'Confirmation steps (server)' : 'Prefetch steps (read-only tools)';
+    return (jsxs(Paper, { variant: "outlined", sx: {
+            flex: '1 1 0',
+            minWidth: 200,
+            maxHeight: { md: 420 },
+            p: 1.5,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 1,
+            minHeight: 160,
+            bgcolor: 'background.paper',
+            overflow: 'hidden'
+        }, children: [jsx$1(Typography, { variant: "overline", color: "text.secondary", sx: { lineHeight: 1.2, flexShrink: 0 }, children: PHASE_LABELS[phaseKey] }), jsxs(Box, { sx: { flex: 1, minHeight: 0, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 1 }, children: [otherHints.length > 0 ? (jsxs(Stack$1, { spacing: 0.75, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Phase hints" }), otherHints.map((h, i) => (jsx$1(IntentRecipeHintLine, { hint: h, index: i }, `${phaseKey}-hint-${i}`)))] })) : null, hints.length === 0 ? (jsx$1(Typography, { variant: "body2", color: "text.disabled", sx: { fontSize: 13 }, children: "No phase hints" })) : null, steps.length > 0 ? (jsxs(Stack$1, { spacing: 1, sx: { mt: 0.5 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: stepsLabel }), steps.map((step, i) => (jsx$1(EngineStepCard, { step: step, index: i, phaseKey: phaseKey }, `${phaseKey}-step-${i}`)))] })) : null] })] }));
+}
+/**
+ * Phased swimlane (Context → Action → Confirmation) aligned with server {@code AuthoringIntentRecipeCatalog}.
+ */
+function AiAssistantIntentRecipeSwimlane(props) {
+    const { recipe } = props;
+    const prefetchSteps = [
+        ...phaseEngineSteps(recipe, 'context'),
+        ...phaseEngineSteps(recipe, 'action')
+    ];
+    const confirmationSteps = phaseEngineSteps(recipe, 'confirmation');
+    return (jsxs(Stack$1, { spacing: 2, children: [jsx$1(Box, { sx: {
+                    display: 'flex',
+                    flexDirection: { xs: 'column', md: 'row' },
+                    alignItems: { xs: 'stretch', md: 'flex-start' },
+                    gap: 1
+                }, children: INTENT_RECIPE_PHASE_KEYS.map((key, idx) => (jsxs(Box, { sx: { display: 'flex', flex: '1 1 0', alignItems: 'stretch', gap: 1, minWidth: 0 }, children: [jsx$1(PhaseColumn, { phaseKey: key, recipe: recipe }), idx < INTENT_RECIPE_PHASE_KEYS.length - 1 ? (jsx$1(Box, { sx: {
+                                display: { xs: 'none', md: 'flex' },
+                                alignItems: 'center',
+                                flexShrink: 0,
+                                color: 'text.disabled',
+                                pt: 4
+                            }, children: jsx$1(ArrowForwardRounded, { fontSize: "small" }) })) : null] }, key))) }), confirmationSteps.length > 0 ? (jsxs(Paper, { variant: "outlined", sx: { p: 1.5, bgcolor: 'action.hover' }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", gutterBottom: true, children: "Confirmation execution order (after tools loop)" }), jsx$1(Stack$1, { direction: "row", flexWrap: "wrap", useFlexGap: true, spacing: 0.5, alignItems: "center", children: confirmationSteps.map((step, i) => (jsxs(Box, { sx: { display: 'flex', alignItems: 'center', gap: 0.5 }, children: [i > 0 ? jsx$1(ArrowForwardRounded, { sx: { fontSize: 14, color: 'text.disabled' } }) : null, jsx$1(Chip, { size: "small", label: step.tool === 'llmRefine' ? `llmRefine (${step.llmRefine || '…'})` : step.tool, variant: "outlined", color: "primary" })] }, `conf-${i}`))) })] })) : null, prefetchSteps.length > 0 ? (jsxs(Paper, { variant: "outlined", sx: { p: 1.5, bgcolor: 'background.default' }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", gutterBottom: true, children: "Prefetch steps (context \u2192 action, when configured)" }), jsx$1(Stack$1, { direction: "row", flexWrap: "wrap", useFlexGap: true, spacing: 0.5, alignItems: "center", children: prefetchSteps.map((step, i) => (jsxs(Box, { sx: { display: 'flex', alignItems: 'center', gap: 0.5 }, children: [i > 0 ? jsx$1(ArrowForwardRounded, { sx: { fontSize: 14, color: 'text.disabled' } }) : null, jsx$1(Chip, { size: "small", label: step.tool, variant: "outlined" })] }, `prefetch-${i}`))) })] })) : null] }));
+}
+
+const PHASE_TAB_LABELS = {
+    context: 'Context',
+    action: 'Action',
+    confirmation: 'Confirmation'
+};
+const EDITOR_TABS = ['general', ...INTENT_RECIPE_PHASE_KEYS, 'preview'];
+const EDITOR_TAB_LABEL = {
+    general: 'General',
+    context: PHASE_TAB_LABELS.context,
+    action: PHASE_TAB_LABELS.action,
+    confirmation: PHASE_TAB_LABELS.confirmation,
+    preview: 'Preview'
+};
+function parseArgsJson(text) {
+    const t = text.trim();
+    if (!t)
+        return undefined;
+    try {
+        const o = JSON.parse(t);
+        if (!o || typeof o !== 'object' || Array.isArray(o))
+            return undefined;
+        return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, String(v ?? '')]));
+    }
+    catch {
+        return undefined;
+    }
+}
+function argsToJsonText(args) {
+    if (!args || Object.keys(args).length === 0)
+        return '';
+    return JSON.stringify(args, null, 2);
+}
+function EngineStepRow(props) {
+    const { step, index, onChange, onRemove, onDragStart, onDragOver, onDrop, onDragEnd, dragging } = props;
+    const [argsText, setArgsText] = useState(() => argsToJsonText(step.args));
+    const toolName = (step.tool || '').trim();
+    useEffect(() => {
+        setArgsText(argsToJsonText(step.args));
+    }, [step.tool, step.args]);
+    const applyDefaultArgs = () => {
+        const json = defaultPrefetchArgsJsonForTool(toolName);
+        if (!json)
+            return;
+        const parsed = parseArgsJson(json);
+        if (parsed) {
+            setArgsText(json);
+            onChange({ ...step, args: parsed });
+        }
+    };
+    const onToolChange = (v) => {
+        const nextTool = v.trim();
+        const next = { ...step, tool: nextTool };
+        const hasArgs = step.args && Object.keys(step.args).length > 0;
+        if (!hasArgs && nextTool) {
+            const json = defaultPrefetchArgsJsonForTool(nextTool);
+            const parsed = json ? parseArgsJson(json) : undefined;
+            if (parsed) {
+                next.args = parsed;
+                setArgsText(json);
+            }
+        }
+        onChange(next);
+    };
+    return (jsx$1(Paper, { variant: "outlined", draggable: true, onDragStart: () => onDragStart(index), onDragEnd: onDragEnd, onDragOver: (e) => {
+            e.preventDefault();
+            onDragOver(index);
+        }, onDrop: (e) => {
+            e.preventDefault();
+            onDrop();
+        }, sx: {
+            p: 1.5,
+            opacity: dragging ? 0.5 : 1,
+            cursor: 'grab',
+            bgcolor: 'action.hover'
+        }, children: jsxs(Stack$1, { direction: "row", spacing: 1, alignItems: "flex-start", children: [jsx$1(DragIndicatorRounded, { sx: { color: 'text.disabled', mt: 1, flexShrink: 0 }, fontSize: "small" }), jsxs(Stack$1, { spacing: 1.5, sx: { flex: 1, minWidth: 0 }, children: [jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 1, children: [jsx$1(TextField, { label: "Binding name (as)", value: step.as ?? '', onChange: (e) => onChange({ ...step, as: e.target.value.trim() || undefined }), size: "small", placeholder: "pageItem", sx: { flex: '0 0 160px' }, InputProps: { sx: { fontFamily: 'monospace' } } }), jsx$1(Autocomplete, { freeSolo: true, size: "small", options: [...INTENT_RECIPE_READ_ONLY_TOOLS], value: step.tool || '', onInputChange: (_, v) => onToolChange(v), sx: { flex: 1, minWidth: 0 }, renderInput: (params) => (jsx$1(TextField, { ...params, label: "Tool", helperText: "Read-only tools only \u2014 see arg reference below." })) })] }), toolName ? (jsx$1(AiAssistantIntentRecipePrefetchArgsHelp, { tool: toolName, onInsertDefaultArgs: applyDefaultArgs })) : null, jsx$1(TextField, { label: "Args (JSON)", value: argsText, onChange: (e) => {
+                                setArgsText(e.target.value);
+                                const parsed = parseArgsJson(e.target.value);
+                                onChange({ ...step, args: parsed });
+                            }, size: "small", fullWidth: true, multiline: true, minRows: 3, placeholder: defaultPrefetchArgsJsonForTool(toolName) ?? '{\n  "siteId": "$siteId"\n}', InputProps: { sx: { fontFamily: 'monospace', fontSize: 12 } } })] }), jsx$1(IconButton, { size: "small", "aria-label": "Remove step", onClick: onRemove, sx: { mt: 0.5 }, children: jsx$1(DeleteOutlineRounded, { fontSize: "small" }) })] }) }));
+}
+function PhaseEditor(props) {
+    const { phaseKey, state, bindingNamesForHints, onChange } = props;
+    const [dragIndex, setDragIndex] = useState(null);
+    const [dropIndex, setDropIndex] = useState(null);
+    const reorderSteps = useCallback((from, to) => {
+        if (from === to)
+            return;
+        const steps = [...state.engineSteps];
+        const [moved] = steps.splice(from, 1);
+        steps.splice(to, 0, moved);
+        onChange({ ...state, engineSteps: steps });
+    }, [state, onChange]);
+    return (jsxs(Stack$1, { spacing: 2, children: [jsx$1(AiAssistantIntentRecipePhaseHintsField, { phaseKey: phaseKey, hintsLines: state.hintsLines, bindingNames: bindingNamesForHints, onChange: (hintsLines) => onChange({ ...state, hintsLines }) }), jsxs(Box, { children: [jsxs(Typography, { variant: "subtitle2", sx: { mb: 1 }, children: ["Prefetch steps (", phaseKey, ")"] }), jsx$1(Stack$1, { direction: "row", justifyContent: "flex-end", alignItems: "center", sx: { mb: 1 }, children: jsx$1(Button, { size: "small", startIcon: jsx$1(AddRounded, {}), onClick: () => onChange({
+                                ...state,
+                                engineSteps: [...state.engineSteps, { tool: 'GetContent', args: { siteId: '$siteId', path: '$contentPath' } }]
+                            }), children: "Add step" }) }), jsx$1(Stack$1, { spacing: 1, children: state.engineSteps.length === 0 ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", children: "No engine steps \u2014 hints only for this phase." })) : (state.engineSteps.map((step, i) => (jsx$1(EngineStepRow, { step: step, index: i, dragging: dragIndex === i, onChange: (next) => {
+                                const steps = [...state.engineSteps];
+                                steps[i] = next;
+                                onChange({ ...state, engineSteps: steps });
+                            }, onRemove: () => {
+                                const steps = state.engineSteps.filter((_, j) => j !== i);
+                                onChange({ ...state, engineSteps: steps });
+                            }, onDragStart: (idx) => setDragIndex(idx), onDragOver: (idx) => setDropIndex(idx), onDrop: () => {
+                                if (dragIndex != null && dropIndex != null)
+                                    reorderSteps(dragIndex, dropIndex);
+                                setDragIndex(null);
+                                setDropIndex(null);
+                            }, onDragEnd: () => {
+                                setDragIndex(null);
+                                setDropIndex(null);
+                            } }, `step-${i}`)))) })] })] }));
+}
+function AiAssistantIntentRecipeEditor(props) {
+    const { recipe, onChange, idReadOnly, immersive } = props;
+    const [editorTab, setEditorTab] = useState('general');
+    const [phaseEdits, setPhaseEdits] = useState(() => recipeToPhaseEdits(recipe));
+    useEffect(() => {
+        setPhaseEdits(recipeToPhaseEdits(recipe));
+    }, [recipe.id]);
+    const previewRecipe = useMemo(() => recipeFromPhaseEdits(recipe, phaseEdits), [recipe, phaseEdits]);
+    const bindingNamesForHints = useMemo(() => declaredBindingNames(previewRecipe), [previewRecipe]);
+    const patchPhase = (key, next) => {
+        const merged = { ...phaseEdits, [key]: next };
+        setPhaseEdits(merged);
+        onChange(recipeFromPhaseEdits(recipe, merged));
+    };
+    return (jsxs(Stack$1, { spacing: 2, sx: immersive
+            ? { height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }
+            : undefined, children: [jsx$1(Tabs, { value: editorTab, onChange: (_, v) => setEditorTab(v), variant: "scrollable", scrollButtons: "auto", sx: immersive ? { flexShrink: 0, borderBottom: 1, borderColor: 'divider' } : undefined, children: EDITOR_TABS.map((k) => (jsx$1(Tab, { label: EDITOR_TAB_LABEL[k], value: k }, k))) }), jsxs(Box, { sx: immersive ? { flex: '1 1 auto', minHeight: 0, overflow: 'visible' } : undefined, children: [editorTab === 'general' ? (jsx$1(AiAssistantIntentRecipeGeneralFields, { recipe: recipe, onChange: onChange, idReadOnly: idReadOnly })) : null, INTENT_RECIPE_PHASE_KEYS.map((k) => editorTab === k ? (jsx$1(PhaseEditor, { phaseKey: k, state: phaseEdits[k], bindingNamesForHints: bindingNamesForHints, onChange: (n) => patchPhase(k, n) }, k)) : null), editorTab === 'preview' ? jsx$1(AiAssistantIntentRecipeSwimlane, { recipe: previewRecipe }) : null] })] }));
+}
+
+/**
+ * Read-only recipe panel: swimlane visualization and metadata. Full editor opens on demand.
+ */
+function AiAssistantIntentRecipeView(props) {
+    const { recipe, entry, onEdit } = props;
+    const bindingNames = declaredBindingNames(recipe);
+    const chatEmoji = resolveRecipeChatEmoji(recipe);
+    return (jsxs(Stack$1, { spacing: 2, children: [jsxs(Stack$1, { direction: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 1, flexWrap: "wrap", children: [jsxs(Box, { sx: { minWidth: 0 }, children: [jsxs(Stack$1, { direction: "row", spacing: 1, alignItems: "center", sx: { mb: recipe.description ? 1 : 0 }, children: [jsx$1(Typography, { component: "span", sx: { fontSize: '1.5rem', lineHeight: 1 }, "aria-hidden": true, children: chatEmoji }), jsx$1(Typography, { variant: "subtitle2", children: recipe.title || recipe.id })] }), recipe.description ? (jsx$1(Typography, { variant: "body2", color: "text.secondary", sx: { mb: 1 }, children: recipe.description })) : null, recipe.matchHints && recipe.matchHints.length > 0 ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", sx: { mb: 0.5 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Match:" }), recipe.matchHints.map((h) => (jsx$1(Chip, { size: "small", label: h, variant: "outlined" }, `m:${h}`)))] })) : null, recipe.dontMatchHints && recipe.dontMatchHints.length > 0 ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", sx: { mb: 1 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Don't match:" }), recipe.dontMatchHints.map((h) => (jsx$1(Chip, { size: "small", label: h, variant: "outlined", color: "warning" }, `d:${h}`)))] })) : null, recipe.toolsLoopForceTool ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", sx: { mb: 0.5 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Force tool:" }), jsx$1(Chip, { size: "small", label: recipe.toolsLoopForceTool, variant: "outlined", color: "primary" })] })) : null, recipe.toolsLoopAllowlist && recipe.toolsLoopAllowlist.length > 0 ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", sx: { mb: 0.5 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Allowlist:" }), recipe.toolsLoopAllowlist.map((t) => (jsx$1(Chip, { size: "small", label: t, variant: "outlined" }, `a:${t}`)))] })) : null, recipe.toolsLoopExcludeTools && recipe.toolsLoopExcludeTools.length > 0 ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", sx: { mb: 0.5 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Exclude:" }), recipe.toolsLoopExcludeTools.map((t) => (jsx$1(Chip, { size: "small", label: t, variant: "outlined", color: "warning" }, `x:${t}`)))] })) : null] }), jsx$1(Button, { size: "small", variant: "contained", startIcon: jsx$1(EditRounded, {}), onClick: onEdit, children: "Edit recipe" })] }), bindingNames.length > 0 ? (jsxs(Stack$1, { direction: "row", spacing: 0.5, flexWrap: "wrap", useFlexGap: true, alignItems: "center", children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Prefetch:" }), bindingNames.map((n) => (jsx$1(Chip, { size: "small", label: n, variant: "outlined" }, n)))] })) : null, jsx$1(AiAssistantIntentRecipeSwimlane, { recipe: recipe }), entry.source === 'bundled' ? (jsx$1(Typography, { variant: "caption", color: "text.secondary", children: "Built-in recipe \u2014 Edit to customize for your project." })) : null] }));
+}
+
+function AiAssistantIntentRecipeRoutingFields(props) {
+    const { value: valueProp, onChange } = props;
+    const value = valueProp ?? defaultIntentRecipeRoutingFormState();
+    const patch = (partial) => onChange({ ...value, ...partial });
+    return (jsxs(Paper, { variant: "outlined", sx: { p: 2.5 }, children: [jsx$1(Typography, { variant: "subtitle2", gutterBottom: true, children: "Intent recipe routing" }), jsx$1(Typography, { variant: "body2", color: "text.secondary", paragraph: true, children: "Optional pre-tools LLM router: chooses chat-only, a single tool, a matched recipe (with prefetch), or defers to the plan loop. Recipe match hints are synonyms for the router catalog only." }), jsxs(Stack$1, { spacing: 2, children: [jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.enabled, onChange: (_, c) => patch({ enabled: c }), size: "small" }), label: "Enable intent recipe router" }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.engineEnabled, onChange: (_, c) => patch({ engineEnabled: c }), size: "small", disabled: !value.enabled }), label: "Prefetch engine (server read-only tool steps before tools loop)" }), jsx$1(TextField, { label: "Min confidence (0\u20131)", value: value.minConfidence, onChange: (ev) => patch({ minConfidence: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled, helperText: "Router must meet this confidence to apply a recipe (default 0.55)." }), jsx$1(TextField, { label: "Custom recipes path (optional)", value: value.customRecipesPath, onChange: (ev) => patch({ customRecipesPath: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled, placeholder: "/scripts/aiassistant/config/intent-recipes.json", helperText: "Studio module path; merged over bundled defaults by recipe id." }), jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: value.eligibilityGateEnabled, onChange: (_, c) => patch({ eligibilityGateEnabled: c }), size: "small", disabled: !value.enabled }), label: "Eligibility gate (filter short / non-CMS messages before routing)" }), jsx$1(TextField, { label: "Prefetch max steps (optional)", value: value.engineMaxSteps, onChange: (ev) => patch({ engineMaxSteps: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled || !value.engineEnabled, placeholder: "8", helperText: "Cap read-only prefetch steps in the recipe engine. Leave empty for server default." }), jsx$1(TextField, { label: "Prefetch max total characters (optional)", value: value.engineMaxTotalChars, onChange: (ev) => patch({ engineMaxTotalChars: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled || !value.engineEnabled, placeholder: "200000", helperText: "Total characters loaded across prefetch steps. Leave empty for server default." }), jsx$1(TextField, { label: "Prefetch max field characters (optional)", value: value.engineMaxFieldChars, onChange: (ev) => patch({ engineMaxFieldChars: ev.target.value }), fullWidth: true, size: "small", disabled: !value.enabled || !value.engineEnabled, placeholder: "120000", helperText: "Per-field cap during prefetch. Leave empty for server default." })] })] }));
+}
+
 const TOOLS_JSON_SANDBOX_PATH = '/scripts/aiassistant/config/tools.json';
 const TOOLS_JSON_REL$1 = 'scripts/aiassistant/config/tools.json';
 function sourceChip(entry) {
@@ -75986,7 +76053,7 @@ function AiAssistantScriptsSandboxConfiguration(props) {
                                     display: 'flex',
                                     flexDirection: 'column',
                                     pt: 1
-                                }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 1, flexShrink: 0 }, children: jsx$1("code", { children: editorStudioPath }) }), jsx$1(Box, { sx: { flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', mb: 1 }, children: jsx$1(AiAssistantStudioCodeEditor, { language: inferStudioSandboxEditorLanguage(editorStudioPath), value: editorBody, onChange: (v) => setEditorBody(v), flexFill: true, minHeightPx: 400 }, editorStudioPath) }), jsx$1(Button, { size: "small", sx: { mt: 0, flexShrink: 0, alignSelf: 'flex-start' }, onClick: () => setEditorBody(editorStub), children: "Reset to stub" })] }), jsxs(DialogActions, { sx: { flexShrink: 0 }, children: [jsx$1(Button, { onClick: () => {
+                                }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 1, flexShrink: 0 }, children: jsx$1("code", { children: editorStudioPath }) }), jsx$1(Box, { sx: { flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', mb: 1 }, children: inferStudioSandboxEditorLanguage(editorStudioPath) === 'markdown' ? (jsx$1(AiAssistantMarkdownEditor, { value: editorBody, onChange: (v) => setEditorBody(v), flexFill: true, minHeightPx: 400, defaultView: "split" }, editorStudioPath)) : (jsx$1(AiAssistantStudioCodeEditor, { language: inferStudioSandboxEditorLanguage(editorStudioPath), value: editorBody, onChange: (v) => setEditorBody(v), flexFill: true, minHeightPx: 400 }, editorStudioPath)) }), jsx$1(Button, { size: "small", sx: { mt: 0, flexShrink: 0, alignSelf: 'flex-start' }, onClick: () => setEditorBody(editorStub), children: "Reset to stub" })] }), jsxs(DialogActions, { sx: { flexShrink: 0 }, children: [jsx$1(Button, { onClick: () => {
                                             setEditorFullscreen(false);
                                             setEditorOpen(false);
                                         }, children: "Cancel" }), jsx$1(Button, { variant: "contained", disabled: savingEditor, onClick: () => void saveEditor(), children: savingEditor ? 'Saving…' : 'Save' })] })] }), jsxs(Dialog, { open: promptReadOpen, onClose: () => {
@@ -76027,7 +76094,7 @@ function AiAssistantScriptsSandboxConfiguration(props) {
                                         display: 'flex',
                                         flexDirection: 'column'
                                     }
-                                    : undefined, children: [promptReadLoading ? jsx$1(Typography, { variant: "body2", children: "Loading\u2026" }) : null, promptReadError ? (jsx$1(Alert, { severity: "error", sx: { mb: 2 }, onClose: () => setPromptReadError(null), children: promptReadError })) : null, !promptReadLoading && !promptReadError ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 0.5 }, children: ["Default (no site override): classpath ", jsxs("code", { children: ["prompts/", promptReadKey, ".md"] }), " if bundled, otherwise the built-in Groovy literal.", promptReadDefaultTrunc ? ' Truncated in this response for size.' : ''] }), jsx$1(Box, { sx: { mb: 2 }, children: jsx$1(AiAssistantStudioCodeEditor, { language: "markdown", readOnly: true, value: promptReadDefault, minHeightPx: promptReadFullscreen ? 360 : 280 }) }), jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 0.5 }, children: ["Site file ", jsxs("code", { children: ["/scripts/aiassistant/prompts/", promptReadKey, ".md"] }), " (raw). Non-blank file wins for this site. ", promptReadSiteEffective ? 'Override is active.' : 'Empty or whitespace only — default applies.', ' ', promptReadSiteTrunc ? 'Truncated in this response for size.' : ''] }), jsx$1(AiAssistantStudioCodeEditor, { language: "markdown", readOnly: true, value: promptReadSite, minHeightPx: promptReadFullscreen ? 300 : 240 })] })) : null] }), jsxs(DialogActions, { sx: { flexShrink: 0 }, children: [jsx$1(Button, { onClick: () => {
+                                    : undefined, children: [promptReadLoading ? jsx$1(Typography, { variant: "body2", children: "Loading\u2026" }) : null, promptReadError ? (jsx$1(Alert, { severity: "error", sx: { mb: 2 }, onClose: () => setPromptReadError(null), children: promptReadError })) : null, !promptReadLoading && !promptReadError ? (jsxs(Fragment, { children: [jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 0.5 }, children: ["Default (no site override): classpath ", jsxs("code", { children: ["prompts/", promptReadKey, ".md"] }), " if bundled, otherwise the built-in Groovy literal.", promptReadDefaultTrunc ? ' Truncated in this response for size.' : ''] }), jsx$1(Box, { sx: { mb: 2 }, children: jsx$1(AiAssistantMarkdownEditor, { readOnly: true, value: promptReadDefault, minHeightPx: promptReadFullscreen ? 360 : 280, defaultView: "preview" }) }), jsxs(Typography, { variant: "caption", color: "text.secondary", display: "block", sx: { mb: 0.5 }, children: ["Site file ", jsxs("code", { children: ["/scripts/aiassistant/prompts/", promptReadKey, ".md"] }), " (raw). Non-blank file wins for this site. ", promptReadSiteEffective ? 'Override is active.' : 'Empty or whitespace only — default applies.', ' ', promptReadSiteTrunc ? 'Truncated in this response for size.' : ''] }), jsx$1(AiAssistantMarkdownEditor, { readOnly: true, value: promptReadSite, minHeightPx: promptReadFullscreen ? 300 : 240, defaultView: "preview" })] })) : null] }), jsxs(DialogActions, { sx: { flexShrink: 0 }, children: [jsx$1(Button, { onClick: () => {
                                             setPromptReadFullscreen(false);
                                             setPromptReadOpen(false);
                                             setPromptReadKey(null);
