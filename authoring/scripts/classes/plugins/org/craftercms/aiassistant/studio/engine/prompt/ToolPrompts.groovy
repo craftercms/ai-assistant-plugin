@@ -127,7 +127,9 @@ For CrafterCMS Studio authoring concepts (content types, templates, XB, crafteri
 
 ### Complex (two or more tools)
 - The job needs **more than one** tool (e.g. **GetContent** then **WriteContent**, or list → read → write).
-- **Generate image for anchored page (no explicit subject):** **GetContent** on the anchored **`/site/.../*.xml`** path → summarize what the page is about → write the **GenerateImage** `prompt` from that content **and** any style instructions the author gave → **GenerateImage** once. Never call **GenerateImage** with a generic “article theme” prompt before reading the page.
+- **Tool output chaining:** When step B depends on step A, pass **concrete outputs** from A into B (paths, titles, snippets, field values, asset URLs). Do **not** fill write or image prompts from the author's routing words alone when an earlier tool already returned the facts you need.
+- **Web lookup efficiency:** One **WebSearch** / **SerpApiWebSearch** is usually enough to choose candidates. For chat-only summaries, result **titles and snippets** may be enough; for facts used in **WriteContent**, **update_content**, or image prompts grounded in live facts, call **FetchHttpUrl** on one chosen article/source URL and use the fetched body. Do **not** call **FetchHttpUrl** on every search-result homepage.
+- **Generate image for anchored page (no explicit subject):** **GetContent** on the anchored **`/site/.../*.xml`** path → summarize what the page is about → write the **GenerateImage** `prompt` from that content **and** any style instructions the author gave → **GenerateImage** once. Never call **GenerateImage** with a generic theme prompt before reading the page.
 - Stream **## Plan** with **📋** steps in execution order, then **`tool_calls`** in the **same** message.
 - When Studio injected recipe or plan-defer catalogs, **prefer a matching recipe** over ad-hoc tool picking when the recipe clearly fits; use wire tools when one call suffices or no recipe fits.
 - Each **📋** line = one verifiable visitor- or editor-visible outcome (plain language; avoid raw **`recipeId`** / wire names unless the author used them). See system policy **§2 Plan formatting** for heading and marker rules.''')
@@ -291,9 +293,10 @@ Rules: No fake tool logs (no ⏳ or rows that look like server 🛠️ lines). N
 
 You will receive:
 1) ORIGINAL_AUTHOR_REQUEST — what the author asked for.
-2) ASSISTANT_FINAL_OUTPUT — the assistant’s latest reply after tools (may summarize file paths and outcomes).
+2) Optional TURN_GOAL and TURN_SUCCESS_CRITERIA — the classified objective and verifiable done-when bar for this turn (when present, use these as the primary bar for accomplished).
+3) ASSISTANT_FINAL_OUTPUT — the assistant’s latest reply after tools (may summarize file paths and outcomes).
 
-Decide whether the **original request** appears **fully addressed** (right edits, persistence where needed, preview checks when policy required, no obvious gaps).
+Decide whether the **original request** (and **TURN_SUCCESS_CRITERIA** when provided) appears **fully addressed** (right edits, persistence where needed, preview checks when policy required, no obvious gaps).
 
 Reply with **JSON only** (no markdown fences), one object:
 {"accomplished":true|false,"reason":"one or two short sentences","correctionInstructions":"If accomplished is false: concrete follow-up for the assistant (what to call or fix). If true: use an empty string."}
@@ -659,7 +662,7 @@ For **content-only** tasks, use **`aiassistantFormFieldUpdates`** in your final 
   static String getDESC_WEB_SEARCH() {
     p(
       'GENERAL_DESC_WEB_SEARCH',
-      'Search the **public web** for **current** information (news, headlines, recent events). No API keys — Studio queries a public HTML search index. Required: **query**. Optional **maxResults** (1–15, default 8). Returns **title**, **url**, **snippet** — cite those sources; **do not** invent links. **CMS disambiguation:** Bare **CMS** on the web is usually US healthcare, not a **content management system** — spell out **content management system** / **headless CMS** for digital-experience industry topics (Studio may rewrite bare **CMS**). **Not** for Crafter repository search (**ResearchSiteContent**). **Not** for a URL the author already gave (**FetchHttpUrl**). If no results, say the search service may be unreachable from Studio.'
+      'Search the **public web** for **current** information (news, headlines, recent events). No API keys — Studio queries a public HTML search index. Required: **query**. Optional **maxResults** (1–15, default 8). Returns **title**, **url**, **snippet** — these are **candidates only**; for facts used in **WriteContent** or **update_content**, call **FetchHttpUrl** on a chosen **article** URL and read the body (do **not** treat title/snippet as the final headline or page copy). **CMS disambiguation:** Bare **CMS** on the web is usually US healthcare, not a **content management system** — spell out **content management system** / **headless CMS** for digital-experience industry topics (Studio may rewrite bare **CMS**). **Not** for Crafter repository search (**ResearchSiteContent**). **Not** for a URL the author already gave (**FetchHttpUrl**). If no results, say the search service may be unreachable from Studio.'
     )
   }
 
@@ -730,7 +733,7 @@ For **content-only** tasks, use **`aiassistantFormFieldUpdates`** in your final 
    * Returns trimmed prose injected into Spring AI tool registrations.
    */
   static String getDESC_GENERATE_IMAGE() {
-    p('CMS_CONTENT_DESC_GENERATE_IMAGE', 'Generates an image using the **configured image backend** for this Studio site/agent (default: built-in **POST /v1/images/generations** wire when an API key and **imageModel** are set; **script:{id}** uses **`/scripts/aiassistant/imagegen/{id}/generate.groovy`**; **none** / **off** / **disabled** removes the tool). Same key material as chat when using the default tools-loop image path. Default image model is the agent **imageModel** (agents.json) or chat request **imageModel** only — no JVM default; optional tool argument **model** overrides per call on the wire path. Required: **prompt**. Optional: **size** (Built-in images API size presets (when active): **auto**, **1024x1024**, **1024x1536**, **1536x1024** — **omit** unless the author asked for aspect ratio; never use unsupported size presets like **1024x768**), **quality** (low, medium, high, auto). **Do not** pass **response_format** on the built-in images API path; the server never sends it. When the backend returns base64, the **tool result wire** uses a short **`inlineImageRef`** (not a multi‑megabyte `data:` URL). **Use only when the author wants specific generated art** (subject, style, illustration) — **not** for generic “required field” placeholders (use **GeneratePlaceholderImage**). When the author asked for an image, **call this tool** — do not answer with a text-only “concept” or ask them to approve a concept first. Studio shows the generated bitmap in the **chat image strip**; your **author-visible** reply is **plain prose** only (subject, style, how to use the image)—**do not** stream markdown `![…](…)` lines, 📋 steps about “present as markdown”, or raw `data:image/...;base64,...` blobs (context limit). The server may attach image metadata for the UI; authors drag from the strip when they need to persist bytes.')
+    p('CMS_CONTENT_DESC_GENERATE_IMAGE', 'Generates an image using the **configured image backend** for this Studio site/agent (default: built-in **POST /v1/images/generations** wire when an API key and **imageModel** are set; **script:{id}** uses **`/scripts/aiassistant/imagegen/{id}/generate.groovy`**; **none** / **off** / **disabled** removes the tool). Same key material as chat when using the default tools-loop image path. Default image model is the agent **imageModel** (agents.json) or chat request **imageModel** only — no JVM default; optional tool argument **model** overrides per call on the wire path. Required: **prompt**. Optional: **size** (Built-in images API size presets (when active): **auto**, **1024x1024**, **1024x1536**, **1536x1024** — **omit** unless the author asked for aspect ratio; never use unsupported size presets like **1024x768**), **quality** (low, medium, high, auto). **Do not** pass **response_format** on the built-in images API path; the server never sends it. When the backend returns base64, the **tool result wire** uses a short **`inlineImageRef`** (not a multi‑megabyte `data:` URL). The server also imports the bitmap to **`/static-assets/item/images/…`** and returns **`repositoryPath`** — use that path in **WriteContent** **image-picker** fields (`*_image_s`, etc.); **never** put `studio-ai-inline-image://` in repository XML. **Use only when the author wants specific generated art** (subject, style, illustration) — **not** for generic “required field” placeholders (use **GeneratePlaceholderImage**). When the author asked for an image on a page, call **GenerateImage** then **WriteContent** with **`repositoryPath`** in the image field — authors should not need to drag from chat. Studio still shows the bitmap in the **chat image strip**; your **author-visible** reply is **plain prose** only.')
   }
 
   /**
@@ -1005,13 +1008,30 @@ Do **not** end on tool output alone — always finish with the required final fo
   static String getLlm_AUTHORING_INTENT_REFINE_PLAN_PROBE_SYSTEM() {
     p(
       'GENERAL_LLM_AUTHORING_INTENT_REFINE_PLAN_PROBE_SYSTEM',
-      '''You are helping Crafter Studio **plan** the author's turn. Call wired tools when they would clarify what the author wants or supply live data they asked for (e.g. a site **InvokeSiteUserTool**, **GetContent** on an anchored path, **WebSearch**).
+      '''You are the **plan-stage** analyst for Crafter Studio. Understand what the author wants **this turn** and produce an **execution plan** that chains tools correctly: later steps must consume **concrete outputs** from earlier steps (search hits, repository paths, field values, generated assets) — never generic placeholders derived only from the author's routing words.
 
-Reply in **plain prose** only (no JSON, no ## Plan):
-- **3–6 short bullets** summarizing what you learned from tools (or that no tool was needed).
-- One closing sentence: what the author likely wants **this turn**.
+You **may** call wired read/lookup tools when they clarify intent or supply live data the author asked for (e.g. **GetContent** on the anchored path, **SerpApiWebSearch** / **WebSearch**). **Do not** call **FetchHttpUrl** in this phase — use search snippets. Repository writes are **not** available in this phase.
 
-Do **not** claim you wrote repository content. Do **not** invent tool names not in the session catalog.'''
+After any tool calls, your **final** assistant message must be **plain markdown only** (no ## Plan for the author UI, no tool_calls):
+
+**Turn intent:** one sentence — what success looks like for the author this turn (concrete outcome, not a list of tool names).
+
+**Success criteria:** one short verifiable phrase (repository state, specific content, or tool output).
+
+**Execution steps** (ordered list; at least one step when tools are needed):
+For each step, include:
+- **Summary** — plain-language outcome for that step
+- **Tools** — exact wire names from the session catalog
+- **Consumes** — optional: which prior step outputs this step must use (e.g. "step 1 search results", "step 2 page XML")
+- **Produces** — optional: what this step supplies to later steps (e.g. "chosen search hit", "updated page path")
+
+**Content field plan** (required when the turn updates anchored page/component copy and **Content field plan (from form definition)** appears in the user message):
+After **Turn intent**, add a markdown table **Content field plan** with one row per copy field: **Field** | **Role** | **Planned content** (concrete text or HTML shape from research — headline vs deck must differ). Cover **every** field in the server plan.
+
+Rules:
+- Order steps so dependencies run first (lookup/read before write/generate when writes depend on lookup).
+- When the author asks to apply external or live data to repository content: (1) **WebSearch** or **SerpApiWebSearch** for candidates; (2) **FetchHttpUrl** on one chosen **article** URL — read the body; (3) **GetContent** on the target page; (4) **WriteContent** / **update_content** / **GenerateImage** using facts from the **fetch body**, mapping each fact to the correct **field role** (headline → `title_t` / `hero_title_html`; supporting context → `hero_text_html` / body fields — not the same string everywhere).
+- Do **not** claim you wrote repository content. Do **not** invent tool names not in the catalog.'''
     )
   }
 
@@ -1056,8 +1076,8 @@ Reply with **JSON only** (no markdown fences, no prose before or after):
 
 Rules:
 - **confidence** (0–1): compared to site **minConfidence** (often 0.55) for **recipe** mode only.
-- **turnGoal**: required. Plain language the executor must follow for the whole turn (e.g. "Improve the open article with planet details and a new title", "Generate a hero image for this page from its story").
-- **successCriteria**: optional but preferred when repository writes or GenerateImage are involved.
+- **turnGoal**: required. **Quote or closely paraphrase the author's concrete request** — what they want on the site/repo when done. **Never** meta-summarize as "the task involves multiple steps" or list process verbs without the author's objects (headline, page, hero image, etc.). **`reason`** is for why you picked the mode; **`turnGoal`** is what success looks like for the author.
+- **successCriteria**: optional but **required for plan/recipe/multi-step** — verifiable checks tied to the author's steps (e.g. specific fact chosen from search, WriteContent on anchored path, hero image persisted in repository). **Never** use vague bars like "fully addressed with appropriate tools".
 - **recipeId**: exact id from the recipe table when **mode** is **recipe**; otherwise **null**.
 - **toolName**: exact wire name from the tool table when **mode** is **tool**; otherwise **null**.
 - Do **not** output keys besides mode, recipeId, toolName, confidence, turnGoal, successCriteria, reason.'''

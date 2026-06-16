@@ -12,6 +12,8 @@ export function summarizeSseTelemetry(events) {
   const toolStartCounts = new Map();
   /** @type {string[]} */
   const generateImagePrompts = [];
+  /** @type {{ kind: string, markdown: string }[]} */
+  const stepBridgeCards = [];
   let completed = false;
   let streamError = null;
 
@@ -29,6 +31,15 @@ export function summarizeSseTelemetry(events) {
       const outcome = String(ir.outcome ?? '').trim();
       if (recipeId || outcome) {
         recipeRouting.push({ recipeId, outcome, raw: ir });
+      }
+    }
+
+    if (meta.status === 'step-bridge-card' && meta.stepBridge instanceof Object) {
+      const sb = /** @type {Record<string, unknown>} */ (meta.stepBridge);
+      const markdown = String(sb.markdown ?? ev.text ?? '').trim();
+      const kind = String(sb.kind ?? '').trim();
+      if (markdown) {
+        stepBridgeCards.push({ kind, markdown });
       }
     }
 
@@ -61,19 +72,26 @@ export function summarizeSseTelemetry(events) {
     .filter((r) => r.outcome === 'matched' && r.recipeId)
     .map((r) => r.recipeId);
 
-  /** @type {{ turnGoal: string, successCriteria: string, outcome: string }[]} */
+  /** @type {{ turnGoal: string, successCriteria: string, outcome: string, intentCardMarkdown: string }[]} */
   const turnGoals = recipeRouting
     .map((r) => ({
       turnGoal: String(r.raw?.turnGoal ?? '').trim(),
       successCriteria: String(r.raw?.successCriteria ?? '').trim(),
       outcome: r.outcome,
+      intentCardMarkdown: String(r.raw?.intentCardMarkdown ?? '').trim(),
     }))
     .filter((g) => g.turnGoal);
+
+  const intentCards = recipeRouting
+    .map((r) => String(r.raw?.intentCardMarkdown ?? '').trim())
+    .filter(Boolean);
 
   return {
     recipeRouting,
     matchedRecipes,
     turnGoals,
+    intentCards,
+    stepBridgeCards,
     toolPhases,
     toolStartCounts,
     generateImagePrompts,
@@ -135,6 +153,13 @@ export function evaluateExpectations(telemetry, expect) {
         .map((r) => `${r.recipeId || '?'}(${r.outcome || '?'})`)
         .join(', ');
       failures.push(`expected deferToPlanLoop / outcome=plan; saw [${seen || 'none'}]`);
+    }
+  }
+
+  if (exp.planDeferCatalogSent === true) {
+    const ok = telemetry.recipeRouting.some((r) => r.raw?.planDeferCatalogSent === true);
+    if (!ok) {
+      failures.push('expected intentRecipeRouting.planDeferCatalogSent=true; saw none');
     }
   }
 
@@ -207,6 +232,24 @@ export function evaluateExpectations(telemetry, expect) {
     if (!hit) {
       failures.push(
         `expected turnGoal containing "${needle}"; saw [${goals.join(' | ') || 'none'}]`,
+      );
+    }
+  }
+
+  if (exp.intentCardPresent === true) {
+    const cards = telemetry.intentCards || [];
+    if (!cards.length) {
+      failures.push('expected intentRecipeRouting.intentCardMarkdown in SSE telemetry; saw none');
+    }
+  }
+
+  if (exp.intentCardContains != null) {
+    const needle = String(exp.intentCardContains).trim();
+    const cards = telemetry.intentCards || [];
+    const hit = cards.some((c) => c.toLowerCase().includes(needle.toLowerCase()));
+    if (!hit) {
+      failures.push(
+        `expected intentCardMarkdown containing "${needle}"; saw [${cards.map((c) => c.slice(0, 80)).join(' | ') || 'none'}]`,
       );
     }
   }

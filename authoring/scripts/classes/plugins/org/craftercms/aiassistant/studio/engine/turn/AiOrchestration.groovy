@@ -19,7 +19,9 @@ import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.Autho
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentRoutingEngine
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentRecipePlanCompiler
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringTurnGoal
+import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentCard
 import plugins.org.craftercms.aiassistant.studio.engine.turn.chatcompletions.ChatCompletionsToolWire
+import plugins.org.craftercms.aiassistant.studio.engine.turn.chatcompletions.GeneratedImageCmsPersistence
 import plugins.org.craftercms.aiassistant.studio.engine.catalog.AiOrchestrationTools
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 import plugins.org.craftercms.aiassistant.studio.spi.tool.StudioAiToolMaintainerObservability
@@ -28,6 +30,8 @@ import plugins.org.craftercms.aiassistant.studio.contrib.llm.vendor.anthropic.St
 import plugins.org.craftercms.aiassistant.studio.contrib.llm.wire.openaispec.OpenAiSpecSpringAiLlmRuntime
 import plugins.org.craftercms.aiassistant.studio.contrib.llm.script.StudioAiScriptLlmContainerRuntime
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.http.OutboundHttpPolicy
+import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.FormDefinitionCopyFieldPlan
+import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.integrations.SerpApiWebSearchProjectSettings
 import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiSandboxHttp
 
 // Spring AI 1.1.x: no spring-ai-core on Maven Central — use split modules (was 1.0.0-M6 spring-ai-core).
@@ -1708,7 +1712,14 @@ For **content XML** (pages/components): do not invent a new element tree — pre
    * Applies {@code orchestration.toolsLoopAllowlist} from matched-recipe telemetry when the author
    * did not trigger {@code toolsLoopAllowlistBypassIfAuthorMentions}.
    */
-  private static List effectiveToolsForIntentRecipe(List tools, Map intentTel, String authorVisible, String agentId) {
+  private static List effectiveToolsForIntentRecipe(
+    List tools,
+    Map intentTel,
+    String authorVisible,
+    String agentId,
+    StudioToolOperations ops = null,
+    Map projectCfg = null
+  ) {
     if (!(intentTel instanceof Map)) {
       return tools
     }
@@ -1740,6 +1751,10 @@ For **content XML** (pages/components): do not invent a new element tree — pre
       if (n) {
         allowNames.add(n)
       }
+    }
+    allowNames = SerpApiWebSearchProjectSettings.rewriteAllowlistForSerpApi(allowNames, ops, projectCfg)
+    if (allowNames != null && !allowNames.isEmpty()) {
+      intentTel.put('toolsLoopAllowlist', new ArrayList<>(allowNames))
     }
     if (allowNames.contains('GeneratePlaceholderImage') &&
       !allowNames.contains('GenerateImage') &&
@@ -4301,10 +4316,32 @@ Use the reference response above together with **this** author request (includin
   }
 
   /**
-   * Second LLM pass after tools (QA JSON + optional correction loop). **Permanently disabled** — no JVM/env
-   * toggle; keeps latency predictable and avoids extra {@code /v1/chat/completions} cost after tool work.
+   * Enabled when turn success criteria or a multi-step turn goal is set on the session bundle,
+   * unless {@code aiassistant.openai.postToolReviewEnabled} overrides (true/false).
    */
-  private static boolean postToolReviewEnabled() {
+  private static boolean postToolReviewEnabled(Map toolsLoopSessionBundle = null) {
+    try {
+      def p = StudioAiPlatformSettings.property('aiassistant.openai.postToolReviewEnabled', '')?.trim()
+      if (p) {
+        if ('false'.equalsIgnoreCase(p) || '0'.equals(p)) {
+          return false
+        }
+        if ('true'.equalsIgnoreCase(p) || '1'.equals(p)) {
+          return true
+        }
+      }
+    } catch (Throwable ignored) {}
+    if (toolsLoopSessionBundle instanceof Map) {
+      String criteria = toolsLoopSessionBundle.authorTurnSuccessCriteria?.toString()?.trim()
+      if (criteria) {
+        return true
+      }
+      String goal = toolsLoopSessionBundle.authorTurnGoal?.toString()?.trim()
+      String authorVisible = toolsLoopSessionBundle.authorIntentCardAuthorVisible?.toString()?.trim() ?: ''
+      if (goal && AuthoringIntentCard.looksMultiStepGoal(goal, authorVisible)) {
+        return true
+      }
+    }
     return false
   }
 
@@ -4375,7 +4412,10 @@ Use the reference response above together with **this** author request (includin
     String originalUserContent,
     String assistantFinalOutput,
     String agentId,
-    OutputStream sseOut = null
+    OutputStream sseOut = null,
+    String turnSuccessCriteria = '',
+    String turnGoal = '',
+    Map toolsLoopSessionBundle = null
   ) {
     model = resolveChatModel(model?.toString())
     int cap = 120_000
@@ -4389,10 +4429,32 @@ Use the reference response above together with **this** author request (includin
     int halfCap = Math.floorDiv((int) cap, 2)
     String ou = elideMiddleForReview(originalUserContent, halfCap)
     String af = elideMiddleForReview(assistantFinalOutput, halfCap)
+    String criteriaBlock = (turnSuccessCriteria ?: '').trim() ?
+      ('TURN_SUCCESS_CRITERIA (required bar when judging accomplished):\n' + turnSuccessCriteria.trim() + '\n\n') :
+      ''
+    String goalBlock = (turnGoal ?: '').trim() ?
+      ('TURN_GOAL:\n' + turnGoal.trim() + '\n\n') :
+      ''
+    String groundingBlock = ''
+    if (toolsLoopSessionBundle instanceof Map &&
+      Boolean.TRUE.equals(toolsLoopSessionBundle.toolsLoopExternalLookupRequired)) {
+      boolean searchOk = Boolean.TRUE.equals(toolsLoopSessionBundle.toolsLoopSearchOkThisTurn)
+      boolean fetchOk = Boolean.TRUE.equals(toolsLoopSessionBundle.toolsLoopFetchOkThisTurn)
+      boolean usableFact = Boolean.TRUE.equals(toolsLoopSessionBundle.toolsLoopUsableExternalFact)
+      String lastFact = toolsLoopSessionBundle.toolsLoopLastSalientFact?.toString()?.trim() ?: ''
+      groundingBlock =
+        'TOOL_CHAIN_GROUNDING (this turn required external lookup before writes):\n' +
+          'WebSearch ran: ' + searchOk + '; FetchHttpUrl with body read: ' + fetchOk +
+          '; verified external fact extracted: ' + usableFact + '.\n' +
+          (lastFact ? ('Last salient fact: ' + lastFact + '\n') : '') +
+          'If writes used live facts but no verified fact was extracted from FetchHttpUrl, set accomplished to false.\n' +
+          'If page copy is only a site index title, homepage label, or generic breaking-news boilerplate, set accomplished to false.\n' +
+          'If the author asked for a specific headline and the page does not name that headline, set accomplished to false.\n\n'
+    }
     def userBlock = """ORIGINAL_AUTHOR_REQUEST:
 ${ou}
 
-ASSISTANT_FINAL_OUTPUT:
+${goalBlock}${criteriaBlock}${groundingBlock}ASSISTANT_FINAL_OUTPUT:
 ${af}"""
     def reqMap = [
       model   : model,
@@ -4419,7 +4481,13 @@ ${af}"""
       'start'
     )
     try {
-      String raw = httpPostChatCompletionsReadBody(apiKey, jsonBody, true)
+      String raw = httpPostChatCompletionsReadBody(
+        apiKey,
+        jsonBody,
+        true,
+        StudioAiLlmKind.toolsLoopChatBaseUrlFromBundle(toolsLoopSessionBundle),
+        toolsLoopSessionBundle
+      )
       if (!raw?.trim()) {
         throw new IllegalStateException('Tools-loop post-tool review: empty response body')
       }
@@ -4903,6 +4971,17 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
   /**
    * Block placeholder {@code contentXml} on new-item create flows.
    */
+  /**
+   * Recipe writeVerification repairs apply only when creating a new repository item.
+   */
+  private static boolean writeContentPathIsNewItem(StudioToolOperations ops, String siteId, String repoPath) {
+    if (!ops || !(repoPath ?: '').toString().trim()) {
+      return true
+    }
+    return !plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.CmsContentExists
+      .existsAtPath(ops, siteId, repoPath)
+  }
+
   private static Map gateNewContentItemWriteContent(
     String argsStr,
     Map intentTelLoop,
@@ -4959,8 +5038,23 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           ]
         }
         if (ops && contentXml?.trim() && repoPath) {
+          String siteIdForRepair = (args.get('siteId') ?: '').toString().trim()
+          if (!siteIdForRepair) {
+            siteIdForRepair = ops.resolveEffectiveSiteId('')
+          }
+          if (createFromChatDraftWriteVerificationActive(intentTelLoop) &&
+            writeContentPathIsNewItem(ops, siteIdForRepair, repoPath)) {
+            Map verificationConfig = createFromChatDraftWriteVerificationConfig(intentTelLoop)
+            String recipeRepaired = plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.ToolsLoopWriteVerification
+              .repairContentXmlForWrite(ops, siteIdForRepair, repoPath, contentXml, verificationConfig)
+            if (recipeRepaired?.trim() && !recipeRepaired.equals(contentXml)) {
+              contentXml = recipeRepaired
+              args.put('contentXml', contentXml)
+              argsStr = JsonOutput.toJson(args)
+            }
+          }
           String enriched = plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.CmsWriteContent
-            .enrichContentXmlBeforeFormValidation(ops, siteId, repoPath, contentXml)
+            .enrichContentXmlBeforeFormValidation(ops, siteIdForRepair, repoPath, contentXml)
           if (enriched && !enriched.equals(contentXml)) {
             contentXml = enriched
             args.put('contentXml', contentXml)
@@ -5120,6 +5214,10 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     if (priorLabel) {
       out.put('_prefetchPriorAuthorLabel', priorLabel)
     }
+    String draftTitle = (intentTelLoop.get('toolsLoopDraftTitleFromPrior') ?: '').toString().trim()
+    if (draftTitle) {
+      out.put('_prefetchDraftTitle', draftTitle)
+    }
     Object derived = intentTelLoop.get('toolsLoopPriorDerivedRootFieldValues')
     if (derived instanceof Map && !((Map) derived).isEmpty()) {
       out.put('_prefetchPriorDerivedRootFieldValues', new LinkedHashMap<>((Map) derived))
@@ -5182,6 +5280,15 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           formSiteId = ops.resolveEffectiveSiteId('')
         }
         if (ops && contentXml?.trim() && path?.trim()) {
+          if (writeContentPathIsNewItem(ops, formSiteId, path)) {
+            String recipeRepaired = plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.ToolsLoopWriteVerification
+              .repairContentXmlForWrite(ops, formSiteId, path, contentXml, verificationConfig)
+            if (recipeRepaired?.trim() && !recipeRepaired.equals(contentXml)) {
+              contentXml = recipeRepaired
+              args.put('contentXml', contentXml)
+              argsStr = JsonOutput.toJson(args)
+            }
+          }
           String enriched = plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.CmsWriteContent
             .enrichContentXmlBeforeFormValidation(ops, formSiteId, path, contentXml)
           if (enriched && !enriched.equals(contentXml)) {
@@ -5462,6 +5569,10 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           }
         }
       }
+    }
+    if (toolsLoopSessionBundle instanceof Map &&
+      Boolean.TRUE.equals(toolsLoopSessionBundle.toolsLoopExternalLookupRequired)) {
+      return 2
     }
     return 0
   }
@@ -6103,6 +6214,9 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     Map toolTimingCtx = null
   ) {
     def slurper = new JsonSlurper()
+    ToolsLoopTurnArtifacts.clear(toolsLoopSessionBundle)
+    ToolsLoopTurnArtifacts.seedFromRoutingPrefetch(toolsLoopSessionBundle, slurper)
+    emitPendingStepBridgeArtifacts(ssePreToolAssistantText, toolsLoopSessionBundle)
     String assistantAccum = ''
     boolean finished = false
     boolean toolsRan = false
@@ -6137,6 +6251,9 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       if (cancelRequested != null && cancelRequested.get()) {
         Thread.currentThread().interrupt()
         throw new InterruptedException(AIASSISTANT_PIPELINE_CANCELLED)
+      }
+      if (round == 0) {
+        // Execution plan stays on the LLM wire only — do not emit author plan cards in chat UI.
       }
       aiAssistantToolWorkerDiagPhase("native_tool_loop_round_${round}_build_request wireMsgCount=${wireMessages.size()}")
       List effectiveWireTools = wireTools
@@ -6469,6 +6586,13 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           if ('write_content'.equals(toolPol.normalizeArgsId)) {
             argsStr = plugins.org.craftercms.aiassistant.studio.engine.catalog.AiOrchestrationTools.normalizeWriteContentToolArgsJson(argsStr)
             argsStr = applyCreateFromChatDraftPrefillToWriteContentArgs(argsStr, toolsLoopSessionBundle, slurper)
+            argsStr = GeneratedImageCmsPersistence.resolveWriteContentArgsJson(
+              argsStr,
+              toolsLoopSessionBundle,
+              generateImageDataUrlByToolCallId,
+              ops,
+              slurper
+            )
             if (fn instanceof Map) {
               fn.put('arguments', argsStr)
             }
@@ -6512,7 +6636,17 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
                 String wpath = repoPathFromToolArgsMap((Map) argsParsed)
                 if (wpath) {
                   String wkey = wpath.toLowerCase(Locale.ROOT)
-                  if (writeContentPathsThisTurn.contains(wkey)) {
+                  boolean allowImageFollowUpWrite = false
+                  if (writeContentPathsThisTurn.contains(wkey) && generateImageSucceededThisTurn) {
+                    String candidateXml = ((Map) argsParsed).get('contentXml')?.toString() ?: ''
+                    Object pending = toolsLoopSessionBundle?.get(GeneratedImageCmsPersistence.BUNDLE_PENDING_REPO_PATHS)
+                    allowImageFollowUpWrite = candidateXml && pending instanceof List &&
+                      ((List) pending).any { Object p ->
+                        String rp = p?.toString()?.trim()
+                        rp && GeneratedImageCmsPersistence.contentXmlContainsRepoPath(candidateXml, rp)
+                      }
+                  }
+                  if (writeContentPathsThisTurn.contains(wkey) && !allowImageFollowUpWrite) {
                     String dupOut = JsonOutput.toJson([
                       ok                          : true,
                       skippedDuplicateWriteThisTurn: true,
@@ -6814,6 +6948,16 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
                     if (wpath) {
                       writeContentPathsThisTurn.add(wpath.toLowerCase(Locale.ROOT))
                       roundSuccessfulWriteRepoPath = wpath
+                      String wxml = (wArgs.contentXml ?: '').toString()
+                      Object pending = toolsLoopSessionBundle?.get(GeneratedImageCmsPersistence.BUNDLE_PENDING_REPO_PATHS)
+                      if (pending instanceof List) {
+                        for (Object p : (List) pending) {
+                          String rp = p?.toString()?.trim()
+                          if (rp && GeneratedImageCmsPersistence.contentXmlContainsRepoPath(wxml, rp)) {
+                            GeneratedImageCmsPersistence.markRepoPathApplied(toolsLoopSessionBundle, rp)
+                          }
+                        }
+                      }
                       if (ops != null) {
                         try {
                           AuthoringIntentRecipeBindings.updateCurrentFromWrite(ops, wpath, wArgs)
@@ -6869,9 +7013,44 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
             generateImageDataUrlByToolCallId,
             toolsLoopSessionBundle
           )
+          if ('GenerateImage'.equals(fnName) && generateImageDataUrlByToolCallId != null && ops != null) {
+            String repoPath = GeneratedImageCmsPersistence.persistAfterGenerateImage(
+              ops,
+              id,
+              generateImageDataUrlByToolCallId,
+              toolsLoopSessionBundle
+            )
+            if (repoPath) {
+              toolWire = GeneratedImageCmsPersistence.enrichGenerateImageToolWire(toolWire, repoPath, slurper)
+              Map autoWrite = GeneratedImageCmsPersistence.tryAutoApplyPendingImageToAnchoredItem(ops, toolsLoopSessionBundle)
+              if (autoWrite instanceof Map && Boolean.TRUE.equals(autoWrite.get('ok'))) {
+                String autoPath = (autoWrite.path ?: autoWrite.contentPath ?: toolsLoopSessionBundle?.contentPath ?: '').toString().trim()
+                if (autoPath) {
+                  writeContentPathsThisTurn.add(autoPath.toLowerCase(Locale.ROOT))
+                  roundSuccessfulWriteRepoPath = autoPath
+                  repoMutationThisRound = true
+                  roundHadWriteSuccess = true
+                  if (requiredToolSuccess.containsKey('WriteContent')) {
+                    requiredToolSuccess.put('WriteContent', Boolean.TRUE)
+                  }
+                  markTaskCompletionWallMsIfUnset(toolTimingCtx)
+                }
+                ToolsLoopTurnArtifacts.record(
+                  toolsLoopSessionBundle,
+                  'WriteContent',
+                  JsonOutput.toJson(autoWrite),
+                  null,
+                  slurper
+                )
+              }
+            }
+          }
           if ('ContentExists'.equals(fnName)) {
             toolWire = augmentContentExistsWireForCreateFromChatDraft(toolWire, toolOut.toString(), intentTelLoop, slurper)
           }
+          ToolsLoopTurnArtifacts.record(toolsLoopSessionBundle, fnName, toolOut.toString(), argsStr, slurper)
+          AuthoringResearchGrounding.recordTool(toolsLoopSessionBundle, fnName, toolOut.toString(), slurper)
+          emitStepBridgeForLatestArtifact(ssePreToolAssistantText, toolsLoopSessionBundle)
           if (toolWire.length() < toolOut.length() &&
             toolPol.wireOutputMode != plugins.org.craftercms.aiassistant.studio.engine.policy.ToolsLoopWirePolicy.WIRE_COMPACT_GENERATE_IMAGE &&
             toolPol.wireOutputMode != plugins.org.craftercms.aiassistant.studio.engine.policy.ToolsLoopWirePolicy.WIRE_COMPACT_FETCH_HTTP) {
@@ -6920,11 +7099,17 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
         }
         if (generateImageSucceededThisTurn && !generateImageWrapUpInjectedThisTurn &&
           !toolsLoopRequiredToolsStillPending(requiredToolSuccess)) {
+          String repoHint = ''
+          Map<String, String> repoMap = GeneratedImageCmsPersistence.repoPathByToolCallId(toolsLoopSessionBundle)
+          if (!repoMap.isEmpty()) {
+            repoHint = ' Imported CMS path(s): ' + repoMap.values().join(', ') +
+              '. When the turn goal requires an image on the page, call **WriteContent** with that path in the image-picker field — not studio-ai-inline-image://.'
+          }
           wireMessages << [
             role   : 'user',
             content:
-              'GenerateImage already finished for this chat turn (bitmap is in the Studio chat image strip). ' +
-                'Reply in short prose only — do not call GenerateImage again unless the author explicitly requests another image.'
+              'GenerateImage already finished for this chat turn.' + repoHint +
+                ' Do not call GenerateImage again unless the author explicitly requests another image.'
           ]
           generateImageWrapUpInjectedThisTurn = true
           log.info(
@@ -6976,6 +7161,29 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
         String turnGoalReminder = AuthoringTurnGoal.formatMidLoopReminder(toolsLoopSessionBundle)
         if (turnGoalReminder?.trim() && round < maxRounds - 1 && !finished) {
           wireMessages << [role: 'user', content: turnGoalReminder]
+        }
+        String researchNudge = AuthoringResearchGrounding.formatPostRoundNudge(
+          toolsLoopSessionBundle,
+          roundHadWriteAttempt,
+          anySuccessfulFetchHttpUrl
+        )
+        if (researchNudge?.trim() && round < maxRounds - 1 && !finished) {
+          wireMessages << [role: 'user', content: researchNudge]
+          log.info(
+            'Tools-loop: injected research grounding nudge (search without fetch before write={}) agentId={} round={}',
+            roundHadWriteAttempt,
+            agentId,
+            round
+          )
+        }
+        String copyFieldNudge = FormDefinitionCopyFieldPlan.formatPreWriteReminder(toolsLoopSessionBundle)
+        if (copyFieldNudge?.trim() && (roundHadWriteAttempt || anySuccessfulFetchHttpUrl) &&
+          round < maxRounds - 1 && !finished) {
+          wireMessages << [role: 'user', content: copyFieldNudge]
+        }
+        String artifactsBlock = ToolsLoopTurnArtifacts.formatInjectionBlock(toolsLoopSessionBundle)
+        if (artifactsBlock?.trim() && round < maxRounds - 1 && !finished) {
+          wireMessages << [role: 'user', content: artifactsBlock]
         }
         if (anySuccessfulFetchHttpUrl) {
           try {
@@ -7219,8 +7427,32 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       intentTel = (Map) toolsLoopSessionBundle.intentRecipeRoutingTelemetry
     }
     String authorVisible = authorVisibleFromPromptText(origUser)
+    StudioToolOperations loopOps =
+      (toolsLoopSessionBundle?.studioOps instanceof StudioToolOperations) ?
+        (StudioToolOperations) toolsLoopSessionBundle.studioOps :
+        null
+    Map loopToolCfg = [:]
+    if (loopOps != null) {
+      try {
+        loopToolCfg = StudioAiAssistantProjectConfig.load(loopOps)
+      } catch (Throwable ignoredCfg) {
+      }
+    }
+    if (intentTel instanceof Map && loopOps != null) {
+      String forceTool = intentTel.get('toolsLoopForceTool')?.toString()?.trim() ?: ''
+      String rewrittenForce =
+        SerpApiWebSearchProjectSettings.rewriteWebSearchWireName(forceTool, loopOps, loopToolCfg)
+      if (forceTool && rewrittenForce && !forceTool.equals(rewrittenForce)) {
+        intentTel.put('toolsLoopForceTool', rewrittenForce)
+        log.info(
+          'Tools-loop: toolsLoopForceTool WebSearch → SerpApiWebSearch (SerpAPI key resolved) agentId={} recipeId={}',
+          agentId,
+          intentTel.get('recipeId') ?: ''
+        )
+      }
+    }
     List effectiveTools = tools
-    effectiveTools = effectiveToolsForIntentRecipe(tools, intentTel, authorVisible, agentId)
+    effectiveTools = effectiveToolsForIntentRecipe(tools, intentTel, authorVisible, agentId, loopOps, loopToolCfg)
     effectiveTools = applyRecipeToolsLoopExcludes(effectiveTools, intentTel)
     if (intentTel instanceof Map && 'generate_image'.equals(intentTel.get('recipeId')?.toString()?.trim())) {
       if (!wireToolsIncludeNamedTool(buildWireToolsFromCallbacks(effectiveTools), 'GenerateImage')) {
@@ -7235,16 +7467,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     if (intentTel instanceof Map) {
       String forceTool = intentTel.get('toolsLoopForceTool')?.toString()?.trim() ?: ''
       if (forceTool && !AuthoringIntentRecipeCatalog.isToolRegisteredOnWire(wireTools, forceTool)) {
-        Map cfg = [:]
-        StudioToolOperations loopOps = null
-        try {
-          if (toolsLoopSessionBundle?.studioOps instanceof StudioToolOperations) {
-            loopOps = (StudioToolOperations) toolsLoopSessionBundle.studioOps
-            cfg = StudioAiAssistantProjectConfig.load(loopOps)
-          }
-        } catch (Throwable ignoredCfg) {
-        }
-        String reason = AuthoringIntentRecipeCatalog.explainToolsLoopForceToolUnavailable(forceTool, cfg, loopOps)
+        String reason = AuthoringIntentRecipeCatalog.explainToolsLoopForceToolUnavailable(forceTool, loopToolCfg, loopOps)
         String reasonForLog = (reason ?: '').replaceAll('\\*', '')
         intentTel.put('toolsLoopForceToolUnavailable', Boolean.TRUE)
         log.warn(
@@ -7292,7 +7515,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     String assistantAccum = (loopOut?.text ?: '').toString()
     Boolean lastPreviewContentGoalFound = loopOut?.previewGoalFound instanceof Boolean ? (Boolean) loopOut.previewGoalFound : null
     String lastPreviewContentGoalPhrase = (loopOut?.previewGoalPhrase ?: '').toString()
-    if (postToolReviewEnabled() && (cancelRequested == null || !cancelRequested.get())) {
+    if (postToolReviewEnabled(toolsLoopSessionBundle) && (cancelRequested == null || !cancelRequested.get())) {
       try {
         emitSseToolProgressLine(
           sseOut,
@@ -7300,7 +7523,17 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           'start',
           'summary'
         )
-        Map rev = postToolReview(apiKey, model, origUser, assistantAccum, agentId, sseOut)
+        Map rev = postToolReview(
+          apiKey,
+          model,
+          origUser,
+          assistantAccum,
+          agentId,
+          sseOut,
+          toolsLoopSessionBundle?.authorTurnSuccessCriteria?.toString()?.trim() ?: '',
+          toolsLoopSessionBundle?.authorTurnGoal?.toString()?.trim() ?: '',
+          toolsLoopSessionBundle
+        )
         emitSseToolProgressLine(
           sseOut,
           '🛠️🔄 ✅ **Post-tool review** finished.\n',
@@ -8248,7 +8481,10 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       String outcome = telemetry.outcome?.toString() ?: ''
       String rid = telemetry.recipeId?.toString()?.trim() ?: ''
       String chatLine = ''
-      if ('matched'.equals(outcome) && rid) {
+      String intentCard = telemetry.intentCardMarkdown?.toString()?.trim() ?: ''
+      if (intentCard) {
+        chatLine = intentCard
+      } else if ('matched'.equals(outcome) && rid) {
         chatLine = telemetry.recipeChatLine?.toString()?.trim() ?: ''
         if (!chatLine) {
           String title = telemetry.recipeTitle?.toString()?.trim() ?: rid
@@ -8269,6 +8505,78 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       }
     } catch (Throwable ignored) {
       /* best-effort — never break chat stream */
+    }
+  }
+
+  /**
+   * Author-visible card: one salient fact line when a tool step adds concrete context for the next step.
+   */
+  private static void emitStepBridgeCardSse(OutputStream o, String kind, String markdown) {
+    if (o == null || !markdown?.trim()) {
+      return
+    }
+    try {
+      String card = markdown.trim()
+      synchronized (o) {
+        def ev = [
+          text    : card,
+          metadata: [
+            status    : 'step-bridge-card',
+            stepBridge: [
+              kind    : (kind ?: '').toString(),
+              markdown: card
+            ]
+          ]
+        ]
+        o.write(("data: ${JsonOutput.toJson(ev)}\n\n").getBytes(StandardCharsets.UTF_8))
+        o.flush()
+      }
+    } catch (Throwable ignored) {
+      /* best-effort — never break chat stream */
+    }
+  }
+
+  private static void emitStepBridgeForArtifact(OutputStream o, Map toolsLoopSessionBundle, Map artifact) {
+    if (o == null || !(toolsLoopSessionBundle instanceof Map) || !(artifact instanceof Map)) {
+      return
+    }
+    String card = AuthoringStepBridgeCard.formatSalientContextCard(artifact)
+    if (!card?.trim()) {
+      return
+    }
+    String dedupeKey = card.trim()
+    Set keys = toolsLoopSessionBundle.toolsLoopStepBridgeEmittedKeys instanceof Set ?
+      (Set) toolsLoopSessionBundle.toolsLoopStepBridgeEmittedKeys :
+      new LinkedHashSet<>()
+    if (keys.contains(dedupeKey)) {
+      return
+    }
+    keys.add(dedupeKey)
+    toolsLoopSessionBundle.toolsLoopStepBridgeEmittedKeys = keys
+    emitStepBridgeCardSse(o, AuthoringStepBridgeCard.KIND_SALIENT_CONTEXT, card)
+  }
+
+  private static void emitStepBridgeForLatestArtifact(OutputStream o, Map toolsLoopSessionBundle) {
+    if (!(toolsLoopSessionBundle instanceof Map)) {
+      return
+    }
+    List<Map> list = ToolsLoopTurnArtifacts.allArtifacts(toolsLoopSessionBundle)
+    if (list.isEmpty()) {
+      return
+    }
+    emitStepBridgeForArtifact(o, toolsLoopSessionBundle, list.get(list.size() - 1))
+  }
+
+  private static void emitPendingStepBridgeArtifacts(OutputStream o, Map toolsLoopSessionBundle) {
+    if (o == null || !(toolsLoopSessionBundle instanceof Map)) {
+      return
+    }
+    for (Map art : ToolsLoopTurnArtifacts.allArtifacts(toolsLoopSessionBundle)) {
+      emitStepBridgeForArtifact(o, toolsLoopSessionBundle, art)
+    }
+    int n = ToolsLoopTurnArtifacts.allArtifacts(toolsLoopSessionBundle).size()
+    if (n > 0) {
+      toolsLoopSessionBundle.toolsLoopStepBridgeArtifactEmitted = n
     }
   }
 

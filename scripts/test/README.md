@@ -101,7 +101,11 @@ export CHAT_SITE_ID=your-site
 
 **Via `run-all.sh`:** step **5** runs the **full matrix** when not skipped — all **13 recipes** and **31 tools** with `CHAT_MATRIX_FULL=1`. **`run-tool-recipe-matrix.sh`** uses **`set -e`**: if the recipe pass exits non-zero, the **31-tool** pass does not run (use **`RUN_ALL_CONTINUE_ON_FAIL=1`** on **`run-all.sh`** to continue to step 6 anyway). Skip matrix: **`RUN_ALL_SKIP_TOOL_RECIPE_MATRIX=1`**.
 
-**Per-turn SSE assertions** in scenario JSON (`turn.expect`): `recipeId`, `recipeOutcome`, `forbidRecipeId`, `deferToPlanLoop`, `toolsAny`, `toolsAll`, `forbidTools`, `maxToolStarts`, `maxToolStartCounts` (e.g. `{ "GenerateImage": 1 }`), `generateImagePromptSeen`, `turnGoalPresent`, `turnGoalContains`. Implemented in `lib/sse-telemetry.mjs` and enforced by `run-chat-scenarios.mjs`.
+**Per-turn SSE assertions** in scenario JSON (`turn.expect`): `recipeId`, `recipeOutcome`, `forbidRecipeId`, `deferToPlanLoop`, `planDeferCatalogSent`, `toolsAny`, `toolsAll`, `forbidTools`, `maxToolStarts`, `maxToolStartCounts` (e.g. `{ "GenerateImage": 1 }`), `generateImagePromptSeen`, `turnGoalPresent`, `turnGoalContains`. Implemented in `lib/sse-telemetry.mjs` and enforced by `run-chat-scenarios.mjs`.
+
+**Content field plan (offline):** `functional/copy-field-plan-offline.mjs` mirrors `FormDefinitionCopyFieldPlan` role heuristics against `fixtures/page-home-form-definition.xml`. **`functional/intent-execution-plan-offline.mjs`** mirrors lookup+write split and hero/image classification. See **[content-field-plan.md](../docs/internals/content-field-plan.md)**.
+
+**Headline + page copy (live, optional):** `chat-scenarios-headline-page-update.json` — no `defaults.siteId`; set **`CHAT_SITE_ID`** to a site with `/site/website/index.xml` (`/page/home`). Expects plan defer, search, GetContent, WriteContent.
 
 **Intent router JSON (offline):** `functional/router-json-offline.mjs` verifies `AuthoringIntentRecipeRouter.extractJsonPayload` / `parseRouterJson` parity (prose-before-JSON, fenced blocks, `turnGoal` / `successCriteria` fields). Runs in `run-all.sh` step 1.
 

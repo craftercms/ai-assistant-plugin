@@ -38,7 +38,22 @@ final class AuthoringIntentRefineWithTools {
       'QueryExpertGuidance',
       'GetCrafterizingPlaybook',
       'WebSearch',
+      'SerpApiWebSearch',
       'FetchHttpUrl',
+      'InvokeSiteUserTool',
+      'GenerateTextNoTools'
+    ] as Set)
+  )
+
+  /** Plan-defer probe: read/lookup only — no {@code FetchHttpUrl} (snippets suffice; main loop handles deep reads). */
+  private static final Set<String> PLAN_PROBE_WIRE_ALLOWLIST = Collections.unmodifiableSet(
+    new LinkedHashSet<>([
+      'GetContent',
+      'GetContentTypeFormDefinition',
+      'ListStudioContentTypes',
+      'ResearchSiteContent',
+      'WebSearch',
+      'SerpApiWebSearch',
       'InvokeSiteUserTool',
       'GenerateTextNoTools'
     ] as Set)
@@ -63,7 +78,9 @@ final class AuthoringIntentRefineWithTools {
     String workerPhasePrefix,
     String wireBaseUrl,
     Map toolsLoopSessionBundle,
-    Map cfg
+    Map cfg,
+    Set<String> allowlist = REFINE_WIRE_ALLOWLIST,
+    Integer maxToolRoundsOverride = null
   ) {
     if (!(cfg instanceof Map) || !StudioAiAssistantProjectConfig.intentRecipeRefineToolsEnabled(cfg)) {
       return null
@@ -76,11 +93,13 @@ final class AuthoringIntentRefineWithTools {
     if (!key || !mdl) {
       return null
     }
-    List refineTools = filterRefineTools(allToolsFromBundle(toolsLoopSessionBundle))
+    List refineTools = filterRefineTools(allToolsFromBundle(toolsLoopSessionBundle), allowlist ?: REFINE_WIRE_ALLOWLIST)
     if (!refineTools) {
       return null
     }
-    int maxRounds = StudioAiAssistantProjectConfig.intentRecipeRefineMaxToolRounds(cfg)
+    int maxRounds = maxToolRoundsOverride instanceof Integer ?
+      Math.max(0, Math.min(maxToolRoundsOverride.intValue(), 4)) :
+      StudioAiAssistantProjectConfig.intentRecipeRefineMaxToolRounds(cfg)
     if (maxRounds <= 0) {
       return null
     }
@@ -137,7 +156,8 @@ final class AuthoringIntentRefineWithTools {
     String model,
     String wireBaseUrl,
     Map toolsLoopSessionBundle,
-    Map cfg
+    Map cfg,
+    String anchoredRepositoryPath = null
   ) {
     String visible = (routerVisible ?: '').toString().trim()
     String catalogMd = (catalogMarkdown ?: '').toString().trim()
@@ -147,34 +167,45 @@ final class AuthoringIntentRefineWithTools {
     if (!catalogMd) {
       catalogMd = '(no recipes configured)'
     }
-    String userMsg =
-      '## Author message (this turn)\n\n' +
-        visible +
-        '\n\n## Recipe catalog\n\n' +
-        catalogMd
+    StringBuilder userMsg = new StringBuilder()
+    userMsg.append('## Author message (this turn)\n\n').append(visible)
+    String anchor = (anchoredRepositoryPath ?: '').trim()
+    if (anchor) {
+      userMsg.append('\n\n## Anchored repository item\n\n`').append(anchor).append('`')
+    }
+    if (toolsLoopSessionBundle instanceof Map) {
+      String copyPlan = (toolsLoopSessionBundle.toolsLoopCopyFieldPlanMarkdown ?: '').toString().trim()
+      if (copyPlan) {
+        userMsg.append('\n\n## Content field plan (from form definition)\n\n').append(copyPlan)
+      }
+    }
+    userMsg.append('\n\n## Recipe catalog\n\n').append(catalogMd)
     String raw = completion(
       apiKey,
       model,
       ToolPrompts.getLlm_AUTHORING_INTENT_REFINE_PLAN_PROBE_SYSTEM(),
-      userMsg,
+      userMsg.toString(),
       768,
       120_000,
       'AuthoringIntentPlanDeferProbe',
       wireBaseUrl,
       toolsLoopSessionBundle,
-      cfg
+      cfg,
+      PLAN_PROBE_WIRE_ALLOWLIST,
+      1
     )
     if (!raw) {
       return ''
     }
-    return '[Studio — refine tool probe (facts for planner)]\n' + raw + '\n\n'
+    return '[Studio — plan-stage execution plan (authoritative for this turn)]\n' + raw + '\n\n'
   }
 
-  /** Keeps only read/lookup callbacks on {@link #REFINE_WIRE_ALLOWLIST} (no MCP wildcard). */
-  static List filterRefineTools(List tools) {
+  /** Keeps only read/lookup callbacks on the supplied allowlist (no MCP wildcard). */
+  static List filterRefineTools(List tools, Set<String> allowlist = REFINE_WIRE_ALLOWLIST) {
     if (!tools) {
       return []
     }
+    Set<String> allowed = allowlist ?: REFINE_WIRE_ALLOWLIST
     List out = []
     tools.each { t ->
       if (!(t instanceof FunctionToolCallback)) {
@@ -184,7 +215,7 @@ final class AuthoringIntentRefineWithTools {
       if (!n) {
         return
       }
-      if (REFINE_WIRE_ALLOWLIST.contains(n)) {
+      if (allowed.contains(n)) {
         out << t
       }
     }

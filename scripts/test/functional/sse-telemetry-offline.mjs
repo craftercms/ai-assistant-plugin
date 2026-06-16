@@ -103,6 +103,7 @@ const turnGoalTel = summarizeSseTelemetry([
         outcome: 'plan',
         turnGoal: 'Generate an image for the page based on its content.',
         successCriteria: 'GenerateImage succeeded.',
+        intentCardMarkdown: '## Intent\n\n**Goal:** Generate an image for the page based on its content.\n',
       },
     },
   },
@@ -111,6 +112,8 @@ const turnGoalTel = summarizeSseTelemetry([
 const turnGoalPass = evaluateExpectations(turnGoalTel, {
   turnGoalPresent: true,
   turnGoalContains: 'image',
+  intentCardPresent: true,
+  intentCardContains: '## Intent',
 });
 assert(turnGoalPass.failures.length === 0, `turnGoal expectations: ${turnGoalPass.failures.join('; ')}`);
 

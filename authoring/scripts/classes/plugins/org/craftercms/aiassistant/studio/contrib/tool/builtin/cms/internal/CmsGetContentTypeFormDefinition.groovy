@@ -55,6 +55,16 @@ private CmsGetContentTypeFormDefinition() {}
           out.writeContentMaterials = FormDefinitionWriteContentMaterials.compactForPrefetchEnvelope(writeMaterials)
           out.writeContentMaterialsMarkdown = (writeMaterials.authoringMarkdown ?: '').toString()
         }
+        Map copyPlan = FormDefinitionCopyFieldPlan.buildFromFormDefinitionXml(
+          normalized, '', xml.toString()
+        ) as Map
+        if (copyPlan?.markdown) {
+          out.copyFieldPlan = [
+            copyFieldIds : copyPlan.copyFieldIds,
+            copyFields   : copyPlan.copyFields
+          ]
+          out.copyFieldPlanMarkdown = copyPlan.markdown
+        }
         out.hint =
           'Populate **requiredFieldIds** and satisfy **minSizeFields** before WriteContent. ' +
             'Use **writeContentMaterials** (standard envelope + taxonomy keys + repeat examples from form datasources). ' +

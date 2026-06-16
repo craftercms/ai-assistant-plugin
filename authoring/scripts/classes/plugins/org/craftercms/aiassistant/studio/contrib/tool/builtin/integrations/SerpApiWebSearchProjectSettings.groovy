@@ -2,6 +2,7 @@ package plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.integrati
 
 import plugins.org.craftercms.aiassistant.studio.config.StudioAiAssistantProjectConfig
 import plugins.org.craftercms.aiassistant.studio.secrets.StudioAiAssistantSecretsService
+import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 import plugins.org.craftercms.aiassistant.studio.spi.tool.StudioAiToolContext
 
 /**
@@ -92,5 +93,63 @@ private SerpApiWebSearchProjectSettings() {}
       return 'SerpAPI Secrets entry references another secret that could not be resolved. Check Project Tools → Secrets.'
     }
     return 'SerpAPI is listed in Secrets but did not resolve to a key. Open Project Tools → Secrets and check the SerpAPI entry.'
+  }
+
+  /**
+   * True when {@link #SECRET_KEY} expands to a usable API key on this Studio host (not empty / unresolved macro).
+   */
+  static boolean isApiKeyResolved(StudioToolOperations ops) {
+    if (ops == null) {
+      return false
+    }
+    String resolved = StudioAiAssistantSecretsService.resolveSecretKey(ops, SECRET_KEY)
+    String r = (resolved ?: '').trim()
+    return r.length() > 0 && !r.contains('${')
+  }
+
+  /**
+   * When SerpAPI is configured and allowed by site {@code tools.json}, omit DuckDuckGo {@code WebSearch} from the wire.
+   */
+  static boolean shouldOmitWebSearchForSerpApi(StudioToolOperations ops, Map projectCfg) {
+    if (!isApiKeyResolved(ops)) {
+      return false
+    }
+    Map cfg = projectCfg instanceof Map ? projectCfg : [:]
+    Set<String> disabled = StudioAiAssistantProjectConfig.disabledBuiltInSet(cfg)
+    if (StudioAiAssistantProjectConfig.isToolNameDisabled(WIRE, disabled)) {
+      return false
+    }
+    if (!StudioAiAssistantProjectConfig.isBuiltInWireAllowedByWhitelist(WIRE, cfg)) {
+      return false
+    }
+    return true
+  }
+
+  /** Maps {@code WebSearch} → {@code SerpApiWebSearch} when DuckDuckGo is omitted in favor of SerpAPI. */
+  static String rewriteWebSearchWireName(String wireName, StudioToolOperations ops, Map projectCfg) {
+    String w = (wireName ?: '').trim()
+    if (!'WebSearch'.equals(w)) {
+      return w
+    }
+    return shouldOmitWebSearchForSerpApi(ops, projectCfg) ? WIRE : w
+  }
+
+  /**
+   * Replaces {@code WebSearch} with {@code SerpApiWebSearch} in recipe allowlists when SerpAPI is preferred.
+   */
+  static Set<String> rewriteAllowlistForSerpApi(Set<String> allowNames, StudioToolOperations ops, Map projectCfg) {
+    if (!(allowNames instanceof Set) || allowNames.isEmpty()) {
+      return allowNames ?: new LinkedHashSet<>()
+    }
+    if (!shouldOmitWebSearchForSerpApi(ops, projectCfg)) {
+      return allowNames
+    }
+    if (!allowNames.contains('WebSearch')) {
+      return allowNames
+    }
+    Set<String> out = new LinkedHashSet<>(allowNames)
+    out.remove('WebSearch')
+    out.add(WIRE)
+    return out
   }
 }

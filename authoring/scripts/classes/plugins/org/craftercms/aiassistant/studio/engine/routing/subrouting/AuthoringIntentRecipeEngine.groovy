@@ -1741,6 +1741,13 @@ private AuthoringIntentRecipeEngine() {}
       priorAuthorLabel
     )
     Map priorDerivedRootFieldValues = priorDerivedRootFieldValuesFromDraft(prior, supplementConfig, projectCfg)
+    if (draftTitleFromPrior?.trim() && CmsRepositorySupport.contentTypeSupportsCanonicalPostTitleFields(resolvedType)) {
+      for (String titleFieldId : ['internal-name', 'pageTitle_s', 'headline_s']) {
+        if (!priorDerivedRootFieldValues.containsKey(titleFieldId)) {
+          priorDerivedRootFieldValues.put(titleFieldId, draftTitleFromPrior.trim())
+        }
+      }
+    }
 
     boolean draftExtractReady = priorAssistantChars >= 200
     if (!draftExtractReady && suggestedPath && resolvedType) {

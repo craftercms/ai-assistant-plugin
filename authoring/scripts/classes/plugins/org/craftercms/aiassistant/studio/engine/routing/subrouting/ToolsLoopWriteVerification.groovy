@@ -60,6 +60,48 @@ private ToolsLoopWriteVerification() {}
   /**
    * @param verificationConfig recipe {@code writeVerification} map — site declares all field ids and checks
    */
+  /**
+   * Applies recipe writeVerification repairs only (no validation). Used before form-definition gate
+   * so required image-picker placeholders and title fields are filled the same way Studio would.
+   */
+  static String repairContentXmlForWrite(
+    StudioToolOperations ops,
+    String siteId,
+    String repoPath,
+    String contentXml,
+    Map verificationConfig
+  ) {
+    WriteVerificationPlan plan = WriteVerificationPlan.from(verificationConfig instanceof Map ? verificationConfig : [:])
+    String normalizedPath = CmsRepositorySupport.normalizeLeadingSlash(repoPath, 'path')
+    String xml = (contentXml ?: '').toString()
+    if (!xml.trim()) {
+      return xml
+    }
+    xml = CmsRepositorySupport.normalizeInvalidHtmlNamedEntitiesOutsideCdata(xml)
+    String xmlForParse = repairUnclosedContentHtmlElements(xml)
+    if (!xmlForParse.equals(xml)) {
+      xml = xmlForParse
+    }
+    Document doc
+    try {
+      doc = CmsRepositorySupport.newHardenedSaxReader().read(new StringReader(xmlForParse))
+    } catch (DocumentException e) {
+      log.debug('repairContentXmlForWrite: parse failed path={}: {}', normalizedPath, e.message)
+      return contentXml
+    }
+    Element root = doc?.getRootElement()
+    if (root == null) {
+      return contentXml
+    }
+    List<String> repairs = []
+    applyRepairPhase(ops, siteId, normalizedPath, root, plan, verificationConfig, repairs)
+    if (repairs.isEmpty()) {
+      return xml
+    }
+    log.info('repairContentXmlForWrite: applied {} repair(s) path={}', repairs.size(), normalizedPath)
+    return doc.asXML()
+  }
+
   static Map verifyAndPrepare(
     StudioToolOperations ops,
     String siteId,
@@ -74,6 +116,7 @@ private ToolsLoopWriteVerification() {}
       return fail(['contentXml is empty — build a full document before WriteContent.'])
     }
 
+    xml = CmsRepositorySupport.normalizeInvalidHtmlNamedEntitiesOutsideCdata(xml)
     String xmlForParse = repairUnclosedContentHtmlElements(xml)
     if (!xmlForParse.equals(xml)) {
       xml = xmlForParse
@@ -92,30 +135,11 @@ private ToolsLoopWriteVerification() {}
     }
 
     List<String> repairs = []
+    applyRepairPhase(ops, siteId, normalizedPath, root, plan, verificationConfig, repairs)
+
     Element inline = plan.inlineCollectionFieldId ?
       findFirstInlineComponent(root, plan.inlineCollectionFieldId) :
       null
-
-    if (plan.repairRootObjectIds) {
-      repairRootObjectIds(root, repairs)
-    }
-    if (plan.repairInlineObjectIds && inline != null) {
-      repairInlineObjectIds(root, inline, repairs)
-    }
-    if (plan.repairRootDates && !plan.dateFieldIds.isEmpty()) {
-      repairRootDates(root, plan.dateFieldIds, repairs)
-    }
-    if (plan.repairOversizedImagePickerDataUrls) {
-      repairOversizedImagePickerDataUrls(root, repairs)
-    }
-    applyDeriveRootFieldsFromBody(root, inline, plan, repairs)
-    applyPrefetchPriorDerivedRootFields(root, verificationConfig, repairs)
-    repairNodeSelectorFromPrefetch(root, plan, verificationConfig, repairs)
-    repairImagePickerCopiedFromSibling(ops, siteId, root, plan, verificationConfig, repairs)
-    repairFileNameMatchesPath(root, normalizedPath, repairs)
-    if (plan.repairHeadlineFromPageTitle) {
-      repairHeadlineFromPageTitle(root, plan.headlineSourceFieldId, plan.headlineTargetFieldId, repairs)
-    }
 
     List<String> errors = []
     validateFileNameMatchesPath(root, normalizedPath, errors)
@@ -169,6 +193,118 @@ private ToolsLoopWriteVerification() {}
     return result
   }
 
+  /**
+   * Shared repair pass (UUIDs, dates, titles, placeholders, prefetch bindings) before form validation or write verification.
+   */
+  private static void applyRepairPhase(
+    StudioToolOperations ops,
+    String siteId,
+    String normalizedPath,
+    Element root,
+    WriteVerificationPlan plan,
+    Map verificationConfig,
+    List<String> repairs
+  ) {
+    Element inline = plan.inlineCollectionFieldId ?
+      findFirstInlineComponent(root, plan.inlineCollectionFieldId) :
+      null
+
+    if (plan.repairRootObjectIds) {
+      repairRootObjectIds(root, repairs)
+    }
+    if (plan.repairInlineObjectIds && inline != null) {
+      repairInlineObjectIds(root, inline, repairs)
+    }
+    if (plan.repairRootDates && !plan.dateFieldIds.isEmpty()) {
+      repairRootDates(root, plan.dateFieldIds, repairs)
+    }
+    if (plan.repairOversizedImagePickerDataUrls) {
+      repairOversizedImagePickerDataUrls(root, repairs)
+    }
+    applyDeriveRootFieldsFromBody(root, inline, plan, repairs)
+    applyPrefetchPriorDerivedRootFields(root, verificationConfig, repairs)
+    repairCanonicalTitleFields(root, verificationConfig, repairs)
+    repairNodeSelectorFromPrefetch(root, plan, verificationConfig, repairs)
+    repairEmptyImagePickerFields(root, plan, repairs)
+    repairImagePickerCopiedFromSibling(ops, siteId, root, plan, verificationConfig, repairs)
+    repairFileNameMatchesPath(root, normalizedPath, repairs)
+    if (plan.repairHeadlineFromPageTitle && contentTypeSupportsCanonicalPostTitleFields(root, verificationConfig)) {
+      repairHeadlineFromPageTitle(root, plan.headlineSourceFieldId, plan.headlineTargetFieldId, repairs)
+    }
+  }
+
+  private static boolean contentTypeSupportsCanonicalPostTitleFields(Element root, Map verificationConfig) {
+    String ct = (verificationConfig?.contentTypeId ?: textTrim(root, 'content-type')).trim()
+    if (CmsRepositorySupport.contentTypeSupportsCanonicalPostTitleFields(ct)) {
+      return true
+    }
+    List req = verificationConfig?.requiredRootFields instanceof List ?
+      (List) verificationConfig.requiredRootFields : []
+    return req.contains('pageTitle_s') && req.contains('headline_s')
+  }
+
+  /**
+   * Fills empty required image-picker fields with the Studio sample placeholder (same as manual authoring).
+   */
+  private static void repairEmptyImagePickerFields(
+    Element root,
+    WriteVerificationPlan plan,
+    List<String> repairs
+  ) {
+    if (plan.imagePickerFields.isEmpty()) {
+      return
+    }
+    String dataUrl = CmsStudioPlaceholderImage.defaultRequiredEmptyImagePickerDataUrl()
+    for (Map spec : plan.imagePickerFields) {
+      String fieldId = (spec.fieldId ?: '').toString().trim()
+      if (!fieldId) {
+        continue
+      }
+      boolean repairWhenEmpty = Boolean.TRUE.equals(spec.repairWithStudioPlaceholderWhenForbidden) ||
+        Boolean.TRUE.equals(spec.repairWhenEmpty)
+      if (!repairWhenEmpty) {
+        continue
+      }
+      String current = textTrim(root, fieldId)
+      if (current && !CmsStudioPlaceholderImage.isMinimalStubDataUrl(current)) {
+        continue
+      }
+      setChildText(root, fieldId, dataUrl)
+      repairs.add("Filled empty <${fieldId}> with Studio sample placeholder")
+    }
+  }
+
+  /**
+   * Propagates the best available post title across internal-name, pageTitle_s, and headline_s.
+   */
+  private static void repairCanonicalTitleFields(Element root, Map verificationConfig, List<String> repairs) {
+    if (!contentTypeSupportsCanonicalPostTitleFields(root, verificationConfig)) {
+      return
+    }
+    String internalName = textTrim(root, 'internal-name')
+    String pageTitle = textTrim(root, 'pageTitle_s')
+    String headline = textTrim(root, 'headline_s')
+    String canonical = internalName ?: pageTitle ?: headline
+    if (!canonical) {
+      canonical = (verificationConfig?._prefetchDraftTitle ?: '').toString().trim()
+    }
+    if (!canonical) {
+      return
+    }
+    if (!internalName) {
+      setChildText(root, 'internal-name', canonical)
+      repairs.add('Filled <internal-name> from available title field')
+    }
+    if (!pageTitle) {
+      setChildText(root, 'pageTitle_s', canonical)
+      repairs.add('Filled <pageTitle_s> from available title field')
+    }
+    if (!headline) {
+      setChildText(root, 'headline_s', canonical)
+      repairs.add('Filled <headline_s> from available title field')
+    }
+  }
+
   private static final class WriteVerificationPlan {
     boolean repairRootObjectIds = true
     boolean requireValidRootObjectIds = true
@@ -197,35 +333,35 @@ private ToolsLoopWriteVerification() {}
     static WriteVerificationPlan from(Map cfg) {
       Map c = cfg instanceof Map ? cfg : [:]
       WriteVerificationPlan p = new WriteVerificationPlan()
-      p.repairRootObjectIds = boolConfig(c, 'repairRootObjectIds', true)
-      p.requireValidRootObjectIds = boolConfig(c, 'requireValidRootObjectIds', true)
-      p.repairOversizedImagePickerDataUrls = boolConfig(c, 'repairOversizedImagePickerDataUrls', true)
+      p.repairRootObjectIds = ToolsLoopWriteVerification.boolConfig(c, 'repairRootObjectIds', true)
+      p.requireValidRootObjectIds = ToolsLoopWriteVerification.boolConfig(c, 'requireValidRootObjectIds', true)
+      p.repairOversizedImagePickerDataUrls = ToolsLoopWriteVerification.boolConfig(c, 'repairOversizedImagePickerDataUrls', true)
 
       String inlineColl = (c.inlineComponent instanceof Map ?
         ((Map) c.inlineComponent).collectionFieldId :
         c.inlineCollectionFieldId) ?: ''
       p.inlineCollectionFieldId = inlineColl.toString().trim()
       if (p.inlineCollectionFieldId) {
-        p.repairInlineObjectIds = boolConfig(c, 'repairInlineObjectIds', true)
-        p.requireDistinctInlineObjectIds = boolConfig(c, 'requireDistinctInlineObjectIds', true)
+        p.repairInlineObjectIds = ToolsLoopWriteVerification.boolConfig(c, 'repairInlineObjectIds', true)
+        p.requireDistinctInlineObjectIds = ToolsLoopWriteVerification.boolConfig(c, 'requireDistinctInlineObjectIds', true)
       }
 
-      p.dateFieldIds = stringList(c.dateFieldIds)
+      p.dateFieldIds = ToolsLoopWriteVerification.stringList(c.dateFieldIds)
       if (p.dateFieldIds.isEmpty() && c.dateFields instanceof List) {
-        p.dateFieldIds = stringList(c.dateFields)
+        p.dateFieldIds = ToolsLoopWriteVerification.stringList(c.dateFields)
       }
-      p.repairRootDates = boolConfig(c, 'repairRootDates', false)
-      p.requireRootDates = boolConfig(c, 'requireRootDates', false) ||
-        boolConfig(c, 'requirePostLevelDates', false)
+      p.repairRootDates = ToolsLoopWriteVerification.boolConfig(c, 'repairRootDates', false)
+      p.requireRootDates = ToolsLoopWriteVerification.boolConfig(c, 'requireRootDates', false) ||
+        ToolsLoopWriteVerification.boolConfig(c, 'requirePostLevelDates', false)
 
-      p.minBodyTextChars = intConfig(c, 'minBodyTextChars', 0)
+      p.minBodyTextChars = ToolsLoopWriteVerification.intConfig(c, 'minBodyTextChars', 0)
       p.bodyTextFieldId = (c.bodyTextFieldId ?: '').toString().trim()
-      p.requiredRootFields = stringList(c.requiredRootFields)
+      p.requiredRootFields = ToolsLoopWriteVerification.stringList(c.requiredRootFields)
       p.nodeSelectorFields = normalizeNodeSelectorFields(c)
       p.deriveRootFieldsFromBody = normalizeDeriveRootFields(c)
 
       p.imagePickerFields = normalizeImagePickerFields(c)
-      p.repairHeadlineFromPageTitle = boolConfig(c, 'repairHeadlineFromPageTitle', false)
+      p.repairHeadlineFromPageTitle = ToolsLoopWriteVerification.boolConfig(c, 'repairHeadlineFromPageTitle', false)
       if (p.repairHeadlineFromPageTitle) {
         p.headlineSourceFieldId = (c.headlineSourceFieldId ?: 'pageTitle_s').toString().trim()
         p.headlineTargetFieldId = (c.headlineTargetFieldId ?: 'headline_s').toString().trim()
@@ -257,10 +393,10 @@ private ToolsLoopWriteVerification() {}
         }
         out.add([
           fieldId                            : fieldId,
-          minItems                           : Math.max(0, intConfig(m, 'minItems', 0)),
+          minItems                           : Math.max(0, ToolsLoopWriteVerification.intConfig(m, 'minItems', 0)),
           requireExistingPath                : Boolean.TRUE.equals(m.requireExistingPath),
           requireUuidStyleRepositoryFilename : Boolean.TRUE.equals(m.requireUuidStyleRepositoryFilename),
-          forbiddenPathSubstrings            : stringList(m.forbiddenPathSubstrings)
+          forbiddenPathSubstrings            : ToolsLoopWriteVerification.stringList(m.forbiddenPathSubstrings)
         ])
       }
       return out
@@ -289,7 +425,7 @@ private ToolsLoopWriteVerification() {}
         out.add([
           fieldId      : fieldId,
           bodyTextFieldId: bodyFieldId,
-          maxLength    : Math.max(1, intConfig(m, 'maxLength', 250)),
+          maxLength    : Math.max(1, ToolsLoopWriteVerification.intConfig(m, 'maxLength', 250)),
           strategy     : (m.strategy ?: 'firstSentence').toString().trim()
         ])
       }
@@ -320,6 +456,9 @@ private ToolsLoopWriteVerification() {}
           fieldId                               : fieldId,
           forbidSameValueAsSiblingField         : siblingField,
           repairWithStudioPlaceholderWhenForbidden: Boolean.TRUE.equals(m.repairWithStudioPlaceholderWhenForbidden) ||
+            Boolean.TRUE.equals(m.repairWithPlaceholderWhenForbidden),
+          repairWhenEmpty                       : Boolean.TRUE.equals(m.repairWhenEmpty) ||
+            Boolean.TRUE.equals(m.repairWithStudioPlaceholderWhenForbidden) ||
             Boolean.TRUE.equals(m.repairWithPlaceholderWhenForbidden)
         ])
       }
@@ -378,10 +517,14 @@ private ToolsLoopWriteVerification() {}
     if (!(raw instanceof Map)) {
       return
     }
+    boolean postTitles = contentTypeSupportsCanonicalPostTitleFields(root, verificationConfig)
     for (Map.Entry e : ((Map) raw).entrySet()) {
       String fieldId = (e.key ?: '').toString().trim()
       String value = (e.value ?: '').toString().trim()
       if (!fieldId || !value || textTrim(root, fieldId)) {
+        continue
+      }
+      if (!postTitles && ('pageTitle_s'.equals(fieldId) || 'headline_s'.equals(fieldId))) {
         continue
       }
       setChildText(root, fieldId, value)
@@ -1129,8 +1272,7 @@ private ToolsLoopWriteVerification() {}
    * @return Text result, or empty or null when unavailable.
    */
   static String objectGroupFromUuid(String uuid) {
-    String hex = (uuid ?: '').replace('-', '').toLowerCase(Locale.ROOT)
-    return hex.length() >= 4 ? hex.substring(0, 4) : ''
+    return CmsRepositorySupport.objectGroupFromUuid(uuid)
   }
 
   /**

@@ -256,9 +256,13 @@
           {
             "fieldId": "mainImage_s",
             "forbidSameValueAsSiblingField": "mainImage_s",
-            "repairWithStudioPlaceholderWhenForbidden": true
+            "repairWithStudioPlaceholderWhenForbidden": true,
+            "repairWhenEmpty": true
           }
-        ]
+        ],
+        "repairHeadlineFromPageTitle": true,
+        "headlineSourceFieldId": "pageTitle_s",
+        "headlineTargetFieldId": "headline_s"
       },
       "toolsLoopPrefetchSupplement": "createFromChatDraft",
       "prefetchSupplementConfig": {

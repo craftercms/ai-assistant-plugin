@@ -425,6 +425,8 @@
         "hero image of"
       ],
       "dontMatchHints": [
+        "this page",
+        "for this page",
         "latest news",
         "headlines",
         "breaking news",

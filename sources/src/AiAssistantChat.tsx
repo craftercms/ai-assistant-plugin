@@ -59,7 +59,7 @@ import {
   stripStudioAiInlineImageMarkdownFromText
 } from './assistantGeneratedImageChat';
 import { getSpeechRecognitionCtor } from './browserSpeechRecognition';
-import { formatIntentRecipeChatLine, intentRecipeLineFromRoutingTelemetry } from './intentRecipeChatDisplay';
+import { intentRoutingDisplayMarkdown } from './intentRecipeChatDisplay';
 import { STUDIO_AI_DEFAULT_IMAGE_MODEL } from './studioAiOrchestrationToolIds';
 /** When llm is openAI: send default image model when agent/panel snapshot omitted it (server applies the same default). */
 function resolveWireImageModel(llm: string | undefined, imageModel: string | undefined): string | undefined {
@@ -1228,6 +1228,8 @@ type UiMessage = {
   toolProgressText?: string;
   /** Emoji + recipe title when intent routing matched (SSE {@code intent-recipe-routing}). */
   intentRecipeLine?: string;
+  /** Author-visible cards when the server feeds context between tool rounds (SSE {@code step-bridge-card}). */
+  stepBridgeCards?: string[];
   /**
    * Raw assistant text before the first tool-progress chunk — shown in muted “live” styling, then cleared once tools run
    * or folded into {@link text} when the stream completes without tools.
@@ -1809,6 +1811,8 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
   const [readResponsesAloud, setReadResponsesAloud] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
+  /** Prevents double-send while macro expansion / stream prep runs (before `setSending` used to flip late). */
+  const sendInFlightRef = useRef(false);
   /** True when the user clicked Stop (vs timeout / navigation) — shapes catch handling. */
   const userStopRequestedRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -1950,7 +1954,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
   }, []);
 
   // Allow sending even if a previous request is stuck; startSend aborts in-flight first.
-  const canSend = useMemo(() => draft.trim().length > 0, [draft]);
+  const canSend = useMemo(() => draft.trim().length > 0 && !sending, [draft, sending]);
 
   /** 📋 plan lines from the latest finished assistant message — click runs as a new prompt. */
   const verificationPrompts = useMemo(() => {
@@ -2190,6 +2194,13 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
 
     stopVoiceInput();
 
+    if (sendInFlightRef.current) {
+      return;
+    }
+    sendInFlightRef.current = true;
+    setSending(true);
+
+    try {
     const now = new Date();
     const pad2 = (n: number) => String(n).padStart(2, '0');
     const macroContentPath = crossSiteWorking ? undefined : macroValuesRef.current.contentPath;
@@ -2242,7 +2253,9 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
       expandedDisplay,
       macroValuesRef.current.contentPath
     ).trim();
-    if (!expandedPrompt) return;
+    if (!expandedPrompt) {
+      return;
+    }
 
     const omitToolsThisSend = sendOptions?.omitTools === true;
     const expandedAfterMacrosLen = expandedPrompt.length;
@@ -2339,7 +2352,6 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
       /* ignore log serialization errors */
     }
     clearChatPromptInput();
-    setSending(true);
 
     let streamingMessageId: string | undefined;
     let assistantTextAccum = '';
@@ -2449,18 +2461,28 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
 
           if (mdStatus === 'intent-recipe-routing') {
             const tel = md.intentRecipeRouting;
-            const line =
-              rawTextChunk.trim() ||
-              intentRecipeLineFromRoutingTelemetry(tel) ||
-              (tel && typeof tel === 'object'
-                ? formatIntentRecipeChatLine(
-                    String((tel as Record<string, unknown>).recipeId ?? ''),
-                    String((tel as Record<string, unknown>).recipeTitle ?? '')
-                  )
-                : '');
+            const line = intentRoutingDisplayMarkdown(tel, rawTextChunk) || '';
             if (line.trim()) {
               setMessages((prev) =>
                 prev.map((m) => (m.id === assistantId ? { ...m, intentRecipeLine: line.trimEnd() + '\n' } : m))
+              );
+            }
+            return;
+          }
+
+          if (mdStatus === 'step-bridge-card') {
+            const bridge =
+              md.stepBridge && typeof md.stepBridge === 'object'
+                ? (md.stepBridge as Record<string, unknown>)
+                : null;
+            const card = String(bridge?.markdown ?? rawTextChunk ?? '').trim();
+            if (card) {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId
+                    ? { ...m, stepBridgeCards: [...(m.stepBridgeCards ?? []), card] }
+                    : m
+                )
               );
             }
             return;
@@ -2813,7 +2835,9 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
           };
         })
       );
+    }
     } finally {
+      sendInFlightRef.current = false;
       setSending(false);
     }
   };
@@ -2928,6 +2952,26 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                   <MarkdownMessage text={m.intentRecipeLine} />
                 </Box>
               ) : null}
+              {m.stepBridgeCards?.map((card, bridgeIdx) =>
+                card.trim() ? (
+                  <Box
+                    key={`step-bridge-${m.id}-${bridgeIdx}`}
+                    sx={{
+                      mb: 1,
+                      py: 0.5,
+                      px: 1,
+                      borderRadius: 1,
+                      bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.50',
+                      border: `1px solid ${theme.palette.divider}`,
+                      borderLeft: `3px solid ${theme.palette.primary.main}`,
+                      fontSize: '0.875rem',
+                      lineHeight: 1.45
+                    }}
+                  >
+                    <MarkdownMessage text={card} />
+                  </Box>
+                ) : null
+              )}
               {m.toolProgressText?.trim() && m.assistantPreToolsText !== undefined ? (
                 <>
                   {m.assistantPreToolsText.trim() ? (
@@ -3281,7 +3325,9 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
               fullWidth
               multiline
               minRows={1}
-              maxRows={promptFocused || voiceListening ? 8 : 1}
+              maxRows={
+                voiceListening || promptFocused || draft.includes('\n') || draft.length > 100 ? 8 : 1
+              }
               size="small"
               placeholder={voiceListening ? 'Listening… speak your prompt' : promptPlaceholder}
               value={draft}
@@ -3338,6 +3384,10 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
               <span>
                 <IconButton
                   color="primary"
+                  onMouseDown={(e) => {
+                    // Keep focus on the prompt through click so layout does not collapse before send fires.
+                    e.preventDefault();
+                  }}
                   onClick={() => startSend(draft)}
                   disabled={!canSend || sending}
                   aria-label="Send"

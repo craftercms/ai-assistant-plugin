@@ -8,6 +8,7 @@ import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.StringReader
 import java.nio.charset.StandardCharsets
+import java.util.Collections
 import java.util.Locale
 import java.util.regex.Pattern
 
@@ -236,5 +237,90 @@ private CmsRepositorySupport() {}
     } catch (Throwable ignored) {
     }
     return reader
+  }
+
+  private static final String CANONICAL_POST_CONTENT_TYPE = '/component/post'
+
+  /** HTML named entities that are not predefined in XML 1.0 — common LLM output inside element text. */
+  private static final Map<String, String> INVALID_XML_HTML_NAMED_ENTITIES = Collections.unmodifiableMap([
+    'nbsp'  : '\u00A0',
+    'rsquo' : '\u2019',
+    'lsquo' : '\u2018',
+    'rdquo' : '\u201D',
+    'ldquo' : '\u201C',
+    'mdash' : '\u2014',
+    'ndash' : '\u2013',
+    'hellip': '\u2026',
+    'copy'  : '\u00A9',
+    'reg'   : '\u00AE',
+    'trade' : '\u2122',
+    'bull'  : '\u2022',
+    'middot': '\u00B7'
+  ] as Map)
+
+  /**
+   * True when post-specific title trio repairs apply ({@code pageTitle_s}, {@code headline_s}).
+   */
+  static boolean contentTypeSupportsCanonicalPostTitleFields(String contentTypeId) {
+    String ct = (contentTypeId ?: '').toString().trim()
+    if (!ct) {
+      return false
+    }
+    if (!ct.startsWith('/')) {
+      ct = "/${ct}"
+    }
+    return CANONICAL_POST_CONTENT_TYPE.equalsIgnoreCase(ct)
+  }
+
+  /**
+   * Replaces {@code &rsquo;}-style HTML entities outside CDATA with Unicode so SAX parse succeeds.
+   */
+  static String normalizeInvalidHtmlNamedEntitiesOutsideCdata(String xml) {
+    if (xml == null || !xml.toString().contains('&')) {
+      return xml
+    }
+    String input = xml.toString()
+    StringBuilder out = new StringBuilder(input.length())
+    int i = 0
+    while (i < input.length()) {
+      int cdataStart = input.indexOf('<![CDATA[', i)
+      if (cdataStart < 0) {
+        out.append(replaceInvalidHtmlNamedEntitiesInTextSegment(input.substring(i)))
+        break
+      }
+      if (cdataStart > i) {
+        out.append(replaceInvalidHtmlNamedEntitiesInTextSegment(input.substring(i, cdataStart)))
+      }
+      int cdataEnd = input.indexOf(']]>', cdataStart + 9)
+      if (cdataEnd < 0) {
+        out.append(input.substring(cdataStart))
+        break
+      }
+      out.append(input.substring(cdataStart, cdataEnd + 3))
+      i = cdataEnd + 3
+    }
+    return out.toString()
+  }
+
+  private static String replaceInvalidHtmlNamedEntitiesInTextSegment(String segment) {
+    if (!segment || !segment.contains('&')) {
+      return segment ?: ''
+    }
+    String s = segment
+    for (Map.Entry<String, String> e : INVALID_XML_HTML_NAMED_ENTITIES.entrySet()) {
+      String name = e.key
+      String replacement = e.value
+      s = s.replaceAll("(?i)&${name};", replacement)
+      s = s.replaceAll("(?i)&${name}(?=\\s|<|\$)", replacement)
+    }
+    return s
+  }
+
+  /**
+   * Crafter {@code objectGroupId} prefix from a UUID-shaped {@code objectId}.
+   */
+  static String objectGroupFromUuid(String uuid) {
+    String hex = (uuid ?: '').replace('-', '').toLowerCase(Locale.ROOT)
+    return hex.length() >= 4 ? hex.substring(0, 4) : ''
   }
 }

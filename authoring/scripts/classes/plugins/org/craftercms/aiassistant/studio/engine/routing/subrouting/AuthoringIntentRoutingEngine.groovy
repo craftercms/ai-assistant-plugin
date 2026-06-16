@@ -104,6 +104,47 @@ final class AuthoringIntentRoutingEngine {
     entry.put('prefetchEnvelopeTruncated', Boolean.TRUE.equals(prefetchResult.prefetchEnvelopeTruncated))
     rt.put((passId ?: PASS_INITIAL).toString(), entry)
     toolsLoopSessionBundle.routingEngineTelemetry = rt
+    accumulatePrefetchToolOutputs(toolsLoopSessionBundle, prefetchResult)
+  }
+
+  private static void accumulatePrefetchToolOutputs(Map toolsLoopSessionBundle, Map prefetchResult) {
+    if (!(toolsLoopSessionBundle instanceof Map) || !(prefetchResult instanceof Map)) {
+      return
+    }
+    List<Map> acc = toolsLoopSessionBundle.routingPrefetchToolOutputs instanceof List ?
+      new ArrayList<>((List) toolsLoopSessionBundle.routingPrefetchToolOutputs) :
+      new ArrayList<>()
+    List steps = prefetchResult.prefetchSteps instanceof List ? (List) prefetchResult.prefetchSteps : []
+    for (Object o : steps) {
+      if (!(o instanceof Map)) {
+        continue
+      }
+      Map sum = (Map) o
+      if (!Boolean.TRUE.equals(sum.get('ok'))) {
+        continue
+      }
+      String tool = sum.get('tool')?.toString()?.trim()
+      Object res = sum.get('result')
+      if (tool && res instanceof Map && !((Map) res).isEmpty()) {
+        acc.add([tool: tool, result: truncatePrefetchResult((Map) res)])
+      }
+    }
+    if (!acc.isEmpty()) {
+      toolsLoopSessionBundle.routingPrefetchToolOutputs = acc
+    }
+  }
+
+  private static Map truncatePrefetchResult(Map input) {
+    Map out = new LinkedHashMap()
+    input.each { k, v ->
+      if (v instanceof CharSequence) {
+        String s = v.toString()
+        out.put(k, s.length() > 8_000 ? s.substring(0, 8_000) + '…[truncated]' : s)
+      } else {
+        out.put(k, v)
+      }
+    }
+    return out
   }
 
   /**

@@ -13,6 +13,7 @@ import plugins.org.craftercms.aiassistant.studio.spi.tool.StudioAiToolContext
 import plugins.org.craftercms.aiassistant.studio.spi.tool.StudioAiToolProgress
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.playbook.CrafterizingPlaybookLoader
 import plugins.org.craftercms.aiassistant.studio.engine.prompt.ToolPrompts
+import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.integrations.SerpApiWebSearchProjectSettings
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.site.StudioAiUserSiteTools
 import plugins.org.craftercms.aiassistant.studio.engine.autonomous.AutonomousAssistantWorker
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
@@ -1763,6 +1764,7 @@ class AiOrchestrationTools {
     tools.addAll(StudioAiToolRegistry.buildMcpToolCallbacks(ctx, ops))
     applyToolCatalogFilters(tools, ctx.aiProjectToolCfg)
     applyAgentEnabledBuiltInToolsSubset(tools, agentEnabledBuiltInTools)
+    applySerpApiOverWebSearchPreference(tools, ops, ctx.aiProjectToolCfg)
     return tools
   }
 
@@ -1836,6 +1838,52 @@ class AiOrchestrationTools {
       return true
     }
     return 'ListContentDependencyScope'.equals(wireName) && wl.contains('ListContentTranslationScope')
+  }
+
+  /**
+   * When SerpAPI resolves for this site, drop DuckDuckGo {@code WebSearch} so the model uses {@code SerpApiWebSearch}.
+   */
+  private static void applySerpApiOverWebSearchPreference(List tools, StudioToolOperations ops, Map projectCfg) {
+    if (tools == null || tools.isEmpty() || ops == null) {
+      return
+    }
+    if (!SerpApiWebSearchProjectSettings.shouldOmitWebSearchForSerpApi(ops, projectCfg)) {
+      return
+    }
+    if (!toolCallbacksIncludeNamedTool(tools, SerpApiWebSearchProjectSettings.WIRE)) {
+      return
+    }
+    int before = tools.size()
+    for (Iterator it = tools.iterator(); it.hasNext();) {
+      Object t = it.next()
+      if (t instanceof FunctionToolCallback) {
+        String n = ((FunctionToolCallback) t).getToolDefinition()?.name()
+        if ('WebSearch'.equals(n)) {
+          it.remove()
+        }
+      }
+    }
+    if (tools.size() < before) {
+      log.info(
+        'AiOrchestrationTools: omitted WebSearch from wire catalog — SerpAPI key resolved for siteId={}',
+        ops.resolveEffectiveSiteId('')
+      )
+    }
+  }
+
+  private static boolean toolCallbacksIncludeNamedTool(List tools, String toolName) {
+    if (!(tools instanceof List) || !toolName?.trim()) {
+      return false
+    }
+    for (Object t : tools) {
+      if (t instanceof FunctionToolCallback) {
+        String n = ((FunctionToolCallback) t).getToolDefinition()?.name()
+        if (toolName.equals(n)) {
+          return true
+        }
+      }
+    }
+    return false
   }
 
   /**

@@ -28,11 +28,13 @@ final class PlanOrchestration {
 In the **same** assistant message as your **## Plan** and **`tool_calls`**, append **exactly one** HTML comment at the **very end** of `content` (after all visible text), on its own lines, with **JSON only** between the delimiters:
 
 <!--CRAFTERRQ_ORCH
-{"version":1,"steps":[{"id":1,"tools":["ListContentTranslationScope"],"summary":"one line"},{"id":2,"tools":["TranslateContentBatch"],"summary":"one line"},{"id":3,"tools":["GetPreviewHtml"],"summary":"one line"}]}
+{"version":1,"steps":[{"id":1,"tools":["ListContentTranslationScope"],"summary":"one line","produces":"scope"},{"id":2,"tools":["TranslateContentBatch"],"summary":"one line","consumes":["scope"]},{"id":3,"tools":["GetPreviewHtml"],"summary":"one line","consumes":["scope"]}]}
 -->
 
 Rules:
 - `steps` lists **execution order**. Each `tools` array contains **function names** exactly as registered in this chat (same spelling as tool `name` in the schema).
+- Optional `consumes`: string array naming **prior step outputs** this step must use in tool arguments (e.g. search hits, paths, field values from earlier steps).
+- Optional `produces`: short label for what this step supplies to later steps (for your own chaining discipline).
 - List **every** tool you invoke in this turn **once each**, in the order you intend the server to run them.
 - The **`tools` names must match your actual `tool_calls`** for this message (same tools, same order). **Do not** name one tool in JSON while emitting a **different** name in **`tool_calls`** — authors see a broken plan.
 - Keep `summary` short (for logs). Authors do not need to read this block; do not narrate it outside the comment.'''
@@ -169,6 +171,7 @@ Rules:
     List lead = new ArrayList<>()
     List formDefs = new ArrayList<>()
     List writes = new ArrayList<>()
+    List postWriteImages = new ArrayList<>()
     List previews = new ArrayList<>()
     for (def tcObj : toolCallsList) {
       if (!(tcObj instanceof Map)) {
@@ -178,6 +181,8 @@ Rules:
       String fn = extractToolName((Map) tcObj)
       if ('WriteContent'.equals(fn) || 'update_content'.equals(fn)) {
         writes.add(tcObj)
+      } else if ('GenerateImage'.equals(fn) || 'GeneratePlaceholderImage'.equals(fn)) {
+        postWriteImages.add(tcObj)
       } else if ('GetContentTypeFormDefinition'.equals(fn)) {
         formDefs.add(tcObj)
       } else if ('GetPreviewHtml'.equals(fn)) {
@@ -190,6 +195,7 @@ Rules:
     out.addAll(lead)
     out.addAll(formDefs)
     out.addAll(writes)
+    out.addAll(postWriteImages)
     out.addAll(previews)
     return out
   }

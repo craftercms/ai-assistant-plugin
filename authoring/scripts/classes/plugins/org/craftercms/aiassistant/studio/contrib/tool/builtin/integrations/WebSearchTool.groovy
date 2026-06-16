@@ -39,7 +39,8 @@ class WebSearchTool extends AbstractStudioAiTool {
     String queryOriginal = queryDisambig.queryOriginal?.toString()?.trim() ?: query
     String querySent = queryDisambig.querySent?.toString()?.trim() ?: query
     int maxResults = maxResults(parseMaxResults(input))
-    List<Map> results = duckDuckGoResults(querySent, maxResults)
+    Map searchOutcome = duckDuckGoResults(querySent, maxResults)
+    List<Map> results = (searchOutcome.results instanceof List) ? (List<Map>) searchOutcome.results : []
     if (Boolean.TRUE.equals(queryDisambig.queryExpanded) && results) {
       results = results.findAll { Map row ->
         !WebSearchResultTextUtil.skipHealthcareCmsResult(
@@ -50,6 +51,13 @@ class WebSearchTool extends AbstractStudioAiTool {
       }
     }
     if (results.isEmpty()) {
+      if (Boolean.TRUE.equals(searchOutcome.reachError)) {
+        log.error(
+          'WebSearch returned no results after search-service reach failure query={} detail={}',
+          queryOriginal,
+          searchOutcome.reachErrorDetail ?: 'see prior WebSearch DuckDuckGo errors'
+        )
+      }
       return [
         ok         : false,
         tool       : wireName(),
@@ -118,14 +126,20 @@ class WebSearchTool extends AbstractStudioAiTool {
    * Duck duck go results.
    * @param q Caller-supplied input.
    * @param maxResults Caller-supplied input.
-   * @return List<Map> result.
+   * @return Map with {@code results} (List) and {@code reachError} when HTTP/policy/I/O failed.
    */
-  private List<Map> duckDuckGoResults(String q, int maxResults) {
-    List<Map> fromLite = duckDuckGoPost('https://lite.duckduckgo.com/lite/', q, maxResults, true)
-    if (!fromLite.isEmpty()) {
-      return fromLite
+  private Map duckDuckGoResults(String q, int maxResults) {
+    Map lite = duckDuckGoPost('https://lite.duckduckgo.com/lite/', q, maxResults, true)
+    List<Map> liteResults = (lite.results instanceof List) ? (List<Map>) lite.results : []
+    if (!liteResults.isEmpty()) {
+      return lite
     }
-    return duckDuckGoPost('https://html.duckduckgo.com/html/', q, maxResults, false)
+    Map html = duckDuckGoPost('https://html.duckduckgo.com/html/', q, maxResults, false)
+    return [
+      results         : html.results instanceof List ? html.results : [],
+      reachError      : Boolean.TRUE.equals(lite.reachError) || Boolean.TRUE.equals(html.reachError),
+      reachErrorDetail: (lite.reachErrorDetail ?: html.reachErrorDetail ?: '').toString().trim()
+    ]
   }
 
   /**
@@ -134,14 +148,14 @@ class WebSearchTool extends AbstractStudioAiTool {
    * @param q Caller-supplied input.
    * @param maxResults Caller-supplied input.
    * @param liteParser Caller-supplied input.
-   * @return List<Map> result.
+   * @return Map with {@code results}, {@code reachError}, {@code reachErrorDetail}.
    */
-  private List<Map> duckDuckGoPost(String endpoint, String q, int maxResults, boolean liteParser) {
+  private Map duckDuckGoPost(String endpoint, String q, int maxResults, boolean liteParser) {
     URI uri = new URI(endpoint)
     String hopErr = OutboundHttpPolicy.validateUrl(uri.toString())
     if (hopErr) {
-      log.warn('WebSearch DuckDuckGo blocked by SSRF policy: {}', hopErr)
-      return []
+      log.error('WebSearch DuckDuckGo blocked by SSRF policy endpoint={}: {}', endpoint, hopErr)
+      return [results: [], reachError: true, reachErrorDetail: hopErr]
     }
     String body = 'q=' + URLEncoder.encode(q, StandardCharsets.UTF_8.name())
     try {
@@ -159,21 +173,24 @@ class WebSearchTool extends AbstractStudioAiTool {
         ]
       )
       if (ex.errorMessage) {
-        log.warn('WebSearch DuckDuckGo I/O failed endpoint={}: {}', endpoint, ex.errorMessage)
-        return []
+        String detail = ex.errorMessage.toString()
+        log.error('WebSearch DuckDuckGo I/O failed endpoint={} query={}: {}', endpoint, q, detail)
+        return [results: [], reachError: true, reachErrorDetail: detail]
       }
       int status = ex.statusCode
       if (status < 200 || status >= 300) {
-        log.warn('WebSearch DuckDuckGo HTTP {} endpoint={}', status, endpoint)
-        return []
+        String detail = "HTTP ${status}"
+        log.error('WebSearch DuckDuckGo HTTP {} endpoint={} query={}', status, endpoint, q)
+        return [results: [], reachError: true, reachErrorDetail: detail]
       }
       String html = ex.bodyText ?: ''
-      return liteParser ?
+      List<Map> parsed = liteParser ?
         parseDuckDuckGoLiteHtml(html, maxResults) :
         parseDuckDuckGoHtml(html, maxResults)
+      return [results: parsed, reachError: false, reachErrorDetail: '']
     } catch (Throwable t) {
-      log.warn('WebSearch DuckDuckGo failed endpoint={}: {}', endpoint, t.message)
-      return []
+      log.error('WebSearch DuckDuckGo failed endpoint={} query={}: {}', endpoint, q, t.message, t)
+      return [results: [], reachError: true, reachErrorDetail: t.message ?: t.toString()]
     }
   }
 

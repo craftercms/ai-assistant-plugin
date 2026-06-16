@@ -15,7 +15,7 @@ import java.util.Locale
 final class FormDefinitionWriteContentValidator {
 
   private static final Set<String> STRUCTURAL_ELEMENT_NAMES = Collections.unmodifiableSet([
-    'content-type', 'display-template', 'merge-strategy', 'objectId', 'objectGroupId',
+    'content-type', 'display-template', 'no-template-required', 'merge-strategy', 'objectId', 'objectGroupId',
     'file-name', 'folder-name', 'createdDate', 'createdDate_dt', 'lastModifiedDate', 'lastModifiedDate_dt',
     'disabled', 'placeInNav', 'navLabel', 'expires_dt', 'savedAsDraft', 'localeCode_s', 'sourceLocaleCode_s',
     'translationId_s', 'translationStatus_s', 'translated_b', 'deleted', 'system-type', 'userFirstName_s',
@@ -25,6 +25,13 @@ final class FormDefinitionWriteContentValidator {
   /** Envelope / system elements allowed at item root but not listed in form field ids. */
   static boolean isStructuralEnvelopeElement(String elementName) {
     return elementName != null && STRUCTURAL_ELEMENT_NAMES.contains(elementName)
+  }
+
+  /** Form field ids plus Crafter structural envelope element names. */
+  static Set<String> allowedRootElementNames(List<String> formFieldIds) {
+    LinkedHashSet<String> allowed = new LinkedHashSet<>(formFieldIds ?: [])
+    allowed.addAll(STRUCTURAL_ELEMENT_NAMES)
+    return allowed
   }
 
   private FormDefinitionWriteContentValidator() {}
@@ -278,6 +285,31 @@ final class FormDefinitionWriteContentValidator {
         "Unknown element(s) not in form definition: `${unknown.join('`, `')}` — use exact field ids from GetContentTypeFormDefinition / writeContentMaterials (repeat nested ids are listed under repeatBindings), not generic HTML names like `<title>` or `<body>`."
       )
     }
+  }
+
+  /**
+   * Removes root-level elements not in the form definition or structural envelope.
+   * @return names of removed elements (for logging)
+   */
+  static List<String> stripUnknownRootElements(Element root, List<String> formFieldIds) {
+    List<String> removed = []
+    if (root == null) {
+      return removed
+    }
+    LinkedHashSet<String> allowed = new LinkedHashSet<>(formFieldIds ?: [])
+    allowed.addAll(STRUCTURAL_ELEMENT_NAMES)
+    List<Element> toRemove = []
+    for (Element child : root.elements()) {
+      String name = child?.name
+      if (name && !allowed.contains(name)) {
+        toRemove.add(child)
+        removed.add(name)
+      }
+    }
+    for (Element child : toRemove) {
+      root.remove(child)
+    }
+    return removed
   }
 
   private static void validateRepoPathSlugAlignment(Element root, String path, List<String> errors) {

@@ -13,12 +13,13 @@ import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.intern
 import java.io.StringReader
 import java.nio.charset.StandardCharsets
 import java.util.Calendar
+import java.util.Collections
 import java.util.LinkedHashSet
 import java.util.Locale
 import java.util.Set
 import java.util.TimeZone
 import java.util.UUID
-import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.ToolsLoopWriteVerification
+
 /** Repository write pipeline for {@link plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.WriteContentTool}. */
 final class CmsWriteContent {
 
@@ -69,6 +70,189 @@ private CmsWriteContent() {}
     s = s.replace('<disableFlattenening/>', '<disableFlattening/>')
     s = s.replace('<disableFlattenening ', '<disableFlattening ')
     return s
+  }
+
+  private static final Set<String> BASELINE_IDENTITY_PRESERVE_FIELDS = Collections.unmodifiableSet([
+    'objectId', 'objectGroupId', 'content-type', 'display-template', 'merge-strategy', 'file-name',
+    'createdDate', 'createdDate_dt'
+  ] as Set)
+
+  /**
+   * True when post-specific title trio repairs apply ({@code pageTitle_s}, {@code headline_s}).
+   */
+  static boolean contentTypeSupportsCanonicalPostTitleFields(String contentTypeId) {
+    return CmsRepositorySupport.contentTypeSupportsCanonicalPostTitleFields(contentTypeId)
+  }
+
+  /**
+   * For existing repository items: load sandbox baseline, overlay only form-defined fields from the
+   * proposed XML, drop invented root elements, and preserve identity/collection structure when the
+   * proposal is incomplete or malformed.
+   */
+  private static String reconcileExistingItemWithBaseline(
+    StudioToolOperations ops,
+    String siteId,
+    String normalizedRepoPath,
+    String proposedXmlUtf8
+  ) {
+    if (!ops || !proposedXmlUtf8?.trim() || !normalizedRepoPath?.startsWith('/site/')) {
+      return proposedXmlUtf8
+    }
+    if (!CmsContentExists.existsAtPath(ops, siteId, normalizedRepoPath)) {
+      return proposedXmlUtf8
+    }
+    String baselineXml
+    try {
+      Map baselineRead = CmsGetContent.read(ops, siteId, normalizedRepoPath, null) as Map
+      baselineXml = (baselineRead?.contentXml ?: '').toString()
+    } catch (Throwable t) {
+      log.debug('reconcileExistingItemWithBaseline: could not read baseline path={}: {}', normalizedRepoPath, t.message)
+      return proposedXmlUtf8
+    }
+    if (!baselineXml?.trim()) {
+      return proposedXmlUtf8
+    }
+    String contentTypeId = extractContentTypeIdFromItemXml(baselineXml) ?: extractContentTypeIdFromItemXml(proposedXmlUtf8)
+    if (!contentTypeId?.trim()) {
+      return proposedXmlUtf8
+    }
+    if (!contentTypeId.startsWith('/')) {
+      contentTypeId = "/${contentTypeId}"
+    }
+    String cfgPath = "/content-types${contentTypeId}/form-definition.xml"
+    String formXml
+    try {
+      formXml = ops.configurationServiceBean.getConfigurationAsString(siteId, 'studio', cfgPath, '')
+    } catch (Throwable t) {
+      log.debug('reconcileExistingItemWithBaseline: form load failed {}: {}', cfgPath, t.message)
+      return proposedXmlUtf8
+    }
+    if (!formXml?.trim()) {
+      return proposedXmlUtf8
+    }
+    Map plan = FormDefinitionWriteContentValidator.buildValidationPlan(formXml.toString()) as Map
+    if (!FormDefinitionWriteContentValidator.planIsActionable(plan)) {
+      return proposedXmlUtf8
+    }
+    Document baselineDoc
+    Document proposedDoc
+    try {
+      baselineDoc = newHardenedSaxReader().read(new StringReader(baselineXml.toString()))
+      proposedDoc = newHardenedSaxReader().read(new StringReader(proposedXmlUtf8.toString()))
+    } catch (Throwable t) {
+      log.debug('reconcileExistingItemWithBaseline: parse failed path={}: {}', normalizedRepoPath, t.message)
+      return proposedXmlUtf8
+    }
+    Element baseRoot = baselineDoc?.getRootElement()
+    Element propRoot = proposedDoc?.getRootElement()
+    if (baseRoot == null || propRoot == null) {
+      return proposedXmlUtf8
+    }
+    LinkedHashSet<String> allowed = new LinkedHashSet<>(
+      FormDefinitionWriteContentValidator.allowedRootElementNames(
+        plan.formFieldIds instanceof List ? (List) plan.formFieldIds : []
+      )
+    )
+    List<String> overlays = []
+    List<String> dropped = []
+    for (Element propChild : (List<Element>) propRoot.elements()) {
+      String name = propChild?.name
+      if (!name) {
+        continue
+      }
+      if (!allowed.contains(name)) {
+        dropped.add(name)
+        continue
+      }
+      if (BASELINE_IDENTITY_PRESERVE_FIELDS.contains(name) && elementTextTrim(baseRoot, name)) {
+        continue
+      }
+      if (name.endsWith('_o') && !proposedCollectionFieldHasUsableContent(propChild)) {
+        continue
+      }
+      if (!shouldOverlayProposedField(propChild, name)) {
+        continue
+      }
+      Element existing = baseRoot.element(name)
+      if (existing != null) {
+        baseRoot.remove(existing)
+      }
+      baseRoot.add((Element) propChild.clone())
+      overlays.add(name)
+    }
+    List<String> stripped = []
+    if (!overlays.isEmpty() || !dropped.isEmpty() || !stripped.isEmpty()) {
+      log.info(
+        'reconcileExistingItemWithBaseline: path={} overlays={} droppedUnknown={} stripped={}',
+        normalizedRepoPath,
+        overlays,
+        dropped,
+        stripped
+      )
+    }
+    return baselineDoc.asXML()
+  }
+
+  private static boolean proposedCollectionFieldHasUsableContent(Element fieldEl) {
+    if (fieldEl == null) {
+      return false
+    }
+    List<Element> items = fieldEl.elements('item')
+    if (items == null || items.isEmpty()) {
+      return false
+    }
+    for (Element item : items) {
+      String key = item.elementTextTrim('key')
+      String include = item.elementTextTrim('include')
+      if (key || include || item.element('component') != null) {
+        return true
+      }
+    }
+    return false
+  }
+
+  private static boolean shouldOverlayProposedField(Element el, String fieldName) {
+    if (el == null || !fieldName) {
+      return false
+    }
+    if (fieldName.endsWith('_o')) {
+      return proposedCollectionFieldHasUsableContent(el)
+    }
+    if (el.elements().size() > 0) {
+      return elementHasUsableDescendantContent(el)
+    }
+    String text = el.getText()
+    return text != null && text.trim().length() > 0
+  }
+
+  private static boolean elementHasUsableDescendantContent(Element el) {
+    if (el == null) {
+      return false
+    }
+    if (el.element('component') != null) {
+      return true
+    }
+    String direct = el.getTextTrim()
+    if (direct) {
+      return true
+    }
+    for (Element child : el.elements()) {
+      String name = child?.name
+      if (('key'.equals(name) || 'include'.equals(name)) && child?.getTextTrim()) {
+        return true
+      }
+      if (elementHasUsableDescendantContent(child)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  /**
+   * Package-visible alias for recipe write repairs (same rules as {@link #enrichContentXmlBeforeFormValidation}).
+   */
+  static String normalizeInvalidHtmlNamedEntitiesOutsideCdataForRepair(String xml) {
+    return CmsRepositorySupport.normalizeInvalidHtmlNamedEntitiesOutsideCdata(xml)
   }
 
   /**
@@ -1048,7 +1232,22 @@ private CmsWriteContent() {}
     }
     String body = sanitizeUtf8BodyForXml10(xmlUtf8.toString())
     body = normalizeCommonLlmXmlTagTypos(body)
+    body = CmsRepositorySupport.normalizeInvalidHtmlNamedEntitiesOutsideCdata(body)
+    try {
+      String reconciled = reconcileExistingItemWithBaseline(ops, siteId, normalizedRepoPath, body)
+      if (reconciled != null) {
+        body = reconciled
+      }
+    } catch (Throwable ignored) {
+    }
     body = applyStructuralEnvelopeDefaultsIfNeeded(ops, siteId, normalizedRepoPath, body)
+    try {
+      String withTitles = applyCanonicalPostTitleFieldsIfNeeded(body)
+      if (withTitles != null) {
+        body = withTitles
+      }
+    } catch (Throwable ignored) {
+    }
     try {
       String withImg = applyRequiredImagePickerDataUrlDefaultsIfNeeded(ops, siteId, normalizedRepoPath, body)
       if (withImg != null) {
@@ -1064,6 +1263,50 @@ private CmsWriteContent() {}
     } catch (Throwable ignored) {
     }
     return body
+  }
+
+  /**
+   * Syncs internal-name, pageTitle_s, and headline_s when any one is populated (form-required trio on /component/post).
+   */
+  private static String applyCanonicalPostTitleFieldsIfNeeded(String xmlUtf8) {
+    if (!xmlUtf8?.trim()) {
+      return xmlUtf8
+    }
+    String contentTypeId = extractContentTypeIdFromItemXml(xmlUtf8)
+    if (!contentTypeSupportsCanonicalPostTitleFields(contentTypeId)) {
+      return xmlUtf8
+    }
+    try {
+      Document doc = newHardenedSaxReader().read(new StringReader(xmlUtf8.toString()))
+      Element root = doc?.getRootElement()
+      if (root == null) {
+        return xmlUtf8
+      }
+      String internalName = elementTextTrim(root, 'internal-name')
+      String pageTitle = elementTextTrim(root, 'pageTitle_s')
+      String headline = elementTextTrim(root, 'headline_s')
+      String canonical = internalName ?: pageTitle ?: headline
+      if (!canonical) {
+        return xmlUtf8
+      }
+      boolean changed = false
+      if (!internalName) {
+        ensureChildText(root, 'internal-name', canonical)
+        changed = true
+      }
+      if (!pageTitle) {
+        ensureChildText(root, 'pageTitle_s', canonical)
+        changed = true
+      }
+      if (!headline) {
+        ensureChildText(root, 'headline_s', canonical)
+        changed = true
+      }
+      return changed ? doc.asXML() : xmlUtf8
+    } catch (Throwable t) {
+      log.debug('applyCanonicalPostTitleFieldsIfNeeded skipped: {}', t.message)
+      return xmlUtf8
+    }
   }
 
   /**
@@ -1107,7 +1350,7 @@ private CmsWriteContent() {}
         ensureChildText(root, 'objectId', oid)
         changed = true
       }
-      String expectedGroup = ToolsLoopWriteVerification.objectGroupFromUuid(oid)
+      String expectedGroup = CmsRepositorySupport.objectGroupFromUuid(oid)
       if (expectedGroup && !expectedGroup.equalsIgnoreCase(elementTextTrim(root, 'objectGroupId'))) {
         setChildText(root, 'objectGroupId', expectedGroup)
         changed = true
@@ -1159,7 +1402,8 @@ private CmsWriteContent() {}
           if (!name || !value) {
             continue
           }
-          if (('display-template'.equals(name) || 'merge-strategy'.equals(name)) && !elementTextTrim(root, name)) {
+          if (('display-template'.equals(name) || 'merge-strategy'.equals(name) || 'no-template-required'.equals(name)) &&
+            !elementTextTrim(root, name)) {
             ensureChildText(root, name, value)
             changed = true
           }

@@ -293,6 +293,7 @@ function buildParsedTimeline(lines: string[]): string {
       status === 'tool-progress' ||
       status === 'tool-workflow-hint' ||
       status === 'intent-recipe-routing' ||
+      status === 'step-bridge-card' ||
       status === 'prompt-assembly' ||
       status === 'pipeline-heartbeat' ||
       phaseInteresting;
@@ -421,6 +422,15 @@ function buildParsedTimeline(lines: string[]): string {
         }
         const oneLine = text.replace(/\s+/g, ' ').trim();
         if (oneLine) bullets.push(`  chat line: ${previewText(oneLine, 220)}`);
+      }
+      if (status === 'step-bridge-card') {
+        const bridge =
+          meta.stepBridge && typeof meta.stepBridge === 'object'
+            ? (meta.stepBridge as Record<string, unknown>)
+            : null;
+        bullets.push(`Step bridge: kind=${bridge?.kind ?? '—'}`);
+        const oneLine = text.replace(/\s+/g, ' ').trim();
+        if (oneLine) bullets.push(`  card: ${previewText(oneLine, 220)}`);
       }
       if (phaseInteresting) {
         bullets.push(

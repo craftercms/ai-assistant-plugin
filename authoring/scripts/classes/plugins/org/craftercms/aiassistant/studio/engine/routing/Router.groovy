@@ -11,6 +11,7 @@ import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.Autho
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentRecipePlanCompiler
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentRecipeRouter
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringTurnGoal
+import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentCard
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentRoutingEngine
 import plugins.org.craftercms.aiassistant.studio.engine.turn.AiOrchestration
 import plugins.org.craftercms.aiassistant.studio.config.StudioAiAssistantProjectConfig
@@ -223,7 +224,10 @@ final class Router {
         catalog,
         author,
         activePass,
-        toolsLoopSessionBundle
+        toolsLoopSessionBundle,
+        apiKey,
+        model,
+        wireBaseUrl
       )
     } catch (InterruptedException ie) {
       Thread.currentThread().interrupt()
@@ -516,6 +520,7 @@ final class Router {
       putRoutingEngineTelemetryIfPresent(matchedTel, toolsLoopSessionBundle)
     }
     wireAuthorTurnGoal(matchedRoute, toolsLoopSessionBundle, author, activePass)
+    mergeAuthorTurnGoalFromBundle(matchedRoute, toolsLoopSessionBundle)
     return matchedRoute
   }
 
@@ -528,7 +533,10 @@ final class Router {
     Map catalog,
     Map author,
     Map activePass,
-    Map toolsLoopSessionBundle
+    Map toolsLoopSessionBundle,
+    String apiKey,
+    String model,
+    String wireBaseUrl
   ) {
     String routingMode = activePass.routingMode?.toString()?.trim()?.toLowerCase() ?: ''
     String routingEnginePrefix = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
@@ -562,7 +570,10 @@ final class Router {
       routingMode,
       conf,
       minC,
-      toolsLoopSessionBundle
+      toolsLoopSessionBundle,
+      apiKey,
+      model,
+      wireBaseUrl
     )
   }
 
@@ -597,7 +608,9 @@ final class Router {
     wireAuthorTurnGoal(result, toolsLoopSessionBundle, author, activePass)
     chatTel.turnGoal = activePass.turnGoal?.toString()?.trim() ?: ''
     chatTel.successCriteria = activePass.successCriteria?.toString()?.trim() ?: ''
-    return attachTelemetry(ops, cfg, result, 'chat_only', chatTel)
+    attachTelemetry(ops, cfg, result, 'chat_only', chatTel)
+    mergeAuthorTurnGoalFromBundle(result, toolsLoopSessionBundle)
+    return result
   }
 
   /** Single-tool allowlist on telemetry; {@code outcome=router_tool}. */
@@ -635,7 +648,9 @@ final class Router {
     wireAuthorTurnGoal(result, toolsLoopSessionBundle, author, activePass)
     toolTel.turnGoal = activePass.turnGoal?.toString()?.trim() ?: ''
     toolTel.successCriteria = activePass.successCriteria?.toString()?.trim() ?: ''
-    return attachTelemetry(ops, cfg, result, 'router_tool', toolTel)
+    attachTelemetry(ops, cfg, result, 'router_tool', toolTel)
+    mergeAuthorTurnGoalFromBundle(result, toolsLoopSessionBundle)
+    return result
   }
 
   /** Plan defer hint + optional catalog block, or generic no-match; {@code outcome=plan} or {@code no_match}. */
@@ -652,7 +667,10 @@ final class Router {
     String routingMode,
     double conf,
     double minC,
-    Map toolsLoopSessionBundle
+    Map toolsLoopSessionBundle,
+    String apiKey,
+    String model,
+    String wireBaseUrl
   ) {
     List recipes = catalog.recipes as List
     Map decision = activePass.routerDecision instanceof Map ? (Map) activePass.routerDecision : [:]
@@ -687,7 +705,10 @@ final class Router {
           ops,
           cfg,
           catalogForProbe,
-          toolsLoopSessionBundle
+          toolsLoopSessionBundle,
+          apiKey,
+          model,
+          wireBaseUrl
         )
       planDeferCatalogTel =
         AiOrchestrationTools.planDeferCatalogTelemetry(ops, cfg, deferCatalogBlock ?: '', toolsLoopSessionBundle)
@@ -718,7 +739,9 @@ final class Router {
     wireAuthorTurnGoal(result, toolsLoopSessionBundle, author, activePass)
     noMatchTel.turnGoal = activePass.turnGoal?.toString()?.trim() ?: ''
     noMatchTel.successCriteria = activePass.successCriteria?.toString()?.trim() ?: ''
-    return attachTelemetry(ops, cfg, result, deferPlan ? 'plan' : 'no_match', noMatchTel)
+    attachTelemetry(ops, cfg, result, deferPlan ? 'plan' : 'no_match', noMatchTel)
+    mergeAuthorTurnGoalFromBundle(result, toolsLoopSessionBundle)
+    return result
   }
 
   /** Min confidence from classifier pass output, or site config when absent. */
@@ -1185,10 +1208,16 @@ final class Router {
       goalDecision.recipeId?.toString()?.trim()
     if (Boolean.TRUE.equals(out.deferToPlanLoop)) {
       goalDecision.mode = 'plan'
-      goalDecision.remove('turnGoal')
-      goalDecision.remove('successCriteria')
+      if (AuthoringIntentCard.isWeakTurnGoal(goalDecision.turnGoal?.toString())) {
+        goalDecision.remove('turnGoal')
+      }
+      if (AuthoringIntentCard.isWeakSuccessCriteria(goalDecision.successCriteria?.toString())) {
+        goalDecision.remove('successCriteria')
+      }
       String rr = out.routerReason?.toString()?.trim()
-      if (rr) {
+      if (rr && AuthoringIntentCard.isWeakTurnGoal(rr)) {
+        goalDecision.remove('reason')
+      } else if (rr) {
         goalDecision.reason = rr
       }
       mode = 'plan'
@@ -1515,24 +1544,66 @@ final class Router {
       return
     }
     String anchor = AuthoringPreviewContext.extractAnchoredRepositoryPath(author.cand?.toString() ?: '')?.trim() ?: ''
-    String turnGoal = activePass?.turnGoal?.toString()?.trim()
-    String successCriteria = activePass?.successCriteria?.toString()?.trim()
-    if (!turnGoal) {
-      Map decision = activePass?.routerDecision instanceof Map ? (Map) activePass.routerDecision : [:]
-      Map resolved = AuthoringTurnGoal.resolveFromRouterDecision(
-        decision,
-        author.routerVisible?.toString(),
-        anchor,
-        activePass?.recipeId?.toString() ?: activePass?.routerRecipeId?.toString(),
-        activePass?.routingMode?.toString()
-      )
-      turnGoal = resolved.turnGoal?.toString()?.trim() ?: ''
-      successCriteria = resolved.successCriteria?.toString()?.trim() ?: ''
-      if (activePass instanceof Map) {
-        activePass.turnGoal = turnGoal
-        activePass.successCriteria = successCriteria
-      }
+    String authorVisible = author.routerVisible?.toString() ?: ''
+    Map decision = activePass?.routerDecision instanceof Map ?
+      new LinkedHashMap((Map) activePass.routerDecision) :
+      [:]
+    if (activePass?.turnGoal) {
+      decision.turnGoal = activePass.turnGoal
     }
-    AuthoringTurnGoal.wireIntoRouteResult(result, toolsLoopSessionBundle, turnGoal, successCriteria, anchor)
+    if (activePass?.successCriteria) {
+      decision.successCriteria = activePass.successCriteria
+    }
+    Map resolved = AuthoringTurnGoal.resolveFromRouterDecision(
+      decision,
+      authorVisible,
+      anchor,
+      activePass?.recipeId?.toString() ?: activePass?.routerRecipeId?.toString(),
+      activePass?.routingMode?.toString()
+    )
+    String turnGoal = resolved.turnGoal?.toString()?.trim() ?: ''
+    String successCriteria = resolved.successCriteria?.toString()?.trim() ?: ''
+    if (activePass instanceof Map) {
+      activePass.turnGoal = turnGoal
+      activePass.successCriteria = successCriteria
+    }
+    AuthoringTurnGoal.wireIntoRouteResult(
+      result,
+      toolsLoopSessionBundle,
+      turnGoal,
+      successCriteria,
+      anchor,
+      authorVisible
+    )
+  }
+
+  /**
+   * Copies author intent card + turn goal from the session bundle onto {@code intentRecipeRoutingTelemetry}
+   * after {@link #attachTelemetry} creates the telemetry map.
+   */
+  private static void mergeAuthorTurnGoalFromBundle(Map result, Map toolsLoopSessionBundle) {
+    if (!(result instanceof Map) || !(toolsLoopSessionBundle instanceof Map)) {
+      return
+    }
+    if (!(result.intentRecipeRoutingTelemetry instanceof Map)) {
+      return
+    }
+    Map tel = (Map) result.intentRecipeRoutingTelemetry
+    String card = toolsLoopSessionBundle.authorIntentCardMarkdown?.toString()?.trim()
+    if (card) {
+      tel.intentCardMarkdown = card
+    }
+    String goal = toolsLoopSessionBundle.authorTurnGoal?.toString()?.trim()
+    if (goal) {
+      tel.turnGoal = goal
+    }
+    String crit = toolsLoopSessionBundle.authorTurnSuccessCriteria?.toString()?.trim()
+    if (crit) {
+      tel.successCriteria = crit
+    }
+    String ar = toolsLoopSessionBundle.authorIntentCardAuthorVisible?.toString()?.trim()
+    if (ar) {
+      tel.authorRequestText = ar
+    }
   }
 }

@@ -84,6 +84,25 @@ private CmsContentExists() {}
   }
 
   /**
+   * True when the repository path already has content (used by write reconciliation gates).
+   */
+  static boolean existsAtPath(StudioToolOperations ops, String siteId, String path) {
+    if (!ops || !(path ?: '').toString().trim()) {
+      return false
+    }
+    try {
+      Object result = ops.runWithStudioSecurity {
+        String resolvedSite = ops.resolveEffectiveSiteId(siteId)
+        String normalized = CmsRepositorySupport.normalizeLeadingSlash(path, 'path')
+        return contentExistsAtPath(ops, resolvedSite, normalized)
+      }
+      return result instanceof Boolean ? ((Boolean) result).booleanValue() : Boolean.TRUE.equals(result)
+    } catch (Throwable ignored) {
+      return false
+    }
+  }
+
+  /**
    * Content exists at path.
    * @param ops Caller-supplied input.
    * @param siteId Studio or repository context for this call.

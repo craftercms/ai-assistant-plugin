@@ -1,6 +1,9 @@
 package plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting
 
 import plugins.org.craftercms.aiassistant.studio.engine.context.AuthoringPreviewContext
+import plugins.org.craftercms.aiassistant.studio.engine.turn.AuthoringResearchGrounding
+import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
+import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.FormDefinitionCopyFieldPlan
 
 /**
  * Author turn goal: what the author wants accomplished on <strong>this chat turn only</strong>,
@@ -34,13 +37,30 @@ final class AuthoringTurnGoal {
     String recipeId,
     String routingMode
   ) {
-    String goal = decision?.turnGoal?.toString()?.trim() ?: ''
-    String criteria = decision?.successCriteria?.toString()?.trim() ?: ''
+    String reason = decision?.reason?.toString()?.trim() ?: ''
+    Map resolved = AuthoringIntentCard.resolveAuthorIntent(
+      decision?.turnGoal?.toString(),
+      decision?.successCriteria?.toString(),
+      authorVisible,
+      anchorPath,
+      reason
+    )
+    String goal = resolved.turnGoal?.toString()?.trim() ?: ''
+    String criteria = resolved.successCriteria?.toString()?.trim() ?: ''
     if (!goal) {
-      goal = deriveFallbackGoal(authorVisible, anchorPath, recipeId, routingMode, decision?.reason?.toString())
+      goal = deriveFallbackGoal(authorVisible, anchorPath, recipeId, routingMode, reason)
     }
     if (!criteria) {
       criteria = deriveFallbackSuccessCriteria(recipeId, routingMode, anchorPath, authorVisible)
+    }
+    if (AuthoringIntentCard.isWeakTurnGoal(goal)) {
+      String authorRequest = AuthoringIntentCard.extractCleanAuthorRequest(authorVisible)
+      if (authorRequest) {
+        goal = authorRequest.replaceAll(/\s+/, ' ').trim()
+      }
+    }
+    if (AuthoringIntentCard.isWeakSuccessCriteria(criteria)) {
+      criteria = AuthoringIntentCard.resolveAuthorIntent('', '', authorVisible, anchorPath, '').successCriteria?.toString() ?: criteria
     }
     return [turnGoal: goal ?: '', successCriteria: criteria ?: '']
   }
@@ -59,27 +79,85 @@ final class AuthoringTurnGoal {
     Map toolsLoopSessionBundle,
     String turnGoal,
     String successCriteria,
-    String anchorPath
+    String anchorPath,
+    String authorVisible = ''
   ) {
-    String block = formatExecutionBlock(turnGoal, successCriteria, anchorPath)
+    Map resolved = AuthoringIntentCard.resolveAuthorIntent(
+      turnGoal,
+      successCriteria,
+      authorVisible,
+      anchorPath,
+      ''
+    )
+    String execGoal = resolved.turnGoal?.toString()?.trim() ?: (turnGoal ?: '').trim()
+    String execCriteria = resolved.successCriteria?.toString()?.trim() ?: (successCriteria ?: '').trim()
+    String block = formatExecutionBlock(execGoal, execCriteria, anchorPath)
     if (!block?.trim()) {
       return
     }
+    String executionPlan = AuthoringIntentExecutionPlan.formatToolsLoopBlock(authorVisible, anchorPath)
+    AuthoringResearchGrounding.initFromAuthorVisible(toolsLoopSessionBundle, authorVisible, anchorPath)
+    String intentCard = AuthoringIntentCard.formatCardMarkdown(
+      turnGoal,
+      successCriteria,
+      anchorPath,
+      authorVisible
+    )
     if (toolsLoopSessionBundle instanceof Map) {
-      toolsLoopSessionBundle.authorTurnGoal = turnGoal?.trim() ?: ''
-      toolsLoopSessionBundle.authorTurnSuccessCriteria = successCriteria?.trim() ?: ''
+      toolsLoopSessionBundle.authorTurnGoal = execGoal
+      toolsLoopSessionBundle.authorTurnSuccessCriteria = execCriteria
       toolsLoopSessionBundle.authorTurnGoalBlock = block
+      if (anchorPath?.trim()) {
+        toolsLoopSessionBundle.authorTurnAnchorPath = anchorPath.trim()
+      }
+      if (intentCard?.trim()) {
+        toolsLoopSessionBundle.authorIntentCardMarkdown = intentCard.trim()
+      }
+      String av = AuthoringIntentCard.extractCleanAuthorRequest(authorVisible)
+      if (av) {
+        toolsLoopSessionBundle.authorIntentCardAuthorVisible = av
+      }
+    }
+    String copyPlanBlock = ''
+    if (anchorPath?.trim() && toolsLoopSessionBundle instanceof Map) {
+      def ops = toolsLoopSessionBundle.get('studioOps')
+      if (ops instanceof StudioToolOperations) {
+        copyPlanBlock = FormDefinitionCopyFieldPlan.wireAndFormatOrchestrationBlock(
+          (StudioToolOperations) ops,
+          toolsLoopSessionBundle,
+          anchorPath.trim(),
+          ''
+        )
+      }
     }
     if (result instanceof Map) {
-      result.authorTurnGoal = turnGoal?.trim() ?: ''
-      result.authorTurnSuccessCriteria = successCriteria?.trim() ?: ''
+      result.authorTurnGoal = execGoal
+      result.authorTurnSuccessCriteria = execCriteria
       String ut = (result.userTextForToolsLoop ?: '').toString()
       if (!ut.startsWith('[Studio — turn goal')) {
-        result.userTextForToolsLoop = block + ut
+        String prefix = block
+        if (executionPlan?.trim()) {
+          prefix = prefix + executionPlan
+        }
+        if (copyPlanBlock?.trim() && !ut.contains('[Studio — content field plan')) {
+          prefix = prefix + copyPlanBlock
+        }
+        result.userTextForToolsLoop = prefix + ut
       }
       if (result.intentRecipeRoutingTelemetry instanceof Map) {
-        result.intentRecipeRoutingTelemetry.turnGoal = turnGoal?.trim() ?: ''
-        result.intentRecipeRoutingTelemetry.successCriteria = successCriteria?.trim() ?: ''
+        result.intentRecipeRoutingTelemetry.turnGoal = execGoal
+        result.intentRecipeRoutingTelemetry.successCriteria = execCriteria
+        if (intentCard?.trim()) {
+          result.intentRecipeRoutingTelemetry.intentCardMarkdown = intentCard.trim()
+        }
+        List steps = resolved.steps instanceof List ? (List) resolved.steps : []
+        if (!steps.isEmpty()) {
+          result.intentRecipeRoutingTelemetry.authorRequestSteps = steps
+        }
+        String ar = resolved.authorRequest?.toString()?.trim()
+        if (ar) {
+          result.intentRecipeRoutingTelemetry.authorRequestText = ar
+        }
       }
     }
   }
@@ -127,7 +205,16 @@ final class AuthoringTurnGoal {
     if (!goal) {
       return ''
     }
-    return '[aiassistant: turn goal reminder]\n**Still working toward:** ' + goal + '\n'
+    StringBuilder sb = new StringBuilder()
+    sb.append('[aiassistant: turn goal reminder]\n**Still working toward:** ').append(goal).append('\n')
+    String criteria = toolsLoopSessionBundle.authorTurnSuccessCriteria?.toString()?.trim()
+    if (criteria) {
+      sb.append('**Done when:** ').append(criteria).append('\n')
+    }
+    sb.append(
+      'Use concrete outputs from prior tool calls in this turn — not paraphrases of the author message alone.\n'
+    )
+    return sb.toString()
   }
 
   /**
@@ -178,17 +265,19 @@ final class AuthoringTurnGoal {
     String routerReason
   ) {
     String author = (authorVisible ?: '').trim()
-    String reason = (routerReason ?: '').trim()
-    if (reason && !reason.toLowerCase().startsWith('parse error')) {
-      return reason
-    }
-    if (author) {
-      if (AuthoringPreviewContext.authorGenerateImageRequiresPageContextFirst('', author) &&
+    String cleanAuthor = AuthoringIntentCard.extractCleanAuthorRequest(author)
+    if (cleanAuthor) {
+      if (AuthoringPreviewContext.authorGenerateImageRequiresPageContextFirst('', cleanAuthor) &&
         (anchorPath ?: '').trim()) {
         return 'Generate a fun illustration for the open page based on its content, using GenerateImage, ' +
           'then attach the image to the page if the content model has an image field.'
       }
-      return 'Fulfill the author request: ' + author
+      return cleanAuthor.replaceAll(/\s+/, ' ').trim()
+    }
+    String reason = (routerReason ?: '').trim()
+    if (reason && !reason.toLowerCase().startsWith('parse error') &&
+      !AuthoringIntentCard.isWeakTurnGoal(reason)) {
+      return reason
     }
     String rid = (recipeId ?: '').trim()
     if (rid) {
@@ -234,7 +323,11 @@ final class AuthoringTurnGoal {
       return 'GenerateImage ran with a prompt derived from page content; image attached to page when applicable.'
     }
     if ('plan'.equals((routingMode ?: '').trim())) {
-      return 'The author request is fully addressed with appropriate tools; no unrelated edits.'
+      String clean = AuthoringIntentCard.extractCleanAuthorRequest(authorVisible ?: '')
+      if (clean) {
+        return AuthoringIntentCard.resolveAuthorIntent('', '', clean, anchorPath, '').successCriteria?.toString() ?: ''
+      }
+      return 'Each step in the author request was completed with verifiable repository or tool outcomes.'
     }
     return ''
   }
@@ -268,7 +361,17 @@ final class ToolPromptsTurnGoalExecution {
   }
 
   private static String executionPolicyParagraph() {
-    return '**Execution policy:** Every tool call and assistant reply on this turn must advance the turn goal. ' +
-      'If a step does not serve the goal, skip it. Prior chat turns are context only — do not drift to unrelated work.'
+    return '''**Execution policy:** Every tool call and assistant reply on this turn must advance the turn goal.
+If a step does not serve the goal, skip it. Prior chat turns are context only — do not drift to unrelated work.
+
+**Plan → act → verify:** For multi-step requests, finish implied persistence (WriteContent, asset upload, field updates) before summarizing. When **Done when** is set, treat it as the bar for completion — do not claim success until it is met.
+
+**Research grounding:** When external search or fetch tools supply facts used in repository writes, call **FetchHttpUrl** on a chosen **article** URL and read the body **before** **WriteContent** / **update_content**. Search **title** and **snippet** are candidates only — not sufficient page copy. Follow **[Studio — execution plan from intent]** tool order when present.
+
+**Chained steps:** When a prior step produced concrete data (search hits, file paths, field values, generated assets), later steps must use that data in tool arguments.
+
+**Content field roles:** When **[Studio — content field plan]** is present, populate **every** listed copy field with **distinct** content per **role** (headline in title/hero headline fields; supporting deck in hero body; no "Breaking news:" prefixes; do not paste the same string into every field).
+
+**Honest completion:** Do not tell the author the work is done if WriteContent, GenerateImage persistence, or verification read-backs are still missing when the goal requires them.'''
   }
 }

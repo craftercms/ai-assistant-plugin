@@ -1,0 +1,34 @@
+{
+  "description": "Anchored home: search headline, update page copy by field role, generate hero image (plan defer). Requires CHAT_SITE_ID (or defaults.siteId in a local copy) — site must have /site/website/index.xml with content type /page/home.",
+  "defaults": {
+    "agentId": "019c7237-478b-7f98-9a5c-87144c3fb010",
+    "llm": "openAI",
+    "llmModel": "gpt-4o-mini"
+  },
+  "turns": [
+    {
+      "id": "headline-page-update-plan-defer",
+      "summary": "Plan defer: search → fetch → GetContent → WriteContent → GenerateImage on anchored home.",
+      "prompt": "Search for today's top headline\nThen update the content of this page with relevant copy based on the top headline\nThen generate an image and update the hero image on this page to match the copy",
+      "request": {
+        "authoringSurface": "preview",
+        "contentPath": "/site/website/index.xml",
+        "contentTypeId": "/page/home",
+        "omitTools": false
+      },
+      "expect": {
+        "deferToPlanLoop": true,
+        "planDeferCatalogSent": true,
+        "turnGoalPresent": true,
+        "toolsAny": ["SerpApiWebSearch", "WebSearch"],
+        "toolsAll": ["GetContent", "WriteContent"],
+        "maxToolStartCounts": {
+          "FetchHttpUrl": 3,
+          "GenerateImage": 1
+        }
+      },
+      "optional": true,
+      "partialOnMissingConfig": true
+    }
+  ]
+}

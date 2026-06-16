@@ -7,9 +7,11 @@ import plugins.org.craftercms.aiassistant.studio.engine.context.AuthoringPreview
 import plugins.org.craftercms.aiassistant.studio.config.StudioAiAssistantProjectConfig
 import plugins.org.craftercms.aiassistant.studio.engine.catalog.AiOrchestrationTools
 import plugins.org.craftercms.aiassistant.studio.engine.catalog.StudioAiToolRegistry
+import plugins.org.craftercms.aiassistant.studio.engine.turn.AuthoringIntentRefineWithTools
 import plugins.org.craftercms.aiassistant.studio.spi.tool.AbstractStudioAiTool
 import plugins.org.craftercms.aiassistant.studio.spi.tool.StudioAiToolContext
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
+import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.FormDefinitionCopyFieldPlan
 import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiSandboxClasspath
 import java.util.ArrayList
 import java.util.Collections
@@ -1824,6 +1826,10 @@ private AuthoringIntentRecipeCatalog() {}
     if (Boolean.TRUE.equals(sup.draftExtractReady)) {
       overlay.put('toolsLoopCreateFromChatDraftDraftExtractReady', Boolean.TRUE)
     }
+    String draftTitle = (sup.draftTitleFromPrior ?: '').toString().trim()
+    if (draftTitle) {
+      overlay.put('toolsLoopDraftTitleFromPrior', draftTitle)
+    }
     String priorLabel = (sup.priorAuthorLabelFromPrior ?: '').toString().trim()
     if (priorLabel) {
       overlay.put('toolsLoopPriorAuthorLabel', priorLabel)
@@ -2553,10 +2559,56 @@ private AuthoringIntentRecipeCatalog() {}
     StudioToolOperations ops,
     Map cfg,
     String recipeCatalogMd = null,
-    Map toolsLoopSessionBundle = null
+    Map toolsLoopSessionBundle = null,
+    String apiKey = null,
+    String model = null,
+    String wireBaseUrl = null
   ) {
     StringBuilder sb = new StringBuilder()
+    String recipeMd = (recipeCatalogMd ?: '').trim()
+    if (!recipeMd) {
+      List<Map> eligible = filterRecipesEligibleForRouter(recipes, routerVisible)
+      recipeMd = toRouterCatalogMarkdown(eligible)
+    }
+    String anchorPath = ''
+    if (toolsLoopSessionBundle instanceof Map) {
+      anchorPath = (toolsLoopSessionBundle.contentPath ?: toolsLoopSessionBundle.anchoredRepositoryPath ?: '').toString().trim()
+    }
+    if (!anchorPath && routerVisible) {
+      anchorPath = AuthoringPreviewContext.extractAnchoredRepositoryPath(routerVisible)?.trim() ?: ''
+    }
+    if (ops != null && toolsLoopSessionBundle instanceof Map) {
+      String contentTypeFromBindings = ''
+      try {
+        contentTypeFromBindings = (ops.recipeEngineAuthoringBindings()?.contentTypeId ?: '').toString().trim()
+      } catch (Throwable ignoredBindings) {
+      }
+      if (anchorPath || contentTypeFromBindings) {
+        FormDefinitionCopyFieldPlan.wireIntoSession(
+          ops, toolsLoopSessionBundle, anchorPath ?: '', contentTypeFromBindings
+        )
+      }
+    }
+    String probeBlock = AuthoringIntentRefineWithTools.formatPlanDeferProbeBlock(
+      routerVisible,
+      recipeMd,
+      apiKey,
+      model,
+      wireBaseUrl,
+      toolsLoopSessionBundle,
+      cfg,
+      anchorPath ?: null
+    )
+    if (probeBlock?.trim()) {
+      sb.append(probeBlock)
+    }
     sb.append('[Studio — plan defer: recipe + tool catalog]\n\n')
+    if (probeBlock?.trim()) {
+      sb.append(
+        'When **[Studio — plan-stage execution plan]** appears above, treat it as the authoritative step order and '
+      )
+      sb.append('dependency chain for this turn. Your **## Plan** and **`tool_calls`** must implement it.\n\n')
+    }
     sb.append(
       'No single whole-turn recipe matched. When you formulate **## Plan** and **`tool_calls`**, use **both** catalogs below.\n'
     )
@@ -2572,11 +2624,6 @@ private AuthoringIntentRecipeCatalog() {}
     sb.append(
       '- **Live / external data** (prices, news, APIs): do **not** answer from memory when a recipe (**web_research**) or **`InvokeSiteUserTool`** / **FetchHttpUrl** fits — use **`tool_calls`**.\n\n'
     )
-    String recipeMd = (recipeCatalogMd ?: '').trim()
-    if (!recipeMd) {
-      List<Map> eligible = filterRecipesEligibleForRouter(recipes, routerVisible)
-      recipeMd = toRouterCatalogMarkdown(eligible)
-    }
     sb.append('## Intent recipe catalog\n\n').append(recipeMd).append('\n\n')
     sb.append(AiOrchestrationTools.formatPlanDeferToolsCatalogMarkdown(ops, cfg, toolsLoopSessionBundle))
     sb.append('\n---\n\n')

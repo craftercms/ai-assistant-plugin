@@ -810,6 +810,7 @@ function buildParsedTimeline(lines) {
             status === 'tool-progress' ||
             status === 'tool-workflow-hint' ||
             status === 'intent-recipe-routing' ||
+            status === 'step-bridge-card' ||
             status === 'prompt-assembly' ||
             status === 'pipeline-heartbeat' ||
             phaseInteresting;
@@ -923,6 +924,15 @@ function buildParsedTimeline(lines) {
                 const oneLine = text.replace(/\s+/g, ' ').trim();
                 if (oneLine)
                     bullets.push(`  chat line: ${previewText(oneLine, 220)}`);
+            }
+            if (status === 'step-bridge-card') {
+                const bridge = meta.stepBridge && typeof meta.stepBridge === 'object'
+                    ? meta.stepBridge
+                    : null;
+                bullets.push(`Step bridge: kind=${bridge?.kind ?? '—'}`);
+                const oneLine = text.replace(/\s+/g, ' ').trim();
+                if (oneLine)
+                    bullets.push(`  card: ${previewText(oneLine, 220)}`);
             }
             if (phaseInteresting) {
                 bullets.push('Phase: summarizing-results — orchestration summarizing tool results into final assistant markdown');
@@ -29866,6 +29876,57 @@ function intentRecipeLineFromRoutingTelemetry(telemetry) {
     const title = String(o.recipeTitle ?? '').trim() || id;
     return formatIntentRecipeChatLine(id, title);
 }
+/** Author-visible intent contract from SSE {@code intentRecipeRouting.intentCardMarkdown}. */
+function intentCardFromRoutingTelemetry(telemetry) {
+    if (!telemetry || typeof telemetry !== 'object')
+        return undefined;
+    const o = telemetry;
+    const card = String(o.intentCardMarkdown ?? '').trim();
+    if (card) {
+        return card.endsWith('\n') ? card : `${card}\n`;
+    }
+    const stepsRaw = o.authorRequestSteps;
+    const steps = Array.isArray(stepsRaw)
+        ? stepsRaw.map((s) => String(s).trim()).filter(Boolean)
+        : [];
+    const authorText = String(o.authorRequestText ?? o.turnGoal ?? '').trim();
+    if (!authorText && !steps.length)
+        return undefined;
+    const lines = ['## Intent', ''];
+    if (steps.length) {
+        lines.push('**Your request:**');
+        steps.forEach((step, i) => lines.push(`${i + 1}. ${step}`));
+        lines.push('');
+    }
+    else if (authorText) {
+        lines.push(`**Your request:** ${authorText}`, '');
+    }
+    const anchor = String(o.anchorPath ?? '').trim();
+    if (anchor) {
+        lines.push(`**On page:** \`${anchor}\``, '');
+    }
+    const criteria = String(o.successCriteria ?? '').trim();
+    if (criteria) {
+        lines.push('**Success looks like:**');
+        criteria.split(/\s*;\s*/).forEach((bar) => {
+            const t = bar.trim();
+            if (t)
+                lines.push(`- ${t}`);
+        });
+        lines.push('');
+    }
+    lines.push('_Proceeding with tools…_', '');
+    return lines.join('\n');
+}
+/** Intent card first, then optional matched-recipe workflow line. */
+function intentRoutingDisplayMarkdown(telemetry, streamText) {
+    const card = intentCardFromRoutingTelemetry(telemetry) || (streamText || '').trim();
+    const recipe = intentRecipeLineFromRoutingTelemetry(telemetry);
+    const parts = [card, recipe].filter((p) => p && p.trim());
+    if (!parts.length)
+        return undefined;
+    return parts.join('\n');
+}
 
 /**
  * Built-in Studio AI orchestration tool names (Spring AI wire). Keep aligned with
@@ -31420,6 +31481,8 @@ function AiAssistantChat(props) {
     const [sending, setSending] = useState(false);
     const [readResponsesAloud, setReadResponsesAloud] = useState(false);
     const abortRef = useRef(null);
+    /** Prevents double-send while macro expansion / stream prep runs (before `setSending` used to flip late). */
+    const sendInFlightRef = useRef(false);
     /** True when the user clicked Stop (vs timeout / navigation) — shapes catch handling. */
     const userStopRequestedRef = useRef(false);
     const scrollRef = useRef(null);
@@ -31551,7 +31614,7 @@ function AiAssistantChat(props) {
         };
     }, []);
     // Allow sending even if a previous request is stuck; startSend aborts in-flight first.
-    const canSend = useMemo(() => draft.trim().length > 0, [draft]);
+    const canSend = useMemo(() => draft.trim().length > 0 && !sending, [draft, sending]);
     /** 📋 plan lines from the latest finished assistant message — click runs as a new prompt. */
     const verificationPrompts = useMemo(() => {
         const last = [...messages].reverse().find((m) => m.role === 'assistant' && !m.isStreaming);
@@ -31776,549 +31839,565 @@ function AiAssistantChat(props) {
         /** When true, omit preview anchor fields on stream/chat so session preview is not repo truth. */
         const crossSiteWorking = effectiveSiteId !== siteId;
         stopVoiceInput();
-        const now = new Date();
-        const pad2 = (n) => String(n).padStart(2, '0');
-        const macroContentPath = crossSiteWorking ? undefined : macroValuesRef.current.contentPath;
-        const macroCtx = {
-            dateToday: `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`,
-            timeNow: `${pad2(now.getHours())}:${pad2(now.getMinutes())}`,
-            currentPage: macroValuesRef.current.currentPage,
-            currentContentPath: macroContentPath,
-            currentUsername: macroValuesRef.current.currentUsername,
-            siteId: effectiveSiteId
-        };
-        let expandedPrompt = expandPromptMacros(trimmed, macroCtx).trim();
-        const expandedDisplaySync = expandPromptMacros((displayInChat ?? trimmed).trim(), macroCtx).trim();
-        let authoringSnap;
-        if (typeof getAuthoringFormContext === 'function') {
-            try {
-                authoringSnap = getAuthoringFormContext();
-            }
-            catch {
-                /* ignore — still send prompt without live form appendix / macro substitution */
-            }
-        }
-        const formEngine = isFormEngineAuthoringChat(getAuthoringFormContext);
-        const wantClientJsonApply = formEngine && formEngineClientJsonApply !== false;
-        expandedPrompt = await expandContentTypeMacros(expandedPrompt, macroCtx.siteId, macroValuesRef.current.contentTypeId, { omitRepoFileBodies: !formEngine }).then((s) => s.trim());
-        expandedPrompt = await expandContentMacros(expandedPrompt, macroCtx.siteId, macroContentPath, {
-            omitRepoFileBodies: !formEngine,
-            liveAuthoring: !crossSiteWorking && authoringSnap
-                ? {
-                    contentItemPath: authoringSnap.contentPath,
-                    fieldValuesJson: authoringSnap.fieldValuesJson,
-                    serializedContentXml: authoringSnap.serializedContentXml
-                }
-                : undefined
-        }).then((s) => s.trim());
-        let expandedDisplay = expandContentTypeMacrosForDisplay(expandedDisplaySync, macroValuesRef.current.contentTypeId);
-        expandedDisplay = expandContentMacrosForDisplay(expandedDisplay, macroValuesRef.current.contentPath).trim();
-        if (!expandedPrompt)
+        if (sendInFlightRef.current) {
             return;
-        const omitToolsThisSend = sendOptions?.omitTools === true;
-        const expandedAfterMacrosLen = expandedPrompt.length;
-        let formAppendixLen = 0;
-        if (authoringSnap) {
-            try {
-                const appendix = buildAuthoringFormAppendix(authoringSnap, {
-                    includeClientJsonApplyInstructions: wantClientJsonApply
-                });
-                if (appendix) {
-                    formAppendixLen = appendix.length;
-                    expandedPrompt = expandedPrompt + appendix;
+        }
+        sendInFlightRef.current = true;
+        setSending(true);
+        try {
+            const now = new Date();
+            const pad2 = (n) => String(n).padStart(2, '0');
+            const macroContentPath = crossSiteWorking ? undefined : macroValuesRef.current.contentPath;
+            const macroCtx = {
+                dateToday: `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`,
+                timeNow: `${pad2(now.getHours())}:${pad2(now.getMinutes())}`,
+                currentPage: macroValuesRef.current.currentPage,
+                currentContentPath: macroContentPath,
+                currentUsername: macroValuesRef.current.currentUsername,
+                siteId: effectiveSiteId
+            };
+            let expandedPrompt = expandPromptMacros(trimmed, macroCtx).trim();
+            const expandedDisplaySync = expandPromptMacros((displayInChat ?? trimmed).trim(), macroCtx).trim();
+            let authoringSnap;
+            if (typeof getAuthoringFormContext === 'function') {
+                try {
+                    authoringSnap = getAuthoringFormContext();
+                }
+                catch {
+                    /* ignore — still send prompt without live form appendix / macro substitution */
                 }
             }
-            catch {
-                /* ignore snapshot appendix errors — still send the user prompt */
+            const formEngine = isFormEngineAuthoringChat(getAuthoringFormContext);
+            const wantClientJsonApply = formEngine && formEngineClientJsonApply !== false;
+            expandedPrompt = await expandContentTypeMacros(expandedPrompt, macroCtx.siteId, macroValuesRef.current.contentTypeId, { omitRepoFileBodies: !formEngine }).then((s) => s.trim());
+            expandedPrompt = await expandContentMacros(expandedPrompt, macroCtx.siteId, macroContentPath, {
+                omitRepoFileBodies: !formEngine,
+                liveAuthoring: !crossSiteWorking && authoringSnap
+                    ? {
+                        contentItemPath: authoringSnap.contentPath,
+                        fieldValuesJson: authoringSnap.fieldValuesJson,
+                        serializedContentXml: authoringSnap.serializedContentXml
+                    }
+                    : undefined
+            }).then((s) => s.trim());
+            let expandedDisplay = expandContentTypeMacrosForDisplay(expandedDisplaySync, macroValuesRef.current.contentTypeId);
+            expandedDisplay = expandContentMacrosForDisplay(expandedDisplay, macroValuesRef.current.contentPath).trim();
+            if (!expandedPrompt) {
+                return;
             }
-        }
-        const priorBlock = buildPriorTurnsContextBlock(messages, expandedPrompt);
-        const priorTurnsBlockLen = priorBlock.length;
-        const workingSiteForContext = (assumedSiteId || '').trim() || (effectiveSiteId !== siteId ? effectiveSiteId : '');
-        const workingSiteAppendix = workingSiteForContext
-            ? buildWorkingSiteContextAppendix(workingSiteForContext, siteId)
-            : '';
-        const wirePrompt = `${priorBlock || ''}${workingSiteAppendix}${priorBlock || workingSiteAppendix ? 'Current request:\n' : ''}${expandedPrompt}`;
-        abortRef.current?.abort();
-        userStopRequestedRef.current = false;
-        const ac = new AbortController();
-        abortRef.current = ac;
-        const userId = `user-${Date.now()}`;
-        const assistantId = `assistant-${Date.now()}`;
-        const userBubbleText = expandedDisplay || expandedPrompt;
-        /** `crafterPreview` cookie when present — forwarded for server preview tools (GetPreviewHtml, etc.). */
-        const previewTokenForStream = readCrafterPreviewTokenFromCookie();
-        const previewContentTypeLabel = formEngine || crossSiteWorking ? undefined : resolvePreviewContentTypeLabel(previewItem);
-        const studioPreviewPageUrl = formEngine || crossSiteWorking ? undefined : pickStudioPreviewPageUrlForServer(previewItem);
-        setMessages((prev) => [
-            ...prev,
-            { id: userId, role: 'user', text: userBubbleText },
-            { id: assistantId, role: 'assistant', text: '', isStreaming: true }
-        ]);
-        try {
-            pushStreamLog(sessionStreamLogRef, JSON.stringify({
-                kind: 'client.userSend',
-                ts: new Date().toISOString(),
-                context: {
-                    siteId,
-                    effectiveSiteId,
+            const omitToolsThisSend = sendOptions?.omitTools === true;
+            const expandedAfterMacrosLen = expandedPrompt.length;
+            let formAppendixLen = 0;
+            if (authoringSnap) {
+                try {
+                    const appendix = buildAuthoringFormAppendix(authoringSnap, {
+                        includeClientJsonApplyInstructions: wantClientJsonApply
+                    });
+                    if (appendix) {
+                        formAppendixLen = appendix.length;
+                        expandedPrompt = expandedPrompt + appendix;
+                    }
+                }
+                catch {
+                    /* ignore snapshot appendix errors — still send the user prompt */
+                }
+            }
+            const priorBlock = buildPriorTurnsContextBlock(messages, expandedPrompt);
+            const priorTurnsBlockLen = priorBlock.length;
+            const workingSiteForContext = (assumedSiteId || '').trim() || (effectiveSiteId !== siteId ? effectiveSiteId : '');
+            const workingSiteAppendix = workingSiteForContext
+                ? buildWorkingSiteContextAppendix(workingSiteForContext, siteId)
+                : '';
+            const wirePrompt = `${priorBlock || ''}${workingSiteAppendix}${priorBlock || workingSiteAppendix ? 'Current request:\n' : ''}${expandedPrompt}`;
+            abortRef.current?.abort();
+            userStopRequestedRef.current = false;
+            const ac = new AbortController();
+            abortRef.current = ac;
+            const userId = `user-${Date.now()}`;
+            const assistantId = `assistant-${Date.now()}`;
+            const userBubbleText = expandedDisplay || expandedPrompt;
+            /** `crafterPreview` cookie when present — forwarded for server preview tools (GetPreviewHtml, etc.). */
+            const previewTokenForStream = readCrafterPreviewTokenFromCookie();
+            const previewContentTypeLabel = formEngine || crossSiteWorking ? undefined : resolvePreviewContentTypeLabel(previewItem);
+            const studioPreviewPageUrl = formEngine || crossSiteWorking ? undefined : pickStudioPreviewPageUrlForServer(previewItem);
+            setMessages((prev) => [
+                ...prev,
+                { id: userId, role: 'user', text: userBubbleText },
+                { id: assistantId, role: 'assistant', text: '', isStreaming: true }
+            ]);
+            try {
+                pushStreamLog(sessionStreamLogRef, JSON.stringify({
+                    kind: 'client.userSend',
+                    ts: new Date().toISOString(),
+                    context: {
+                        siteId,
+                        effectiveSiteId,
+                        agentId,
+                        llm: llm ?? null,
+                        llmModel: llmModel ?? null,
+                        imageModel: wireImageModel ?? null,
+                        imageGenerator: imageGenerator != null ? String(imageGenerator).trim() || null : null,
+                        authoringSurface: formEngine ? 'formEngine' : 'preview',
+                        omitTools: omitToolsThisSend,
+                        enableTools: enableTools !== false,
+                        chatId: chatId ?? null,
+                        contentPath: formEngine || crossSiteWorking ? null : macroValuesRef.current.contentPath?.trim() || null,
+                        contentTypeId: formEngine || crossSiteWorking ? null : macroValuesRef.current.contentTypeId?.trim() || null,
+                        displayTemplate: formEngine || crossSiteWorking ? null : macroValuesRef.current.displayTemplate?.trim() || null,
+                        studioPreviewPageUrl: studioPreviewPageUrl ?? null,
+                        crossSiteWorking,
+                        formEngineClientJsonApply: wantClientJsonApply,
+                        formEngineItemPath: formEngine && wantClientJsonApply && authoringSnap?.contentPath?.trim()
+                            ? authoringSnap.contentPath.trim()
+                            : null
+                    },
+                    displayText: userBubbleText,
+                    wirePrompt: wirePrompt,
+                    promptAssembly: {
+                        expandedAfterMacrosLen,
+                        formAppendixLen,
+                        priorTurnsBlockLen,
+                        wirePromptLen: wirePrompt.length,
+                        omitRepoFileBodies: !formEngine
+                    }
+                }));
+            }
+            catch {
+                /* ignore log serialization errors */
+            }
+            clearChatPromptInput();
+            let streamingMessageId;
+            let assistantTextAccum = '';
+            /** After server recipe confirmation, final SSE replaces (not appends) prior draft prose. */
+            let replaceAssistantBodyActive = false;
+            let formUpdatesApplied = false;
+            let shouldRefreshPreview = false;
+            /** Set when the client stream wait hits the hard cap (try/catch are separate scopes — must be outside `try`). */
+            let streamHitTimeout = false;
+            try {
+                const streamPromise = streamChat({
                     agentId,
-                    llm: llm ?? null,
-                    llmModel: llmModel ?? null,
-                    imageModel: wireImageModel ?? null,
-                    imageGenerator: imageGenerator != null ? String(imageGenerator).trim() || null : null,
-                    authoringSurface: formEngine ? 'formEngine' : 'preview',
-                    omitTools: omitToolsThisSend,
-                    enableTools: enableTools !== false,
-                    chatId: chatId ?? null,
-                    contentPath: formEngine || crossSiteWorking ? null : macroValuesRef.current.contentPath?.trim() || null,
-                    contentTypeId: formEngine || crossSiteWorking ? null : macroValuesRef.current.contentTypeId?.trim() || null,
-                    displayTemplate: formEngine || crossSiteWorking ? null : macroValuesRef.current.displayTemplate?.trim() || null,
-                    studioPreviewPageUrl: studioPreviewPageUrl ?? null,
-                    crossSiteWorking,
-                    formEngineClientJsonApply: wantClientJsonApply,
+                    chatId,
+                    prompt: wirePrompt,
+                    // Form engine: do not send preview path — server would treat it as repo truth for tools; unsaved edits are only in the prompt appendix.
+                    contentPath: formEngine || crossSiteWorking ? undefined : macroValuesRef.current.contentPath?.trim() || undefined,
+                    contentTypeId: formEngine || crossSiteWorking ? undefined : macroValuesRef.current.contentTypeId?.trim() || undefined,
+                    ...(previewContentTypeLabel ? { contentTypeLabel: previewContentTypeLabel } : {}),
+                    ...(!crossSiteWorking && macroValuesRef.current.displayTemplate?.trim()
+                        ? { displayTemplate: macroValuesRef.current.displayTemplate.trim() }
+                        : {}),
+                    ...(studioPreviewPageUrl ? { studioPreviewPageUrl } : {}),
+                    authoringSurface: formEngine ? 'formEngine' : undefined,
+                    formEngineClientJsonApply: formEngine && wantClientJsonApply ? true : undefined,
                     formEngineItemPath: formEngine && wantClientJsonApply && authoringSnap?.contentPath?.trim()
                         ? authoringSnap.contentPath.trim()
-                        : null
-                },
-                displayText: userBubbleText,
-                wirePrompt: wirePrompt,
-                promptAssembly: {
-                    expandedAfterMacrosLen,
-                    formAppendixLen,
-                    priorTurnsBlockLen,
-                    wirePromptLen: wirePrompt.length,
-                    omitRepoFileBodies: !formEngine
-                }
-            }));
-        }
-        catch {
-            /* ignore log serialization errors */
-        }
-        clearChatPromptInput();
-        setSending(true);
-        let streamingMessageId;
-        let assistantTextAccum = '';
-        /** After server recipe confirmation, final SSE replaces (not appends) prior draft prose. */
-        let replaceAssistantBodyActive = false;
-        let formUpdatesApplied = false;
-        let shouldRefreshPreview = false;
-        /** Set when the client stream wait hits the hard cap (try/catch are separate scopes — must be outside `try`). */
-        let streamHitTimeout = false;
-        try {
-            const streamPromise = streamChat({
-                agentId,
-                chatId,
-                prompt: wirePrompt,
-                // Form engine: do not send preview path — server would treat it as repo truth for tools; unsaved edits are only in the prompt appendix.
-                contentPath: formEngine || crossSiteWorking ? undefined : macroValuesRef.current.contentPath?.trim() || undefined,
-                contentTypeId: formEngine || crossSiteWorking ? undefined : macroValuesRef.current.contentTypeId?.trim() || undefined,
-                ...(previewContentTypeLabel ? { contentTypeLabel: previewContentTypeLabel } : {}),
-                ...(!crossSiteWorking && macroValuesRef.current.displayTemplate?.trim()
-                    ? { displayTemplate: macroValuesRef.current.displayTemplate.trim() }
-                    : {}),
-                ...(studioPreviewPageUrl ? { studioPreviewPageUrl } : {}),
-                authoringSurface: formEngine ? 'formEngine' : undefined,
-                formEngineClientJsonApply: formEngine && wantClientJsonApply ? true : undefined,
-                formEngineItemPath: formEngine && wantClientJsonApply && authoringSnap?.contentPath?.trim()
-                    ? authoringSnap.contentPath.trim()
-                    : undefined,
-                llm,
-                llmModel,
-                imageModel: wireImageModel,
-                ...(imageGenerator != null && String(imageGenerator).trim() !== ''
-                    ? { imageGenerator: String(imageGenerator).trim() }
-                    : {}),
-                llmApiKey,
-                siteId: effectiveSiteId,
-                pluginRequestSiteId: siteId,
-                ...(previewTokenForStream ? { previewToken: previewTokenForStream } : {}),
-                ...(omitToolsThisSend ? { omitTools: true } : {}),
-                ...(enableTools === false ? { enableTools: false } : {}),
-                ...(Array.isArray(enabledBuiltInTools) && enabledBuiltInTools.length > 0 ? { enabledBuiltInTools } : {}),
-                ...(Array.isArray(skills) && skills.length > 0 ? { skills } : {}),
-                ...(translateBatchConcurrency != null &&
-                    Number.isFinite(translateBatchConcurrency) &&
-                    translateBatchConcurrency >= 1 &&
-                    translateBatchConcurrency <= 64
-                    ? { translateBatchConcurrency: Math.floor(translateBatchConcurrency) }
-                    : {}),
-                signal: ac.signal,
-                onRawSseDataLine: (jsonLine) => {
-                    pushStreamLog(sessionStreamLogRef, `${new Date().toISOString()}\t${jsonLine}`);
-                },
-                onMessage: (evt) => {
-                    if (userStopRequestedRef.current) {
-                        return;
-                    }
-                    const evtChatId = evt.metadata?.chatId;
-                    if (evtChatId && !chatId)
-                        setChatId(evtChatId);
-                    const evtMsgId = evt.metadata?.messageId;
-                    if (evtMsgId && !streamingMessageId)
-                        streamingMessageId = evtMsgId;
-                    const md = evt.metadata && typeof evt.metadata === 'object'
-                        ? evt.metadata
-                        : undefined;
-                    const isTerminal = isTerminalMetadata(md);
-                    const isCompleted = md?.completed === true;
-                    const streamErr = md?.error === true;
-                    const streamErrMsg = md?.message;
-                    const planGateFailure = md?.planGateFailure === true;
-                    const toolStatus = String(md?.status || '');
-                    const toolPhase = String(md?.phase || '');
-                    const toolName = String(md?.tool || '');
-                    /** Tool rows and the initial workflow hint share the 🛠️ strip (server uses `tool-progress` vs `tool-workflow-hint`). */
-                    const isToolProgressChunk = toolStatus === 'tool-progress' || toolStatus === 'tool-workflow-hint';
-                    const rawTextChunk = evt.text ?? '';
-                    const textChunk = isToolProgressChunk ? rawTextChunk : stripForbiddenLazyPlanLines(rawTextChunk);
-                    const summarizingResultsHint = md?.status === 'aiassistant-chat-phase' && String(md?.phase || '') === 'summarizing-results';
-                    const incomingStudioAiInlineImgUrls = md?.studioAiInlineImageUrls;
-                    const mdStatus = md && md.status != null ? String(md.status).trim() : '';
-                    if (mdStatus === 'pipeline-heartbeat') {
-                        const rawEl = md.elapsedSec;
-                        const rawNext = md.nextInSec;
-                        const elapsedSec = Math.max(0, Math.floor(Number(rawEl) || 0));
-                        const nextN = Number(rawNext);
-                        const nextInSec = Number.isFinite(nextN) && nextN > 0 ? Math.round(nextN) : Math.max(1, Math.round(Number(rawNext) || 12));
-                        const hint = String(md.hint ?? '').trim();
-                        setMessages((prev) => prev.map((m) => m.id === assistantId
-                            ? {
-                                ...m,
-                                // Ignore/clear stale heartbeat rows that arrive after terminal completion.
-                                pipelineHeartbeat: m.isStreaming ? { elapsedSec, nextInSec, hint } : undefined
+                        : undefined,
+                    llm,
+                    llmModel,
+                    imageModel: wireImageModel,
+                    ...(imageGenerator != null && String(imageGenerator).trim() !== ''
+                        ? { imageGenerator: String(imageGenerator).trim() }
+                        : {}),
+                    llmApiKey,
+                    siteId: effectiveSiteId,
+                    pluginRequestSiteId: siteId,
+                    ...(previewTokenForStream ? { previewToken: previewTokenForStream } : {}),
+                    ...(omitToolsThisSend ? { omitTools: true } : {}),
+                    ...(enableTools === false ? { enableTools: false } : {}),
+                    ...(Array.isArray(enabledBuiltInTools) && enabledBuiltInTools.length > 0 ? { enabledBuiltInTools } : {}),
+                    ...(Array.isArray(skills) && skills.length > 0 ? { skills } : {}),
+                    ...(translateBatchConcurrency != null &&
+                        Number.isFinite(translateBatchConcurrency) &&
+                        translateBatchConcurrency >= 1 &&
+                        translateBatchConcurrency <= 64
+                        ? { translateBatchConcurrency: Math.floor(translateBatchConcurrency) }
+                        : {}),
+                    signal: ac.signal,
+                    onRawSseDataLine: (jsonLine) => {
+                        pushStreamLog(sessionStreamLogRef, `${new Date().toISOString()}\t${jsonLine}`);
+                    },
+                    onMessage: (evt) => {
+                        if (userStopRequestedRef.current) {
+                            return;
+                        }
+                        const evtChatId = evt.metadata?.chatId;
+                        if (evtChatId && !chatId)
+                            setChatId(evtChatId);
+                        const evtMsgId = evt.metadata?.messageId;
+                        if (evtMsgId && !streamingMessageId)
+                            streamingMessageId = evtMsgId;
+                        const md = evt.metadata && typeof evt.metadata === 'object'
+                            ? evt.metadata
+                            : undefined;
+                        const isTerminal = isTerminalMetadata(md);
+                        const isCompleted = md?.completed === true;
+                        const streamErr = md?.error === true;
+                        const streamErrMsg = md?.message;
+                        const planGateFailure = md?.planGateFailure === true;
+                        const toolStatus = String(md?.status || '');
+                        const toolPhase = String(md?.phase || '');
+                        const toolName = String(md?.tool || '');
+                        /** Tool rows and the initial workflow hint share the 🛠️ strip (server uses `tool-progress` vs `tool-workflow-hint`). */
+                        const isToolProgressChunk = toolStatus === 'tool-progress' || toolStatus === 'tool-workflow-hint';
+                        const rawTextChunk = evt.text ?? '';
+                        const textChunk = isToolProgressChunk ? rawTextChunk : stripForbiddenLazyPlanLines(rawTextChunk);
+                        const summarizingResultsHint = md?.status === 'aiassistant-chat-phase' && String(md?.phase || '') === 'summarizing-results';
+                        const incomingStudioAiInlineImgUrls = md?.studioAiInlineImageUrls;
+                        const mdStatus = md && md.status != null ? String(md.status).trim() : '';
+                        if (mdStatus === 'pipeline-heartbeat') {
+                            const rawEl = md.elapsedSec;
+                            const rawNext = md.nextInSec;
+                            const elapsedSec = Math.max(0, Math.floor(Number(rawEl) || 0));
+                            const nextN = Number(rawNext);
+                            const nextInSec = Number.isFinite(nextN) && nextN > 0 ? Math.round(nextN) : Math.max(1, Math.round(Number(rawNext) || 12));
+                            const hint = String(md.hint ?? '').trim();
+                            setMessages((prev) => prev.map((m) => m.id === assistantId
+                                ? {
+                                    ...m,
+                                    // Ignore/clear stale heartbeat rows that arrive after terminal completion.
+                                    pipelineHeartbeat: m.isStreaming ? { elapsedSec, nextInSec, hint } : undefined
+                                }
+                                : m));
+                            return;
+                        }
+                        if (mdStatus === 'intent-recipe-routing') {
+                            const tel = md.intentRecipeRouting;
+                            const line = intentRoutingDisplayMarkdown(tel, rawTextChunk) || '';
+                            if (line.trim()) {
+                                setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, intentRecipeLine: line.trimEnd() + '\n' } : m)));
                             }
-                            : m));
-                        return;
-                    }
-                    if (mdStatus === 'intent-recipe-routing') {
-                        const tel = md.intentRecipeRouting;
-                        const line = rawTextChunk.trim() ||
-                            intentRecipeLineFromRoutingTelemetry(tel) ||
-                            (tel && typeof tel === 'object'
-                                ? formatIntentRecipeChatLine(String(tel.recipeId ?? ''), String(tel.recipeTitle ?? ''))
-                                : '');
-                        if (line.trim()) {
-                            setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, intentRecipeLine: line.trimEnd() + '\n' } : m)));
+                            return;
                         }
-                        return;
-                    }
-                    if (planGateFailure && streamErr && textChunk.trim()) {
-                        setMessages((prev) => prev.map((m) => m.id === assistantId
-                            ? {
-                                ...m,
-                                text: textChunk,
-                                assistantPreToolsText: undefined,
-                                toolProgressText: undefined,
-                                reasoningStreamText: undefined,
-                                pipelineHeartbeat: undefined,
-                                isStreaming: false,
-                                summarizingResults: false,
-                                ...mergePipelineTimingFields(m, extractTerminalPipelineTiming(md))
+                        if (mdStatus === 'step-bridge-card') {
+                            const bridge = md.stepBridge && typeof md.stepBridge === 'object'
+                                ? md.stepBridge
+                                : null;
+                            const card = String(bridge?.markdown ?? rawTextChunk ?? '').trim();
+                            if (card) {
+                                setMessages((prev) => prev.map((m) => m.id === assistantId
+                                    ? { ...m, stepBridgeCards: [...(m.stepBridgeCards ?? []), card] }
+                                    : m));
                             }
-                            : m));
-                        return;
-                    }
-                    if (summarizingResultsHint) {
-                        setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, summarizingResults: true } : m)));
-                    }
-                    if (hasStudioAiInlineImageUrlPayload(incomingStudioAiInlineImgUrls)) {
-                        setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls) } : m));
-                    }
-                    if (!formEngine &&
-                        !streamErr &&
-                        toolStatus === 'tool-progress' &&
-                        toolPhase === 'done' &&
-                        PREVIEW_RELOAD_TOOL_NAMES_ON_DONE.has(toolName)) {
-                        shouldRefreshPreview = true;
-                        if (toolName === 'WriteContent') {
-                            const repoPath = typeof evt.metadata?.repoPath === 'string' ? evt.metadata.repoPath.trim() : '';
-                            if (repoPath) {
-                                navigateStudioPreviewToRepoPath(repoPath);
+                            return;
+                        }
+                        if (planGateFailure && streamErr && textChunk.trim()) {
+                            setMessages((prev) => prev.map((m) => m.id === assistantId
+                                ? {
+                                    ...m,
+                                    text: textChunk,
+                                    assistantPreToolsText: undefined,
+                                    toolProgressText: undefined,
+                                    reasoningStreamText: undefined,
+                                    pipelineHeartbeat: undefined,
+                                    isStreaming: false,
+                                    summarizingResults: false,
+                                    ...mergePipelineTimingFields(m, extractTerminalPipelineTiming(md))
+                                }
+                                : m));
+                            return;
+                        }
+                        if (summarizingResultsHint) {
+                            setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, summarizingResults: true } : m)));
+                        }
+                        if (hasStudioAiInlineImageUrlPayload(incomingStudioAiInlineImgUrls)) {
+                            setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls) } : m));
+                        }
+                        if (!formEngine &&
+                            !streamErr &&
+                            toolStatus === 'tool-progress' &&
+                            toolPhase === 'done' &&
+                            PREVIEW_RELOAD_TOOL_NAMES_ON_DONE.has(toolName)) {
+                            shouldRefreshPreview = true;
+                            if (toolName === 'WriteContent') {
+                                const repoPath = typeof evt.metadata?.repoPath === 'string' ? evt.metadata.repoPath.trim() : '';
+                                if (repoPath) {
+                                    navigateStudioPreviewToRepoPath(repoPath);
+                                }
                             }
+                            triggerStudioPreviewReload();
                         }
-                        triggerStudioPreviewReload();
-                    }
-                    if (textChunk && (md?.replaceAssistantBody === true || replaceAssistantBodyActive)) {
-                        if (md?.replaceAssistantBody === true) {
-                            replaceAssistantBodyActive = true;
-                            assistantTextAccum = textChunk;
-                        }
-                        else {
-                            assistantTextAccum += textChunk;
-                        }
-                        setMessages((prev) => prev.map((m) => {
-                            if (m.id !== assistantId)
-                                return m;
-                            return {
-                                ...m,
-                                text: assistantTextAccum,
-                                reasoningStreamText: '',
-                                summarizingResults: false,
-                                ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls)
-                            };
-                        }));
-                    }
-                    else if (textChunk) {
-                        if (isToolProgressChunk) {
+                        if (textChunk && (md?.replaceAssistantBody === true || replaceAssistantBodyActive)) {
+                            if (md?.replaceAssistantBody === true) {
+                                replaceAssistantBodyActive = true;
+                                assistantTextAccum = textChunk;
+                            }
+                            else {
+                                assistantTextAccum += textChunk;
+                            }
                             setMessages((prev) => prev.map((m) => {
                                 if (m.id !== assistantId)
                                     return m;
-                                const genImgPromptPatch = pickGenerateImagePromptPatch(toolName, toolPhase, md?.generateImagePrompt, m.generateImagePrompt);
-                                const hadNoToolLinesYet = !(m.toolProgressText || '').length;
-                                const priorMain = (m.text || '').trim();
-                                const reasoningHead = (m.reasoningStreamText || '').trim();
-                                const planPrefix = reasoningHead || priorMain;
-                                if (hadNoToolLinesYet) {
-                                    return {
-                                        ...m,
-                                        assistantPreToolsText: planPrefix || undefined,
-                                        reasoningStreamText: '',
-                                        text: '',
-                                        toolProgressText: textChunk,
-                                        ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls),
-                                        ...genImgPromptPatch
-                                    };
-                                }
                                 return {
                                     ...m,
-                                    toolProgressText: appendToolProgressText(m.toolProgressText || '', textChunk),
-                                    ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls),
-                                    ...genImgPromptPatch
-                                };
-                            }));
-                        }
-                        else {
-                            assistantTextAccum += textChunk;
-                            setMessages((prev) => prev.map((m) => {
-                                if (m.id !== assistantId)
-                                    return m;
-                                const toolsAlreadyVisible = !!(m.toolProgressText || '').trim();
-                                const noPlanAboveToolsYet = !(m.assistantPreToolsText || '').trim();
-                                if (!toolsAlreadyVisible) {
-                                    return {
-                                        ...m,
-                                        reasoningStreamText: (m.reasoningStreamText || '') + textChunk,
-                                        ...(textChunk.trim() !== '' ? { summarizingResults: false } : {}),
-                                        ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls)
-                                    };
-                                }
-                                if (noPlanAboveToolsYet && textChunk.trim()) {
-                                    const head = textChunk.trimStart();
-                                    if (head.startsWith('## Plan') ||
-                                        head.startsWith('## plan') ||
-                                        textChunk.includes('Workspace fallback')) {
-                                        return {
-                                            ...m,
-                                            assistantPreToolsText: (m.assistantPreToolsText || '') + textChunk,
-                                            ...(textChunk.trim() !== '' ? { summarizingResults: false } : {}),
-                                            ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls)
-                                        };
-                                    }
-                                }
-                                return {
-                                    ...m,
-                                    text: (m.text || '') + textChunk,
-                                    ...(textChunk.trim() !== '' ? { summarizingResults: false } : {}),
+                                    text: assistantTextAccum,
+                                    reasoningStreamText: '',
+                                    summarizingResults: false,
                                     ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls)
                                 };
                             }));
                         }
-                    }
-                    if (streamErr && streamErrMsg) {
-                        const errLine = '\n\n**Stream error:** ' + sanitizeErrorForAuthor(String(streamErrMsg));
-                        setMessages((prev) => prev.map((m) => {
-                            if (m.id !== assistantId)
-                                return m;
-                            const nextText = (m.text || '').includes(String(streamErrMsg)) ? m.text : (m.text || '') + errLine;
-                            return {
-                                ...m,
-                                text: nextText,
-                                isStreaming: false,
-                                summarizingResults: false,
-                                pipelineHeartbeat: undefined,
-                                ...(isTerminal ? mergePipelineTimingFields(m, extractTerminalPipelineTiming(md)) : {})
-                            };
-                        }));
-                    }
-                    if (isTerminal) {
-                        clearChatPromptInput();
-                        setMessages((prev) => prev.map((m) => {
-                            if (m.id !== assistantId)
-                                return m;
-                            const noTools = !(m.toolProgressText || '').trim();
-                            const reasoningRest = (m.reasoningStreamText || '').trim();
-                            const mainRest = (m.text || '').trim();
-                            const foldReasoning = noTools && reasoningRest && !mainRest;
-                            const persistedText = consolidateAssistantMessageTextForNextTurn(m);
-                            return {
-                                ...m,
-                                isStreaming: false,
-                                summarizingResults: false,
-                                pipelineHeartbeat: undefined,
-                                text: foldReasoning ? reasoningRest : persistedText,
-                                ...(foldReasoning ? { reasoningStreamText: '' } : {}),
-                                ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls),
-                                ...mergePipelineTimingFields(m, extractTerminalPipelineTiming(md))
-                            };
-                        }));
-                        if (isCompleted &&
-                            !streamErr &&
-                            formEngine &&
-                            wantClientJsonApply &&
-                            !formUpdatesApplied &&
-                            typeof getAuthoringFormContext === 'function' &&
-                            assistantTextAccum) {
-                            formUpdatesApplied = true;
-                            try {
-                                const snap = getAuthoringFormContext();
-                                const updates = tryExtractAiassistantFormFieldUpdates(assistantTextAccum);
-                                if (updates && typeof snap.applyAssistantFieldUpdates === 'function') {
-                                    const result = snap.applyAssistantFieldUpdates(updates);
-                                    const parts = [];
-                                    if (result.applied?.length) {
-                                        parts.push(`**Applied to form:** ${result.applied.join(', ')}`);
+                        else if (textChunk) {
+                            if (isToolProgressChunk) {
+                                setMessages((prev) => prev.map((m) => {
+                                    if (m.id !== assistantId)
+                                        return m;
+                                    const genImgPromptPatch = pickGenerateImagePromptPatch(toolName, toolPhase, md?.generateImagePrompt, m.generateImagePrompt);
+                                    const hadNoToolLinesYet = !(m.toolProgressText || '').length;
+                                    const priorMain = (m.text || '').trim();
+                                    const reasoningHead = (m.reasoningStreamText || '').trim();
+                                    const planPrefix = reasoningHead || priorMain;
+                                    if (hadNoToolLinesYet) {
+                                        return {
+                                            ...m,
+                                            assistantPreToolsText: planPrefix || undefined,
+                                            reasoningStreamText: '',
+                                            text: '',
+                                            toolProgressText: textChunk,
+                                            ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls),
+                                            ...genImgPromptPatch
+                                        };
                                     }
-                                    if (result.error) {
-                                        parts.push(`**Apply issues:** ${result.error}`);
+                                    return {
+                                        ...m,
+                                        toolProgressText: appendToolProgressText(m.toolProgressText || '', textChunk),
+                                        ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls),
+                                        ...genImgPromptPatch
+                                    };
+                                }));
+                            }
+                            else {
+                                assistantTextAccum += textChunk;
+                                setMessages((prev) => prev.map((m) => {
+                                    if (m.id !== assistantId)
+                                        return m;
+                                    const toolsAlreadyVisible = !!(m.toolProgressText || '').trim();
+                                    const noPlanAboveToolsYet = !(m.assistantPreToolsText || '').trim();
+                                    if (!toolsAlreadyVisible) {
+                                        return {
+                                            ...m,
+                                            reasoningStreamText: (m.reasoningStreamText || '') + textChunk,
+                                            ...(textChunk.trim() !== '' ? { summarizingResults: false } : {}),
+                                            ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls)
+                                        };
                                     }
-                                    else if (Object.keys(updates).length && !result.applied?.length) {
-                                        parts.push('**Apply issues:** no fields matched the open form (check field ids).');
+                                    if (noPlanAboveToolsYet && textChunk.trim()) {
+                                        const head = textChunk.trimStart();
+                                        if (head.startsWith('## Plan') ||
+                                            head.startsWith('## plan') ||
+                                            textChunk.includes('Workspace fallback')) {
+                                            return {
+                                                ...m,
+                                                assistantPreToolsText: (m.assistantPreToolsText || '') + textChunk,
+                                                ...(textChunk.trim() !== '' ? { summarizingResults: false } : {}),
+                                                ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls)
+                                            };
+                                        }
                                     }
-                                    if (parts.length) {
-                                        const note = '\n\n---\n' + parts.join('\n');
-                                        setMessages((prev) => prev.map((m) => {
-                                            if (m.id !== assistantId)
-                                                return m;
-                                            return { ...m, text: (m.text || '') + note };
-                                        }));
+                                    return {
+                                        ...m,
+                                        text: (m.text || '') + textChunk,
+                                        ...(textChunk.trim() !== '' ? { summarizingResults: false } : {}),
+                                        ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls)
+                                    };
+                                }));
+                            }
+                        }
+                        if (streamErr && streamErrMsg) {
+                            const errLine = '\n\n**Stream error:** ' + sanitizeErrorForAuthor(String(streamErrMsg));
+                            setMessages((prev) => prev.map((m) => {
+                                if (m.id !== assistantId)
+                                    return m;
+                                const nextText = (m.text || '').includes(String(streamErrMsg)) ? m.text : (m.text || '') + errLine;
+                                return {
+                                    ...m,
+                                    text: nextText,
+                                    isStreaming: false,
+                                    summarizingResults: false,
+                                    pipelineHeartbeat: undefined,
+                                    ...(isTerminal ? mergePipelineTimingFields(m, extractTerminalPipelineTiming(md)) : {})
+                                };
+                            }));
+                        }
+                        if (isTerminal) {
+                            clearChatPromptInput();
+                            setMessages((prev) => prev.map((m) => {
+                                if (m.id !== assistantId)
+                                    return m;
+                                const noTools = !(m.toolProgressText || '').trim();
+                                const reasoningRest = (m.reasoningStreamText || '').trim();
+                                const mainRest = (m.text || '').trim();
+                                const foldReasoning = noTools && reasoningRest && !mainRest;
+                                const persistedText = consolidateAssistantMessageTextForNextTurn(m);
+                                return {
+                                    ...m,
+                                    isStreaming: false,
+                                    summarizingResults: false,
+                                    pipelineHeartbeat: undefined,
+                                    text: foldReasoning ? reasoningRest : persistedText,
+                                    ...(foldReasoning ? { reasoningStreamText: '' } : {}),
+                                    ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls),
+                                    ...mergePipelineTimingFields(m, extractTerminalPipelineTiming(md))
+                                };
+                            }));
+                            if (isCompleted &&
+                                !streamErr &&
+                                formEngine &&
+                                wantClientJsonApply &&
+                                !formUpdatesApplied &&
+                                typeof getAuthoringFormContext === 'function' &&
+                                assistantTextAccum) {
+                                formUpdatesApplied = true;
+                                try {
+                                    const snap = getAuthoringFormContext();
+                                    const updates = tryExtractAiassistantFormFieldUpdates(assistantTextAccum);
+                                    if (updates && typeof snap.applyAssistantFieldUpdates === 'function') {
+                                        const result = snap.applyAssistantFieldUpdates(updates);
+                                        const parts = [];
+                                        if (result.applied?.length) {
+                                            parts.push(`**Applied to form:** ${result.applied.join(', ')}`);
+                                        }
+                                        if (result.error) {
+                                            parts.push(`**Apply issues:** ${result.error}`);
+                                        }
+                                        else if (Object.keys(updates).length && !result.applied?.length) {
+                                            parts.push('**Apply issues:** no fields matched the open form (check field ids).');
+                                        }
+                                        if (parts.length) {
+                                            const note = '\n\n---\n' + parts.join('\n');
+                                            setMessages((prev) => prev.map((m) => {
+                                                if (m.id !== assistantId)
+                                                    return m;
+                                                return { ...m, text: (m.text || '') + note };
+                                            }));
+                                        }
                                     }
                                 }
-                            }
-                            catch {
-                                /* ignore apply failures — assistant text still shown */
+                                catch {
+                                    /* ignore apply failures — assistant text still shown */
+                                }
                             }
                         }
                     }
+                });
+                // LLM tools-loop + multi-step tools can exceed several minutes; cap aligns with the plugin orchestration stream await default.
+                const CHAT_STREAM_TIMEOUT_MS = 600000;
+                let streamTimeoutId;
+                const timeoutPromise = new Promise((_, reject) => {
+                    streamTimeoutId = window.setTimeout(() => {
+                        streamHitTimeout = true;
+                        ac.abort();
+                        reject(new Error('Timed out waiting for chat response'));
+                    }, CHAT_STREAM_TIMEOUT_MS);
+                });
+                try {
+                    await Promise.race([streamPromise, timeoutPromise]);
                 }
-            });
-            // LLM tools-loop + multi-step tools can exceed several minutes; cap aligns with the plugin orchestration stream await default.
-            const CHAT_STREAM_TIMEOUT_MS = 600000;
-            let streamTimeoutId;
-            const timeoutPromise = new Promise((_, reject) => {
-                streamTimeoutId = window.setTimeout(() => {
-                    streamHitTimeout = true;
-                    ac.abort();
-                    reject(new Error('Timed out waiting for chat response'));
-                }, CHAT_STREAM_TIMEOUT_MS);
-            });
-            try {
-                await Promise.race([streamPromise, timeoutPromise]);
-            }
-            finally {
-                if (streamTimeoutId !== undefined)
-                    window.clearTimeout(streamTimeoutId);
-            }
-            try {
-                pushStreamLog(sessionStreamLogRef, JSON.stringify({
-                    kind: 'client.streamOutcome',
-                    ts: new Date().toISOString(),
-                    outcome: 'stream_finished_ok'
-                }));
-            }
-            catch {
-                /* ignore log serialization errors */
-            }
-            if (!formEngine && shouldRefreshPreview) {
-                triggerStudioPreviewReload();
-            }
-        }
-        catch (e) {
-            const errText = e instanceof Error ? e.message : String(e);
-            const userStopped = userStopRequestedRef.current && isFetchAbortError(e);
-            const timedOut = streamHitTimeout ||
-                errText.includes('Timed out waiting for chat response');
-            const abortWithoutExplicitStop = isFetchAbortError(e) && !userStopped && !timedOut;
-            let streamOutcome = 'request_error';
-            if (userStopped)
-                streamOutcome = 'user_stop';
-            else if (timedOut)
-                streamOutcome = 'timeout';
-            else if (e instanceof AiAssistantIncompleteStreamError)
-                streamOutcome = 'incomplete_stream';
-            else if (abortWithoutExplicitStop)
-                streamOutcome = 'aborted_or_network';
-            try {
-                pushStreamLog(sessionStreamLogRef, JSON.stringify({
-                    kind: 'client.streamOutcome',
-                    ts: new Date().toISOString(),
-                    outcome: streamOutcome,
-                    errorType: e instanceof Error ? e.name : typeof e,
-                    message: errText.slice(0, 4000)
-                }));
-            }
-            catch {
-                /* ignore log serialization errors */
-            }
-            setMessages((prev) => prev.map((m) => {
-                if (m.id !== assistantId)
-                    return m;
-                const folded = foldAssistantReasoningIntoMainText(m);
-                const m2 = { ...m, text: folded.text, reasoningStreamText: folded.reasoningStreamText };
-                const hadPartial = assistantVisibleTextLen(m2) > 0;
-                const sep = hadPartial ? '\n\n---\n\n' : '\n\n';
-                if (userStopped) {
-                    const note = '\n\n*Stopped.*';
-                    const combined = (m2.text || '') + (m2.toolProgressText || '') + (m2.assistantPreToolsText || '');
-                    if (combined.includes('*Stopped.*'))
-                        return { ...m2, isStreaming: false, summarizingResults: false };
-                    return { ...m2, text: (m2.text || '') + note, isStreaming: false, summarizingResults: false };
+                finally {
+                    if (streamTimeoutId !== undefined)
+                        window.clearTimeout(streamTimeoutId);
                 }
-                if (timedOut && (isFetchAbortError(e) || errText.includes('Timed out'))) {
-                    const note = `${sep}**Timed out** waiting for the rest of the response from Studio. Nothing below the separator is a complete answer.`;
-                    return {
-                        ...m2,
-                        text: (m2.text || '').includes('Timed out') ? m2.text : (m2.text || '') + note,
-                        isStreaming: false,
-                        summarizingResults: false
-                    };
+                try {
+                    pushStreamLog(sessionStreamLogRef, JSON.stringify({
+                        kind: 'client.streamOutcome',
+                        ts: new Date().toISOString(),
+                        outcome: 'stream_finished_ok'
+                    }));
                 }
-                if (e instanceof AiAssistantIncompleteStreamError) {
-                    const combinedCheck = (m2.text || '') +
-                        (m2.toolProgressText || '') +
-                        (m2.assistantPreToolsText || '') +
-                        (m2.reasoningStreamText || '');
-                    if (combinedCheck.includes('**Could not finish.**')) {
-                        return { ...m2, isStreaming: false, summarizingResults: false };
+                catch {
+                    /* ignore log serialization errors */
+                }
+                if (!formEngine && shouldRefreshPreview) {
+                    triggerStudioPreviewReload();
+                }
+            }
+            catch (e) {
+                const errText = e instanceof Error ? e.message : String(e);
+                const userStopped = userStopRequestedRef.current && isFetchAbortError(e);
+                const timedOut = streamHitTimeout ||
+                    errText.includes('Timed out waiting for chat response');
+                const abortWithoutExplicitStop = isFetchAbortError(e) && !userStopped && !timedOut;
+                let streamOutcome = 'request_error';
+                if (userStopped)
+                    streamOutcome = 'user_stop';
+                else if (timedOut)
+                    streamOutcome = 'timeout';
+                else if (e instanceof AiAssistantIncompleteStreamError)
+                    streamOutcome = 'incomplete_stream';
+                else if (abortWithoutExplicitStop)
+                    streamOutcome = 'aborted_or_network';
+                try {
+                    pushStreamLog(sessionStreamLogRef, JSON.stringify({
+                        kind: 'client.streamOutcome',
+                        ts: new Date().toISOString(),
+                        outcome: streamOutcome,
+                        errorType: e instanceof Error ? e.name : typeof e,
+                        message: errText.slice(0, 4000)
+                    }));
+                }
+                catch {
+                    /* ignore log serialization errors */
+                }
+                setMessages((prev) => prev.map((m) => {
+                    if (m.id !== assistantId)
+                        return m;
+                    const folded = foldAssistantReasoningIntoMainText(m);
+                    const m2 = { ...m, text: folded.text, reasoningStreamText: folded.reasoningStreamText };
+                    const hadPartial = assistantVisibleTextLen(m2) > 0;
+                    const sep = hadPartial ? '\n\n---\n\n' : '\n\n';
+                    if (userStopped) {
+                        const note = '\n\n*Stopped.*';
+                        const combined = (m2.text || '') + (m2.toolProgressText || '') + (m2.assistantPreToolsText || '');
+                        if (combined.includes('*Stopped.*'))
+                            return { ...m2, isStreaming: false, summarizingResults: false };
+                        return { ...m2, text: (m2.text || '') + note, isStreaming: false, summarizingResults: false };
                     }
-                    const note = `${sep}**Could not finish.** ${e.message}`;
+                    if (timedOut && (isFetchAbortError(e) || errText.includes('Timed out'))) {
+                        const note = `${sep}**Timed out** waiting for the rest of the response from Studio. Nothing below the separator is a complete answer.`;
+                        return {
+                            ...m2,
+                            text: (m2.text || '').includes('Timed out') ? m2.text : (m2.text || '') + note,
+                            isStreaming: false,
+                            summarizingResults: false
+                        };
+                    }
+                    if (e instanceof AiAssistantIncompleteStreamError) {
+                        const combinedCheck = (m2.text || '') +
+                            (m2.toolProgressText || '') +
+                            (m2.assistantPreToolsText || '') +
+                            (m2.reasoningStreamText || '');
+                        if (combinedCheck.includes('**Could not finish.**')) {
+                            return { ...m2, isStreaming: false, summarizingResults: false };
+                        }
+                        const note = `${sep}**Could not finish.** ${e.message}`;
+                        return {
+                            ...m2,
+                            text: (m2.text || '') + note,
+                            isStreaming: false,
+                            summarizingResults: false
+                        };
+                    }
+                    if (abortWithoutExplicitStop) {
+                        const note = `${sep}**Interrupted.** The request was cancelled or the browser lost the connection before the assistant finished. Partial text above is not a full reply.`;
+                        return {
+                            ...m2,
+                            text: (m2.text || '').includes('**Interrupted.**') ? m2.text : (m2.text || '') + note,
+                            isStreaming: false,
+                            summarizingResults: false
+                        };
+                    }
+                    const detail = sanitizeErrorForAuthor(errText);
+                    const note = `${sep}**Studio request failed.** ${detail}`;
                     return {
                         ...m2,
-                        text: (m2.text || '') + note,
+                        text: (m2.text || '').includes('**Studio request failed.**') ? m2.text : (m2.text || '') + note,
                         isStreaming: false,
                         summarizingResults: false
                     };
-                }
-                if (abortWithoutExplicitStop) {
-                    const note = `${sep}**Interrupted.** The request was cancelled or the browser lost the connection before the assistant finished. Partial text above is not a full reply.`;
-                    return {
-                        ...m2,
-                        text: (m2.text || '').includes('**Interrupted.**') ? m2.text : (m2.text || '') + note,
-                        isStreaming: false,
-                        summarizingResults: false
-                    };
-                }
-                const detail = sanitizeErrorForAuthor(errText);
-                const note = `${sep}**Studio request failed.** ${detail}`;
-                return {
-                    ...m2,
-                    text: (m2.text || '').includes('**Studio request failed.**') ? m2.text : (m2.text || '') + note,
-                    isStreaming: false,
-                    summarizingResults: false
-                };
-            }));
+                }));
+            }
         }
         finally {
+            sendInFlightRef.current = false;
             setSending(false);
         }
     };
@@ -32374,7 +32453,17 @@ function AiAssistantChat(props) {
                                     border: `1px solid ${theme.palette.divider}`,
                                     fontSize: '0.875rem',
                                     lineHeight: 1.45
-                                }, children: jsx$1(MarkdownMessage, { text: m.intentRecipeLine }) })) : null, m.toolProgressText?.trim() && m.assistantPreToolsText !== undefined ? (jsxs(Fragment, { children: [m.assistantPreToolsText.trim() ? (jsx$1(Box, { sx: { mb: 1 }, children: jsx$1(MarkdownMessage, { text: stripDisplayedGeneratedImages(stripStudioAiInlineImageMarkdownFromText(m.assistantPreToolsText, m.studioAiInlineImageUrls), combineGeneratedImageSources(m.studioAiInlineImageUrls, m.assistantPreToolsText)), studioAiInlineImageUrls: combineGeneratedImageSources(m.studioAiInlineImageUrls, m.assistantPreToolsText).length
+                                }, children: jsx$1(MarkdownMessage, { text: m.intentRecipeLine }) })) : null, m.stepBridgeCards?.map((card, bridgeIdx) => card.trim() ? (jsx$1(Box, { sx: {
+                                    mb: 1,
+                                    py: 0.5,
+                                    px: 1,
+                                    borderRadius: 1,
+                                    bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.50',
+                                    border: `1px solid ${theme.palette.divider}`,
+                                    borderLeft: `3px solid ${theme.palette.primary.main}`,
+                                    fontSize: '0.875rem',
+                                    lineHeight: 1.45
+                                }, children: jsx$1(MarkdownMessage, { text: card }) }, `step-bridge-${m.id}-${bridgeIdx}`)) : null), m.toolProgressText?.trim() && m.assistantPreToolsText !== undefined ? (jsxs(Fragment, { children: [m.assistantPreToolsText.trim() ? (jsx$1(Box, { sx: { mb: 1 }, children: jsx$1(MarkdownMessage, { text: stripDisplayedGeneratedImages(stripStudioAiInlineImageMarkdownFromText(m.assistantPreToolsText, m.studioAiInlineImageUrls), combineGeneratedImageSources(m.studioAiInlineImageUrls, m.assistantPreToolsText)), studioAiInlineImageUrls: combineGeneratedImageSources(m.studioAiInlineImageUrls, m.assistantPreToolsText).length
                                                 ? undefined
                                                 : m.studioAiInlineImageUrls }) })) : null, jsx$1(ToolProgressScrollArea, { text: m.toolProgressText }), m.summarizingResults ? (jsx$1(Typography, { variant: "caption", component: "p", sx: {
                                             mt: 0.75,
@@ -32475,7 +32564,7 @@ function AiAssistantChat(props) {
                 : { flexShrink: 0 })
         }, children: jsxs(Box, { sx: { px: { xs: 1, sm: 2 }, pt: 1.5, minWidth: 0 }, children: [jsxs(Stack$1, { direction: "row", spacing: 1, alignItems: "flex-end", sx: { width: '100%', minWidth: 0 }, children: [jsxs(Stack$1, { direction: "row", spacing: 0.5, alignItems: "flex-end", sx: { flexShrink: 0 }, children: [jsx$1(Tooltip, { title: "Start a new chat", children: jsx$1("span", { children: jsx$1(IconButton, { "aria-label": "New chat", onClick: handleNewChat, disabled: sending, color: "default", children: jsx$1(AddCommentRounded, {}) }) }) }), jsx$1(Tooltip, { title: "Copy debug session log (parsed timeline + verbatim redacted SSE \u2014 for improving assistant behavior)", children: jsx$1("span", { children: jsx$1(IconButton, { "aria-label": "Copy assistant debug session log", onClick: () => void copyToClipboard(sessionStreamLogRef.current.length
                                                 ? formatSessionLogForDebugCopy(sessionStreamLogRef.current)
-                                                : '(Session log is empty — send a message first.)'), disabled: sending, color: "default", children: jsx$1(AssignmentRounded, {}) }) }) })] }), jsx$1(Box, { sx: { flex: '1 1 0%', minWidth: 0, minHeight: 0 }, children: jsx$1(TextField, { fullWidth: true, multiline: true, minRows: 1, maxRows: promptFocused || voiceListening ? 8 : 1, size: "small", placeholder: voiceListening ? 'Listening… speak your prompt' : promptPlaceholder, value: draft, onChange: (e) => setDraft(e.target.value), onFocus: () => setPromptFocused(true), onBlur: () => setPromptFocused(false), onKeyDown: (e) => {
+                                                : '(Session log is empty — send a message first.)'), disabled: sending, color: "default", children: jsx$1(AssignmentRounded, {}) }) }) })] }), jsx$1(Box, { sx: { flex: '1 1 0%', minWidth: 0, minHeight: 0 }, children: jsx$1(TextField, { fullWidth: true, multiline: true, minRows: 1, maxRows: voiceListening || promptFocused || draft.includes('\n') || draft.length > 100 ? 8 : 1, size: "small", placeholder: voiceListening ? 'Listening… speak your prompt' : promptPlaceholder, value: draft, onChange: (e) => setDraft(e.target.value), onFocus: () => setPromptFocused(true), onBlur: () => setPromptFocused(false), onKeyDown: (e) => {
                                     if (e.key === 'Enter' && !e.shiftKey) {
                                         e.preventDefault();
                                         if (canSend)
@@ -32496,7 +32585,10 @@ function AiAssistantChat(props) {
                                         ? voiceError
                                         : voiceListening
                                             ? 'Stop voice input'
-                                            : 'Use voice instead of typing (browser speech recognition)', children: jsx$1("span", { children: jsx$1(IconButton, { color: voiceListening ? 'error' : 'default', onClick: () => toggleVoiceInput(), disabled: sending, "aria-label": voiceListening ? 'Stop voice input' : 'Start voice input', "aria-pressed": voiceListening, children: jsx$1(MicRounded, {}) }) }) })) : null, jsx$1(Tooltip, { title: sending ? 'Wait for the response to finish, or tap Stop beside Working' : 'Send', children: jsx$1("span", { children: jsx$1(IconButton, { color: "primary", onClick: () => startSend(draft), disabled: !canSend || sending, "aria-label": "Send", children: jsx$1(SendRounded, {}) }) }) })] })] }), verificationPrompts.length > 0 && !sending ? (jsxs(Box, { sx: { mt: 1.25, px: 0.25, minWidth: 0, width: '100%' }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", sx: { display: 'block', mb: 0.75 }, children: "Optional checks \u2014 click to send as the next prompt" }), jsx$1(Stack$1, { spacing: 0.75, sx: { width: '100%', minWidth: 0 }, children: verificationPrompts.map((vp, idx) => (jsx$1(Chip, { label: vp.length > 96 ? `${vp.slice(0, 93)}…` : vp, size: "small", variant: "outlined", clickable: true, disabled: sending, onClick: () => startSend(vp, vp), sx: {
+                                            : 'Use voice instead of typing (browser speech recognition)', children: jsx$1("span", { children: jsx$1(IconButton, { color: voiceListening ? 'error' : 'default', onClick: () => toggleVoiceInput(), disabled: sending, "aria-label": voiceListening ? 'Stop voice input' : 'Start voice input', "aria-pressed": voiceListening, children: jsx$1(MicRounded, {}) }) }) })) : null, jsx$1(Tooltip, { title: sending ? 'Wait for the response to finish, or tap Stop beside Working' : 'Send', children: jsx$1("span", { children: jsx$1(IconButton, { color: "primary", onMouseDown: (e) => {
+                                                // Keep focus on the prompt through click so layout does not collapse before send fires.
+                                                e.preventDefault();
+                                            }, onClick: () => startSend(draft), disabled: !canSend || sending, "aria-label": "Send", children: jsx$1(SendRounded, {}) }) }) })] })] }), verificationPrompts.length > 0 && !sending ? (jsxs(Box, { sx: { mt: 1.25, px: 0.25, minWidth: 0, width: '100%' }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", sx: { display: 'block', mb: 0.75 }, children: "Optional checks \u2014 click to send as the next prompt" }), jsx$1(Stack$1, { spacing: 0.75, sx: { width: '100%', minWidth: 0 }, children: verificationPrompts.map((vp, idx) => (jsx$1(Chip, { label: vp.length > 96 ? `${vp.slice(0, 93)}…` : vp, size: "small", variant: "outlined", clickable: true, disabled: sending, onClick: () => startSend(vp, vp), sx: {
                                     width: '100%',
                                     maxWidth: '100%',
                                     height: 'auto',
@@ -38437,11 +38529,7 @@ var recipes = [
 		],
 		dontMatchHints: [
 			"this page",
-			"the page",
 			"for this page",
-			"for the page",
-			"on this page",
-			"about this page",
 			"latest news",
 			"headlines",
 			"breaking news",
