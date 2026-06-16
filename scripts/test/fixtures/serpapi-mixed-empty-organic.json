@@ -1,0 +1,22 @@
+{
+  "search_information": {
+    "organic_results_state": "Fully empty"
+  },
+  "organic_results": [],
+  "top_stories": [
+    {
+      "title": "Salesforce Buys Contentful",
+      "link": "https://example.com/salesforce-buys-contentful",
+      "source": "Example News",
+      "date": "2 days ago"
+    }
+  ],
+  "news_results": [
+    {
+      "title": "Hogan Lovells advises Salesforce",
+      "link": "https://example.com/hogan-lovells",
+      "snippet": "Definitive agreement signed.",
+      "source": "Legal Press"
+    }
+  ]
+}

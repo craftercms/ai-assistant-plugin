@@ -135,6 +135,7 @@ if command -v node >/dev/null 2>&1; then
   node --check "${REPO_ROOT}/scripts/test/functional/router-json-offline.mjs"
   node --check "${REPO_ROOT}/scripts/test/functional/copy-field-plan-offline.mjs"
   node --check "${REPO_ROOT}/scripts/test/functional/intent-execution-plan-offline.mjs"
+  node --check "${REPO_ROOT}/scripts/test/functional/serp-api-parse-offline.mjs"
   node --check "${REPO_ROOT}/scripts/test/lib/copy-field-plan-parity.mjs"
   node --check "${REPO_ROOT}/scripts/test/lib/intent-execution-plan-parity.mjs"
   report_run "step1-offline" "tool-id-parity" "CORE_TOOLS vs UI tool id parity" \
@@ -153,6 +154,8 @@ if command -v node >/dev/null 2>&1; then
     node "${REPO_ROOT}/scripts/test/functional/copy-field-plan-offline.mjs"
   report_run "step1-offline" "intent-execution-plan-offline" "Intent execution plan tool chains" \
     node "${REPO_ROOT}/scripts/test/functional/intent-execution-plan-offline.mjs"
+  report_run "step1-offline" "serp-api-parse-offline" "SerpApi result merge + failure messages" \
+    node "${REPO_ROOT}/scripts/test/functional/serp-api-parse-offline.mjs"
 fi
 export REST_CONTRACTS_SELFTEST=1
 "${REPO_ROOT}/scripts/test/functional/rest-contracts.sh"

@@ -32,6 +32,13 @@ class SerpApiWebSearchTool extends AbstractStudioAiTool {
   private static final String USER_AGENT =
     'Mozilla/5.0 (compatible; CrafterCMS-AI-Assistant/1.0; +https://craftercms.org)'
 
+  private static final List<String> DIAGNOSTIC_KEYS = Collections.unmodifiableList([
+    'queryOriginal', 'querySent', 'queryExpanded', 'queryRecencyOptimized', 'serpParams',
+    'httpStatus', 'fetchError', 'ssrfBlocked', 'parseError', 'serpApiError',
+    'organicResultsState', 'organicResultsRaw', 'newsResultsRaw', 'topStoriesRaw',
+    'organicResultsReturned', 'responseTruncated', 'responseSnippet', 'resultKinds'
+  ] as List)
+
   @Override
   String wireName() { SerpApiWebSearchProjectSettings.WIRE }
 
@@ -63,6 +70,14 @@ class SerpApiWebSearchTool extends AbstractStudioAiTool {
       if (tr.resultCount != null) {
         out.resultCount = tr.resultCount
       }
+      if (tr.querySent) {
+        out.querySent = tr.querySent
+      }
+      for (String k : DIAGNOSTIC_KEYS) {
+        if (tr.containsKey(k) && tr.get(k) != null) {
+          out.put(k, tr.get(k))
+        }
+      }
       String msg = tr.message?.toString()?.trim()
       if (msg) {
         out.toolMessage = msg.length() > 300 ? msg.substring(0, 297) + '…' : msg
@@ -88,12 +103,6 @@ class SerpApiWebSearchTool extends AbstractStudioAiTool {
     return runSearch(query, maxResults, defaults, overrides, cfg, ctx)
   }
 
-  /** Author-visible tool warn line; full Serp/Google detail stays in logs and maintainerObservability. */
-  private static String authorMessageNoOrganicResults(String query) {
-    String q = (query ?: '').trim() ?: '(empty query)'
-    return 'No results for this query (' + q + ').'
-  }
-
   /**
    * Elide query for author message.
    * @param query Caller-supplied input.
@@ -105,6 +114,14 @@ class SerpApiWebSearchTool extends AbstractStudioAiTool {
       return q
     }
     return q.substring(0, 157) + '…'
+  }
+
+  private static String elideText(String text, int max) {
+    String s = (text ?: '').trim()
+    if (!s) {
+      return ''
+    }
+    return s.length() > max ? s.substring(0, max - 1) + '…' : s
   }
 
   /**
@@ -220,6 +237,7 @@ class SerpApiWebSearchTool extends AbstractStudioAiTool {
     fetchDiagSeed.queryRecencyOptimized = queryRecencyOptimized
     LAST_SERP_FETCH_DIAG.set(Collections.unmodifiableMap(fetchDiagSeed))
     List<Map> results = fetchResults(params)
+    Map diag = LAST_SERP_FETCH_DIAG.get() instanceof Map ? new LinkedHashMap((Map) LAST_SERP_FETCH_DIAG.get()) : [:]
     if (queryExpanded && results) {
       results = results.findAll { Map row ->
         !WebSearchResultTextUtil.skipHealthcareCmsResult(
@@ -230,45 +248,117 @@ class SerpApiWebSearchTool extends AbstractStudioAiTool {
       }
     }
     if (results.isEmpty()) {
-      Map diag = LAST_SERP_FETCH_DIAG.get() instanceof Map ? (Map) LAST_SERP_FETCH_DIAG.get() : [:]
-      String parseErr = diag.parseError?.toString()?.trim() ?: ''
-      String serpErr = diag.serpApiError?.toString()?.trim() ?: ''
       String displayQuery = elideQueryForAuthorMessage(queryOriginal ?: querySent)
-      String msg
-      if (parseErr) {
-        msg = 'SerpAPI response could not be parsed as JSON: ' + parseErr
-        log.warn('SerpApiWebSearch JSON parse failed q={} sent={} err={}', queryOriginal, querySent, parseErr)
-      } else {
-        msg = authorMessageNoOrganicResults(displayQuery)
-        log.warn(
-          'SerpApiWebSearch no organic results q={} sent={} serpApiError={} httpStatus={} organicRaw={} tbs={}',
-          queryOriginal,
-          querySent,
-          serpErr ?: '(none)',
-          diag.httpStatus,
-          diag.organicResultsRaw,
-          (diag.serpParams?.tbs ?: '')
-        )
-      }
-      return [
+      String msg = formatFailureMessage(diag, displayQuery)
+      log.warn(
+        'SerpApiWebSearch no parsed results q={} sent={} serpApiError={} httpStatus={} organicRaw={} newsRaw={} topStoriesRaw={} state={} tbs={}',
+        queryOriginal,
+        querySent,
+        diag.serpApiError ?: '(none)',
+        diag.httpStatus,
+        diag.organicResultsRaw,
+        diag.newsResultsRaw,
+        diag.topStoriesRaw,
+        diag.organicResultsState ?: '(none)',
+        (diag.serpParams?.tbs ?: '')
+      )
+      return attachDiagnostics([
         ok         : false,
         tool       : wireName(),
         query      : queryOriginal,
         querySent  : querySent,
         message    : msg,
-        serpApiError: serpErr ?: null,
+        serpApiError: diag.serpApiError ?: null,
         resultCount: 0,
         results    : []
-      ]
+      ], diag)
     }
-    return [
+    LinkedHashSet<String> kinds = new LinkedHashSet<>()
+    for (Map row : results) {
+      String kind = row?.resultKind?.toString()?.trim()
+      if (kind) {
+        kinds.add(kind)
+      }
+    }
+    if (!kinds.isEmpty()) {
+      diag.resultKinds = new ArrayList<>(kinds)
+    }
+    diag.organicResultsReturned = results.size()
+    List<Map> wireResults = []
+    for (Map row : results) {
+      wireResults.add([
+        position: row.position,
+        title   : row.title,
+        url     : row.url,
+        snippet : row.snippet
+      ])
+    }
+    return attachDiagnostics([
       ok         : true,
       tool       : wireName(),
       query      : queryOriginal,
       querySent  : querySent,
-      resultCount: results.size(),
-      results    : results
-    ]
+      resultCount: wireResults.size(),
+      results    : wireResults
+    ], diag)
+  }
+
+  private static Map attachDiagnostics(Map payload, Map diag) {
+    if (!(payload instanceof Map) || !(diag instanceof Map)) {
+      return payload
+    }
+    Map copy = new LinkedHashMap(payload)
+    for (String k : DIAGNOSTIC_KEYS) {
+      if (diag.containsKey(k) && diag.get(k) != null) {
+        copy.put(k, diag.get(k))
+      }
+    }
+    return copy
+  }
+
+  private static String formatFailureMessage(Map diag, String displayQuery) {
+    Map d = diag instanceof Map ? diag : [:]
+    String parseErr = d.parseError?.toString()?.trim() ?: ''
+    if (parseErr) {
+      return 'SerpAPI response could not be parsed as JSON: ' + elideText(parseErr, 120)
+    }
+    String fetchErr = d.fetchError?.toString()?.trim() ?: ''
+    if (fetchErr) {
+      return 'SerpAPI request failed (network/I/O): ' + elideText(fetchErr, 120)
+    }
+    String ssrf = d.ssrfBlocked?.toString()?.trim() ?: ''
+    if (ssrf) {
+      return 'SerpAPI blocked by outbound URL policy: ' + elideText(ssrf, 100)
+    }
+    Object httpStatus = d.httpStatus
+    if (httpStatus instanceof Number) {
+      int code = ((Number) httpStatus).intValue()
+      if (code < 200 || code >= 300) {
+        return 'SerpAPI returned HTTP ' + code + ' (not an empty Google results page).'
+      }
+    }
+    String serpErr = d.serpApiError?.toString()?.trim() ?: ''
+    if (serpErr) {
+      return 'SerpAPI error: ' + elideText(serpErr, 160)
+    }
+    String state = d.organicResultsState?.toString()?.trim() ?: ''
+    int organic = (d.organicResultsRaw instanceof Number) ? ((Number) d.organicResultsRaw).intValue() : 0
+    int news = (d.newsResultsRaw instanceof Number) ? ((Number) d.newsResultsRaw).intValue() : 0
+    int top = (d.topStoriesRaw instanceof Number) ? ((Number) d.topStoriesRaw).intValue() : 0
+    String tbs = ''
+    if (d.serpParams instanceof Map) {
+      tbs = ((Map) d.serpParams).tbs?.toString()?.trim() ?: ''
+    }
+    StringBuilder sb = new StringBuilder('No web results parsed from SerpAPI')
+    if (state) {
+      sb.append(' (organic_results_state=').append(state).append(')')
+    }
+    sb.append(' — organic=').append(organic).append(', news=').append(news).append(', top_stories=').append(top)
+    if (tbs) {
+      sb.append('; tbs=').append(tbs)
+    }
+    sb.append('. Query: ').append(displayQuery ?: '(empty query)')
+    return sb.toString()
   }
 
   /**
@@ -421,15 +511,7 @@ class SerpApiWebSearchTool extends AbstractStudioAiTool {
       }
       Map parseMeta = [:]
       List<Map> hits = parseJson(body, maxResults, parseMeta)
-      if (parseMeta.serpApiError) {
-        diag.serpApiError = parseMeta.serpApiError
-      }
-      if (parseMeta.parseError) {
-        diag.parseError = parseMeta.parseError
-      }
-      if (parseMeta.organicResultsRaw != null) {
-        diag.organicResultsRaw = parseMeta.organicResultsRaw
-      }
+      mergeParseMetaIntoDiag(diag, parseMeta)
       diag.organicResultsReturned = hits.size()
       LAST_SERP_FETCH_DIAG.set(Collections.unmodifiableMap(diag))
       return hits
@@ -438,6 +520,30 @@ class SerpApiWebSearchTool extends AbstractStudioAiTool {
       LAST_SERP_FETCH_DIAG.set(Collections.unmodifiableMap(diag))
       log.warn('SerpApiWebSearch failed: {}', t.message)
       return []
+    }
+  }
+
+  private static void mergeParseMetaIntoDiag(Map diag, Map parseMeta) {
+    if (!(diag instanceof Map) || !(parseMeta instanceof Map)) {
+      return
+    }
+    if (parseMeta.serpApiError) {
+      diag.serpApiError = parseMeta.serpApiError
+    }
+    if (parseMeta.parseError) {
+      diag.parseError = parseMeta.parseError
+    }
+    if (parseMeta.organicResultsRaw != null) {
+      diag.organicResultsRaw = parseMeta.organicResultsRaw
+    }
+    if (parseMeta.newsResultsRaw != null) {
+      diag.newsResultsRaw = parseMeta.newsResultsRaw
+    }
+    if (parseMeta.topStoriesRaw != null) {
+      diag.topStoriesRaw = parseMeta.topStoriesRaw
+    }
+    if (parseMeta.organicResultsState) {
+      diag.organicResultsState = parseMeta.organicResultsState
     }
   }
 
@@ -524,7 +630,7 @@ class SerpApiWebSearchTool extends AbstractStudioAiTool {
   }
 
   /**
-   * Parse json.
+   * Parse SerpAPI JSON — merges {@code organic_results}, {@code top_stories}, and {@code news_results}.
    * @param json Caller-supplied input.
    * @param maxResults Caller-supplied input.
    * @param metaOut Caller-supplied input.
@@ -545,37 +651,77 @@ class SerpApiWebSearchTool extends AbstractStudioAiTool {
       if (err != null && err.toString().trim()) {
         metaOut.serpApiError = err.toString().trim()
       }
+      Object searchInfo = root.get('search_information')
+      if (searchInfo instanceof Map) {
+        String state = ((Map) searchInfo).organic_results_state?.toString()?.trim() ?: ''
+        if (state) {
+          metaOut.organicResultsState = state
+        }
+      }
       Object organic = root.get('organic_results')
-      if (organic instanceof List) {
-        metaOut.organicResultsRaw = ((List) organic).size()
-      } else {
-        metaOut.organicResultsRaw = 0
-      }
-      if (!(organic instanceof List)) {
-        return results
-      }
-      int pos = 0
-      for (Object row : (List) organic) {
-        if (!(row instanceof Map) || results.size() >= maxResults) {
-          break
-        }
-        Map hit = (Map) row
-        String url = hit.link?.toString()?.trim() ?: hit.url?.toString()?.trim() ?: ''
-        if (!url || WebSearchResultTextUtil.skipResultUrl(url)) {
-          continue
-        }
-        pos++
-        results.add([
-          position: pos,
-          title   : WebSearchResultTextUtil.stripHtml(hit.title?.toString() ?: ''),
-          url     : url,
-          snippet : WebSearchResultTextUtil.stripHtml(hit.snippet?.toString() ?: hit.description?.toString() ?: '')
-        ])
-      }
+      metaOut.organicResultsRaw = (organic instanceof List) ? ((List) organic).size() : 0
+      Object topStories = root.get('top_stories')
+      metaOut.topStoriesRaw = (topStories instanceof List) ? ((List) topStories).size() : 0
+      Object newsResults = root.get('news_results')
+      metaOut.newsResultsRaw = (newsResults instanceof List) ? ((List) newsResults).size() : 0
+
+      Set<String> seenUrls = new LinkedHashSet<>()
+      appendFromSerpList(results, seenUrls, organic, maxResults, 'organic')
+      appendFromSerpList(results, seenUrls, topStories, maxResults, 'top_stories')
+      appendFromSerpList(results, seenUrls, newsResults, maxResults, 'news_results')
     } catch (Throwable t) {
       metaOut.parseError = t.message ?: t.toString()
       log.warn('SerpApiWebSearch JSON parse failed: {}', t.message)
     }
     return results
+  }
+
+  private static void appendFromSerpList(
+    List<Map> results,
+    Set<String> seenUrls,
+    Object listObj,
+    int maxResults,
+    String resultKind
+  ) {
+    if (!(listObj instanceof List) || results.size() >= maxResults) {
+      return
+    }
+    for (Object row : (List) listObj) {
+      if (!(row instanceof Map) || results.size() >= maxResults) {
+        break
+      }
+      Map hit = (Map) row
+      String url = hit.link?.toString()?.trim() ?: hit.url?.toString()?.trim() ?: ''
+      if (!url || WebSearchResultTextUtil.skipResultUrl(url)) {
+        continue
+      }
+      String urlKey = url.toLowerCase(Locale.ROOT)
+      if (seenUrls.contains(urlKey)) {
+        continue
+      }
+      seenUrls.add(urlKey)
+      String snippet = WebSearchResultTextUtil.stripHtml(
+        hit.snippet?.toString() ?: hit.description?.toString() ?: ''
+      )
+      if (!snippet?.trim()) {
+        String src = hit.source?.toString()?.trim() ?: ''
+        String date = hit.date?.toString()?.trim() ?: hit.published_at?.toString()?.trim() ?: ''
+        List<String> parts = []
+        if (src) {
+          parts.add(src)
+        }
+        if (date) {
+          parts.add(date)
+        }
+        snippet = parts.join(' · ')
+      }
+      results.add([
+        position   : results.size() + 1,
+        title      : WebSearchResultTextUtil.stripHtml(hit.title?.toString() ?: ''),
+        url        : url,
+        snippet    : snippet,
+        resultKind : resultKind
+      ])
+    }
   }
 }

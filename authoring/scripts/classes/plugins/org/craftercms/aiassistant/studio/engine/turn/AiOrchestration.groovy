@@ -8629,12 +8629,13 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
         line = pfx + ' ❌ **' + toolName + '** failed: ' + em + '\n'
       } else if ('warn'.equals(phase)) {
         def hint = ''
+        int hintMax = 140
         if (toolResult instanceof Map) {
           def m = (Map) toolResult
           hint = (m.message ?: m.hint ?: m.skippedReason ?: '')?.toString()?.trim() ?: ''
-        }
-        if (hint.length() > 140) {
-          hint = hint.substring(0, 137) + '…'
+          if ('SerpApiWebSearch'.equalsIgnoreCase(toolName ?: '')) {
+            hintMax = 420
+          }
         }
         if ('SerpApiWebSearch'.equalsIgnoreCase(toolName ?: '') && toolResult instanceof Map) {
           String sent = ((Map) toolResult).querySent?.toString()?.trim() ?: ''
@@ -8642,6 +8643,9 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           if (sent && orig && !sent.equalsIgnoreCase(orig)) {
             hint = (hint ? hint + ' ' : '') + '(sent: `' + (sent.length() > 80 ? sent.substring(0, 77) + '…' : sent) + '`)'
           }
+        }
+        if (hint.length() > hintMax) {
+          hint = hint.substring(0, hintMax - 3) + '…'
         }
         if ('TranslateContentItem'.equalsIgnoreCase(toolName ?: '') && path) {
           line =
