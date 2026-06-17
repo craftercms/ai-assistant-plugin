@@ -1,5 +1,7 @@
 package plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting
 
+import plugins.org.craftercms.aiassistant.studio.engine.context.AuthoringPreviewContext
+
 /**
  * Derives a **tool-ordered execution scaffold** from the author's intent steps (not from router meta text).
  * Injected into the tools loop so **## Plan** and {@code tool_calls} include the right wired tools in order.
@@ -29,14 +31,14 @@ final class AuthoringIntentExecutionPlan {
       boolean needsLookup = mentionsExternalLookup(lower)
       boolean needsWrite = mentionsRepoUpdate(lower) || mentionsImageStep(lower)
       if (needsLookup && needsWrite && !priorExternalLookup) {
-        Map lookupRow = planRowForKind('external_lookup', step, anchor, false, ++n)
+        Map lookupRow = planRowForKind('external_lookup', step, anchor, false, ++n, authorVisible)
         if (lookupRow) {
           rows.add(lookupRow)
           priorExternalLookup = true
         }
       }
       String kind = classifyStepKind(step)
-      Map row = planRowForKind(kind, step, anchor, priorExternalLookup, ++n)
+      Map row = planRowForKind(kind, step, anchor, priorExternalLookup, ++n, authorVisible)
       if (row) {
         rows.add(row)
         if ('external_lookup'.equals(kind)) {
@@ -148,7 +150,8 @@ final class AuthoringIntentExecutionPlan {
     String authorStep,
     String anchor,
     boolean priorExternalLookup,
-    int stepNum
+    int stepNum,
+    String authorVisible = ''
   ) {
     String anchorRef = anchor ? "`${anchor}`" : 'the anchored page'
     Map row = [
@@ -171,9 +174,15 @@ final class AuthoringIntentExecutionPlan {
           'Edit the full content XML from GetContent.'
         break
       case 'image_generate':
-        row.outcome = 'Generated image **persisted** on the page hero/image field'
-        row.toolChain = "GetContent (${anchorRef}) → GenerateImage → WriteContent or update_content"
-        row.note = 'Image prompt must reflect page copy + any prior research; save image path to the content item.'
+        if (AuthoringPreviewContext.chatOnlyGenerateImageAuthorRequest(authorVisible ?: authorStep, anchor)) {
+          row.outcome = 'Generated bitmap appears in the Studio chat image strip'
+          row.toolChain = 'GenerateImage'
+          row.note = 'Chat-only — do not call GetContent, WriteContent, or update_content for this turn.'
+        } else {
+          row.outcome = 'Generated image **persisted** on the page hero/image field'
+          row.toolChain = "GetContent (${anchorRef}) → GenerateImage → WriteContent or update_content"
+          row.note = 'Image prompt must reflect page copy + any prior research; save image path to the content item.'
+        }
         break
       case 'repo_read':
         row.outcome = 'Repository item loaded for context'

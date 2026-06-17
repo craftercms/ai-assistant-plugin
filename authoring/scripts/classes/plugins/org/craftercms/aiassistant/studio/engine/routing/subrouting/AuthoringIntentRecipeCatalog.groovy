@@ -2118,7 +2118,8 @@ private AuthoringIntentRecipeCatalog() {}
       return false
     }
 
-    String a = authorVisible.toLowerCase(Locale.ROOT)
+    String authorOnly = AuthoringPreviewContext.extractAuthorCurrentRequestVisible(authorVisible ?: '')?.trim()
+    String a = (authorOnly ?: authorVisible).toLowerCase(Locale.ROOT)
     for (String kw : bypassKeywords) {
       String k = (kw ?: '').trim().toLowerCase(Locale.ROOT)
 

@@ -25,6 +25,7 @@ import {
   replaceSlackColonEmojisInText,
   resolveSlackColonEmojiToken
 } from './slackColonEmoji';
+import StudioDraggableImage from './StudioDraggableImage';
 
 /**
  * LLM streaming payloads sometimes leave escape sequences as the two-character

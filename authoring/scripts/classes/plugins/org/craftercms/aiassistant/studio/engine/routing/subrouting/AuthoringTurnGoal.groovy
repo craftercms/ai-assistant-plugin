@@ -91,22 +91,41 @@ final class AuthoringTurnGoal {
     )
     String execGoal = resolved.turnGoal?.toString()?.trim() ?: (turnGoal ?: '').trim()
     String execCriteria = resolved.successCriteria?.toString()?.trim() ?: (successCriteria ?: '').trim()
-    String block = formatExecutionBlock(execGoal, execCriteria, anchorPath)
+    String recipeId = ''
+    if (result instanceof Map && result.intentRecipeRoutingTelemetry instanceof Map) {
+      recipeId = result.intentRecipeRoutingTelemetry.recipeId?.toString()?.trim() ?: ''
+    }
+    boolean chatOnlyGenerateImage = 'generate_image'.equals(recipeId) ||
+      AuthoringPreviewContext.chatOnlyGenerateImageAuthorRequest(
+      authorVisible,
+      anchorPath
+    ) || ('generate_image'.equals(recipeId) &&
+      AuthoringPreviewContext.authorCurrentRequestLooksLikeImageOnlyGenerate(authorVisible ?: ''))
+    String block = formatExecutionBlock(
+      execGoal,
+      execCriteria,
+      chatOnlyGenerateImage ? '' : anchorPath
+    )
     if (!block?.trim()) {
       return
     }
-    String executionPlan = AuthoringIntentExecutionPlan.formatToolsLoopBlock(authorVisible, anchorPath)
+    String executionPlan = ''
+    if (!chatOnlyGenerateImage) {
+      executionPlan = AuthoringIntentExecutionPlan.formatToolsLoopBlock(authorVisible, anchorPath)
+    }
     AuthoringResearchGrounding.initFromAuthorVisible(toolsLoopSessionBundle, authorVisible, anchorPath)
     String intentCard = AuthoringIntentCard.formatCardMarkdown(
       turnGoal,
       successCriteria,
       anchorPath,
-      authorVisible
+      authorVisible,
+      recipeId
     )
     if (toolsLoopSessionBundle instanceof Map) {
       toolsLoopSessionBundle.authorTurnGoal = execGoal
       toolsLoopSessionBundle.authorTurnSuccessCriteria = execCriteria
       toolsLoopSessionBundle.authorTurnGoalBlock = block
+      toolsLoopSessionBundle.chatOnlyGenerateImage = chatOnlyGenerateImage
       if (anchorPath?.trim()) {
         toolsLoopSessionBundle.authorTurnAnchorPath = anchorPath.trim()
       }
@@ -119,7 +138,7 @@ final class AuthoringTurnGoal {
       }
     }
     String copyPlanBlock = ''
-    if (anchorPath?.trim() && toolsLoopSessionBundle instanceof Map) {
+    if (!chatOnlyGenerateImage && anchorPath?.trim() && toolsLoopSessionBundle instanceof Map) {
       def ops = toolsLoopSessionBundle.get('studioOps')
       if (ops instanceof StudioToolOperations) {
         copyPlanBlock = FormDefinitionCopyFieldPlan.wireAndFormatOrchestrationBlock(
@@ -176,7 +195,10 @@ final class AuthoringTurnGoal {
     if (!goal) {
       return
     }
-    String appendix = '\n\n' + ToolPromptsTurnGoalExecution.systemGoalPolicyOnly()
+    boolean chatOnlyGenerateImage = Boolean.TRUE.equals(toolsLoopSessionBundle.chatOnlyGenerateImage)
+    String appendix = '\n\n' + (chatOnlyGenerateImage ?
+      ToolPromptsTurnGoalExecution.chatOnlyGenerateImageGoalPolicyOnly() :
+      ToolPromptsTurnGoalExecution.systemGoalPolicyOnly())
     for (Map m : wireMessages) {
       if (m instanceof Map && 'system'.equals(m.get('role')?.toString())) {
         Object content = m.get('content')
@@ -203,6 +225,9 @@ final class AuthoringTurnGoal {
     }
     String goal = toolsLoopSessionBundle.authorTurnGoal?.toString()?.trim()
     if (!goal) {
+      return ''
+    }
+    if (Boolean.TRUE.equals(toolsLoopSessionBundle.chatOnlyGenerateImage)) {
       return ''
     }
     StringBuilder sb = new StringBuilder()
@@ -358,6 +383,20 @@ final class ToolPromptsTurnGoalExecution {
   static String systemGoalPolicyOnly() {
     return executionPolicyParagraph() +
       ' The **[Studio — turn goal …]** block in the user message states the objective for this turn only.'
+  }
+
+  /** Chat-only {@code generate_image}: no CMS persistence language in the tools-loop system prompt. */
+  static String chatOnlyGenerateImageGoalPolicyOnly() {
+    return chatOnlyGenerateImageExecutionPolicyParagraph() +
+      ' The **[Studio — turn goal …]** block in the user message states the objective for this turn only.'
+  }
+
+  private static String chatOnlyGenerateImageExecutionPolicyParagraph() {
+    return '''**Execution policy (chat-only image):** Call **GenerateImage** once with a prompt from the author's subject. When GenerateImage succeeds, summarize briefly — the bitmap appears in the Studio chat strip automatically.
+
+**Do not** call GetContent, WriteContent, update_content, or upload to static-assets unless the author explicitly asked to save the image to the CMS in this message.
+
+**Honest completion:** Do not claim the image was saved to a page or field. Done when GenerateImage succeeded and the author can see the image in chat.'''
   }
 
   private static String executionPolicyParagraph() {

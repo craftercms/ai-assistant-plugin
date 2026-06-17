@@ -64,7 +64,8 @@ final class AuthoringIntentCard {
     String turnGoal,
     String successCriteria,
     String anchorPath,
-    String authorVisible
+    String authorVisible,
+    String recipeId = ''
   ) {
     Map resolved = resolveAuthorIntent(turnGoal, successCriteria, authorVisible, anchorPath, '')
     String authorRequest = resolved.authorRequest?.toString()?.trim() ?: ''
@@ -94,8 +95,13 @@ final class AuthoringIntentCard {
     }
 
     String anchor = (anchorPath ?: '').trim()
-    if (anchor) {
+    String rid = (recipeId ?: '').trim()
+    if (anchor && !'generate_image'.equals(rid)) {
       sb.append('**On page:** `').append(anchor).append('`\n\n')
+    }
+
+    if ('generate_image'.equals(rid)) {
+      criteria = 'You see the generated image in the Studio chat strip.'
     }
 
     if (criteria) {
@@ -107,7 +113,7 @@ final class AuthoringIntentCard {
     }
 
     String goalForGuards = (resolved.turnGoal ?: turnGoal ?: authorRequest ?: '').trim()
-    List<String> willNot = deriveWillNot(goalForGuards, criteria)
+    List<String> willNot = deriveWillNot(goalForGuards, criteria, rid)
     if (!willNot.isEmpty()) {
       sb.append('**I will not:**\n')
       for (String line : willNot) {
@@ -330,7 +336,15 @@ final class AuthoringIntentCard {
     return lower.contains('hero') || (lower.contains('image') && lower.contains('update'))
   }
 
-  static List<String> deriveWillNot(String turnGoal, String successCriteria) {
+  static List<String> deriveWillNot(String turnGoal, String successCriteria, String recipeId = '') {
+    String rid = (recipeId ?: '').trim()
+    if ('generate_image'.equals(rid)) {
+      return [
+        'Call GetContent, WriteContent, or update_content on this chat-only image turn.',
+        'Call GenerateImage again in the same turn for the same subject.',
+        'Claim the image was saved to the CMS unless you also ran WriteContent at the author\'s request.'
+      ]
+    }
     List<String> lines = []
     lines.add(
       'Claim this turn is complete before every success bar above is met (repository read-back or preview as appropriate).'

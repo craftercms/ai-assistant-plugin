@@ -438,15 +438,7 @@
       "toolsLoopAllowlist": [
         "GenerateImage"
       ],
-      "toolsLoopAllowlistBypassIfAuthorMentions": [
-        "WriteContent",
-        "write content",
-        "save to",
-        "update_content",
-        "image-picker",
-        "static-assets",
-        "upload to repo"
-      ],
+      "toolsLoopAllowlistBypassIfAuthorMentions": [],
       "phases": {
         "context": [
           "Use the author's explicit image subject in the GenerateImage prompt. This recipe is for subjects the author named — not anchored-page art (that case uses plan mode and GetContent first)."

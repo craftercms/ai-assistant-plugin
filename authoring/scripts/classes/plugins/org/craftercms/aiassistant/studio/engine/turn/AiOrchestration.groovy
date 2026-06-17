@@ -383,6 +383,9 @@ class AiOrchestration {
     if (p.contains('native_tools_RestClient_POST_/v1/chat/completions') && !p.contains('response_ok')) {
       return 'Choosing the next step…'
     }
+    if (p.contains('repository_tool') && p.contains('GenerateImage') && !p.contains('repository_tool_done')) {
+      return 'Generating your image…'
+    }
     if (p.contains('native_tool_loop_round') && p.contains('repository_tool') && !p.contains('repository_tool_done')) {
       return 'Updating your site…'
     }
@@ -1696,16 +1699,49 @@ For **content XML** (pages/components): do not invent a new element tree — pre
    * @return Text result, or empty or null when unavailable.
    */
   private static String authorVisibleFromPromptText(String promptText) {
-    String current = AuthoringPreviewContext.extractAuthorCurrentRequestVisible(promptText ?: '')
+    String scrubbed = AuthoringPreviewContext.stripStudioOrchestrationPrefixBlocks((promptText ?: '').toString())
+    String current = AuthoringPreviewContext.extractAuthorCurrentRequestVisible(scrubbed ?: '')
     if (current?.trim()) {
       return current.trim()
     }
-    String flat = (promptText ?: '').toString()
+    String clientBlock = AuthoringPreviewContext.extractOrchestrationClientAuthorBlock(scrubbed ?: '')
+    if (clientBlock?.trim()) {
+      clientBlock = AuthoringPreviewContext.stripStudioOrchestrationPrefixBlocks(clientBlock)?.trim() ?: clientBlock.trim()
+      return clientBlock
+    }
+    String flat = (scrubbed ?: '').toString()
     try {
       flat = AuthoringPreviewContext.stripStudioInjectedPromptBlocks(flat)
     } catch (Throwable ignored) {
     }
     return (flat ?: '').trim()
+  }
+
+  /** Matched {@code generate_image} recipe — chat-only bitmap; never unlock CMS tools via bypass. */
+  private static boolean isGenerateImageRecipeMatchedTurn(Map intentTel) {
+    return intentTel instanceof Map &&
+      'matched'.equals(intentTel.get('outcome')?.toString()) &&
+      'generate_image'.equals(intentTel.get('recipeId')?.toString()?.trim())
+  }
+
+  /**
+   * Clean author request for policy checks — prefer routing bundle slice over turn-goal-prefixed wire text.
+   */
+  private static String resolveToolsLoopAuthorVisible(Map toolsLoopSessionBundle, List wireMessages) {
+    if (toolsLoopSessionBundle instanceof Map) {
+      String fromBundle = toolsLoopSessionBundle.authorIntentCardAuthorVisible?.toString()?.trim()
+      if (fromBundle) {
+        return fromBundle
+      }
+      String fromTel = ''
+      if (toolsLoopSessionBundle.intentRecipeRoutingTelemetry instanceof Map) {
+        fromTel = ((Map) toolsLoopSessionBundle.intentRecipeRoutingTelemetry).authorRequestText?.toString()?.trim() ?: ''
+      }
+      if (fromTel) {
+        return fromTel
+      }
+    }
+    return authorVisibleFromPromptText(authorVisibleRequestFromWire(wireMessages) ?: '')
   }
 
   /**
@@ -1722,6 +1758,46 @@ For **content XML** (pages/components): do not invent a new element tree — pre
   ) {
     if (!(intentTel instanceof Map)) {
       return tools
+    }
+    if (isGenerateImageRecipeMatchedTurn(intentTel)) {
+      Set<String> genOnlyNames = ['GenerateImage'] as Set
+      List genOnly = filterToolCallbacksAllowlist(tools, genOnlyNames)
+      intentTel.put('toolsLoopAllowlist', ['GenerateImage'])
+      if (genOnly == null || genOnly.isEmpty()) {
+        intentTel.put('generateImageToolUnavailable', Boolean.TRUE)
+        log.warn(
+          'Tools-loop: generate_image recipe matched but GenerateImage is not registered agentId={}',
+          agentId
+        )
+        return []
+      }
+      log.info(
+        'Tools-loop: generate_image recipe matched — GenerateImage only ({} of {} tools) agentId={}',
+        genOnly.size(),
+        tools?.size() ?: 0,
+        agentId
+      )
+      return genOnly
+    }
+    boolean chatOnlyGenerateImage = isGenerateImageChatOnlyRecipeTurn(intentTel, authorVisible)
+    if (chatOnlyGenerateImage) {
+      List genOnly = filterToolCallbacksAllowlist(tools, ['GenerateImage'] as Set)
+      intentTel.put('toolsLoopAllowlist', ['GenerateImage'])
+      if (genOnly == null || genOnly.isEmpty()) {
+        intentTel.put('generateImageToolUnavailable', Boolean.TRUE)
+        log.warn(
+          'Tools-loop: chat-only generate_image but GenerateImage is not registered agentId={}',
+          agentId
+        )
+        return []
+      }
+      log.info(
+        'Tools-loop: chat-only generate_image — GenerateImage only ({} of {} tools) agentId={}',
+        genOnly.size(),
+        tools?.size() ?: 0,
+        agentId
+      )
+      return genOnly
     }
     String outcome = intentTel.get('outcome')?.toString() ?: ''
     boolean routerTool = 'router_tool'.equals(outcome) || 'tool'.equals(intentTel.routingMode?.toString())
@@ -4244,6 +4320,107 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
     return false
   }
 
+  /** {@code generate_image} chat-only turn: short author message with inline image ref (expanded at SSE emit). */
+  private static String synthesizeGenerateImageChatOnlyComplete(
+    String authorRequest,
+    Map<String, String> imageUrlByToolCallId
+  ) {
+    String firstId = ''
+    if (imageUrlByToolCallId instanceof Map && !imageUrlByToolCallId.isEmpty()) {
+      firstId = imageUrlByToolCallId.keySet().iterator().next()?.toString()?.trim() ?: ''
+    }
+    String ref = firstId ? ChatCompletionsToolWire.STUDIO_AI_INLINE_IMAGE_REF_PREFIX + firstId : ''
+    String req = (authorRequest ?: '').replaceAll(/\s+/, ' ').trim()
+    StringBuilder sb = new StringBuilder()
+    if (req) {
+      sb.append('Here is your image: **').append(req.length() > 120 ? req.substring(0, 117) + '…' : req).append('**.\n\n')
+    } else {
+      sb.append('Here is your generated image.\n\n')
+    }
+    if (ref) {
+      sb.append('![Generated image](').append(ref).append(')\n')
+    }
+    return sb.toString()
+  }
+
+  /**
+   * True when this turn is chat-only image generation (no CMS write unless the author asked).
+   * Works when {@code generate_image} matched, or when routing failed but the author request is image-only.
+   */
+  private static boolean isGenerateImageChatOnlyRecipeTurn(Map intentTel, String authorVisible) {
+    if (isGenerateImageRecipeMatchedTurn(intentTel)) {
+      return true
+    }
+    String av = authorVisibleFromPromptText(authorVisible ?: '')
+    if (!av?.trim()) {
+      return false
+    }
+    String anchor = ''
+    if (intentTel instanceof Map) {
+      anchor = intentTel.get('anchorPath')?.toString()?.trim() ?:
+        intentTel.get('anchoredRepositoryPath')?.toString()?.trim() ?: ''
+    }
+    if (AuthoringPreviewContext.chatOnlyGenerateImageAuthorRequest(av, anchor)) {
+      return true
+    }
+    if (intentTel instanceof Map && 'generate_image'.equals(intentTel.get('recipeId')?.toString()?.trim())) {
+      return AuthoringPreviewContext.authorCurrentRequestLooksLikeImageOnlyGenerate(av) &&
+        !AuthoringPreviewContext.authorGenerateImageRequiresPageContextFirst(anchor, av)
+    }
+    return false
+  }
+
+  /** True when {@code fnName} is blocked by recipe allowlist or chat-only generate_image policy. */
+  private static boolean toolsLoopRecipeAllowlistBlocksTool(Map intentTel, String fnName, String authorVisible) {
+    if (!(intentTel instanceof Map) || !fnName?.trim()) {
+      return false
+    }
+    if (isGenerateImageRecipeMatchedTurn(intentTel) ||
+      isGenerateImageChatOnlyRecipeTurn(intentTel, authorVisible)) {
+      return !'GenerateImage'.equals(fnName.trim())
+    }
+    String outcome = intentTel.get('outcome')?.toString() ?: ''
+    boolean routerTool = 'router_tool'.equals(outcome) || 'tool'.equals(intentTel.routingMode?.toString())
+    if (!'matched'.equals(outcome) && !routerTool) {
+      return false
+    }
+    Object allowObj = intentTel.get('toolsLoopAllowlist')
+    if (!(allowObj instanceof List) || ((List) allowObj).isEmpty()) {
+      return false
+    }
+    List<String> bypassKw = []
+    Object bypassObj = intentTel.get('toolsLoopAllowlistBypassIfAuthorMentions')
+    if (bypassObj instanceof List) {
+      for (Object o : (List) bypassObj) {
+        String s = o?.toString()?.trim()
+        if (s) {
+          bypassKw.add(s)
+        }
+      }
+    }
+    if (AuthoringIntentRecipeCatalog.authorVisibleMatchesOrchestrationBypass(authorVisible, bypassKw)) {
+      return false
+    }
+    Set<String> allowNames = new LinkedHashSet<>()
+    for (Object o : (List) allowObj) {
+      String n = o?.toString()?.trim()
+      if (n) {
+        allowNames.add(n)
+      }
+    }
+    return !allowNames.isEmpty() && !allowNames.contains(fnName.trim())
+  }
+
+  private static boolean skipPostToolReviewForGenerateImageRecipe(Map toolsLoopSessionBundle) {
+    if (!(toolsLoopSessionBundle instanceof Map)) {
+      return false
+    }
+    Map tel = toolsLoopSessionBundle.intentRecipeRoutingTelemetry instanceof Map ?
+      (Map) toolsLoopSessionBundle.intentRecipeRoutingTelemetry :
+      null
+    return tel != null && 'generate_image'.equals(tel.get('recipeId')?.toString()?.trim())
+  }
+
   /** Server wrap-up when write + preview phrase verification succeeded — avoids an extra tools-loop LLM round. */
   private static String synthesizePlanExecutionAfterVerifiedWrite(String phrase, String previewUrl) {
     String p = (phrase ?: '').trim()
@@ -6225,7 +6402,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     boolean generateImageSucceededThisTurn = false
     boolean generateImageWrapUpInjectedThisTurn = false
     Boolean lastPreviewContentGoalFound = null
-    String authorVisibleForToolsLoop = authorVisibleRequestFromWire(wireMessages) ?: ''
+    String authorVisibleForToolsLoop = resolveToolsLoopAuthorVisible(toolsLoopSessionBundle, wireMessages) ?: ''
     String frozenAuthorOutcomePhrase = extractAuthoringOutcomePhrase(authorVisibleForToolsLoop)
     String lastPreviewContentGoalPhrase = frozenAuthorOutcomePhrase ?: ''
     int writeContentInvalidDocumentFailures = 0
@@ -6568,6 +6745,20 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           def fn = tc.get('function') as Map
           String fnName = fn instanceof Map ? (fn.get('name')?.toString() ?: '') : ''
           String argsStr = fn instanceof Map ? (fn.get('arguments')?.toString() ?: '{}') : '{}'
+          if (toolsLoopRecipeAllowlistBlocksTool(intentTelLoop, fnName, authorVisibleForToolsLoop)) {
+            String blockedOut = JsonOutput.toJson([
+              ok     : true,
+              skipped: true,
+              tool   : fnName,
+              message:
+                "${fnName} skipped: recipe toolsLoopAllowlist is active for this turn — use only: " +
+                  (intentTelLoop?.toolsLoopAllowlist instanceof List ?
+                    ((List) intentTelLoop.toolsLoopAllowlist).join(', ') : 'GenerateImage') +
+                  '. Chat-only generate_image turns must not read or write repository XML.'
+            ])
+            wireMessages << [role: 'tool', tool_call_id: id, content: blockedOut]
+            continue
+          }
           String fetchHttpUrlThisCall = ''
           toolsRan = true
           def toolPol =
@@ -6665,9 +6856,6 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
             }
           }
           if (toolPol.duplicateGenerateImageThisTurnGuard && generateImageSucceededThisTurn) {
-            Map skipInp = toolProgressInputFromArgsJson(argsStr, slurper, fnName)
-            long skipT0 = System.currentTimeMillis()
-            writeToolProgressSse(ssePreToolAssistantText, fnName, 'start', skipInp, null, null, null)
             String skipOut = JsonOutput.toJson([
               ok                                   : true,
               skippedDuplicateGenerateImageThisTurn: true,
@@ -6677,15 +6865,6 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
                   'The image is in the Studio chat strip — reply in short prose only. ' +
                   'Do not call GenerateImage again unless the author explicitly asks for a different image.'
             ])
-            writeToolProgressSse(
-              ssePreToolAssistantText,
-              fnName,
-              'warn',
-              skipInp,
-              null,
-              slurper.parseText(skipOut),
-              System.currentTimeMillis() - skipT0
-            )
             wireMessages << [role: 'tool', tool_call_id: id, content: skipOut]
             continue
           }
@@ -7013,7 +7192,8 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
             generateImageDataUrlByToolCallId,
             toolsLoopSessionBundle
           )
-          if ('GenerateImage'.equals(fnName) && generateImageDataUrlByToolCallId != null && ops != null) {
+          if ('GenerateImage'.equals(fnName) && generateImageDataUrlByToolCallId != null && ops != null &&
+            !isGenerateImageChatOnlyRecipeTurn(intentTelLoop, authorVisibleForToolsLoop)) {
             String repoPath = GeneratedImageCmsPersistence.persistAfterGenerateImage(
               ops,
               id,
@@ -7063,6 +7243,21 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
             )
           }
           wireMessages << [role: 'tool', tool_call_id: id, content: toolWire]
+          if ('GenerateImage'.equals(fnName) && generateImageSucceededThisTurn &&
+            isGenerateImageChatOnlyRecipeTurn(intentTelLoop, authorVisibleForToolsLoop)) {
+            assistantAccum = synthesizeGenerateImageChatOnlyComplete(
+              authorVisibleForToolsLoop,
+              generateImageDataUrlByToolCallId
+            )
+            log.info(
+              'Tools-loop: immediate finish after GenerateImage (generate_image chat-only) round={} agentId={}',
+              round,
+              agentId
+            )
+            aiAssistantToolWorkerDiagPhase("native_tool_loop_round_${round}_immediate_finish_generate_image")
+            finished = true
+            break
+          }
           if (requiredToolSuccess.containsKey(fnName)) {
             try {
               def parsedReq = slurper.parseText(toolOut.toString())
@@ -7077,6 +7272,9 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
             } catch (Throwable ignoredReqTrack) {
             }
           }
+        }
+        if (finished) {
+          break
         }
         if (toolsLoopBannedRepoPathGuardHits >= 4 && toolsLoopStallGuardInjectCount < 3) {
           String guardMsg = AuthoringIntentRecipeCatalog.formatToolsLoopRequiredToolsGuardMessage(intentTelLoop)
@@ -7098,7 +7296,8 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           lastPreviewContentGoalPhrase = previewState.lastPreviewContentGoalPhrase.toString()
         }
         if (generateImageSucceededThisTurn && !generateImageWrapUpInjectedThisTurn &&
-          !toolsLoopRequiredToolsStillPending(requiredToolSuccess)) {
+          !toolsLoopRequiredToolsStillPending(requiredToolSuccess) &&
+          !isGenerateImageChatOnlyRecipeTurn(intentTelLoop, authorVisibleForToolsLoop)) {
           String repoHint = ''
           Map<String, String> repoMap = GeneratedImageCmsPersistence.repoPathByToolCallId(toolsLoopSessionBundle)
           if (!repoMap.isEmpty()) {
@@ -7198,6 +7397,21 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
             }
           } catch (Throwable ignoredAnchor) {
           }
+        }
+        if (generateImageSucceededThisTurn &&
+          isGenerateImageChatOnlyRecipeTurn(intentTelLoop, authorVisibleForToolsLoop)) {
+          assistantAccum = synthesizeGenerateImageChatOnlyComplete(
+            authorVisibleForToolsLoop,
+            generateImageDataUrlByToolCallId
+          )
+          log.info(
+            'Tools-loop: early finish after GenerateImage (generate_image chat-only) round={} agentId={}',
+            round,
+            agentId
+          )
+          aiAssistantToolWorkerDiagPhase("native_tool_loop_round_${round}_early_finish_generate_image")
+          finished = true
+          break
         }
         if (repoMutationThisRound &&
           roundHadWriteSuccess &&
@@ -7454,9 +7668,26 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     List effectiveTools = tools
     effectiveTools = effectiveToolsForIntentRecipe(tools, intentTel, authorVisible, agentId, loopOps, loopToolCfg)
     effectiveTools = applyRecipeToolsLoopExcludes(effectiveTools, intentTel)
-    if (intentTel instanceof Map && 'generate_image'.equals(intentTel.get('recipeId')?.toString()?.trim())) {
+    if (intentTel instanceof Map && isGenerateImageRecipeMatchedTurn(intentTel)) {
       if (!wireToolsIncludeNamedTool(buildWireToolsFromCallbacks(effectiveTools), 'GenerateImage')) {
         intentTel.put('generateImageToolUnavailable', Boolean.TRUE)
+      } else if (!intentTel.get('toolsLoopForceTool')?.toString()?.trim()) {
+        intentTel.put('toolsLoopForceTool', 'GenerateImage')
+        log.info(
+          'Tools-loop: generate_image recipe matched — forcing first tool GenerateImage agentId={}',
+          agentId
+        )
+      }
+    } else if (intentTel instanceof Map && 'generate_image'.equals(intentTel.get('recipeId')?.toString()?.trim())) {
+      if (!wireToolsIncludeNamedTool(buildWireToolsFromCallbacks(effectiveTools), 'GenerateImage')) {
+        intentTel.put('generateImageToolUnavailable', Boolean.TRUE)
+      } else if (isGenerateImageChatOnlyRecipeTurn(intentTel, authorVisible) &&
+        !intentTel.get('toolsLoopForceTool')?.toString()?.trim()) {
+        intentTel.put('toolsLoopForceTool', 'GenerateImage')
+        log.info(
+          'Tools-loop: generate_image chat-only — forcing first tool GenerateImage agentId={}',
+          agentId
+        )
       }
     }
     if (intentTel instanceof Map && Boolean.TRUE.equals(intentTel.get('generateImageToolUnavailable'))) {
@@ -7515,7 +7746,9 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     String assistantAccum = (loopOut?.text ?: '').toString()
     Boolean lastPreviewContentGoalFound = loopOut?.previewGoalFound instanceof Boolean ? (Boolean) loopOut.previewGoalFound : null
     String lastPreviewContentGoalPhrase = (loopOut?.previewGoalPhrase ?: '').toString()
-    if (postToolReviewEnabled(toolsLoopSessionBundle) && (cancelRequested == null || !cancelRequested.get())) {
+    if (postToolReviewEnabled(toolsLoopSessionBundle) &&
+      !skipPostToolReviewForGenerateImageRecipe(toolsLoopSessionBundle) &&
+      (cancelRequested == null || !cancelRequested.get())) {
       try {
         emitSseToolProgressLine(
           sseOut,

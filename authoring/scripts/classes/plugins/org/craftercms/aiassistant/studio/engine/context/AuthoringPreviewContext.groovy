@@ -286,7 +286,11 @@ Use these when the author asks about "today", "now", freshness, or dated content
     tel.clientWirePromptChars = clientChars
     tel.orchestrationPromptChars = finalChars
     tel.serverInjectedChars = Math.max(0, finalChars - clientChars)
-    tel.authorVisibleChars = stripStudioInjectedPromptBlocks(finalPrompt).length()
+    String authorVis = extractOrchestrationClientAuthorBlock(finalPrompt)
+    if (!authorVis?.trim()) {
+      authorVis = extractAuthorCurrentRequestVisible(finalPrompt)
+    }
+    tel.authorVisibleChars = (authorVis ?: '').length()
     if (!stepDeltas.isEmpty()) {
       tel.stepDeltas = Collections.unmodifiableMap(stepDeltas)
     }
@@ -433,6 +437,12 @@ Use these when the author asks about "today", "now", freshness, or dated content
       def tail = stripStudioInjectedPromptBlocks(cm.group(1) ?: '')
       return (tail ?: '').trim()
     }
+    // Single-turn wires: author bubble precedes injected preview/project blocks — do not treat
+    // project context (e.g. "do not WriteContent") as the author's allowlist-bypass text.
+    String clientOnly = extractOrchestrationClientAuthorBlock(s)
+    if (clientOnly?.trim()) {
+      return clientOnly.trim()
+    }
     return stripStudioInjectedPromptBlocks(s)?.trim() ?: ''
   }
 
@@ -459,7 +469,69 @@ Use these when the author asks about "today", "now", freshness, or dated content
     if (cut < s.length()) {
       return s.substring(0, cut).trim()
     }
-    return extractAuthorCurrentRequestVisible(s) ?: stripStudioInjectedPromptBlocks(s)?.trim() ?: ''
+    return stripStudioInjectedPromptBlocks(s)?.trim() ?: ''
+  }
+
+  /**
+   * Removes Studio turn scaffolding prepended to tools-loop user messages so policy checks
+   * (allowlist bypass, chat-only image) evaluate the author's words — not injected WriteContent hints.
+   */
+  static String stripStudioOrchestrationPrefixBlocks(String text) {
+    String s = (text ?: '').toString().trim()
+    if (!s) {
+      return ''
+    }
+    if (!s.contains('[Studio —') && !s.contains('[aiassistant:')) {
+      return s
+    }
+    String[] lines = s.split(/\r?\n/, -1)
+    int start = 0
+    for (int i = 0; i < lines.length; i++) {
+      String line = (lines[i] ?: '').trim()
+      if (!line) {
+        continue
+      }
+      boolean studioLine =
+        line.startsWith('[Studio —') ||
+        line.startsWith('[aiassistant:') ||
+        line.startsWith('**Goal:**') ||
+        line.startsWith('**Done when:**') ||
+        line.startsWith('**Anchored item:**') ||
+        line.startsWith('Re-read this goal') ||
+        line.startsWith('Your **## Plan**') ||
+        line.startsWith('**Tool-chain rules') ||
+        line.startsWith('- **WebSearch**') ||
+        line.startsWith('- **SerpApiWebSearch**') ||
+        line.startsWith('- **FetchHttpUrl**') ||
+        line.startsWith('- **WriteContent**') ||
+        line.startsWith('- Later steps') ||
+        line == '**Execution policy:**' ||
+        line.startsWith('**Execution policy (chat-only image):**') ||
+        line.startsWith('If a step does not serve') ||
+        line.startsWith('**Plan → act → verify:**') ||
+        line.startsWith('**Research grounding:**') ||
+        line.startsWith('**Chained steps:**') ||
+        line.startsWith('**Content field roles:**') ||
+        line.startsWith('**Honest completion:**') ||
+        line.startsWith('**Do not** call GetContent') ||
+        line.startsWith('Call **GenerateImage** once') ||
+        line.startsWith('Done when GenerateImage succeeded') ||
+        (line ==~ /^\d+\.\s+\*\*.*/) ||
+        (line ==~ /^   - .*/)
+      if (studioLine) {
+        start = i + 1
+        continue
+      }
+      break
+    }
+    StringBuilder out = new StringBuilder()
+    for (int i = start; i < lines.length; i++) {
+      if (out.length()) {
+        out.append('\n')
+      }
+      out.append(lines[i])
+    }
+    return out.toString().trim()
   }
 
   /** Body between {@code [Prior conversation …]} header and the {@code ---} separator before {@code Current request:}. */
@@ -844,6 +916,24 @@ ${asstLine}"""
       noun = u.matches(/(?is).*\b(draw|sketch|paint)\b.{0,100}\b(an?\s+|the\s+)?[a-z][a-z0-9\\-]{2,}\b.*/)
     }
     return noun
+  }
+
+  /**
+   * Chat-only bitmap: author named a subject (recipe {@code generate_image}) — not “image for this page” CMS persist.
+   * Ignores injected project context when an open preview anchor exists.
+   */
+  static boolean chatOnlyGenerateImageAuthorRequest(String authorVisible, String anchorPath = '') {
+    String av = extractOrchestrationClientAuthorBlock(authorVisible ?: '')
+    if (!av?.trim()) {
+      av = extractAuthorCurrentRequestVisible(authorVisible ?: '')
+    }
+    if (!authorCurrentRequestLooksLikeImageOnlyGenerate(av ?: authorVisible ?: '')) {
+      return false
+    }
+    if (authorGenerateImageRequiresPageContextFirst((anchorPath ?: '').toString(), av ?: authorVisible ?: '')) {
+      return false
+    }
+    return true
   }
 
   /** Alias for intent-router deterministic {@code generate_image} matching. */
