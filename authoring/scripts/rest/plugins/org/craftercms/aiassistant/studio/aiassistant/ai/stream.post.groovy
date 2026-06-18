@@ -75,6 +75,13 @@ try {
   def crossSiteWorking = AuthoringPreviewContext.isCrossSiteWorking(siteIdBody, sessionSiteId) &&
     !AuthoringPreviewContext.isFormEngineSurface(authoringSurface)
   def contentPathForAssembly = crossSiteWorking ? null : contentPathBody
+  if (!contentPathForAssembly && !crossSiteWorking && prompt?.toString()?.trim()) {
+    def recoveredPath = AuthoringPreviewContext.resolveAnchoredRepositoryPath(prompt.toString())
+    if (recoveredPath?.trim()) {
+      contentPathForAssembly = recoveredPath
+      contentPathBody = recoveredPath
+    }
+  }
   def contentTypeIdForAssembly = crossSiteWorking ? null : contentTypeIdBody
   def contentTypeLabelForAssembly = crossSiteWorking ? null : contentTypeLabelBody
   def displayTemplateForAssembly = crossSiteWorking ? null : body?.displayTemplate

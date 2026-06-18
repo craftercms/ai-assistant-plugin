@@ -19,6 +19,8 @@ export const STUDIO_AI_BUILTIN_TOOL_IDS: readonly string[] = [
   'ListStudioContentTypes',
   'GetContentTypeFormDefinition',
   'GetContentVersionHistory',
+  'FindContentVersion',
+  'CompareContentVersions',
   'GetPreviewHtml',
   'FetchHttpUrl',
   'PostHttpUrl',

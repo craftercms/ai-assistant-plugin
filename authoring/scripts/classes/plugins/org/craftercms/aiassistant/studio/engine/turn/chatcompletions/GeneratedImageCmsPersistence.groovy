@@ -235,7 +235,12 @@ final class GeneratedImageCmsPersistence {
       if (!xml?.trim()) {
         return null
       }
-      String patched = applyRepoPathToUnsetImagePickerFields(xml, repoPath)
+      String patched = applyRepoPathToImagePickerFields(
+        xml,
+        repoPath,
+        imageFieldIdsFromBundle(bundle),
+        Boolean.TRUE.equals(bundle.toolsLoopResearchPageRefreshExpectsHeroImage)
+      )
       if (patched.equals(xml)) {
         return null
       }
@@ -258,6 +263,58 @@ final class GeneratedImageCmsPersistence {
       return true
     }
     return v.startsWith('data:image')
+  }
+
+  private static List<String> imageFieldIdsFromBundle(Map bundle) {
+    if (!(bundle instanceof Map)) {
+      return []
+    }
+    Object raw = bundle.get('toolsLoopCopyPlanImageFieldIds')
+    if (raw instanceof List) {
+      List<String> out = []
+      for (Object o : (List) raw) {
+        String id = o?.toString()?.trim()
+        if (id) {
+          out.add(id)
+        }
+      }
+      if (!out.isEmpty()) {
+        return out
+      }
+    }
+    return []
+  }
+
+  private static String applyRepoPathToImagePickerFields(
+    String xml,
+    String repoPath,
+    List<String> fieldIds,
+    boolean replaceExisting
+  ) {
+    if (!xml?.trim() || !repoPath?.trim()) {
+      return xml ?: ''
+    }
+    if (fieldIds instanceof List && !fieldIds.isEmpty()) {
+      String out = xml
+      boolean changed = false
+      for (String fieldId : fieldIds) {
+        if (!fieldId?.trim()) {
+          continue
+        }
+        String pattern = '(?is)(<' + Pattern.quote(fieldId.trim()) + '>)([^<]*)(</' + Pattern.quote(fieldId.trim()) + '>)'
+        java.util.regex.Matcher m = (out =~ pattern)
+        if (!m.find()) {
+          continue
+        }
+        String value = m.group(2) ?: ''
+        if (replaceExisting || imagePickerValueNeedsGeneratedAsset(value)) {
+          out = out.replaceFirst(pattern, '$1' + Matcher.quoteReplacement(repoPath.trim()) + '$3')
+          changed = true
+        }
+      }
+      return changed ? out : xml
+    }
+    return applyRepoPathToUnsetImagePickerFields(xml, repoPath)
   }
 
   private static String applyRepoPathToUnsetImagePickerFields(String xml, String repoPath) {

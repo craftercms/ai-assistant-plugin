@@ -43,7 +43,8 @@ final class AuthoringTurnGoal {
       decision?.successCriteria?.toString(),
       authorVisible,
       anchorPath,
-      reason
+      reason,
+      routingMode
     )
     String goal = resolved.turnGoal?.toString()?.trim() ?: ''
     String criteria = resolved.successCriteria?.toString()?.trim() ?: ''
@@ -55,8 +56,19 @@ final class AuthoringTurnGoal {
     }
     if (AuthoringIntentCard.isWeakTurnGoal(goal)) {
       String authorRequest = AuthoringIntentCard.extractCleanAuthorRequest(authorVisible)
-      if (authorRequest) {
-        goal = authorRequest.replaceAll(/\s+/, ' ').trim()
+      String elaboration = AuthoringIntentCard.elaborateAuthorIntentNarrative(
+        authorRequest,
+        anchorPath,
+        AuthoringIntentCard.deriveSteps(authorVisible, ''),
+        recipeId,
+        decision?.turnGoal?.toString(),
+        reason,
+        routingMode
+      )
+      if (elaboration?.trim()) {
+        goal = AuthoringIntentCard.condenseElaborationForExecutionGoal(elaboration)
+      } else if (authorRequest) {
+        goal = AuthoringIntentCard.condenseAuthorGoalForExecution(authorRequest, anchorPath)
       }
     }
     if (AuthoringIntentCard.isWeakSuccessCriteria(criteria)) {
@@ -80,46 +92,62 @@ final class AuthoringTurnGoal {
     String turnGoal,
     String successCriteria,
     String anchorPath,
-    String authorVisible = ''
+    String authorVisible = '',
+    String routingModeOverride = '',
+    String routerReasonOverride = ''
   ) {
+    String recipeId = ''
+    String routingMode = (routingModeOverride ?: '').trim()
+    String routerReason = (routerReasonOverride ?: '').trim()
+    if (result instanceof Map && result.intentRecipeRoutingTelemetry instanceof Map) {
+      Map tel = (Map) result.intentRecipeRoutingTelemetry
+      if (!recipeId) {
+        recipeId = tel.recipeId?.toString()?.trim() ?: ''
+      }
+      if (!routingMode) {
+        routingMode = tel.routingMode?.toString()?.trim() ?: ''
+      }
+      if (!routerReason) {
+        routerReason = tel.routerReason?.toString()?.trim() ?: ''
+      }
+    }
     Map resolved = AuthoringIntentCard.resolveAuthorIntent(
       turnGoal,
       successCriteria,
       authorVisible,
       anchorPath,
-      ''
+      routerReason,
+      routingMode
     )
     String execGoal = resolved.turnGoal?.toString()?.trim() ?: (turnGoal ?: '').trim()
     String execCriteria = resolved.successCriteria?.toString()?.trim() ?: (successCriteria ?: '').trim()
-    String recipeId = ''
-    if (result instanceof Map && result.intentRecipeRoutingTelemetry instanceof Map) {
-      recipeId = result.intentRecipeRoutingTelemetry.recipeId?.toString()?.trim() ?: ''
-    }
+    boolean chatOnly = 'chat_only'.equals(routingMode)
     boolean chatOnlyGenerateImage = 'generate_image'.equals(recipeId) ||
       AuthoringPreviewContext.chatOnlyGenerateImageAuthorRequest(
       authorVisible,
       anchorPath
     ) || ('generate_image'.equals(recipeId) &&
       AuthoringPreviewContext.authorCurrentRequestLooksLikeImageOnlyGenerate(authorVisible ?: ''))
-    String block = formatExecutionBlock(
+    String block = (chatOnly || chatOnlyGenerateImage) ? '' : formatExecutionBlock(
       execGoal,
       execCriteria,
       chatOnlyGenerateImage ? '' : anchorPath
     )
-    if (!block?.trim()) {
-      return
-    }
     String executionPlan = ''
-    if (!chatOnlyGenerateImage) {
+    if (!chatOnlyGenerateImage && !chatOnly) {
       executionPlan = AuthoringIntentExecutionPlan.formatToolsLoopBlock(authorVisible, anchorPath)
     }
-    AuthoringResearchGrounding.initFromAuthorVisible(toolsLoopSessionBundle, authorVisible, anchorPath)
+    if (!chatOnly) {
+      AuthoringResearchGrounding.initFromAuthorVisible(toolsLoopSessionBundle, authorVisible, anchorPath)
+    }
     String intentCard = AuthoringIntentCard.formatCardMarkdown(
       turnGoal,
       successCriteria,
       anchorPath,
       authorVisible,
-      recipeId
+      recipeId,
+      routingMode,
+      routerReason
     )
     if (toolsLoopSessionBundle instanceof Map) {
       toolsLoopSessionBundle.authorTurnGoal = execGoal
@@ -138,7 +166,7 @@ final class AuthoringTurnGoal {
       }
     }
     String copyPlanBlock = ''
-    if (!chatOnlyGenerateImage && anchorPath?.trim() && toolsLoopSessionBundle instanceof Map) {
+    if (!chatOnlyGenerateImage && !chatOnly && anchorPath?.trim() && toolsLoopSessionBundle instanceof Map) {
       def ops = toolsLoopSessionBundle.get('studioOps')
       if (ops instanceof StudioToolOperations) {
         copyPlanBlock = FormDefinitionCopyFieldPlan.wireAndFormatOrchestrationBlock(
@@ -147,13 +175,18 @@ final class AuthoringTurnGoal {
           anchorPath.trim(),
           ''
         )
+        AuthoringResearchGrounding.refreshResearchHeroImageExpectation(toolsLoopSessionBundle, authorVisible)
       }
     }
     if (result instanceof Map) {
       result.authorTurnGoal = execGoal
       result.authorTurnSuccessCriteria = execCriteria
       String ut = (result.userTextForToolsLoop ?: '').toString()
-      if (!ut.startsWith('[Studio — turn goal')) {
+      if (chatOnly && !ut.contains('[Studio — chat-only turn]')) {
+        result.userTextForToolsLoop =
+          '[Studio — chat-only turn]\nReply directly in natural prose. **No** ## Plan, **no** 📋 checklist, **no** tool_calls.\n\n' +
+          ut
+      } else if (!ut.startsWith('[Studio — turn goal')) {
         String prefix = block
         if (executionPlan?.trim()) {
           prefix = prefix + executionPlan
@@ -161,7 +194,9 @@ final class AuthoringTurnGoal {
         if (copyPlanBlock?.trim() && !ut.contains('[Studio — content field plan')) {
           prefix = prefix + copyPlanBlock
         }
-        result.userTextForToolsLoop = prefix + ut
+        if (prefix?.trim()) {
+          result.userTextForToolsLoop = prefix + ut
+        }
       }
       if (result.intentRecipeRoutingTelemetry instanceof Map) {
         result.intentRecipeRoutingTelemetry.turnGoal = execGoal
@@ -170,6 +205,24 @@ final class AuthoringTurnGoal {
           result.intentRecipeRoutingTelemetry.intentCardMarkdown = intentCard.trim()
         }
         List steps = resolved.steps instanceof List ? (List) resolved.steps : []
+        String authorRequest = resolved.authorRequest?.toString()?.trim() ?: ''
+        String elaboration = AuthoringIntentCard.elaborateAuthorIntentNarrative(
+          authorRequest,
+          anchorPath,
+          steps,
+          recipeId,
+          execGoal,
+          routerReason,
+          routingMode
+        )
+        if (elaboration?.trim()) {
+          result.intentRecipeRoutingTelemetry.intentCardElaboration = elaboration.trim()
+        }
+        String goalForGuards = (execGoal ?: authorRequest ?: '').trim()
+        List<String> willNot = AuthoringIntentCard.deriveWillNot(goalForGuards, execCriteria, recipeId)
+        if (!willNot.isEmpty()) {
+          result.intentRecipeRoutingTelemetry.intentCardWillNot = willNot
+        }
         if (!steps.isEmpty()) {
           result.intentRecipeRoutingTelemetry.authorRequestSteps = steps
         }
@@ -334,11 +387,18 @@ final class AuthoringTurnGoal {
     if ('open_page_inquiry'.equals(rid)) {
       return 'Author receives an accurate read-only summary; no repository writes.'
     }
+    if ('chat_only'.equals((routingMode ?: '').trim())) {
+      return 'A natural conversational reply — no CMS tools or plan checklist.'
+    }
     if ('generate_image'.equals(rid)) {
       return 'GenerateImage succeeded and the author sees the generated bitmap.'
     }
     if ('new_content_item'.equals(rid)) {
       return 'WriteContent created the new item with valid XML; preview shows expected content.'
+    }
+    if (AuthoringPreviewContext.authorVisibleReportsBrokenPreviewRepair(authorVisible ?: '')) {
+      String ap = (anchorPath ?: '').trim() ?: 'the anchored page'
+      return 'GetPreviewHtml returns HTTP 200; `' + ap + '` read-back is valid full item XML after WriteContent.'
     }
     if ('modify_page_content'.equals(rid) && (anchorPath ?: '').trim()) {
       return 'WriteContent updated `' + anchorPath.trim() + '`; preview reflects the requested changes.'
@@ -407,9 +467,11 @@ If a step does not serve the goal, skip it. Prior chat turns are context only �
 
 **Research grounding:** When external search or fetch tools supply facts used in repository writes, call **FetchHttpUrl** on a chosen **article** URL and read the body **before** **WriteContent** / **update_content**. Search **title** and **snippet** are candidates only — not sufficient page copy. Follow **[Studio — execution plan from intent]** tool order when present.
 
+**Research → synthesize → write:** After a successful fetch, pause in prose (same turn): what is **current** from the source vs what you knew before; the **page idea** (theme + key points); then map each point to the correct **field role** before **WriteContent**.
+
 **Chained steps:** When a prior step produced concrete data (search hits, file paths, field values, generated assets), later steps must use that data in tool arguments.
 
-**Content field roles:** When **[Studio — content field plan]** is present, populate **every** listed copy field with **distinct** content per **role** (headline in title/hero headline fields; supporting deck in hero body; no "Breaking news:" prefixes; do not paste the same string into every field).
+**Content field roles:** When **[Studio — content field plan]** is present, populate **every** listed copy field with **distinct** content per **writePolicy** / **Purpose** — never paste the same string into every field or lift source page titles into headline roles.
 
 **Honest completion:** Do not tell the author the work is done if WriteContent, GenerateImage persistence, or verification read-backs are still missing when the goal requires them.'''
   }

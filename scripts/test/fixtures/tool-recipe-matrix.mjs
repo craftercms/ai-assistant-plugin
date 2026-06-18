@@ -209,6 +209,24 @@ export const TOOL_CASES = {
     request: { enabledBuiltInTools: ['GetContentVersionHistory'], enableTools: true },
     expect: { toolsAny: ['GetContentVersionHistory'] },
   },
+  FindContentVersion: {
+    summary: 'Find version by criteria (read-only).',
+    prompt: mustCallTool(
+      'FindContentVersion',
+      'Call with path "/site/website/index.xml" and revertToPrevious true.',
+    ),
+    request: { enabledBuiltInTools: ['FindContentVersion'], enableTools: true },
+    expect: { toolsAny: ['FindContentVersion'] },
+  },
+  CompareContentVersions: {
+    summary: 'Compare HEAD vs prior version (read-only).',
+    prompt: mustCallTool(
+      'CompareContentVersions',
+      'Call GetContentVersionHistory first, then CompareContentVersions with path "/site/website/index.xml" and compareCommitRef set to the second-newest versionNumber from history.',
+    ),
+    request: { enabledBuiltInTools: ['CompareContentVersions', 'GetContentVersionHistory'], enableTools: true },
+    expect: { toolsAny: ['CompareContentVersions'] },
+  },
   GetPreviewHtml: {
     summary: 'Preview HTML for home (needs preview token).',
     prompt: mustCallTool(

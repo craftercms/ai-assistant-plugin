@@ -109,7 +109,7 @@ final class NewContentItemFastPathToolFilter {
     return sb.toString()
   }
 
-  static String buildAuthorCopyQualityHint(String wirePrompt) {
+  static String buildAuthorCopyQualityHint(String wirePrompt, Map supplemental = null) {
     String prompt = (wirePrompt ?: '').trim()
     if (!prompt) {
       return ''
@@ -120,10 +120,43 @@ final class NewContentItemFastPathToolFilter {
     if (lower.contains('kid') || lower.contains('child') || lower.contains('children')) {
       sb.append('Use a **kid-friendly** voice (short sentences, wonder, safe adventure). ')
     }
-    sb.append(
-      'Fill repeat RTE fields with **multiple paragraphs** of story/body copy. **summary_t** should tease the piece; **subject_t** reflects the topic.\n'
-    )
+    List<String> rteFields = richTextFieldIdsFromSupplemental(supplemental)
+    if (rteFields) {
+      sb.append('Fill rich-text fields (`')
+        .append(rteFields.join('`, `'))
+        .append('`) with **multiple paragraphs** of story/body copy.\n')
+    } else {
+      sb.append(
+        'Fill rich-text and repeat fields with **multiple paragraphs** of body copy per the form definition.\n'
+      )
+    }
     return sb.toString()
+  }
+
+  private static List<String> richTextFieldIdsFromSupplemental(Map supplemental) {
+    List<String> out = []
+    if (!(supplemental instanceof Map)) {
+      return out
+    }
+    Object raw = supplemental.copyFieldPlanFields ?: supplemental.toolsLoopCopyFieldPlanFields
+    if (!(raw instanceof List)) {
+      return out
+    }
+    for (Object o : (List) raw) {
+      if (!(o instanceof Map)) {
+        continue
+      }
+      Map f = (Map) o
+      String type = (f.fieldType ?: '').toString().trim().toLowerCase(Locale.ROOT)
+      if (!('rte'.equals(type) || 'rich-text'.equals(type))) {
+        continue
+      }
+      String id = (f.fieldId ?: '').toString().trim()
+      if (id) {
+        out.add(id)
+      }
+    }
+    return out
   }
 
   static boolean contentXmlLooksLikePlaceholder(String contentXml) {

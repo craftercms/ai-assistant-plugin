@@ -188,6 +188,8 @@ export const INTENT_RECIPE_READ_ONLY_TOOLS = [
   'ListContentDependencyScope',
   'ListStudioContentTypes',
   'GetContentVersionHistory',
+  'FindContentVersion',
+  'CompareContentVersions',
   'GetPreviewHtml'
 ] as const;
 

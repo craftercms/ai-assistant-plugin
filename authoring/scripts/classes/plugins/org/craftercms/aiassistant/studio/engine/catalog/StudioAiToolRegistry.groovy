@@ -7,7 +7,9 @@ import plugins.org.craftercms.aiassistant.studio.config.StudioAiAssistantProject
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.mcp.StudioAiMcpClient
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.mcp.McpWireStudioAiTool
+import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.CompareContentVersionsTool
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.ContentExistsTool
+import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.FindContentVersionTool
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.GenerateImageTool
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.GeneratePlaceholderImageTool
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.GetContentTool
@@ -72,6 +74,8 @@ private StudioAiToolRegistry() {}
     new ListStudioContentTypesTool(),
     new GetContentTypeFormDefinitionTool(),
     new GetContentVersionHistoryTool(),
+    new FindContentVersionTool(),
+    new CompareContentVersionsTool(),
     new GetPreviewHtmlTool(),
     new FetchHttpUrlTool(),
     new PostHttpUrlTool(),

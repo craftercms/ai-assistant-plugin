@@ -14,6 +14,7 @@ import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.intern
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.CmsGetContentTypeFormDefinition
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.CmsListPagesAndComponents
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.CmsListStudioContentTypes
+import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.CmsIndexedContentFields
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.CmsRepositorySupport
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.CmsResearchSiteContent
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.CmsWriteContent
@@ -2040,12 +2041,10 @@ private AuthoringIntentRecipeEngine() {}
         continue
       }
       Map entry = [path: path]
-      String name =
-        row.get('internal-name')?.toString()?.trim() ?:
-          row.get('internalName')?.toString()?.trim() ?:
-          row.get('title_t')?.toString()?.trim() ?:
-          row.get('title')?.toString()?.trim() ?:
-          row.get('navLabel')?.toString()?.trim() ?: ''
+      String name = CmsIndexedContentFields.displayTitleFromIndexSource(row)
+      if (!name) {
+        name = row.get('title')?.toString()?.trim() ?: ''
+      }
       if (name) {
         entry['internal-name'] = name
       }
@@ -2339,7 +2338,7 @@ private AuthoringIntentRecipeEngine() {}
       )
       sb.append(
         plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.NewContentItemFastPathToolFilter
-          .buildAuthorCopyQualityHint(wirePrompt)
+          .buildAuthorCopyQualityHint(wirePrompt, sup)
       )
     } else {
       sb.append(

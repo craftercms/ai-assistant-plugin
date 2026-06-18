@@ -327,9 +327,7 @@ final class FormDefinitionWriteContentValidator {
     }
 
     String folderName = textOfFirst(root, 'folder-name')
-    String internalName = textOfFirst(root, 'internal-name')
-    String subject = textOfFirst(root, 'subject_t')
-    String titleT = textOfFirst(root, 'title_t')
+    String slugSource = ContentXmlTextScan.slugLabelCandidate(root)
 
     if (!folderName) {
       errors.add('Missing `<folder-name>` — website pages require folder-name matching the URL slug folder.')
@@ -337,7 +335,7 @@ final class FormDefinitionWriteContentValidator {
       errors.add("Repository path folder `${folderFromPath}` does not match `<folder-name>` `${folderName}`.")
     }
 
-    String titleSlug = slugifyForRepo(internalName ?: subject ?: titleT)
+    String titleSlug = slugifyForRepo(slugSource)
     if (titleSlug && !folderFromPath.equalsIgnoreCase(titleSlug)) {
       errors.add(
         "Repository path folder `${folderFromPath}` does not match title slug `${titleSlug}` from internal-name/subject/title fields."

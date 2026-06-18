@@ -122,6 +122,33 @@ export const INTENT_RECIPE_PREFETCH_TOOL_DOCS: Record<string, PrefetchToolDoc> =
     ],
     defaultArgs: { siteId: '$siteId', path: '$contentPath' }
   },
+  FindContentVersion: {
+    summary: 'Search version history by text, field value, or image path (read-only).',
+    args: [
+      { name: 'siteId', required: true, description: 'Project id', example: '$siteId' },
+      { name: 'path', required: true, description: 'Repository path', example: '$contentPath' },
+      { name: 'contentContains', description: 'Phrases that must all appear in body or contentFieldId' },
+      { name: 'imagePathContains', description: 'Substring to find in *_s image fields' },
+      { name: 'includeFieldPreview', description: 'Include truncated preview in matches' }
+    ],
+    defaultArgs: { siteId: '$siteId', path: '$contentPath', includeFieldPreview: true }
+  },
+  CompareContentVersions: {
+    summary: 'Field-level diff between HEAD and a historical version (read-only).',
+    args: [
+      { name: 'siteId', required: true, description: 'Project id', example: '$siteId' },
+      { name: 'path', required: true, description: 'Repository path', example: '$contentPath' },
+      { name: 'compareCommitRef', required: true, description: 'versionNumber from history or FindContentVersion' },
+      { name: 'baseCommitRef', description: 'Default HEAD' },
+      { name: 'fieldIds', description: 'Optional list of field element ids to compare' }
+    ],
+    defaultArgs: {
+      siteId: '$siteId',
+      path: '$contentPath',
+      compareCommitRef: '$step0.versionNumber',
+      baseCommitRef: 'HEAD'
+    }
+  },
   GetPreviewHtml: {
     summary: 'Fetch rendered preview HTML from Engine (confirmation phase).',
     args: [

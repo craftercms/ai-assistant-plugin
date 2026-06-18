@@ -4,6 +4,7 @@ import java.util.List
 import org.opensearch.client.opensearch.core.SearchRequest
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.CmsIndexedContentFields
 
 /**
  * Builds a compact text digest of indexed site content so autonomous agents can avoid duplicating
@@ -81,7 +82,7 @@ private AutonomousSiteDigestBuilder() {}
           Map m = (Map) srcObj
           String path = m.get('localId')?.toString() ?: ''
           String ctype = m.get('content-type')?.toString() ?: ''
-          String title = m.get('title_t')?.toString() ?: m.get('internal-name')?.toString() ?: m.get('navLabel')?.toString() ?: ''
+          String title = CmsIndexedContentFields.displayTitleFromIndexSource(m)
           if (!path && !title) {
             continue
           }

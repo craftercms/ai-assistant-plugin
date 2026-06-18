@@ -173,14 +173,7 @@ private CmsResearchSiteContent() {}
           b.must { m ->
             m.multiMatch { mm ->
               mm.query(q)
-              mm.fields(
-                'title_t^3',
-                'internal-name^2',
-                'body_html',
-                'description_html',
-                'navLabel',
-                'seoDescription_t'
-              )
+              mm.fields(CmsIndexedContentFields.searchMultiMatchBoostFields())
               mm.type(TextQueryType.BestFields)
               mm.fuzziness('AUTO')
             }
@@ -219,10 +212,7 @@ private CmsResearchSiteContent() {}
               continue
             }
             String internalName = src.get('internal-name')?.toString()?.trim() ?: ''
-            String title =
-              src.get('title_t')?.toString()?.trim() ?:
-                internalName ?:
-                src.get('navLabel')?.toString()?.trim() ?: ''
+            String title = CmsIndexedContentFields.displayTitleFromIndexSource(src)
             Double scoreVal = null
             try {
               if (hit.score() != null) {
@@ -238,17 +228,7 @@ private CmsResearchSiteContent() {}
             if (internalName) {
               row['internal-name'] = internalName
             }
-            String indexSnippet = ''
-            for (String fk : ['body_html', 'description_html', 'seoDescription_t', 'title_t']) {
-              String fv = src.get(fk)?.toString()?.trim()
-              if (fv) {
-                indexSnippet = fv.replaceAll('<[^>]+>', ' ').replaceAll('\\s+', ' ').trim()
-                if (indexSnippet.length() > 320) {
-                  indexSnippet = indexSnippet.substring(0, 317) + '…'
-                }
-                break
-              }
-            }
+            String indexSnippet = CmsIndexedContentFields.snippetFromIndexSource(src, 320)
             if (indexSnippet) {
               row.indexSnippet = indexSnippet
             }

@@ -115,6 +115,9 @@ MOVES: list[tuple[str, str]] = [
     # contrib cms internal (before cms tools)
     ("tools/cms/support/CmsContentExists.groovy", "contrib/tool/builtin/cms/internal/CmsContentExists.groovy"),
     ("tools/cms/support/CmsContentVersionHistory.groovy", "contrib/tool/builtin/cms/internal/CmsContentVersionHistory.groovy"),
+    ("tools/cms/support/CmsContentVersionXml.groovy", "contrib/tool/builtin/cms/internal/CmsContentVersionXml.groovy"),
+    ("tools/cms/support/CmsFindContentVersion.groovy", "contrib/tool/builtin/cms/internal/CmsFindContentVersion.groovy"),
+    ("tools/cms/support/CmsCompareContentVersions.groovy", "contrib/tool/builtin/cms/internal/CmsCompareContentVersions.groovy"),
     ("tools/cms/support/CmsGetContent.groovy", "contrib/tool/builtin/cms/internal/CmsGetContent.groovy"),
     ("tools/cms/support/CmsGetContentTypeFormDefinition.groovy", "contrib/tool/builtin/cms/internal/CmsGetContentTypeFormDefinition.groovy"),
     ("tools/cms/support/CmsListPagesAndComponents.groovy", "contrib/tool/builtin/cms/internal/CmsListPagesAndComponents.groovy"),
@@ -124,6 +127,9 @@ MOVES: list[tuple[str, str]] = [
     ("tools/cms/support/CmsRepositorySupport.groovy", "contrib/tool/builtin/cms/internal/CmsRepositorySupport.groovy"),
     ("tools/cms/support/CmsResearchSiteContent.groovy", "contrib/tool/builtin/cms/internal/CmsResearchSiteContent.groovy"),
     ("tools/cms/support/CmsRevertChange.groovy", "contrib/tool/builtin/cms/internal/CmsRevertChange.groovy"),
+    ("tools/cms/support/CmsContentVersionXml.groovy", "contrib/tool/builtin/cms/internal/CmsContentVersionXml.groovy"),
+    ("tools/cms/support/CmsFindContentVersion.groovy", "contrib/tool/builtin/cms/internal/CmsFindContentVersion.groovy"),
+    ("tools/cms/support/CmsCompareContentVersions.groovy", "contrib/tool/builtin/cms/internal/CmsCompareContentVersions.groovy"),
     ("tools/cms/support/CmsStudioPlaceholderImage.groovy", "contrib/tool/builtin/cms/internal/CmsStudioPlaceholderImage.groovy"),
     ("tools/cms/support/CmsWriteContent.groovy", "contrib/tool/builtin/cms/internal/CmsWriteContent.groovy"),
     # contrib cms tools
@@ -132,6 +138,8 @@ MOVES: list[tuple[str, str]] = [
     ("tools/cms/GetContentTool.groovy", "contrib/tool/builtin/cms/GetContentTool.groovy"),
     ("tools/cms/GetContentTypeFormDefinitionTool.groovy", "contrib/tool/builtin/cms/GetContentTypeFormDefinitionTool.groovy"),
     ("tools/cms/GetContentVersionHistoryTool.groovy", "contrib/tool/builtin/cms/GetContentVersionHistoryTool.groovy"),
+    ("tools/cms/FindContentVersionTool.groovy", "contrib/tool/builtin/cms/FindContentVersionTool.groovy"),
+    ("tools/cms/CompareContentVersionsTool.groovy", "contrib/tool/builtin/cms/CompareContentVersionsTool.groovy"),
     ("tools/cms/GetPreviewHtmlTool.groovy", "contrib/tool/builtin/cms/GetPreviewHtmlTool.groovy"),
     ("tools/cms/ListContentDependencyScopeTool.groovy", "contrib/tool/builtin/cms/ListContentDependencyScopeTool.groovy"),
     ("tools/cms/ListPagesAndComponentsTool.groovy", "contrib/tool/builtin/cms/ListPagesAndComponentsTool.groovy"),

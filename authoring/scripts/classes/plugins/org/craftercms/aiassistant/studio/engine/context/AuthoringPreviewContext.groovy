@@ -331,9 +331,43 @@ Use these when the author asks about "today", "now", freshness, or dated content
 
   /** Studio version rollback — not colloquial “restore a classic car”, “restore health”, etc. */
   private static final Pattern REPOSITORY_VERSION_REVERT = Pattern.compile(
-    '(?i)\\b(undo|revert|roll\\s*back|go\\s+back|put\\s+back|switch\\s+back)\\b|' +
+    '(?i)\\b(undo|revert|roll\\s*back|go\\s+back|switch\\s+back)\\b|' +
       '\\brestore\\s+(?:to\\s+)?(?:the\\s+)?(?:previous|prior|earlier|original|initial)\\s+version\\b|' +
       '\\brestore\\s+(?:this|the)\\s+(?:page|item|file|content|version)\\b'
+  )
+
+  /** Author wants specific field values from an older version — not a full-item {@code revert_change}. */
+  private static final Pattern SELECTIVE_VERSION_RESTORE = Pattern.compile(
+    '(?is)\\b(?:look\\s+up|get|fetch|pull)\\s+(?:the\\s+)?(?:previous|prior|old|earlier)\\s+(?:copy|text|content|image|photo)\\b|' +
+      '\\b(?:restore|put\\s+back|bring\\s+back)\\s+(?:the\\s+)?(?:previous|prior|old|earlier|last|same)\\s+(?:copy|text|content|image|photo|one)\\b|' +
+      '\\brevert\\s+(?:the\\s+)?(?:copy|text|content|image)\\b|' +
+      '\\b(?:previous|prior|old)\\s+(?:copy|text|content)\\s+(?:about|from|on)\\b|' +
+      '\\bfrom\\s+(?:the\\s+)?(?:previous\\s+)?version\\b|' +
+      '\\bonly\\s+(?:the\\s+)?(?:copy|text|image)\\b'
+  )
+
+  /** Author explicitly forbids rolling back the entire page/item. */
+  private static final Pattern FORBIDS_FULL_PAGE_REVERT = Pattern.compile(
+    '(?is)\\bdon\'?t\\s+revert\\s+(?:the\\s+)?(?:page|item|whole|entire)\\b|' +
+      '\\bdo\\s+not\\s+revert\\s+(?:the\\s+)?(?:page|item)\\b|' +
+      '\\bnot\\s+revert\\s+(?:the\\s+)?page\\b'
+  )
+
+  /** Author is pushing back on an unwanted copy edit — not asking for a new rewrite. */
+  private static final Pattern CONTENT_MODIFICATION_COMPLAINT = Pattern.compile(
+    '(?is)\\b(?:i\\s+)?(?:didn\'?t|did\\s+not)\\s+ask\\s+(?:you\\s+to\\s+)?(?:change|update|rewrite|modify)\\b|' +
+      '\\b(?:don\'?t|do\\s+not)\\s+(?:change|update|rewrite)\\s+(?:the\\s+)?(?:copy|text|content)\\b'
+  )
+
+  /** Author wants a previously generated/stored image path back — not a new {@code GenerateImage}. */
+  private static final Pattern PRIOR_GENERATED_IMAGE_RESTORE = Pattern.compile(
+    '(?is)\\b(?:re-?insert|restore|put\\s+back)\\s+(?:the\\s+)?(?:previous|prior|old|last|same)\\s+(?:one|image|photo|picture)\\b|' +
+      '\\b(?:don\'?t|do\\s+not|stop|no)\\s+(?:want\\s+)?(?:a\\s+)?new\\s+image\\b|' +
+      '\\bnot\\s+a\\s+new\\s+image\\b|' +
+      '\\bprevious\\s+(?:one\\s+)?you\\s+generated\\b|' +
+      '\\bre-?insert\\s+the\\s+previous\\b|' +
+      '\\b(?:same|previous|prior)\\s+image\\s+(?:you\\s+)?(?:generated|created)\\b|' +
+      '\\bwrong\\s+photo\\b'
   )
 
   /** Oldest / first-created Studio version — not the immediate prior save. */
@@ -896,6 +930,9 @@ ${asstLine}"""
     if (!u || u.length() > 2400) {
       return false
     }
+    if (authorVisibleWantsPriorGeneratedImageRestored(u)) {
+      return false
+    }
     String low = u.toLowerCase(Locale.ROOT)
     if (low.contains('writecontent') || low.contains('write content')) {
       return false
@@ -1036,6 +1073,28 @@ ${asstLine}"""
       'page\\s+is\\s+about\\b)'
   )
 
+  /** Author wants to rewrite / redo topical page copy — not a read-only “what is this page about?” inquiry. */
+  private static final Pattern ANCHORED_PAGE_CONTENT_MODIFICATION = Pattern.compile(
+    '(?is)\\b(?:redo|re-?do|rewrite|re-?write|update|change|refresh|revise|replace|switch|pivot)\\b.{0,96}\\b(?:this|the)\\s+(?:page|homepage|home\\s+page|content|copy|text)\\b|' +
+      '\\b(?:this|the)\\s+(?:page|homepage|home\\s+page|content|copy|text)\\b.{0,96}\\b(?:redo|re-?do|rewrite|re-?write|update|change|refresh|revise|replace|switch|pivot)\\b|' +
+      '\\bmake\\s+(?:this|the)\\s+page\\s+about\\b|' +
+      '\\b(?:update|change|rewrite|redo)\\s+(?:the\\s+)?(?:page|homepage|home\\s+page)(?:\\s+content|\\s+copy)?\\b|' +
+      '\\b(?:page|homepage|home\\s+page)\\s+(?:content|copy|text)\\b.{0,48}\\b(?:about|to|with|for)\\b|' +
+      '\\blets?\\s+redo\\b'
+  )
+
+  /** Author reports preview/render failure and expects a repair pass — never chat-only. */
+  private static final Pattern BROKEN_PREVIEW_REPAIR = Pattern.compile(
+    '(?is)\\b(?:500|502|503|http\\s+500|server\\s+error|rendering\\s+error|free\\s*marker\\s+template\\s+error)\\b|' +
+      '\\b(?:broke|broken|break|fix|repair|unacceptable|not\\s+working|doesn.?t\\s+work|still\\s+failing)\\b.{0,96}\\b(?:page|preview|site|homepage|home)\\b|' +
+      '\\b(?:page|preview)\\b.{0,96}\\b(?:broke|broken|500|error|unacceptable)\\b|' +
+      '\\bpreview\\s+check\\s+confir(?:m|med)\\b'
+  )
+
+  private static final Pattern WRITE_CONTENT_REPO_PATH_IN_CONVERSATION = Pattern.compile(
+    '(?is)\\*\\*WriteContent\\*\\*\\s*\\(`(/site/[^`]+\\.xml)`'
+  )
+
   /**
    * Studio already named {@code /site/.../*.xml} and the author refers to that open page or component
    * ({@code this page}, {@code the component}, …) — CMS authoring context, not general chit-chat.
@@ -1112,8 +1171,104 @@ ${asstLine}"""
    * Open-page inquiry: anchored {@code /site/.../*.xml} from {@code anchorCarrier} (wire prompt / anchor block),
    * author wording from {@code authorVisibleText} (current turn only when routing).
    */
+  /**
+   * Anchored topical page rewrite (e.g. “redo this but make the page about MLB”) — route to {@code modify_page_content}.
+   */
+  static boolean authorVisibleSuggestsAnchoredPageContentModificationForAuthorText(
+    String anchorCarrier,
+    String authorVisibleText
+  ) {
+    def anchor = resolveAnchoredRepositoryPath((anchorCarrier ?: '').toString())
+    if (!anchor?.trim()) {
+      return false
+    }
+    def low = anchor.toLowerCase(Locale.ROOT)
+    if (!low.startsWith('/site/') || !low.endsWith('.xml')) {
+      return false
+    }
+    def v = stripStudioInjectedPromptBlocks((authorVisibleText ?: '').toString())?.trim()
+    if (!v) {
+      return false
+    }
+    if (authorVisibleIsContentModificationComplaint(v)) {
+      return false
+    }
+    if (authorVisibleSuggestsSelectiveVersionRestoreForAuthorText(anchorCarrier, authorVisibleText)) {
+      return false
+    }
+    if (authorVisibleWantsPriorGeneratedImageRestored(v)) {
+      return false
+    }
+    return ANCHORED_PAGE_CONTENT_MODIFICATION.matcher(v).find()
+  }
+
+  /** Author is reporting a broken preview / HTTP error and expects tools to repair — not chat-only. */
+  static boolean authorVisibleReportsBrokenPreviewRepair(String authorVisibleText) {
+    def v = stripStudioInjectedPromptBlocks((authorVisibleText ?: '').toString())?.trim()
+    return v && BROKEN_PREVIEW_REPAIR.matcher(v).find()
+  }
+
+  /**
+   * Repository path from Studio anchor block, prior-turn WriteContent strips, or Studio preview shell URL.
+   */
+  static String resolveAnchoredRepositoryPath(String fullPrompt) {
+    String anchor = extractAnchoredRepositoryPath(fullPrompt)?.trim()
+    if (anchor) {
+      return anchor
+    }
+    return recoverAnchoredRepositoryPathFromConversation(fullPrompt)?.trim() ?: ''
+  }
+
+  /**
+   * When the client drops {@code contentPath} on follow-up turns, recover the last written item from chat history.
+   */
+  static String recoverAnchoredRepositoryPathFromConversation(String fullPrompt) {
+    def s = (fullPrompt ?: '').toString()
+    if (!s.trim()) {
+      return ''
+    }
+    String lastWritePath = ''
+    def wm = WRITE_CONTENT_REPO_PATH_IN_CONVERSATION.matcher(s)
+    while (wm.find()) {
+      lastWritePath = normalizeRepoPath(wm.group(1))
+    }
+    if (lastWritePath && safeRecoveredSiteXmlPath(lastWritePath)) {
+      return lastWritePath
+    }
+    def pm = (s =~ /(?i)studio\/preview[^\n]*[?&]page=([^&\s#]+)/)
+    if (pm.find()) {
+      try {
+        String page = java.net.URLDecoder.decode(pm.group(1).toString(), 'UTF-8')?.trim() ?: ''
+        if (page == '/' || page.isEmpty()) {
+          return '/site/website/index.xml'
+        }
+        if (page.startsWith('/')) {
+          String slug = page.replaceAll('/+$', '').replaceAll('^/+', '')
+          if (slug) {
+            String candidate = "/site/website/${slug}/index.xml"
+            return safeRecoveredSiteXmlPath(candidate) ? candidate : ''
+          }
+        }
+      } catch (Throwable ignored) {
+      }
+    }
+    return ''
+  }
+
+  private static boolean safeRecoveredSiteXmlPath(String path) {
+    String p = normalizeRepoPath(path)
+    return p.startsWith('/site/') &&
+      p.endsWith('.xml') &&
+      !p.contains('/../') &&
+      !p.contains('/./') &&
+      !p.contains('\\') &&
+      !p.contains('?') &&
+      !p.contains('#') &&
+      !p.contains('\u0000')
+  }
+
   static boolean authorVisibleSuggestsOpenPageInquiryForAuthorText(String anchorCarrier, String authorVisibleText) {
-    def anchor = extractAnchoredRepositoryPath((anchorCarrier ?: '').toString())
+    def anchor = resolveAnchoredRepositoryPath((anchorCarrier ?: '').toString())
     if (!anchor?.trim()) {
       return false
     }
@@ -1126,6 +1281,12 @@ ${asstLine}"""
       return false
     }
     if (PUBLISH_NOW_INTENT.matcher(v).find() || authorVisibleSuggestsPublishSiteBulk(v)) {
+      return false
+    }
+    if (authorVisibleSuggestsAnchoredPageContentModificationForAuthorText(anchorCarrier, authorVisibleText)) {
+      return false
+    }
+    if (authorVisibleReportsBrokenPreviewRepair(v)) {
       return false
     }
     if (OPEN_PAGE_INQUIRY.matcher(v).find()) {
@@ -1258,8 +1419,69 @@ This site has **never** been published to the delivery tier. For first go-live o
 
   /** Undo / revert / restore a prior repository version (not a generative rewrite). */
   static boolean authorVisibleSuggestsRevertIntent(String visible) {
-    def v = (visible ?: '').toString().trim()
-    return v && REPOSITORY_VERSION_REVERT.matcher(v).find()
+    return authorVisibleSuggestsFullPageRevertIntent(visible)
+  }
+
+  /** Full-item rollback via {@code revert_change} — not selective field restore from history. */
+  static boolean authorVisibleSuggestsFullPageRevertIntent(String visible) {
+    def v = stripStudioInjectedPromptBlocks((visible ?: '').toString())?.trim()
+    if (!v) {
+      return false
+    }
+    if (authorVisibleForbidsFullPageRevert(v)) {
+      return false
+    }
+    if (SELECTIVE_VERSION_RESTORE.matcher(v).find()) {
+      return false
+    }
+    if (PRIOR_GENERATED_IMAGE_RESTORE.matcher(v).find()) {
+      return false
+    }
+    if (CONTENT_MODIFICATION_COMPLAINT.matcher(v).find()) {
+      return false
+    }
+    return REPOSITORY_VERSION_REVERT.matcher(v).find()
+  }
+
+  static boolean authorVisibleSuggestsSelectiveVersionRestore(String visible) {
+    return authorVisibleSuggestsSelectiveVersionRestoreForAuthorText(visible, visible)
+  }
+
+  static boolean authorVisibleSuggestsSelectiveVersionRestoreForAuthorText(
+    String anchorCarrier,
+    String authorVisibleText
+  ) {
+    def anchor = resolveAnchoredRepositoryPath((anchorCarrier ?: '').toString())
+    if (!anchor?.trim()) {
+      return false
+    }
+    def v = stripStudioInjectedPromptBlocks((authorVisibleText ?: '').toString())?.trim()
+    if (!v) {
+      return false
+    }
+    if (PRIOR_GENERATED_IMAGE_RESTORE.matcher(v).find()) {
+      return true
+    }
+    if (SELECTIVE_VERSION_RESTORE.matcher(v).find()) {
+      return true
+    }
+    return CONTENT_MODIFICATION_COMPLAINT.matcher(v).find() &&
+      (v =~ /(?is)\b(?:copy|text|content|image)\b/).find()
+  }
+
+  static boolean authorVisibleForbidsFullPageRevert(String visible) {
+    def v = stripStudioInjectedPromptBlocks((visible ?: '').toString())?.trim()
+    return v && FORBIDS_FULL_PAGE_REVERT.matcher(v).find()
+  }
+
+  static boolean authorVisibleIsContentModificationComplaint(String visible) {
+    def v = stripStudioInjectedPromptBlocks((visible ?: '').toString())?.trim()
+    return v && CONTENT_MODIFICATION_COMPLAINT.matcher(v).find()
+  }
+
+  static boolean authorVisibleWantsPriorGeneratedImageRestored(String visible) {
+    def v = stripStudioInjectedPromptBlocks((visible ?: '').toString())?.trim()
+    return v && PRIOR_GENERATED_IMAGE_RESTORE.matcher(v).find()
   }
 
   /** Author wants the oldest revertible history entry (e.g. “initial commit”), not one step back. */
@@ -1402,6 +1624,42 @@ This site has **never** been published to the delivery tier. For first go-live o
   }
 
   /**
+   * Praise or thanks only — no new CMS work requested (e.g. "Good job!" after a successful repair).
+   */
+  static boolean authorVisibleIsAcknowledgmentOrPraise(String authorVisibleText) {
+    String current = extractAuthorCurrentRequestVisible(authorVisibleText)?.trim()
+    if (!current) {
+      current = stripStudioInjectedPromptBlocks((authorVisibleText ?: '').toString())?.trim() ?: ''
+    }
+    if (!current || current.length() > 80) {
+      return false
+    }
+    if (authorCurrentRequestSuggestsCmsTooling(authorVisibleText)) {
+      return false
+    }
+    if (anchoredSiteXmlFieldPlacementIntentForAuthorText(authorVisibleText, current)) {
+      return false
+    }
+    if (authorVisibleReportsBrokenPreviewRepair(current)) {
+      return false
+    }
+    def t = current.toLowerCase(Locale.ROOT)
+    if (t.contains('fix') || t.contains('update') || t.contains('change') || t.contains('redo') ||
+      t.contains('write') || t.contains('search') || t.contains('broken') || t.contains('error')) {
+      return false
+    }
+    if (t.matches('(?is)^(good\\s+job|great\\s+job|nice\\s+(work|job)|well\\s+done|perfect|awesome|excellent|fantastic|love\\s+it|looks\\s+good|that\\s+worked|much\\s+better|you\\s+nailed\\s+it|well\\s+played)[\\s!.?]*$')) {
+      return true
+    }
+    if (t.matches('(?is)^(thanks?|thank\\s+you|thx|cheers|appreciate\\s+it|much\\s+appreciated)[\\s!.?]*$')) {
+      return true
+    }
+    def words = t.split(/\s+/).findAll { it }
+    return words.size() >= 2 && words.size() <= 4 &&
+      words[0] == 'good' && ['job', 'work'].contains(words[1])
+  }
+
+  /**
    * True when the author-visible part of the prompt is a short greeting / chit-chat with
    * no CMS authoring signal — used to force tools off for preview chat (avoids destructive
    * tool runs when only Studio metadata was appended).
@@ -1411,6 +1669,9 @@ This site has **never** been published to the delivery tier. For first go-live o
   static boolean isTrivialNonAuthoringTurn(String fullPrompt) {
     String current = extractAuthorCurrentRequestVisible(fullPrompt)?.trim()
     if (!current) {
+      return true
+    }
+    if (authorVisibleIsAcknowledgmentOrPraise(fullPrompt)) {
       return true
     }
     if (authorCurrentRequestSuggestsCmsTooling(fullPrompt)) {
@@ -1450,6 +1711,8 @@ This site has **never** been published to the delivery tier. For first go-live o
     'GetContentTypeFormDefinition',
     'ListStudioContentTypes',
     'GetContentVersionHistory',
+    'FindContentVersion',
+    'CompareContentVersions',
     'WriteContent',
     'ListPagesAndComponents',
     'ResearchSiteContent',
@@ -1747,7 +2010,7 @@ When the author asks you to **translate, localize, rewrite, update, improve, sho
 
 At the **end** of your reply, include:
 ```json
-{ "aiassistantFormFieldUpdates": { "field_id": "new string value", "body_html": "<p>...</p>" } }
+{ "aiassistantFormFieldUpdates": { "field_id_from_form_definition": "new string value" } }
 ```
 Use **real field ids** from the form definition / XML in the prompt; values must be **strings** only. List every field you changed. For **pure Q&A** with no content change, omit the JSON block.
 ---'''

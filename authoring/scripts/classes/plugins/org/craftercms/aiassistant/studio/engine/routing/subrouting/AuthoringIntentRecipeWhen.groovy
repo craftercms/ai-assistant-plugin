@@ -212,7 +212,15 @@ private AuthoringIntentRecipeWhen() {}
       case 'authorProvidedHttpUrl':
         return !AuthoringIntentRecipeCatalog.extractAuthorHttpUrls(author).isEmpty()
       case 'repositoryVersionRevert':
-        return AuthoringPreviewContext.authorVisibleSuggestsRevertIntent(author)
+        return AuthoringPreviewContext.authorVisibleSuggestsFullPageRevertIntent(author)
+      case 'selectiveVersionRestore':
+        return AuthoringPreviewContext.authorVisibleSuggestsSelectiveVersionRestore(author)
+      case 'forbidsFullPageRevert':
+        return AuthoringPreviewContext.authorVisibleForbidsFullPageRevert(author)
+      case 'contentModificationComplaint':
+        return AuthoringPreviewContext.authorVisibleIsContentModificationComplaint(author)
+      case 'priorGeneratedImageRestore':
+        return AuthoringPreviewContext.authorVisibleWantsPriorGeneratedImageRestored(author)
       default:
         return false
     }

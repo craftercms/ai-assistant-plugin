@@ -20,7 +20,30 @@ final class AuthoringFetchedPageFacts {
   private static final Pattern HEADLINE_PLAIN =
     Pattern.compile('(?is)<h[23][^>]*>([^<]{12,220})</h[23]>')
 
+  private static final int DEFAULT_PLAIN_EXCERPT_CHARS = 8_000
+
   private AuthoringFetchedPageFacts() {}
+
+  /** Generic HTML → plain text for LLM copy generation (no domain-specific parsing). */
+  static String plainTextExcerpt(String htmlBody, int maxChars = DEFAULT_PLAIN_EXCERPT_CHARS) {
+    String html = (htmlBody ?: '').toString()
+    if (!html.trim() || maxChars < 64) {
+      return ''
+    }
+    String plain = html
+      .replaceAll('(?is)<script[^>]*>[\\s\\S]*?</script>', ' ')
+      .replaceAll('(?is)<style[^>]*>[\\s\\S]*?</style>', ' ')
+      .replaceAll('(?is)<[^>]+>', ' ')
+      .replaceAll('\\s+', ' ')
+      .trim()
+    if (!plain) {
+      return ''
+    }
+    if (plain.length() <= maxChars) {
+      return plain
+    }
+    return plain.substring(0, maxChars) + '…'
+  }
 
   /**
    * Best substantive fact line from fetched HTML (e.g. a lead item on an index page), not the site document title.

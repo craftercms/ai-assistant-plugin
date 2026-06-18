@@ -30,6 +30,8 @@ final class AuthoringIntentRefineWithTools {
       'GetContent',
       'GetContentTypeFormDefinition',
       'GetContentVersionHistory',
+      'FindContentVersion',
+      'CompareContentVersions',
       'ListContentDependencyScope',
       'ListContentTranslationScope',
       'ListStudioContentTypes',

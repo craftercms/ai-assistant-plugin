@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
- * Offline parity for content field roles (mirrors FormDefinitionCopyFieldPlan heuristics).
+ * Offline parity for content field plan (purpose from form-definition metadata).
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  guidanceForRole,
+  buildFieldPurpose,
   harvestCopyFieldsFromFormXml,
-  inferCopyRole,
+  inferWritePolicy,
 } from '../lib/copy-field-plan-parity.mjs';
 
 function assert(cond, msg) {
@@ -18,19 +18,46 @@ function assert(cond, msg) {
   }
 }
 
-assert(inferCopyRole('title_t', 'input', 'Title') === 'page-title', 'title_t → page-title');
-assert(inferCopyRole('hero_title_html', 'rte', 'Hero Title') === 'hero-headline', 'hero_title_html → hero-headline');
-assert(inferCopyRole('hero_text_html', 'rte', 'Hero Text') === 'hero-deck', 'hero_text_html → hero-deck');
-assert(inferCopyRole('hero_image_s', 'image-picker', 'Hero Image') === 'image-asset', 'hero_image_s → image-asset');
-assert(inferCopyRole('features_title_t', 'input', 'Features Title') === 'section-title', 'features_title_t → section-title');
-
-const pageTitleGuide = guidanceForRole('page-title');
+const titlePurpose = buildFieldPurpose('Page Properties', {
+  type: 'input',
+  title: 'Title',
+  description: 'Main page headline shown in browser title and listings.',
+});
+assert(titlePurpose.includes('Main page headline'), 'purpose includes form description');
 assert(
-  pageTitleGuide.includes('without editorial prefixes') && pageTitleGuide.includes('Breaking news:'),
-  'page-title guidance warns against Breaking news prefix',
+  inferWritePolicy('input', titlePurpose, 'Page Properties', 'Title') === 'original-headline',
+  'page title from description → original-headline',
 );
-const heroDeckGuide = guidanceForRole('hero-deck');
-assert(heroDeckGuide.includes('do **not** repeat the headline'), 'hero-deck guidance forbids headline repeat');
+
+const heroPurpose = buildFieldPurpose('Hero Section', {
+  type: 'rte',
+  title: 'Hero Title',
+  description: 'Primary hero headline (H1). The main news line for the page.',
+});
+assert(
+  inferWritePolicy('rte', heroPurpose, 'Hero Section', 'Hero Title') === 'original-headline',
+  'hero headline from description → original-headline',
+);
+
+const heroTextPurpose = buildFieldPurpose('Hero Section', {
+  type: 'rte',
+  title: 'Hero Text',
+  description: 'Supporting hero copy — one or two sentences expanding on the headline.',
+});
+assert(
+  inferWritePolicy('rte', heroTextPurpose, 'Hero Section', 'Hero Text') === 'supporting-copy',
+  'hero supporting copy from description → supporting-copy',
+);
+
+const featuresPurpose = buildFieldPurpose('Features', {
+  type: 'input',
+  title: 'Features Title',
+  description: 'Short section label above the features grid — not the article headline.',
+});
+assert(
+  inferWritePolicy('input', featuresPurpose, 'Features', 'Features Title') === 'section-label',
+  'features label from description → section-label',
+);
 
 const fixturePath = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -42,8 +69,15 @@ const ids = fields.map((f) => f.fieldId);
 for (const required of ['title_t', 'hero_title_html', 'hero_text_html', 'features_title_t', 'hero_image_s']) {
   assert(ids.includes(required), `fixture form must include ${required}`);
 }
+const titleField = fields.find((f) => f.fieldId === 'title_t');
+assert(titleField?.writePolicy === 'original-headline', 'fixture title_t policy from purpose');
+const heroTitle = fields.find((f) => f.fieldId === 'hero_title_html');
+assert(heroTitle?.writePolicy === 'original-headline', 'fixture hero_title_html policy from label');
 const heroDeck = fields.find((f) => f.fieldId === 'hero_text_html');
-assert(heroDeck?.copyRole === 'hero-deck', 'fixture hero_text_html role');
+assert(heroDeck?.writePolicy === 'supporting-copy', 'fixture hero_text_html policy');
+const heroImage = fields.find((f) => f.fieldId === 'hero_image_s');
+assert(heroImage?.writePolicy === 'image-path', 'fixture hero_image_s policy');
+assert(heroImage?.purpose.includes('Hero banner'), 'fixture image purpose from description');
 assert(!ids.includes('sections_o'), 'node-selector sections_o must not be a copy field');
 
 console.log('copy-field-plan-offline: OK');

@@ -18,6 +18,9 @@ final class AuthoringIntentExecutionPlan {
    */
   static List<Map> derivePlanRows(String authorVisible, String anchorPath) {
     String authorRequest = AuthoringIntentCard.extractCleanAuthorRequest(authorVisible)
+    if (requiresExternalLookup(authorVisible) && mentionsRepoUpdateForPageCopy(authorRequest)) {
+      return researchCopyWorkflowRows(anchorPath)
+    }
     List<String> steps = AuthoringIntentCard.deriveSteps(authorRequest, '')
     if (steps.isEmpty() && authorRequest) {
       steps = [authorRequest]
@@ -60,25 +63,37 @@ final class AuthoringIntentExecutionPlan {
     StringBuilder sb = new StringBuilder()
     sb.append('[Studio — execution plan from intent (required tool order)]\n')
     sb.append(
-      'Your **## Plan** must have one **📋** line per row below. Each line names the **outcome** and the **tools** in order. '
+      'Your **## Plan** must use **📋** lines that read like a human editor would work — one line per row below. '
     )
-    sb.append('Later steps must **consume outputs** from earlier steps — not search snippets alone.\n\n')
+    sb.append(
+      'Use **plain language outcomes** on **📋** lines (no wire tool names on those lines). '
+    )
+    sb.append('Run **`tool_calls`** in the same message as **## Plan**, in the order below.\n\n')
     int i = 1
     for (Map row : rows) {
       sb.append(i++).append('. **').append(row.authorStep).append('**\n')
       sb.append('   - Outcome: ').append(row.outcome).append('\n')
-      sb.append('   - Tools: `').append(row.toolChain).append('`\n')
+      if (row.toolChain) {
+        sb.append('   - Tools: `').append(row.toolChain).append('`\n')
+      }
       if (row.note) {
         sb.append('   - Note: ').append(row.note).append('\n')
       }
       sb.append('\n')
     }
+    sb.append('**Editorial workflow (research → copy):**\n')
+    sb.append(
+      '- Steps marked **(reasoning)** are short prose in **## Plan** or the next assistant message — compare fetched facts with what you know; note what is current.\n'
+    )
+    sb.append(
+      '- Before **WriteContent**, state the **page idea** (theme + key points), then map each point to the correct **field role** in **[Studio — content field plan]**.\n'
+    )
     sb.append('**Tool-chain rules (any turn with external lookup):**\n')
     sb.append(
       '- **WebSearch** / **SerpApiWebSearch** return candidates (title, url, snippet) — **not** verified article body.\n'
     )
     sb.append(
-      '- Before **WriteContent**, **update_content**, or **GenerateImage** uses live facts: **FetchHttpUrl** on one chosen **article** URL (avoid site homepages), read the body, then use those facts.\n'
+      '- Before **WriteContent**, **update_content**, or **GenerateImage** uses live facts: **FetchHttpUrl** on one chosen URL, read the body, **synthesize** a page concept, then write **distinct** copy per field.\n'
     )
     sb.append(
       '- **GetContent** on the anchored page before editing XML; persist images with **WriteContent** / **update_content**, not chat-only previews.\n\n'
@@ -98,14 +113,92 @@ final class AuthoringIntentExecutionPlan {
     sb.append('## How this request will run\n\n')
     int i = 1
     for (Map row : rows) {
-      sb.append(i++).append('. ').append(row.authorStep).append('\n')
-      sb.append('   - **Tools:** `').append(row.toolChain).append('`\n')
+      sb.append(i++).append('. 📋 ').append(row.authorStep).append('\n')
       if (row.note) {
         sb.append('   - ').append(row.note).append('\n')
       }
       sb.append('\n')
     }
     return sb.toString()
+  }
+
+  /**
+   * Human-style editorial workflow for topical updates: search → read sources → synthesize → plan page → write fields.
+   */
+  private static List<Map> researchCopyWorkflowRows(String anchorPath) {
+    String anchorRef = (anchorPath ?: '').trim() ? "`${anchorPath.trim()}`" : 'the anchored page'
+    return [
+      [
+        authorStep: 'Search for current news and sources on the topic',
+        outcome   : 'A short list of relevant articles (titles, URLs, snippets) to investigate',
+        toolChain : 'WebSearch or SerpApiWebSearch',
+        kind      : 'external_lookup',
+        note      : 'Prefer recent, on-topic results — not generic marketing pages.'
+      ],
+      [
+        authorStep: 'Visit promising URLs and gather ideas from the source material',
+        outcome   : 'Retrieved plain-text excerpt from at least one source page',
+        toolChain : 'FetchHttpUrl',
+        kind      : 'external_lookup',
+        note      : 'Read the page body; snippets alone are not enough for page copy.'
+      ],
+      [
+        authorStep: 'Compare what you fetched with what you know — is it current?',
+        outcome   : 'Brief synthesis: which facts to trust, what might be outdated, what surprised you',
+        toolChain : '(reasoning — prose in ## Plan; no tool)',
+        kind      : 'synthesize',
+        note      : 'For "latest" topics, prefer fetched dates and quotes over training memory alone.'
+      ],
+      [
+        authorStep: 'Formulate the overall idea for the page',
+        outcome   : 'Page theme, angle, and key points — mapped to headline vs body vs supporting fields',
+        toolChain : "GetContent (${anchorRef}) + content field plan",
+        kind      : 'plan_copy',
+        note      : 'Decide what each field should say **before** editing XML — headlines ≠ paragraphs ≠ alt text.'
+      ],
+      [
+        authorStep: 'Write the appropriate copy into each page field',
+        outcome   : 'Repository updated with specific, field-appropriate copy grounded in research',
+        toolChain : "GetContent (${anchorRef}) → update_content or WriteContent → GetPreviewHtml",
+        kind      : 'repo_update',
+        note      : 'Use **[Studio — content field plan]** roles; verify in preview.'
+      ],
+      [
+        authorStep: 'Generate a page image that matches your synthesized angle',
+        outcome   : 'Image imported to `/static-assets/` and set on **image-asset** fields from the content field plan',
+        toolChain : 'GenerateImage → WriteContent (repositoryPath on image-asset fields)',
+        kind      : 'image_generate',
+        note      : 'Prompt from your synthesis — never invent `/static-assets/…` paths or paste external image URLs.'
+      ]
+    ]
+  }
+
+  /**
+   * Research-backed page copy refresh (search/fetch + repository write), e.g. topical homepage updates.
+   */
+  static boolean researchPageCopyUpdate(String authorVisible) {
+    if (!(authorVisible ?: '').trim()) {
+      return false
+    }
+    if (!requiresExternalLookup(authorVisible)) {
+      return false
+    }
+    String authorRequest = AuthoringIntentCard.extractCleanAuthorRequest(authorVisible)
+    return mentionsRepoUpdateForPageCopy(authorRequest)
+  }
+
+  private static boolean mentionsRepoUpdateForPageCopy(String authorRequest) {
+    String lower = (authorRequest ?: '').toLowerCase()
+    if (!lower.trim()) {
+      return false
+    }
+    if (mentionsRepoUpdate(lower)) {
+      return true
+    }
+    return (lower.contains('update') || lower.contains('rewrite') || lower.contains('refresh') ||
+      lower.contains('about')) &&
+      (lower.contains('homepage') || lower.contains('home page') || lower.contains('page') ||
+        lower.contains('content') || lower.contains('copy') || lower.contains('hero'))
   }
 
   /** True when any author step needs live external data before repository writes. */
@@ -201,7 +294,15 @@ final class AuthoringIntentExecutionPlan {
       lower.contains('lookup online') ||
       lower.contains('search for') || lower.contains('search ') ||
       lower.contains('headline') || lower.contains("today's") || lower.contains('current events') ||
-      lower.contains('latest news') || lower.contains('top news')
+      lower.contains('latest news') || lower.contains('top news') ||
+      lower.contains('recent developments') || lower.contains('latest developments') ||
+      (lower.contains('latest') && (lower.contains('development') || lower.contains('about') ||
+        lower.contains('update') || lower.contains('current'))) ||
+      (lower.contains('recent') && (lower.contains('development') || lower.contains('about') ||
+        lower.contains('update'))) ||
+      (mentionsRepoUpdate(lower) &&
+        (lower.contains('latest') || lower.contains('recent') || lower.contains('current') ||
+          lower.contains('development') || lower.contains('up to date') || lower.contains('up-to-date')))
   }
 
   private static boolean mentionsRepoUpdate(String lower) {

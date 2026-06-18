@@ -59,7 +59,12 @@ import {
   stripStudioAiInlineImageMarkdownFromText
 } from './assistantGeneratedImageChat';
 import { getSpeechRecognitionCtor } from './browserSpeechRecognition';
-import { intentRoutingDisplayMarkdown } from './intentRecipeChatDisplay';
+import IntentCardMessage from './IntentCardMessage';
+import {
+  intentRoutingDisplayMarkdown,
+  parseIntentCardFromTelemetry,
+  type IntentCardModel
+} from './intentRecipeChatDisplay';
 import { replaceSlackColonEmojisInText } from './slackColonEmoji';
 import { STUDIO_AI_DEFAULT_IMAGE_MODEL } from './studioAiOrchestrationToolIds';
 /** When llm is openAI: send default image model when agent/panel snapshot omitted it (server applies the same default). */
@@ -268,6 +273,9 @@ function stripForbiddenLazyPlanLines(raw: string): string {
       return true;
     }
     if (n.includes('execute the user request') && n.includes('studio authoring') && n.includes('message')) {
+      return true;
+    }
+    if (n === 'applying your request with the appropriate tools.' || n === 'applying your request with the appropriate tools') {
       return true;
     }
     return false;
@@ -1229,6 +1237,8 @@ type UiMessage = {
   toolProgressText?: string;
   /** Emoji + recipe title when intent routing matched (SSE {@code intent-recipe-routing}). */
   intentRecipeLine?: string;
+  /** Structured intent card (elaboration, success bars, collapsible guardrails). */
+  intentCard?: IntentCardModel;
   /** Author-visible cards when the server feeds context between tool rounds (SSE {@code step-bridge-card}). */
   stepBridgeCards?: string[];
   /**
@@ -1375,6 +1385,95 @@ function getConversationStorageKey(siteId: string, agentId: string): string {
   return `aiassistant-conversation-${site}-${agent}`;
 }
 
+function optionalTrimmedString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const t = value.trim();
+  return t || undefined;
+}
+
+function optionalStringRecord(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof k !== 'string' || typeof v !== 'string') continue;
+    const t = v.trim();
+    if (t) out[k] = t;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+function optionalStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out = value
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter(Boolean);
+  return out.length ? out : undefined;
+}
+
+function parseStoredIntentCard(value: unknown): IntentCardModel | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const o = value as Record<string, unknown>;
+  const elaboration = typeof o.elaboration === 'string' ? o.elaboration.trim() : '';
+  if (!elaboration) return undefined;
+  const anchorPath = typeof o.anchorPath === 'string' ? o.anchorPath.trim() || undefined : undefined;
+  const successBars = optionalStringArray(o.successBars) ?? [];
+  const willNot = optionalStringArray(o.willNot) ?? [];
+  const recipeWorkflowLine =
+    typeof o.recipeWorkflowLine === 'string' ? o.recipeWorkflowLine.trim() || undefined : undefined;
+  return {
+    elaboration,
+    anchorPath,
+    successBars,
+    willNot,
+    ...(recipeWorkflowLine ? { recipeWorkflowLine } : {})
+  };
+}
+
+/** Rehydrate a persisted bubble with every author-visible card field (intent, step-bridge, images, tools). */
+function restoreUiMessageFromStorage(raw: unknown): UiMessage | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const m = raw as Record<string, unknown>;
+  if (typeof m.id !== 'string' || typeof m.text !== 'string' || typeof m.role !== 'string') {
+    return null;
+  }
+  const role: UiMessage['role'] =
+    m.role === 'assistant' || m.role === 'system' ? m.role : 'user';
+  let text = m.text;
+  let reasoningStreamText = optionalTrimmedString(m.reasoningStreamText);
+  if (reasoningStreamText) {
+    const folded = foldAssistantReasoningIntoMainText({ text, reasoningStreamText });
+    text = folded.text;
+    reasoningStreamText = folded.reasoningStreamText.trim() || undefined;
+  }
+  const assistantPreToolsText = optionalTrimmedString(m.assistantPreToolsText);
+  const toolProgressText = optionalTrimmedString(m.toolProgressText);
+  const intentRecipeLine = optionalTrimmedString(m.intentRecipeLine);
+  const intentCard = parseStoredIntentCard(m.intentCard);
+  const stepBridgeCards = optionalStringArray(m.stepBridgeCards);
+  const studioAiInlineImageUrls = optionalStringRecord(m.studioAiInlineImageUrls);
+  const generateImagePrompt = optionalTrimmedString(m.generateImagePrompt);
+  const wallMs = parseNonNegativeNumber(m.toolPipelineWallMs);
+  const totalSec = parseNonNegativeNumber(m.toolPipelineTotalSec);
+  const taskSec = parseNonNegativeNumber(m.toolPipelineTaskCompletionSec);
+  return {
+    id: m.id,
+    role,
+    text,
+    isStreaming: false,
+    ...(assistantPreToolsText ? { assistantPreToolsText } : {}),
+    ...(toolProgressText ? { toolProgressText } : {}),
+    ...(intentRecipeLine ? { intentRecipeLine } : {}),
+    ...(intentCard ? { intentCard } : {}),
+    ...(stepBridgeCards ? { stepBridgeCards } : {}),
+    ...(reasoningStreamText ? { reasoningStreamText } : {}),
+    ...(studioAiInlineImageUrls ? { studioAiInlineImageUrls } : {}),
+    ...(generateImagePrompt ? { generateImagePrompt } : {}),
+    ...(wallMs != null ? { toolPipelineWallMs: Math.round(wallMs) } : {}),
+    ...(totalSec != null ? { toolPipelineTotalSec: totalSec } : {}),
+    ...(taskSec != null ? { toolPipelineTaskCompletionSec: taskSec } : {})
+  };
+}
+
 function loadConversation(siteId: string, agentId: string): StoredConversation | null {
   if (typeof localStorage === 'undefined') return null;
   try {
@@ -1382,39 +1481,15 @@ function loadConversation(siteId: string, agentId: string): StoredConversation |
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<StoredConversation>;
     if (parsed?.version !== 1 || !Array.isArray(parsed.messages)) return null;
+    const messages = parsed.messages
+      .map((m) => restoreUiMessageFromStorage(m))
+      .filter((m): m is UiMessage => m != null);
     return {
       version: 1,
       chatId: typeof parsed.chatId === 'string' ? parsed.chatId : undefined,
       assumedSiteId:
         typeof parsed.assumedSiteId === 'string' ? sanitizeCandidateSiteId(parsed.assumedSiteId) : undefined,
-      messages: parsed.messages
-        .filter((m) => m && typeof m.id === 'string' && typeof m.text === 'string' && typeof m.role === 'string')
-        .map((m) => {
-          const toolProgressText =
-            typeof (m as { toolProgressText?: unknown }).toolProgressText === 'string'
-              ? (m as { toolProgressText: string }).toolProgressText
-              : undefined;
-          const assistantPreToolsText =
-            typeof (m as { assistantPreToolsText?: unknown }).assistantPreToolsText === 'string'
-              ? (m as { assistantPreToolsText: string }).assistantPreToolsText
-              : undefined;
-          const wallMs = parseNonNegativeNumber((m as { toolPipelineWallMs?: unknown }).toolPipelineWallMs);
-          const totalSec = parseNonNegativeNumber((m as { toolPipelineTotalSec?: unknown }).toolPipelineTotalSec);
-          const taskSec = parseNonNegativeNumber(
-            (m as { toolPipelineTaskCompletionSec?: unknown }).toolPipelineTaskCompletionSec
-          );
-          return {
-            id: m.id,
-            role: m.role === 'assistant' || m.role === 'system' ? m.role : 'user',
-            text: m.text,
-            ...(assistantPreToolsText !== undefined ? { assistantPreToolsText } : {}),
-            ...(toolProgressText !== undefined && toolProgressText !== '' ? { toolProgressText } : {}),
-            ...(wallMs != null ? { toolPipelineWallMs: Math.round(wallMs) } : {}),
-            ...(totalSec != null ? { toolPipelineTotalSec: totalSec } : {}),
-            ...(taskSec != null ? { toolPipelineTaskCompletionSec: taskSec } : {}),
-            isStreaming: false
-          };
-        })
+      messages
     };
   } catch {
     return null;
@@ -1807,6 +1882,10 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
   });
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
+  const chatIdRef = useRef(chatId);
+  chatIdRef.current = chatId;
+  const assumedSiteIdRef = useRef(assumedSiteId);
+  assumedSiteIdRef.current = assumedSiteId;
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [readResponsesAloud, setReadResponsesAloud] = useState(false);
@@ -1886,15 +1965,20 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
 
   useEffect(() => {
     return () => {
-      const p = pendingPersistRef.current;
-      if (p && typeof localStorage !== 'undefined' && !p.messages.some((m) => m.isStreaming)) {
-        saveConversation(p.siteId, p.agentId, {
-          version: 1,
-          chatId: p.chatId,
-          assumedSiteId: p.assumedSiteId,
-          messages: p.messages.map((m) => ({ ...m, isStreaming: false }))
-        });
+      if (saveDebounceRef.current) {
+        window.clearTimeout(saveDebounceRef.current);
+        saveDebounceRef.current = null;
       }
+      const msgs = messagesRef.current;
+      if (typeof localStorage === 'undefined' || msgs.some((m) => m.isStreaming)) {
+        return;
+      }
+      saveConversation(siteId, agentId, {
+        version: 1,
+        chatId: chatIdRef.current,
+        assumedSiteId: assumedSiteIdRef.current,
+        messages: msgs.map((m) => ({ ...m, isStreaming: false }))
+      });
     };
   }, [siteId, agentId]);
 
@@ -2364,6 +2448,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     let streamHitTimeout = false;
 
     try {
+      let terminalStreamHadError = false;
       const streamPromise = streamChat({
         agentId,
         chatId,
@@ -2462,11 +2547,20 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
 
           if (mdStatus === 'intent-recipe-routing') {
             const tel = md.intentRecipeRouting;
-            const line = intentRoutingDisplayMarkdown(tel, rawTextChunk) || '';
-            if (line.trim()) {
+            const intentCard = parseIntentCardFromTelemetry(tel);
+            if (intentCard) {
               setMessages((prev) =>
-                prev.map((m) => (m.id === assistantId ? { ...m, intentRecipeLine: line.trimEnd() + '\n' } : m))
+                prev.map((m) => (m.id === assistantId ? { ...m, intentCard, intentRecipeLine: undefined } : m))
               );
+            } else {
+              const line = intentRoutingDisplayMarkdown(tel, rawTextChunk) || '';
+              if (line.trim()) {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId ? { ...m, intentRecipeLine: line.trimEnd() + '\n' } : m
+                  )
+                );
+              }
             }
             return;
           }
@@ -2637,6 +2731,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
           }
 
           if (streamErr && streamErrMsg) {
+            terminalStreamHadError = true;
             const errLine = '\n\n**Stream error:** ' + sanitizeErrorForAuthor(String(streamErrMsg));
             setMessages((prev) =>
               prev.map((m) => {
@@ -2741,7 +2836,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
           JSON.stringify({
             kind: 'client.streamOutcome',
             ts: new Date().toISOString(),
-            outcome: 'stream_finished_ok'
+            outcome: terminalStreamHadError ? 'stream_finished_with_error' : 'stream_finished_ok'
           })
         );
       } catch {
@@ -2937,7 +3032,22 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                   hint={m.pipelineHeartbeat.hint}
                 />
               ) : null}
-              {m.intentRecipeLine?.trim() ? (
+              {m.intentCard ? (
+                <Box
+                  sx={{
+                    mb: 1,
+                    py: 0.5,
+                    px: 1,
+                    borderRadius: 1,
+                    bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.50',
+                    border: `1px solid ${theme.palette.divider}`,
+                    fontSize: '0.875rem',
+                    lineHeight: 1.45
+                  }}
+                >
+                  <IntentCardMessage card={m.intentCard} />
+                </Box>
+              ) : m.intentRecipeLine?.trim() ? (
                 <Box
                   sx={{
                     mb: 1,
@@ -2990,6 +3100,32 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                       />
                     </Box>
                   ) : null}
+                  {(() => {
+                    const tailRawEarly = dedupeAssistantPostToolsMarkdown(m.assistantPreToolsText, m.text);
+                    const imageStripSourcesEarly = combineGeneratedImageSources(
+                      m.studioAiInlineImageUrls,
+                      tailRawEarly,
+                      siteId
+                    );
+                    const showGenImgPlaceholderEarly = shouldShowGenerateImagePlaceholder(
+                      m.toolProgressText,
+                      tailRawEarly,
+                      m.studioAiInlineImageUrls
+                    );
+                    return (
+                      <>
+                        {imageStripSourcesEarly.length ? (
+                          <AssistantChatGeneratedImages sources={imageStripSourcesEarly} />
+                        ) : null}
+                        {imageStripSourcesEarly.length ? (
+                          <GenerateImagePromptCaption prompt={m.generateImagePrompt} />
+                        ) : null}
+                        {!imageStripSourcesEarly.length && showGenImgPlaceholderEarly ? (
+                          <GenerateImageBlurredPlaceholder prompt={m.generateImagePrompt} />
+                        ) : null}
+                      </>
+                    );
+                  })()}
                   <ToolProgressScrollArea text={m.toolProgressText} />
                   {m.summarizingResults ? (
                     <Typography
@@ -3014,23 +3150,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                       imageStripSources
                     );
                     const mdUrls = imageStripSources.length ? undefined : m.studioAiInlineImageUrls;
-                    const showGenImgPlaceholder = shouldShowGenerateImagePlaceholder(
-                      m.toolProgressText,
-                      tailRaw,
-                      m.studioAiInlineImageUrls
-                    );
-                    return (
-                      <>
-                        {imageStripSources.length ? <AssistantChatGeneratedImages sources={imageStripSources} /> : null}
-                        {imageStripSources.length ? (
-                          <GenerateImagePromptCaption prompt={m.generateImagePrompt} />
-                        ) : null}
-                        {!imageStripSources.length && showGenImgPlaceholder ? (
-                          <GenerateImageBlurredPlaceholder prompt={m.generateImagePrompt} />
-                        ) : null}
-                        <MarkdownMessage text={tailDisplay} studioAiInlineImageUrls={mdUrls} />
-                      </>
-                    );
+                    return <MarkdownMessage text={tailDisplay} studioAiInlineImageUrls={mdUrls} />;
                   })()}
                   <AssistantPipelineTimingLine
                     wallMs={m.toolPipelineWallMs}
@@ -3040,6 +3160,32 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                 </>
               ) : (
                 <>
+                  {(() => {
+                    const tailRawEarly = dedupeAssistantPostToolsMarkdown(m.assistantPreToolsText, m.text);
+                    const imageStripSourcesEarly = combineGeneratedImageSources(
+                      m.studioAiInlineImageUrls,
+                      tailRawEarly,
+                      siteId
+                    );
+                    const showGenImgPlaceholderEarly = shouldShowGenerateImagePlaceholder(
+                      m.toolProgressText,
+                      tailRawEarly,
+                      m.studioAiInlineImageUrls
+                    );
+                    return (
+                      <>
+                        {imageStripSourcesEarly.length ? (
+                          <AssistantChatGeneratedImages sources={imageStripSourcesEarly} />
+                        ) : null}
+                        {imageStripSourcesEarly.length ? (
+                          <GenerateImagePromptCaption prompt={m.generateImagePrompt} />
+                        ) : null}
+                        {!imageStripSourcesEarly.length && showGenImgPlaceholderEarly ? (
+                          <GenerateImageBlurredPlaceholder prompt={m.generateImagePrompt} />
+                        ) : null}
+                      </>
+                    );
+                  })()}
                   {m.toolProgressText?.trim() ? (
                     <ToolProgressScrollArea text={m.toolProgressText} />
                   ) : null}
@@ -3066,23 +3212,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                       imageStripSources
                     );
                     const mdUrls = imageStripSources.length ? undefined : m.studioAiInlineImageUrls;
-                    const showGenImgPlaceholder = shouldShowGenerateImagePlaceholder(
-                      m.toolProgressText,
-                      tailRaw,
-                      m.studioAiInlineImageUrls
-                    );
-                    return (
-                      <>
-                        {imageStripSources.length ? <AssistantChatGeneratedImages sources={imageStripSources} /> : null}
-                        {imageStripSources.length ? (
-                          <GenerateImagePromptCaption prompt={m.generateImagePrompt} />
-                        ) : null}
-                        {!imageStripSources.length && showGenImgPlaceholder ? (
-                          <GenerateImageBlurredPlaceholder prompt={m.generateImagePrompt} />
-                        ) : null}
-                        <MarkdownMessage text={tailDisplay} studioAiInlineImageUrls={mdUrls} />
-                      </>
-                    );
+                    return <MarkdownMessage text={tailDisplay} studioAiInlineImageUrls={mdUrls} />;
                   })()}
                   <AssistantPipelineTimingLine
                     wallMs={m.toolPipelineWallMs}

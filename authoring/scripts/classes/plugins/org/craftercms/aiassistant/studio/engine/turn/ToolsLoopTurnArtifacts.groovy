@@ -2,6 +2,8 @@ package plugins.org.craftercms.aiassistant.studio.engine.turn
 
 import groovy.json.JsonSlurper
 
+import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.FormDefinitionCopyFieldPlan
+
 import java.util.ArrayList
 import java.util.LinkedHashMap
 import java.util.List
@@ -19,6 +21,8 @@ final class ToolsLoopTurnArtifacts {
   private static final String BUNDLE_KEY = 'toolsLoopTurnArtifacts'
   private static final int MAX_FIELD_CHARS = 480
   private static final int MAX_SNIPPET_CHARS = 600
+  private static final int RETRIEVED_EXCERPT_INJECTION_CHARS = 8_000
+  private static final int MIN_SUBSTANTIVE_RETRIEVED_CHARS = 250
 
   private ToolsLoopTurnArtifacts() {}
 
@@ -28,6 +32,7 @@ final class ToolsLoopTurnArtifacts {
       toolsLoopSessionBundle.remove('toolsLoopTurnArtifactsInjectedCount')
       toolsLoopSessionBundle.remove('toolsLoopStepBridgeArtifactEmitted')
       toolsLoopSessionBundle.remove('toolsLoopStepBridgeLastKey')
+      toolsLoopSessionBundle.remove('toolsLoopStatusFillerEmitted')
     }
   }
 
@@ -91,17 +96,35 @@ final class ToolsLoopTurnArtifacts {
     if (Boolean.FALSE.equals(m.get('ok')) && !'written'.equalsIgnoreCase(m.get('result')?.toString()?.trim())) {
       return
     }
-    Map artifact = buildArtifact(wireName.trim(), m, toolInputJson, parser)
+    Map artifact = buildArtifact(wireName.trim(), m, toolInputJson, parser, toolsLoopSessionBundle)
     if (artifact.isEmpty()) {
       return
     }
     List<Map> list = artifactsList(toolsLoopSessionBundle)
     list.add(artifact)
     toolsLoopSessionBundle.put(BUNDLE_KEY, list)
-    String salient = artifact.salientFact?.toString()?.trim()
-    if (salient && Boolean.TRUE.equals(artifact.usableExternalFact)) {
+    Map artFacts = artifact.facts instanceof Map ? (Map) artifact.facts : [:]
+    String excerpt = (artFacts.retrievedTextExcerpt ?: '').toString().trim()
+    if (excerpt.length() >= MIN_SUBSTANTIVE_RETRIEVED_CHARS) {
+      toolsLoopSessionBundle.toolsLoopRetrievedSourceExcerpt = excerpt
+      String srcUrl = (artFacts.fetchUrl ?: '').toString().trim()
+      if (srcUrl) {
+        toolsLoopSessionBundle.toolsLoopRetrievedSourceUrl = srcUrl
+      }
+      String srcTitle = (artFacts.pageTitle ?: '').toString().trim()
+      if (srcTitle) {
+        toolsLoopSessionBundle.toolsLoopRetrievedSourcePageTitle = srcTitle
+      }
+    }
+    if (Boolean.TRUE.equals(artifact.usableExternalFact)) {
       toolsLoopSessionBundle.toolsLoopUsableExternalFact = Boolean.TRUE
-      toolsLoopSessionBundle.toolsLoopLastSalientFact = salient
+      String salient = artifact.salientFact?.toString()?.trim()
+      if (!salient && excerpt.length() >= MIN_SUBSTANTIVE_RETRIEVED_CHARS) {
+        salient = cap(excerpt, MAX_FIELD_CHARS)
+      }
+      if (salient) {
+        toolsLoopSessionBundle.toolsLoopLastSalientFact = salient
+      }
     }
   }
 
@@ -116,12 +139,9 @@ final class ToolsLoopTurnArtifacts {
     StringBuilder sb = new StringBuilder()
     sb.append('[Studio — prior tool outputs this turn]\n')
     sb.append(
-      'Use the **factual data** below for subsequent tool calls (writes, updates, image generation). '
+      'Retrieved pages are **research** — extract facts for tools; write **original** copy per **[Studio — content field plan]** **Purpose** column. '
     )
-    sb.append(
-      'When a prior step returned concrete values, pass them forward — do **not** substitute generic placeholders '
-    )
-    sb.append('derived only from the author\'s routing words.\n\n')
+    sb.append('Do **not** paste source page titles or nav text into headline fields.\n\n')
     int i = 1
     for (Map art : list) {
       String tool = (art.tool ?: '').toString()
@@ -132,7 +152,7 @@ final class ToolsLoopTurnArtifacts {
       sb.append(i).append('. **').append(tool).append(':** ').append(line).append('\n')
       Map facts = art.facts instanceof Map ? (Map) art.facts : [:]
       if (facts.topSearchTitle) {
-        sb.append('   - headline: `').append(facts.topSearchTitle).append('`\n')
+        sb.append('   - search result title (candidate only): `').append(facts.topSearchTitle).append('`\n')
       }
       if (facts.topSearchSnippet) {
         sb.append('   - snippet: ').append(facts.topSearchSnippet).append('\n')
@@ -141,7 +161,7 @@ final class ToolsLoopTurnArtifacts {
         sb.append('   - source: `').append(facts.topSearchUrl).append('`\n')
       }
       if (facts.pageTitle) {
-        sb.append('   - pageTitle: `').append(facts.pageTitle).append('`\n')
+        sb.append('   - fetched page title (do not use as headline): `').append(facts.pageTitle).append('`\n')
       }
       if (facts.fetchUrl) {
         sb.append('   - fetched: `').append(facts.fetchUrl).append('`\n')
@@ -149,14 +169,16 @@ final class ToolsLoopTurnArtifacts {
       if (facts.repoPath) {
         sb.append('   - path: `').append(facts.repoPath).append('`\n')
       }
-      if (facts.title_t) {
-        sb.append('   - title_t: `').append(facts.title_t).append('`\n')
-      }
-      if (art.salientFact) {
+      appendCopyFieldSampleLines(sb, facts)
+      if (facts.retrievedTextExcerpt) {
+        sb.append('   - **retrieved excerpt (facts only — not paste-ready copy):**\n')
+        sb.append('     ```\n').append(facts.retrievedTextExcerpt).append('\n```\n')
+      } else if (art.salientFact) {
         sb.append('   - salientFact: **').append(art.salientFact).append('**\n')
       }
-      if (Boolean.TRUE.equals(facts.shallowUrl) || Boolean.TRUE.equals(facts.weakTitle)) {
-        sb.append('   - note: shallow or weak fetch — not verified for writes\n')
+      if ((Boolean.TRUE.equals(facts.shallowUrl) || Boolean.TRUE.equals(facts.weakTitle)) &&
+        ((facts.retrievedTextExcerpt?.toString()?.trim() ?: '').length() < MIN_SUBSTANTIVE_RETRIEVED_CHARS)) {
+        sb.append('   - note: fetch returned little usable text — try a deeper article URL\n')
       }
       if (facts.pageCopyHint) {
         sb.append('   - page copy hint: ').append(facts.pageCopyHint).append('\n')
@@ -167,10 +189,7 @@ final class ToolsLoopTurnArtifacts {
       i++
     }
     sb.append(
-      '\n**Chaining:** later tools must use the facts above in their arguments when this turn\'s plan depends on them.\n'
-    )
-    sb.append(
-      '**Search:** prefer titles/snippets from search tools — avoid **FetchHttpUrl** on every result URL unless the author named a specific page to read.\n'
+      '\n**Chaining:** for **WriteContent**, ground every copy field in **retrieved source** text above (or search snippets only when no fetch ran yet).\n'
     )
     return sb.toString()
   }
@@ -205,10 +224,10 @@ final class ToolsLoopTurnArtifacts {
       sb.append(n++).append('. **').append(tool).append('** — ').append(line).append('\n')
       Map facts = art.facts instanceof Map ? (Map) art.facts : [:]
       if (facts.topSearchTitle) {
-        sb.append('   - headline: `').append(facts.topSearchTitle).append('`\n')
+        sb.append('   - search result title (candidate only): `').append(facts.topSearchTitle).append('`\n')
       }
       if (facts.pageTitle) {
-        sb.append('   - pageTitle: `').append(facts.pageTitle).append('`\n')
+        sb.append('   - fetched page title (do not use as headline): `').append(facts.pageTitle).append('`\n')
       }
       if (facts.topSearchUrl) {
         sb.append('   - source: `').append(facts.topSearchUrl).append('`\n')
@@ -219,9 +238,7 @@ final class ToolsLoopTurnArtifacts {
       if (facts.repoPath) {
         sb.append('   - path: `').append(facts.repoPath).append('`\n')
       }
-      if (facts.title_t) {
-        sb.append('   - title: `').append(facts.title_t).append('`\n')
-      }
+      appendCopyFieldSampleLines(sb, facts)
       sb.append('\n')
     }
     if (n == 1) {
@@ -249,7 +266,13 @@ final class ToolsLoopTurnArtifacts {
     return list
   }
 
-  private static Map buildArtifact(String wireName, Map toolOut, String toolInputJson, JsonSlurper parser) {
+  private static Map buildArtifact(
+    String wireName,
+    Map toolOut,
+    String toolInputJson,
+    JsonSlurper parser,
+    Map toolsLoopSessionBundle = null
+  ) {
     Map art = new LinkedHashMap<>()
     art.tool = wireName
     Map facts = new LinkedHashMap<>()
@@ -275,13 +298,14 @@ final class ToolsLoopTurnArtifacts {
       if (path) {
         facts.repoPath = path
       }
-      String titleT = xmlFieldText(xml, 'title_t')
-      if (titleT) {
-        facts.title_t = cap(titleT, MAX_FIELD_CHARS)
+      Map<String, String> samples = extractCopyFieldSamples(xml, toolsLoopSessionBundle, 3)
+      if (!samples.isEmpty()) {
+        facts.copyFieldSamples = samples
       }
       summary = path ? ('Loaded `' + path + '`') : 'Loaded content item'
-      if (titleT) {
-        summary += ' (current title_t: "' + cap(titleT, 120) + '")'
+      String headlinePreview = headlineSampleLabel(samples, toolsLoopSessionBundle)
+      if (headlinePreview) {
+        summary += ' (current ' + headlinePreview + ')'
       }
     } else if ('update_content'.equals(wireName)) {
       String path = (toolOut.path ?: toolOut.contentPath ?: '').toString().trim()
@@ -290,7 +314,7 @@ final class ToolsLoopTurnArtifacts {
         facts.repoPath = path
       }
       if (xml?.trim()) {
-        facts.pageCopyHint = cap(extractPlainTextHints(xml), MAX_SNIPPET_CHARS)
+        facts.pageCopyHint = cap(extractPlainTextHints(xml, toolsLoopSessionBundle), MAX_SNIPPET_CHARS)
       }
       summary = path ? ('Prepared update for `' + path + '`') : 'Prepared content update'
       String hint = facts.pageCopyHint?.toString()?.trim()
@@ -328,10 +352,13 @@ final class ToolsLoopTurnArtifacts {
         url = (toolOut.url ?: '').toString().trim()
       }
       String body = (toolOut.body ?: '').toString()
+      String excerpt = AuthoringFetchedPageFacts.plainTextExcerpt(body, RETRIEVED_EXCERPT_INJECTION_CHARS)
       Map extracted = AuthoringFetchedPageFacts.extract(body, url)
-      String primary = AuthoringFetchedPageFacts.extractPrimaryFact(body, url)
       if (url) {
         facts.fetchUrl = cap(url, MAX_FIELD_CHARS)
+      }
+      if (excerpt) {
+        facts.retrievedTextExcerpt = excerpt
       }
       if (extracted.pageTitle) {
         facts.pageTitle = cap((extracted.pageTitle ?: '').toString(), MAX_FIELD_CHARS)
@@ -342,14 +369,16 @@ final class ToolsLoopTurnArtifacts {
       if (Boolean.TRUE.equals(extracted.weakTitle)) {
         facts.weakTitle = Boolean.TRUE
       }
-      if (primary) {
-        art.salientFact = cap(primary, MAX_FIELD_CHARS)
+      if (excerpt.length() >= MIN_SUBSTANTIVE_RETRIEVED_CHARS) {
         art.usableExternalFact = Boolean.TRUE
-        summary = 'Fetched: **' + cap(primary, 120) + '**'
-      } else if (Boolean.TRUE.equals(facts.shallowUrl) || Boolean.TRUE.equals(facts.weakTitle)) {
-        summary = 'Fetched shallow URL — no specific fact extracted; fetch a deeper URL before writes.'
+        art.salientFact = cap(excerpt, MAX_FIELD_CHARS)
+        summary = url ?
+          ('Retrieved **' + excerpt.length() + '** chars from `' + cap(url, 100) + '` — use for **facts**, write original copy per field plan') :
+          ('Retrieved **' + excerpt.length() + '** chars — use for **facts**, write original copy per field plan')
       } else {
-        summary = url ? ('Fetched `' + cap(url, 100) + '`') : 'Fetched URL body'
+        summary = url ?
+          ('Fetched `' + cap(url, 100) + '` but body text was too short — try a specific article URL') :
+          'Fetched URL but body text was too short'
       }
     }
 
@@ -403,19 +432,78 @@ final class ToolsLoopTurnArtifacts {
     return ''
   }
 
-  private static String extractPlainTextHints(String xml) {
+  private static void appendCopyFieldSampleLines(StringBuilder sb, Map facts) {
+    if (!(facts instanceof Map) || !(facts.copyFieldSamples instanceof Map)) {
+      return
+    }
+    Map samples = (Map) facts.copyFieldSamples
+    for (Map.Entry entry : samples.entrySet()) {
+      String fieldId = entry.key?.toString()?.trim() ?: ''
+      String value = entry.value?.toString()?.trim() ?: ''
+      if (fieldId && value) {
+        sb.append('   - `').append(fieldId).append('`: `').append(value).append('`\n')
+      }
+    }
+  }
+
+  /** Sample values for copy fields listed on the session plan — no hardcoded field ids. */
+  private static Map<String, String> extractCopyFieldSamples(
+    String xml,
+    Map toolsLoopSessionBundle,
+    int maxSamples = 3
+  ) {
+    Map<String, String> out = new LinkedHashMap<>()
     if (!xml?.trim()) {
+      return out
+    }
+    List<Map> copyFields = FormDefinitionCopyFieldPlan.copyFieldsFromBundle(toolsLoopSessionBundle)
+    if (copyFields.isEmpty()) {
+      return out
+    }
+    for (Map cf : copyFields) {
+      String fieldId = (cf.fieldId ?: '').toString().trim()
+      if (!fieldId) {
+        continue
+      }
+      String t = xmlFieldText(xml, fieldId)
+      if (t?.trim()) {
+        out.put(fieldId, cap(stripHtml(t), MAX_FIELD_CHARS))
+      }
+      if (out.size() >= maxSamples) {
+        break
+      }
+    }
+    return out
+  }
+
+  private static String headlineSampleLabel(Map<String, String> samples, Map toolsLoopSessionBundle) {
+    if (!(samples instanceof Map) || samples.isEmpty()) {
+      return ''
+    }
+    List<Map> copyFields = FormDefinitionCopyFieldPlan.copyFieldsFromBundle(toolsLoopSessionBundle)
+    for (Map cf : copyFields) {
+      if (!'original-headline'.equals((cf.writePolicy ?: '').toString().trim())) {
+        continue
+      }
+      String fieldId = (cf.fieldId ?: '').toString().trim()
+      String value = samples.get(fieldId)?.toString()?.trim()
+      if (fieldId && value) {
+        String label = (cf.fieldTitle ?: fieldId).toString().trim()
+        return label + ' (`' + fieldId + '`): "' + cap(value, 120) + '"'
+      }
+    }
+    Map.Entry first = samples.entrySet().iterator().next()
+    return '`' + first.key + '`: "' + cap(first.value?.toString(), 120) + '"'
+  }
+
+  private static String extractPlainTextHints(String xml, Map toolsLoopSessionBundle) {
+    Map<String, String> samples = extractCopyFieldSamples(xml, toolsLoopSessionBundle, 3)
+    if (samples.isEmpty()) {
       return ''
     }
     List<String> parts = []
-    for (String fieldId : ['hero_title_html', 'hero_text_html', 'title_t', 'body_html', 'description_html']) {
-      String t = xmlFieldText(xml, fieldId)
-      if (t?.trim()) {
-        parts.add(fieldId + ': ' + cap(stripHtml(t), 200))
-      }
-      if (parts.size() >= 3) {
-        break
-      }
+    for (Map.Entry entry : samples.entrySet()) {
+      parts.add(entry.key + ': ' + cap(entry.value?.toString(), 200))
     }
     return parts.join('; ')
   }

@@ -136,12 +136,28 @@ private CmsWriteContent() {}
     }
     Document baselineDoc
     Document proposedDoc
+    String proposedForParse = proposedXmlUtf8.toString()
     try {
       baselineDoc = newHardenedSaxReader().read(new StringReader(baselineXml.toString()))
-      proposedDoc = newHardenedSaxReader().read(new StringReader(proposedXmlUtf8.toString()))
     } catch (Throwable t) {
-      log.debug('reconcileExistingItemWithBaseline: parse failed path={}: {}', normalizedRepoPath, t.message)
+      log.debug('reconcileExistingItemWithBaseline: baseline parse failed path={}: {}', normalizedRepoPath, t.message)
       return proposedXmlUtf8
+    }
+    try {
+      proposedDoc = newHardenedSaxReader().read(new StringReader(proposedForParse))
+    } catch (Throwable t) {
+      String strippedProposed = stripUnknownRootElementsFromContentXml(ops, siteId, normalizedRepoPath, proposedForParse)
+      if (!strippedProposed?.trim() || strippedProposed.equals(proposedForParse)) {
+        log.debug('reconcileExistingItemWithBaseline: proposed parse failed path={}: {}', normalizedRepoPath, t.message)
+        return proposedXmlUtf8
+      }
+      try {
+        proposedDoc = newHardenedSaxReader().read(new StringReader(strippedProposed))
+        proposedForParse = strippedProposed
+      } catch (Throwable t2) {
+        log.debug('reconcileExistingItemWithBaseline: proposed parse failed after strip path={}: {}', normalizedRepoPath, t2.message)
+        return proposedXmlUtf8
+      }
     }
     Element baseRoot = baselineDoc?.getRootElement()
     Element propRoot = proposedDoc?.getRootElement()
@@ -153,6 +169,7 @@ private CmsWriteContent() {}
         plan.formFieldIds instanceof List ? (List) plan.formFieldIds : []
       )
     )
+    Set<String> imagePickerFieldIds = topLevelImagePickerFieldIdsFromFormXml(formXml)
     List<String> overlays = []
     List<String> dropped = []
     for (Element propChild : (List<Element>) propRoot.elements()) {
@@ -173,6 +190,17 @@ private CmsWriteContent() {}
       if (!shouldOverlayProposedField(propChild, name)) {
         continue
       }
+      if (imagePickerFieldIds.contains(name)) {
+        String proposedImg = elementTextTrim(propChild)
+        if (proposedImg && !isUsableImagePickerRepoPath(ops, siteId, proposedImg)) {
+          log.info(
+            'reconcileExistingItemWithBaseline: skip invalid image-picker overlay field={} proposed={}',
+            name,
+            proposedImg
+          )
+          continue
+        }
+      }
       Element existing = baseRoot.element(name)
       if (existing != null) {
         baseRoot.remove(existing)
@@ -180,7 +208,10 @@ private CmsWriteContent() {}
       baseRoot.add((Element) propChild.clone())
       overlays.add(name)
     }
-    List<String> stripped = []
+    List<String> stripped = FormDefinitionWriteContentValidator.stripUnknownRootElements(
+      baseRoot,
+      plan.formFieldIds instanceof List ? (List) plan.formFieldIds : []
+    )
     if (!overlays.isEmpty() || !dropped.isEmpty() || !stripped.isEmpty()) {
       log.info(
         'reconcileExistingItemWithBaseline: path={} overlays={} droppedUnknown={} stripped={}',
@@ -191,6 +222,68 @@ private CmsWriteContent() {}
       )
     }
     return baselineDoc.asXML()
+  }
+
+  /**
+   * Removes root-level elements invented by the model (e.g. {@code orderDefault_f}) that are not in the
+   * content-type form definition or Crafter structural envelope.
+   */
+  static String stripUnknownRootElementsFromContentXml(
+    StudioToolOperations ops,
+    String siteId,
+    String normalizedRepoPath,
+    String xmlUtf8
+  ) {
+    if (!xmlUtf8?.trim() || !normalizedRepoPath?.startsWith('/site/')) {
+      return xmlUtf8
+    }
+    String contentTypeId = extractContentTypeIdFromItemXml(xmlUtf8)
+    if (!contentTypeId?.trim()) {
+      return xmlUtf8
+    }
+    if (!contentTypeId.startsWith('/')) {
+      contentTypeId = "/${contentTypeId}"
+    }
+    String formXml = ''
+    if (ops && siteId?.trim()) {
+      String cfgPath = "/content-types${contentTypeId}/form-definition.xml"
+      try {
+        formXml = ops.configurationServiceBean.getConfigurationAsString(siteId, 'studio', cfgPath, '')
+      } catch (Throwable t) {
+        log.debug('stripUnknownRootElementsFromContentXml: form load failed {}: {}', cfgPath, t.message)
+      }
+    }
+    if (!formXml?.trim()) {
+      return xmlUtf8
+    }
+    Map plan = FormDefinitionWriteContentValidator.buildValidationPlan(formXml.toString()) as Map
+    if (!FormDefinitionWriteContentValidator.planIsActionable(plan)) {
+      return xmlUtf8
+    }
+    try {
+      Document doc = newHardenedSaxReader().read(new StringReader(xmlUtf8.toString()))
+      Element root = doc?.getRootElement()
+      if (root == null) {
+        return xmlUtf8
+      }
+      List<String> removed = FormDefinitionWriteContentValidator.stripUnknownRootElements(
+        root,
+        plan.formFieldIds instanceof List ? (List) plan.formFieldIds : []
+      )
+      if (removed.isEmpty()) {
+        return xmlUtf8
+      }
+      log.info(
+        'stripUnknownRootElementsFromContentXml: path={} contentType={} removed={}',
+        normalizedRepoPath,
+        contentTypeId,
+        removed
+      )
+      return doc.asXML()
+    } catch (Throwable t) {
+      log.debug('stripUnknownRootElementsFromContentXml: parse failed path={}: {}', normalizedRepoPath, t.message)
+      return xmlUtf8
+    }
   }
 
   private static boolean proposedCollectionFieldHasUsableContent(Element fieldEl) {
@@ -246,6 +339,30 @@ private CmsWriteContent() {}
       }
     }
     return false
+  }
+
+  /**
+   * True when an image-picker value is a real repo asset, inline ref, or Studio placeholder data URL.
+   */
+  static boolean isUsableImagePickerRepoPath(StudioToolOperations ops, String siteId, String path) {
+    String p = (path ?: '').trim()
+    if (!p) {
+      return false
+    }
+    String lower = p.toLowerCase(Locale.ROOT)
+    if (lower.startsWith('http://') || lower.startsWith('https://')) {
+      return false
+    }
+    if (lower.startsWith('studio-ai-inline-image://')) {
+      return false
+    }
+    if (p.startsWith('data:image')) {
+      return true
+    }
+    if (!p.startsWith('/static-assets/')) {
+      return false
+    }
+    return CmsContentExists.existsAtPath(ops, siteId, p)
   }
 
   /**
@@ -311,7 +428,10 @@ private CmsWriteContent() {}
     if (!xmlBodyContainsCrafterItemRootElement(t)) {
       return false
     }
-    if (!t.contains('<content-type>') && !t.contains('<file-name>') && !t.contains('<merge-strategy>')) {
+    if (!t.contains('<content-type>')) {
+      return false
+    }
+    if (!t.contains('<file-name>') && !t.contains('<merge-strategy>')) {
       return false
     }
     return true
@@ -341,7 +461,7 @@ private CmsWriteContent() {}
         )
       }
       throw new IllegalArgumentException(
-        "contentXml for '${pathLabel}' is missing typical Crafter item markers (<content-type>, <file-name>, or <merge-strategy>). " +
+        "contentXml for '${pathLabel}' is missing typical Crafter item markers (<content-type> is required; also expect <file-name> and <merge-strategy>). " +
           'Refusing to write — use ContentExists on the path; if exists=false this is a new item (GetContent on an existing sibling for shape, not this path); if exists=true, GetContent and send the full item XML.'
       )
     }
@@ -1020,6 +1140,53 @@ private CmsWriteContent() {}
     anyCheckboxFill ? itemDoc.asXML() : xmlUtf8
   }
 
+  /** Top-level {@code image-picker} field ids from a form-definition (not nested under {@code repeat}). */
+  private static Set<String> topLevelImagePickerFieldIdsFromFormXml(String formXml) {
+    Set<String> out = new LinkedHashSet<>()
+    if (!formXml?.trim()) {
+      return out
+    }
+    try {
+      Document formDoc = newHardenedSaxReader().read(new StringReader(formXml.toString()))
+      List<Map> pickers = []
+      collectTopLevelImagePickers(formDoc.rootElement, false, pickers)
+      for (Map row : pickers) {
+        String id = (row.id ?: '').toString().trim()
+        if (id) {
+          out.add(id)
+        }
+      }
+    } catch (Throwable ignored) {
+    }
+    return out
+  }
+
+  private static void collectTopLevelImagePickers(Element el, boolean insideRepeat, List<Map> sink) {
+    if (el == null || sink == null) {
+      return
+    }
+    boolean isField = 'field'.equals(el.getQName().getName())
+    if (!isField) {
+      el.elements().each { collectTopLevelImagePickers(it, insideRepeat, sink) }
+      return
+    }
+    String t = el.elementTextTrim('type')
+    if ('repeat'.equals(t)) {
+      Element fields = el.element('fields')
+      if (fields != null) {
+        fields.elements().each { collectTopLevelImagePickers(it, true, sink) }
+      }
+      return
+    }
+    if (!insideRepeat && 'image-picker'.equals(t) && !formFieldImagePickerReadOnly(el)) {
+      String fid = el.elementTextTrim('id')
+      if (fid) {
+        sink.add([id: fid])
+      }
+    }
+    el.elements().each { collectTopLevelImagePickers(it, insideRepeat, sink) }
+  }
+
   /**
    * Collects required {@code image-picker} fields not nested under a {@code repeat} (same flat root shape as page/component XML).
    */
@@ -1153,19 +1320,20 @@ private CmsWriteContent() {}
   }
   /**
    * Refuses contentXml that omits form-definition fields (required, minSize, or missing elements).
+   * @return the same or repaired {@code xmlUtf8} when unknown root elements were stripped successfully
    */
-  private static void assertFormDefinitionFieldCompliance(
+  private static String assertFormDefinitionFieldCompliance(
     StudioToolOperations ops,
     String siteId,
     String normalizedRepoPath,
     String xmlUtf8
   ) {
     if (!ops || !xmlUtf8?.trim() || !normalizedRepoPath?.startsWith('/site/')) {
-      return
+      return xmlUtf8
     }
     String ct = extractContentTypeIdFromItemXml(xmlUtf8)
     if (!ct?.trim()) {
-      return
+      return xmlUtf8
     }
     String contentTypeId = ct.trim()
     if (!contentTypeId.startsWith('/')) {
@@ -1177,18 +1345,31 @@ private CmsWriteContent() {}
       formXml = ops.configurationServiceBean.getConfigurationAsString(siteId, 'studio', cfgPath, '')
     } catch (Throwable t) {
       log.debug('assertFormDefinitionFieldCompliance: could not load form {}: {}', cfgPath, t.message)
-      return
+      return xmlUtf8
     }
     if (!formXml?.trim()) {
-      return
+      return xmlUtf8
     }
     Map plan = FormDefinitionWriteContentValidator.buildValidationPlan(formXml.toString()) as Map
     if (!FormDefinitionWriteContentValidator.planIsActionable(plan)) {
-      return
+      return xmlUtf8
     }
     Map validation = FormDefinitionWriteContentValidator.validate(xmlUtf8, plan, normalizedRepoPath) as Map
     if (Boolean.TRUE.equals(validation?.get('ok'))) {
-      return
+      return xmlUtf8
+    }
+    String strippedXml = stripUnknownRootElementsFromContentXml(ops, siteId, normalizedRepoPath, xmlUtf8)
+    if (strippedXml?.trim() && !strippedXml.equals(xmlUtf8)) {
+      Map revalidation = FormDefinitionWriteContentValidator.validate(strippedXml, plan, normalizedRepoPath) as Map
+      if (Boolean.TRUE.equals(revalidation?.get('ok'))) {
+        log.info(
+          'assertFormDefinitionFieldCompliance: stripped unknown root elements before write path={}',
+          normalizedRepoPath
+        )
+        return strippedXml
+      }
+      validation = revalidation
+      xmlUtf8 = strippedXml
     }
     List<String> errors = []
     Object errObj = validation?.get('errors')
@@ -1261,6 +1442,13 @@ private CmsWriteContent() {}
         body = withCb
       }
     } catch (Throwable ignored) {
+    }
+    try {
+      String stripped = stripUnknownRootElementsFromContentXml(ops, siteId, normalizedRepoPath, body)
+      if (stripped != null) {
+        body = stripped
+      }
+    } catch (Throwable ignoredStrip) {
     }
     return body
   }
@@ -1491,17 +1679,6 @@ private CmsWriteContent() {}
       return out
     }
     Set<String> allowed = new LinkedHashSet<>(formFieldIds ?: [])
-    for (String guess : ['body', 'body_html', 'content', 'content_html', 'text', 'title', 'description']) {
-      if (allowed.contains(guess) || FormDefinitionWriteContentValidator.isStructuralEnvelopeElement(guess)) {
-        continue
-      }
-      String text = elementTextTrim(root, guess)
-      if (text) {
-        out.elementName = guess
-        out.content = text
-        return out
-      }
-    }
     for (Element child : root.elements()) {
       String name = child?.name
       if (!name || allowed.contains(name) || FormDefinitionWriteContentValidator.isStructuralEnvelopeElement(name)) {
@@ -1618,7 +1795,7 @@ private CmsWriteContent() {}
         assertWriteContentRepositoryPathRules(normalized)
         assertInternalNameInContentXml(normalized, safeBody)
         assertWellFormedUtf8Xml(normalized, safeBody)
-        assertFormDefinitionFieldCompliance(ops, siteId, normalized, safeBody)
+        safeBody = assertFormDefinitionFieldCompliance(ops, siteId, normalized, safeBody)
       }
       byte[] bytes = safeBody.getBytes(StandardCharsets.UTF_8)
       boolean unlockAfterWrite = !(unlock != null && unlock.toString().equalsIgnoreCase('false'))

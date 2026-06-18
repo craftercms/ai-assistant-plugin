@@ -4,11 +4,8 @@ import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import plugins.org.craftercms.aiassistant.studio.engine.context.AuthoringPreviewContext
-import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.CmsGetContent
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.CmsContentVersionHistory
 import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.CmsRepositorySupport
-import java.util.Locale
-import java.util.regex.Pattern
 /** CMS tool implementation extracted from StudioToolOperations. */
 final class CmsRevertChange {
 
@@ -18,56 +15,6 @@ final class CmsRevertChange {
    * Private constructor; not for direct use.
    */
 private CmsRevertChange() {}
-  /**
-   * Extracts xml field rough plain text from repository XML or related text.
-   * @param contentXml Caller-supplied input.
-   * @param fieldId Identifier for the target resource.
-   * @return Text result, or empty or null when unavailable.
-   */
-  private static String extractXmlFieldRoughPlainText(String contentXml, String fieldId) {
-    if (!contentXml?.trim() || !fieldId?.trim()) {
-      return ''
-    }
-    String tagQuoted = Pattern.quote(fieldId.trim())
-    def mCdata = (contentXml =~ "(?is)<${tagQuoted}>\\s*<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>\\s*</${tagQuoted}>")
-    if (mCdata.find()) {
-      return roughPlainTextFromHtml(mCdata.group(1))
-    }
-    def mEsc = (contentXml =~ "(?is)<${tagQuoted}>([\\s\\S]*?)</${tagQuoted}>")
-    if (mEsc.find()) {
-      return roughPlainTextFromHtml(mEsc.group(1))
-    }
-    return ''
-  }
-
-  /**
-   * Removes tags with regex then collapses whitespace.
-   * Decodes a handful of HTML entities.
-   * Produces comparable plain text for substring searches.
-   */
-  private static String roughPlainTextFromHtml(String html) {
-    if (!html?.trim()) {
-      return ''
-    }
-    return html
-      .replaceAll('(?is)<script[^>]*>[\\s\\S]*?</script>', ' ')
-      .replaceAll('(?is)<style[^>]*>[\\s\\S]*?</style>', ' ')
-      .replaceAll('<[^>]+>', ' ')
-      .replaceAll('\\s+', ' ')
-      .trim()
-  }
-
-  /**
-   * Lowercases both operands using ROOT locale.
-   * Handles blank needles gracefully.
-   * Feeds guard rails comparing author-supplied snippets.
-   */
-  private static boolean plainTextContainsIgnoreCase(String haystackPlain, String needle) {
-    if (!needle?.trim() || !haystackPlain) {
-      return false
-    }
-    return haystackPlain.toLowerCase(Locale.ROOT).contains(needle.trim().toLowerCase(Locale.ROOT))
-  }
 
   /**
    * Revert item.
@@ -181,7 +128,7 @@ private CmsRevertChange() {}
     }
     if (revertToPrevious) {
       if (!contentContains.isEmpty()) {
-        String matched = matchContentVersion(
+        String matched = CmsFindContentVersion.matchNewestByContentContains(
           ops, siteId, normalized, contentContains, contentFieldId ?: null
         )
         if (matched) {
@@ -202,71 +149,19 @@ private CmsRevertChange() {}
 
   /**
    * Newest revertible history entry whose XML (optionally one field) contains every snippet (case-insensitive).
-   * Uses {@link #getContent} with each {@code versionNumber} as ref when Studio accepts it.
+   * Delegates to {@link CmsFindContentVersion}.
    */
-  static String matchContentVersion(StudioToolOperations ops, 
+  static String matchContentVersion(
+    StudioToolOperations ops,
     String siteId,
     String path,
     List<String> mustContainSnippets,
     String fieldId = null,
     int maxScan = 40
   ) {
-    ops.runWithStudioSecurity {
-      siteId = ops.resolveEffectiveSiteId(siteId)
-      def normalized = CmsRepositorySupport.normalizeLeadingSlash(path, 'path')
-      List<String> snippets = []
-      for (def sn : (mustContainSnippets ?: [])) {
-        String t = (sn ?: '').toString().trim()
-        if (t) {
-          snippets.add(t)
-        }
-      }
-      if (snippets.isEmpty()) {
-        return null
-      }
-      List history = CmsContentVersionHistory.list(ops, siteId, normalized)
-      if (history == null || history.isEmpty()) {
-        return null
-      }
-      int limit = Math.min(history.size(), Math.max(1, maxScan))
-      for (int i = 0; i < limit; i++) {
-        def e = history[i]
-        if (e == null || e.revertible == false) {
-          continue
-        }
-        String vn = e.versionNumber?.toString()?.trim()
-        if (!vn) {
-          continue
-        }
-        String xml = ''
-        try {
-          Map item = CmsGetContent.read(ops, siteId, normalized, vn) as Map
-          xml = (item?.contentXml ?: '').toString()
-        } catch (Throwable ignored) {
-          continue
-        }
-        if (!xml?.trim()) {
-          continue
-        }
-        String plain = fieldId?.trim() ?
-          extractXmlFieldRoughPlainText(xml, fieldId.trim()) :
-          roughPlainTextFromHtml(xml)
-        if (!plain) {
-          continue
-        }
-        boolean allMatch = true
-        for (String snip : snippets) {
-          if (!plainTextContainsIgnoreCase(plain, snip)) {
-            allMatch = false
-            break
-          }
-        }
-        if (allMatch) {
-          return vn
-        }
-      }
-      return null
-    }
+    return CmsFindContentVersion.matchNewestByContentContains(
+      ops, siteId, path, mustContainSnippets, fieldId, maxScan
+    )
   }
 
 }

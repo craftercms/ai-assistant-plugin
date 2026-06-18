@@ -68,6 +68,7 @@
       "cmsAuthoring": [
         "new_content_item",
         "modify_page_content",
+        "restore_fields_from_version",
         "translate_content_item",
         "revert_content_version",
         "generate_image",
@@ -84,8 +85,9 @@
     "site_content_research",
     "llm_research",
     "open_page_inquiry",
-    "modify_page_content",
-    "revert_content_version",
+      "modify_page_content",
+      "restore_fields_from_version",
+      "revert_content_version",
     "generate_image",
     "template_display_change",
     "publish_site",
@@ -331,7 +333,15 @@
         "headlines",
         "breaking news",
         "search the web",
-        "look up the latest"
+        "look up the latest",
+        "didn't ask you to change",
+        "did not ask you to change",
+        "revert the copy",
+        "previous copy",
+        "put back the image",
+        "wrong photo",
+        "re-insert",
+        "don't want a new image"
       ],
       "phases": {
         "context": {
@@ -365,39 +375,111 @@
         "confirmation": [
           "When an Engine preview URL exists, use GetPreviewHtml after substantive writes affecting rendered output."
         ]
-      }
+      },
+      "toolsLoopRequireSuccessfulTools": [
+        "WriteContent"
+      ]
+    },
+    {
+      "id": "restore_fields_from_version",
+      "title": "Restore fields from version history",
+      "chatEmoji": "\ud83d\udd70\ufe0f",
+      "description": "Author wants specific fields (copy, hero image) restored from a prior Studio version without rolling back the entire item. Use FindContentVersion or GetContentVersionHistory, CompareContentVersions optional, GetContent at versionNumber, merge fields into HEAD, WriteContent.",
+      "matchHints": [
+        "restore copy",
+        "previous copy",
+        "put back the copy",
+        "put back the image",
+        "put the image back",
+        "look up previous",
+        "from version history",
+        "revert the copy",
+        "revert copy",
+        "wrong photo",
+        "wrong image",
+        "previous image",
+        "re-insert",
+        "reinsert",
+        "didn't ask you to change"
+      ],
+      "dontMatchHints": [
+        "revert the page",
+        "revert this page",
+        "revert the item",
+        "undo the page",
+        "roll back the page",
+        "summarize",
+        "summary",
+        "latest news",
+        "headlines",
+        "breaking news",
+        "search the web",
+        "look up the latest"
+      ],
+      "toolsLoopExcludeTools": [
+        "revert_change",
+        "GenerateImage"
+      ],
+      "phases": {
+        "context": [
+          "Confirm siteId and anchored repository path. Call FindContentVersion (contentContains, imagePathContains, or field criteria) or GetContentVersionHistory to pick versionNumber. Optionally CompareContentVersions (HEAD vs version) to show what changed."
+        ],
+        "action": [
+          "GetContent with commitRef set to the target versionNumber to read historical XML. GetContent on HEAD for current XML. Merge only the requested fields (e.g. hero_title_html, hero_text_html, title_t, hero_image_s) from history into current. WriteContent the merged full item. Do NOT call revert_change. When restoring a prior image, reuse hero_image_s from history or a known repositoryPath from earlier GenerateImage — do NOT call GenerateImage."
+        ],
+        "confirmation": [
+          "GetPreviewHtml after WriteContent when a preview URL exists. Do not claim success on HTTP 500."
+        ]
+      },
+      "toolsLoopRequireSuccessfulTools": [
+        "WriteContent"
+      ]
     },
     {
       "id": "revert_content_version",
-      "title": "Revert to previous version",
+      "title": "Revert entire item to previous version",
       "chatEmoji": "\u21a9\ufe0f",
+      "description": "Author wants the **entire** content item rolled back via revert_change. Not for restoring only copy or an image field — use restore_fields_from_version instead.",
       "matchHints": [
-        "revert",
-        "undo",
-        "rollback",
-        "restore version",
-        "previous version"
+        "revert the page",
+        "revert this page",
+        "revert the item",
+        "undo the page",
+        "roll back the page",
+        "rollback the page",
+        "restore the whole page",
+        "revert everything"
       ],
       "dontMatchHints": [
+        "revert the copy",
+        "revert copy",
+        "previous copy",
+        "put back the copy",
+        "put back the image",
+        "wrong photo",
+        "wrong image",
+        "re-insert",
+        "don't revert the page",
+        "do not revert the page",
+        "just look up",
+        "didn't ask you to change",
         "summarize",
         "summary",
         "describe",
         "explain",
-        "what is this page",
-        "tell me about",
         "draft",
         "blog",
         "news"
       ],
       "phases": {
         "context": [
-          "Confirm siteId and anchored repository path from Studio context."
+          "Confirm siteId and anchored repository path. Call GetContentVersionHistory."
         ],
         "action": [
-          "Use revert_change on the anchored /site/.../*.xml item when the author wants to roll back."
+          "Use revert_change only for a full-item rollback. For copy-only or image-only restore, use GetContentVersionHistory → GetContent(version) → merge → WriteContent instead."
         ],
         "confirmation": [
-          "Summarize the reverted version from the tool result."
+          "GetPreviewHtml after revert when a preview URL exists. Do not claim success on HTTP 500."
         ]
       }
     },

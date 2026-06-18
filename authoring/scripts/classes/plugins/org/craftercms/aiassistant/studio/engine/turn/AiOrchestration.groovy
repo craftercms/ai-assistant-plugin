@@ -20,6 +20,7 @@ import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.Autho
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentRecipePlanCompiler
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringTurnGoal
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentCard
+import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentExecutionPlan
 import plugins.org.craftercms.aiassistant.studio.engine.turn.chatcompletions.ChatCompletionsToolWire
 import plugins.org.craftercms.aiassistant.studio.engine.turn.chatcompletions.GeneratedImageCmsPersistence
 import plugins.org.craftercms.aiassistant.studio.engine.catalog.AiOrchestrationTools
@@ -139,6 +140,10 @@ class AiOrchestration {
    */
   /** Cap for tools-loop {@code /v1/chat/completions} JSON body size (any tools-loop vendor). */
   private static final int NATIVE_TOOLS_WIRE_JSON_MAX_CHARS = 36_000
+  /** Max rendered HTML chars kept on the tools-loop wire per GetPreviewHtml result. */
+  private static final int GET_PREVIEW_HTML_WIRE_MAX_HTML_CHARS = 10_000
+  /** After this many successful preview fetches in one turn, stop further verification rounds. */
+  private static final int GET_PREVIEW_HTML_MAX_FETCHES_PER_TURN = 2
 
   /** Consecutive tool-only LLM rounds before injecting a stall-guard user message. */
   private static final int TOOLS_LOOP_STALL_GUARD_FIRST_ROUND = 10
@@ -629,7 +634,7 @@ class AiOrchestration {
     return '''[FORM-ENGINE — CLIENT FIELD APPLY — READ FIRST]
 The author is in Studio's **legacy content form**. When the UI attaches **Current Studio content form**, it sends **metadata only** (content type, path, field ids, linked paths, model keys) — **not** full XML/JSON bodies. **GetContent** / **update_content** read the **git** copy; unsaved form edits are **not** inlined in the prompt — use **GetContent** after Save for repo truth, or return **`aiassistantFormFieldUpdates`** from visible task + ids when the author expects client-side apply without Save.
 
-**Content-changing requests** (translate, localize, rephrase, rewrite, fix grammar, shorten, expand, fill, update, change tone, write copy, etc.) mean **field values and item XML** — not FreeMarker templates, scripts, or other **code** unless the author explicitly asked for those. If the author updates **this page** / **the page** in preview **without** naming a single block, they mean **the page file and every referenced component** that shows copy (`sections_o`, `header_o` / `footer_o` / `left_rail_o`, etc.) — not the page item alone; apply or output updates for each path that holds visible text.
+**Content-changing requests** (translate, localize, rephrase, rewrite, fix grammar, shorten, expand, fill, update, change tone, write copy, etc.) mean **field values and item XML** — not FreeMarker templates, scripts, or other **code** unless the author explicitly asked for those. If the author updates **this page** / **the page** in preview **without** naming a single block, they mean **the page file and every referenced content item** linked via **node-selector** fields on that page — not the page item alone; apply or output updates for each repository path that holds visible copy.
 1) **Do the work** in the target language or style. **End your reply** with a Markdown **```json** fenced block containing ONLY valid JSON of the form: {"aiassistantFormFieldUpdates":{"field_id":"new value",...}} using **exact** field element names from the form definition / XML in the prompt. List **every** field you changed. HTML/RTE fields: string values may include markup.
 2) **Forbidden:** Generic CrafterCMS tutorials ("Access the Content Item", "Translation Configuration", "add a language", "click Save", workflow documentation), MCP/plugin commands, or refusing to translate when you can output the target language. A short intro sentence is OK; the **JSON block is mandatory** for these requests.
 
@@ -2339,6 +2344,15 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       (low =~ /(?is)\b(hero\s+title|page\s+title|field)\b/).find()) {
       return true
     }
+    if ((low =~ /(?is)\b(be\s+)?about\s+(the\s+)?(latest|recent|current)\b/).find()) {
+      return true
+    }
+    if ((low =~ /(?is)\b(latest|recent)\s+(updates?|developments?|news)\b/).find()) {
+      return true
+    }
+    if ((low =~ /(?is)\b(regarding|updates?\s+or\s+new)\b/).find() && low.length() > 40) {
+      return true
+    }
     return false
   }
 
@@ -2406,6 +2420,9 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
 
   /** Phrase the author asked to appear in content (e.g. "Russ was Here" from "… with Russ was Here"). */
   private static String extractAuthoringOutcomePhrase(String authorVisible) {
+    if (AuthoringIntentExecutionPlan.requiresExternalLookup(authorVisible ?: '')) {
+      return ''
+    }
     String v = authorVisibleTailForOutcomePhrase(authorVisible)
     if (v) {
       if (!authorRequestNeedsExternalContentResolution(authorVisible)) {
@@ -2739,47 +2756,152 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
   }
 
   /**
-   * Applies phrase verification fields on GetPreviewHtml tool JSON; returns updated JSON string.
+   * Applies preview verification on GetPreviewHtml tool JSON: template errors and written copy snippets (not author prompt).
    */
   private static Map enrichGetPreviewHtmlToolResult(
     String toolOut,
     String frozenAuthorOutcomePhrase,
-    JsonSlurper slurper
+    JsonSlurper slurper,
+    Map toolsLoopSessionBundle = null
   ) {
     Boolean found = null
-    String phrase = frozenAuthorOutcomePhrase ?: ''
+    String phrase = ''
+    String verificationReason = ''
+    String verificationDetail = ''
     String outJson = toolOut ?: ''
     try {
       def parsedPrev = slurper.parseText(outJson)
-      if (parsedPrev instanceof Map && Boolean.TRUE.equals(((Map) parsedPrev).get('ok'))) {
-        def html = ((Map) parsedPrev).get('html')
-        if (html != null && html.toString().trim() && phrase) {
-          String plain = htmlToRoughPlainText(html.toString())
-          boolean hit = plainTextContainsPhrase(plain, phrase)
-          parsedPrev.put('contentGoalPhrase', phrase)
-          parsedPrev.put('contentGoalFoundInPreviewHtml', hit)
-          found = hit
-          if (!hit) {
-            parsedPrev.put(
-              'verificationWarning',
-              'Preview HTML does not contain the expected phrase "' + phrase + '". ' +
-                'Do not tell the author the change is visible until preview shows it. ' +
-                'Use GetContentTypeFormDefinition (or prefetched formDefinitionXml) to pick the correct field id for what the author asked for. ' +
-                'If XML is correct but preview is wrong, use analyze_template read-only to check for hardcoded FTL copy.'
-            )
+      if (!(parsedPrev instanceof Map)) {
+        return [
+          toolOut               : outJson,
+          previewGoalFound      : found,
+          previewGoalPhrase     : phrase ?: frozenAuthorOutcomePhrase ?: '',
+          previewVerifyReason   : verificationReason,
+          previewVerifyDetail   : verificationDetail
+        ]
+      }
+      Map prevMap = (Map) parsedPrev
+      boolean httpOk = Boolean.TRUE.equals(prevMap.get('ok'))
+      if (toolsLoopSessionBundle instanceof Map) {
+        toolsLoopSessionBundle.toolsLoopPreviewHttpOk = httpOk
+        if (prevMap.get('statusCode') != null) {
+          toolsLoopSessionBundle.toolsLoopPreviewHttpStatus = prevMap.get('statusCode')
+        }
+      }
+      if (!httpOk) {
+        int status = 0
+        try {
+          if (prevMap.get('statusCode') instanceof Number) {
+            status = ((Number) prevMap.get('statusCode')).intValue()
           }
-          outJson = JsonOutput.toJson((Map) parsedPrev)
+        } catch (Throwable ignoredStatus) {
+        }
+        found = Boolean.FALSE
+        verificationReason = status >= 500 ? 'http_server_error' : 'http_error'
+        verificationDetail = (prevMap.get('message') ?: (status > 0 ? "HTTP ${status}" : 'Preview fetch failed')).toString()
+        prevMap.put('contentGoalFoundInPreviewHtml', false)
+        prevMap.put(
+          'verificationWarning',
+          'Preview fetch failed' +
+            (status > 0 ? " (HTTP ${status})" : '') +
+            '. The page may be broken — call **GetContent**, fix the full item XML, **WriteContent**, then **GetPreviewHtml** again before finishing.'
+        )
+        outJson = JsonOutput.toJson(prevMap)
+      } else {
+        def html = prevMap.get('html')
+        if (html != null && html.toString().trim()) {
+          String htmlStr = html.toString()
+          String plain = htmlToRoughPlainText(htmlStr)
+          String renderError = FormDefinitionCopyFieldPlan.detectPreviewRenderingError(htmlStr)
+          if (renderError) {
+            found = Boolean.FALSE
+            verificationReason = 'rendering_error'
+            verificationDetail = renderError
+            prevMap.put('previewRenderingError', renderError)
+            prevMap.put('contentGoalFoundInPreviewHtml', false)
+            prevMap.put(
+              'verificationWarning',
+              'Preview HTML contains a rendering error: ' + renderError + '. Fix the template or content before publishing.'
+            )
+            outJson = JsonOutput.toJson(prevMap)
+          } else {
+            Map verify = FormDefinitionCopyFieldPlan.verifyPreviewAgainstWrittenCopy(plain, toolsLoopSessionBundle)
+            if (verify.reason == 'no_written_copy_recorded' &&
+              frozenAuthorOutcomePhrase?.trim() &&
+              !outcomePhraseLooksLikeInstructionNotContent(frozenAuthorOutcomePhrase)) {
+              boolean hit = plainTextContainsPhrase(plain, frozenAuthorOutcomePhrase)
+              verify = [
+                found          : hit ? Boolean.TRUE : Boolean.FALSE,
+                reason         : hit ? 'literal_outcome_found' : 'literal_outcome_not_found',
+                detail         : '',
+                checkedPhrase  : frozenAuthorOutcomePhrase.trim(),
+                phrasesChecked : [frozenAuthorOutcomePhrase.trim()],
+                warning        : hit ? '' :
+                  'Preview HTML does not contain the expected literal change "' +
+                    abbreviatePreviewPhraseForWarning(frozenAuthorOutcomePhrase) +
+                    '". Open preview in Studio and confirm before publishing.'
+              ]
+            }
+            found = verify.found instanceof Boolean ? (Boolean) verify.found : null
+            verificationReason = (verify.reason ?: '').toString()
+            verificationDetail = (verify.detail ?: '').toString()
+            phrase = (verify.checkedPhrase ?: '').toString()
+            List phrasesChecked = verify.phrasesChecked instanceof List ? (List) verify.phrasesChecked : []
+            if (phrasesChecked) {
+              prevMap.put('writtenCopyPhrasesChecked', phrasesChecked)
+            }
+            if (phrase) {
+              prevMap.put('contentGoalPhrase', phrase)
+            }
+            if (found != null) {
+              prevMap.put('contentGoalFoundInPreviewHtml', found)
+            }
+            if (Boolean.FALSE.equals(found)) {
+              prevMap.put(
+                'verificationWarning',
+                (verify.warning ?: '').toString() ?:
+                  'Preview HTML does not show the copy that was saved. Open preview in Studio and confirm before publishing.'
+              )
+            } else if (found == Boolean.TRUE && verificationReason == 'written_copy_found') {
+              prevMap.put(
+                'verificationNote',
+                'Preview HTML includes saved copy from this turn.'
+              )
+            } else if (found == Boolean.TRUE) {
+              prevMap.put(
+                'verificationNote',
+                'Preview HTML fetched successfully; no written-copy phrase check was required for this turn.'
+              )
+            }
+            outJson = JsonOutput.toJson(prevMap)
+          }
         }
       }
     } catch (Throwable ignored) {
     }
-    return [toolOut: outJson, previewGoalFound: found, previewGoalPhrase: phrase]
+    if (toolsLoopSessionBundle instanceof Map) {
+      if (found instanceof Boolean) {
+        toolsLoopSessionBundle.toolsLoopPreviewVerificationFound = found
+      }
+      toolsLoopSessionBundle.toolsLoopPreviewVerificationReason = verificationReason
+      toolsLoopSessionBundle.toolsLoopPreviewVerificationDetail = verificationDetail
+      if (phrase) {
+        toolsLoopSessionBundle.toolsLoopPreviewVerificationPhrase = phrase
+      }
+    }
+    return [
+      toolOut               : outJson,
+      previewGoalFound      : found,
+      previewGoalPhrase     : phrase ?: frozenAuthorOutcomePhrase ?: '',
+      previewVerifyReason   : verificationReason,
+      previewVerifyDetail   : verificationDetail
+    ]
   }
 
   /**
    * Maybe append auto confirmation preview after round.
    */
-  private static void maybeAppendAutoConfirmationPreviewAfterRound(
+  private static boolean maybeAppendAutoConfirmationPreviewAfterRound(
     List<Map> wireMessages,
     Map<String, FunctionToolCallback> byName,
     JsonSlurper slurper,
@@ -2791,18 +2913,27 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
     int round,
     String agentId,
     Map previewState,
-    String successfulWriteRepoPath = ''
+    String successfulWriteRepoPath = '',
+    Set<String> previewHtmlUrlsThisTurn = null,
+    int successfulPreviewFetchesThisTurn = 0
   ) {
     if (!roundHadWriteSuccess || roundRanGetPreviewHtml || roundHadWriteFailure) {
-      return
+      return false
     }
     String url = previewUrlForRepoPath(successfulWriteRepoPath, toolsLoopSessionBundle, wireMessages)
     if (!url) {
-      return
+      return false
+    }
+    String urlKey = normalizePreviewUrlKey(url)
+    if (previewHtmlUrlsThisTurn != null && urlKey && previewHtmlUrlsThisTurn.contains(urlKey)) {
+      return false
+    }
+    if (successfulPreviewFetchesThisTurn >= GET_PREVIEW_HTML_MAX_FETCHES_PER_TURN) {
+      return false
     }
     FunctionToolCallback tcb = byName?.get('GetPreviewHtml')
     if (tcb == null) {
-      return
+      return false
     }
     String siteId = siteIdFromWireMessages(wireMessages)
     Map args = [url: url]
@@ -2814,14 +2945,14 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
       toolOut = tcb.call(JsonOutput.toJson(args))
     } catch (Throwable tex) {
       log.warn('Tools-loop: auto GetPreviewHtml after write failed: {}', tex.message)
-      return
+      return false
     }
     if (toolOut instanceof Map) {
       toolOut = JsonOutput.toJson((Map) toolOut)
     } else {
       toolOut = toolOut?.toString() ?: ''
     }
-    Map enriched = enrichGetPreviewHtmlToolResult(toolOut, frozenAuthorOutcomePhrase, slurper)
+    Map enriched = enrichGetPreviewHtmlToolResult(toolOut, frozenAuthorOutcomePhrase, slurper, toolsLoopSessionBundle)
     toolOut = enriched.toolOut?.toString() ?: ''
     if (enriched.previewGoalFound instanceof Boolean) {
       previewState.lastPreviewContentGoalFound = enriched.previewGoalFound
@@ -2829,7 +2960,10 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
     if (enriched.previewGoalPhrase) {
       previewState.lastPreviewContentGoalPhrase = enriched.previewGoalPhrase.toString()
     }
-    String wire = truncateNativeToolWireContent('GetPreviewHtml', toolOut, 'aiassistant-auto-preview', [:])
+    if (previewHtmlUrlsThisTurn != null && urlKey) {
+      previewHtmlUrlsThisTurn.add(urlKey)
+    }
+    String wire = truncateNativeToolWireContent('GetPreviewHtml', toolOut, 'aiassistant-auto-preview', [:], toolsLoopSessionBundle)
     wireMessages << [
       role   : 'user',
       content:
@@ -2838,11 +2972,60 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
           wire
     ]
     log.info(
-      'Tools-loop: auto GetPreviewHtml after successful WriteContent round={} agentId={} phraseFound={}',
+      'Tools-loop: auto GetPreviewHtml after successful WriteContent round={} agentId={} phraseFound={} httpOk={}',
       round,
       agentId,
-      enriched.previewGoalFound
+      enriched.previewGoalFound,
+      toolsLoopSessionBundle?.toolsLoopPreviewHttpOk
     )
+    return Boolean.TRUE.equals(toolsLoopSessionBundle?.toolsLoopPreviewHttpOk)
+  }
+
+  /** True when a successful write may end the loop with an honest “Done” (preview HTTP ok and verification not failed). */
+  private static boolean toolsLoopPreviewVerificationAllowsEarlyFinish(
+    int successfulPreviewFetchesThisTurn,
+    Boolean lastPreviewContentGoalFound,
+    Map toolsLoopSessionBundle,
+    boolean roundHadWriteSuccess
+  ) {
+    if (!roundHadWriteSuccess) {
+      return false
+    }
+    if (successfulPreviewFetchesThisTurn < 1) {
+      return false
+    }
+    if (toolsLoopSessionBundle instanceof Map) {
+      if (toolsLoopSessionBundle.toolsLoopPreviewHttpOk == Boolean.FALSE) {
+        return false
+      }
+      String reason = (toolsLoopSessionBundle.toolsLoopPreviewVerificationReason ?: '').toString().trim()
+      if (reason in ['http_error', 'http_server_error', 'rendering_error', 'written_copy_not_found', 'literal_outcome_not_found']) {
+        return false
+      }
+    }
+    if (lastPreviewContentGoalFound == Boolean.FALSE) {
+      return false
+    }
+    return true
+  }
+
+  /** Server wrap-up when write succeeded but preview is not verified — never claim “looks good”. */
+  private static String synthesizePlanExecutionAfterWritePendingPreview(String previewUrl, Map toolsLoopSessionBundle) {
+    StringBuilder sb = new StringBuilder('## Not done yet\n\n')
+    sb.append('Content was saved, but the **site preview is not healthy** yet.\n\n')
+    String reason = (toolsLoopSessionBundle?.toolsLoopPreviewVerificationReason ?: '').toString().trim()
+    if (reason == 'http_server_error' || reason == 'http_error') {
+      sb.append('Preview returned an HTTP error (often **500** when content XML is incomplete). ')
+    } else if (reason == 'rendering_error') {
+      sb.append('Preview shows a **template rendering error**. ')
+    } else {
+      sb.append('Preview verification did not pass. ')
+    }
+    sb.append('Call **GetContent**, restore required fields from **GetContentTypeFormDefinition**, **WriteContent** the full item, then **GetPreviewHtml** before finishing.\n\n')
+    if (previewUrl?.trim()) {
+      sb.append('[Open preview](').append(previewUrl.trim()).append(')\n')
+    }
+    return sb.toString()
   }
 
   /**
@@ -2892,24 +3075,63 @@ When the built-in images wire is enabled, set **imageModel** on the agent or pas
    * Append preview verification warning if needed.
    * @return Text result, or empty or null when unavailable.
    */
+  private static String abbreviatePreviewPhraseForWarning(String s) {
+    String t = (s ?: '').trim()
+    if (t.length() <= 100) {
+      return t
+    }
+    return t.substring(0, 97) + '…'
+  }
+
   private static String appendPreviewVerificationWarningIfNeeded(
     String assistantText,
     Boolean previewGoalFound,
-    String previewGoalPhrase
+    String previewGoalPhrase,
+    Map toolsLoopSessionBundle = null
   ) {
-    if (previewGoalFound != Boolean.FALSE || !previewGoalPhrase?.trim()) {
+    if (previewGoalFound != Boolean.FALSE) {
+      if (toolsLoopSessionBundle instanceof Map &&
+        toolsLoopSessionBundle.toolsLoopPreviewHttpOk == Boolean.FALSE) {
+        String status = (toolsLoopSessionBundle.toolsLoopPreviewHttpStatus ?: '').toString().trim()
+        String warn =
+          '\n\n⚠️ **Preview check:** Preview fetch failed' +
+            (status ? " (HTTP ${status})" : '') +
+            ' — the page may be broken. Call **GetContent**, fix the full item XML, **WriteContent**, then **GetPreviewHtml** again.\n'
+        String base = (assistantText ?: '').toString()
+        return base.contains('Preview check:') ? base : base + warn
+      }
       return assistantText ?: ''
     }
-    String phraseForWarn = previewGoalPhrase.trim()
-    if (phraseForWarn.length() > 200) {
-      phraseForWarn = phraseForWarn.substring(0, 197) + '…'
+    String reason = (toolsLoopSessionBundle?.toolsLoopPreviewVerificationReason ?: '').toString().trim()
+    String detail = (toolsLoopSessionBundle?.toolsLoopPreviewVerificationDetail ?: '').toString().trim()
+    String warn = ''
+    if (reason == 'rendering_error') {
+      warn =
+        '\n\n⚠️ **Preview check:** The preview page has a **rendering error**' +
+          (detail ? ' (`' + detail + '`)' : '') +
+          '. Fix the template or content before publishing.\n'
+    } else if (reason in ['http_error', 'http_server_error']) {
+      warn =
+        '\n\n⚠️ **Preview check:** Preview fetch failed' +
+          (detail ? ' (' + detail + ')' : '') +
+          ' — repair content XML and re-fetch preview before finishing.\n'
+    } else if (reason == 'written_copy_not_found' || reason == 'literal_outcome_not_found') {
+      String snippet = (previewGoalPhrase ?: toolsLoopSessionBundle?.toolsLoopPreviewVerificationPhrase ?: '').toString().trim()
+      warn =
+        '\n\n⚠️ **Preview check:** Preview HTML does **not** show the copy that was saved' +
+          (snippet ? ' (e.g. "' + abbreviatePreviewPhraseForWarning(snippet) + '")' : '') +
+          '. Open preview in Studio and confirm before publishing.\n'
+    } else if (previewGoalPhrase?.trim()) {
+      String phraseForWarn = abbreviatePreviewPhraseForWarning(previewGoalPhrase)
+      warn =
+        '\n\n⚠️ **Preview check:** Preview HTML did **not** contain **"' +
+          phraseForWarn +
+          '"**. Open preview in Studio and confirm before publishing.\n'
+    } else {
+      return assistantText ?: ''
     }
-    String warn =
-      '\n\n⚠️ **Preview check:** Engine preview HTML did **not** contain **"' +
-        phraseForWarn +
-        '"**. The copy may still be wrong (wrong field, template hardcoding, or stale cache). Open preview in Studio and confirm before publishing.\n'
     String base = (assistantText ?: '').toString()
-    if (base.contains('Preview check:') || base.contains('did **not** contain')) {
+    if (base.contains('Preview check:')) {
       return base
     }
     return base + warn
@@ -4619,14 +4841,22 @@ Use the reference response above together with **this** author request (includin
       boolean fetchOk = Boolean.TRUE.equals(toolsLoopSessionBundle.toolsLoopFetchOkThisTurn)
       boolean usableFact = Boolean.TRUE.equals(toolsLoopSessionBundle.toolsLoopUsableExternalFact)
       String lastFact = toolsLoopSessionBundle.toolsLoopLastSalientFact?.toString()?.trim() ?: ''
+      String retrievedLen = ''
+      String excerpt = (toolsLoopSessionBundle.toolsLoopRetrievedSourceExcerpt ?: '').toString().trim()
+      if (excerpt) {
+        retrievedLen = 'Retrieved source excerpt chars: ' + excerpt.length() + '.\n'
+      }
       groundingBlock =
         'TOOL_CHAIN_GROUNDING (this turn required external lookup before writes):\n' +
           'WebSearch ran: ' + searchOk + '; FetchHttpUrl with body read: ' + fetchOk +
-          '; verified external fact extracted: ' + usableFact + '.\n' +
-          (lastFact ? ('Last salient fact: ' + lastFact + '\n') : '') +
-          'If writes used live facts but no verified fact was extracted from FetchHttpUrl, set accomplished to false.\n' +
-          'If page copy is only a site index title, homepage label, or generic breaking-news boilerplate, set accomplished to false.\n' +
-          'If the author asked for a specific headline and the page does not name that headline, set accomplished to false.\n\n'
+          '; retrieved source ready for copy: ' + usableFact + '.\n' +
+          retrievedLen +
+          (lastFact ? ('Last salient preview: ' + lastFact + '\n') : '') +
+          'If writes used live facts but no substantive retrieved source excerpt was available, set accomplished to false.\n' +
+          'If page copy is generic marketing filler without specific facts from the retrieved source, set accomplished to false.\n' +
+          'If headline-role copy matches the fetched source page title or search result title verbatim, set accomplished to false.\n' +
+          'If image-asset fields use invented `/static-assets/…` paths without a successful **GenerateImage** **repositoryPath**, set accomplished to false.\n' +
+          'If this turn matched **modify_page_content** (or required **WriteContent**) but **WriteContent** did not succeed, set accomplished to false — describing an update in prose or markdown JSON is not a repository write.\n\n'
     }
     def userBlock = """ORIGINAL_AUTHOR_REQUEST:
 ${ou}
@@ -4749,6 +4979,24 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     return s.replaceAll(/\s+/, ' ').trim().toLowerCase(Locale.ROOT)
   }
 
+  /** Server-injected / model-parrot status line — show at most once per tools-loop turn. */
+  private static boolean isToolsLoopStatusFillerProse(String raw) {
+    String n = planGateNormalizeForScan((raw ?: '').toString().trim())
+    return n == 'applying your request with the appropriate tools.' ||
+      n == 'applying your request with the appropriate tools'
+  }
+
+  private static boolean toolsLoopStatusFillerAlreadyEmitted(Map toolsLoopSessionBundle) {
+    return toolsLoopSessionBundle instanceof Map &&
+      Boolean.TRUE.equals(toolsLoopSessionBundle.toolsLoopStatusFillerEmitted)
+  }
+
+  private static void markToolsLoopStatusFillerEmitted(Map toolsLoopSessionBundle) {
+    if (toolsLoopSessionBundle instanceof Map) {
+      toolsLoopSessionBundle.toolsLoopStatusFillerEmitted = Boolean.TRUE
+    }
+  }
+
   /**
    * Detects memorized lazy “execute the request / tools …” slop models sometimes quote in {@code [TOOL-GUARD]}.
    * Used only to strip matching lines from streamed assistant text — the native tool loop does **not** block on plan shape.
@@ -4757,6 +5005,9 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     String n = planGateNormalizeForScan(t)
     if (!n) {
       return false
+    }
+    if (isToolsLoopStatusFillerProse(n)) {
+      return true
     }
     if (n.contains('execute the user request using the tools described in the studio authoring system message')) {
       return true
@@ -4983,6 +5234,14 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       '**Fix in Studio:** open **Git** / history for this file and **revert** to the last good version, then retry your edit.\n'
   }
 
+  private static String synthesizeFormDefinitionWriteRejectionMessage(String repoPath) {
+    String p = (repoPath ?: '').trim() ?: '(unknown path)'
+    return '## Could not save content\n\n' +
+      'Repeated **WriteContent** attempts for **`' + p + '`** were rejected because the generated XML included **field ids not in the content type form definition** ' +
+      '(for example invented elements like `orderDefault_f`).\n\n' +
+      '**Next step:** retry your request — the assistant should **GetContent** on that path, change **only** existing field elements from the **content field plan**, and **WriteContent** once.\n'
+  }
+
   /**
    * String list from recipe telemetry.
    * @param tel Caller-supplied input.
@@ -5020,6 +5279,82 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     return out
   }
 
+  /** Session bundle survives correction-pass sub-loops; local loop flags do not. */
+  private static boolean generateImageAlreadySucceededForTurn(Map toolsLoopSessionBundle) {
+    return toolsLoopSessionBundle instanceof Map &&
+      Boolean.TRUE.equals(toolsLoopSessionBundle.toolsLoopGenerateImageOkThisTurn)
+  }
+
+  /** Repository paths written this chat turn — shared across main loop and correction pass. */
+  private static Set<String> persistedWriteContentRepoPaths(Map toolsLoopSessionBundle) {
+    if (!(toolsLoopSessionBundle instanceof Map)) {
+      return new LinkedHashSet<>()
+    }
+    Object raw = toolsLoopSessionBundle.get('toolsLoopWriteContentRepoPaths')
+    Set<String> paths = new LinkedHashSet<>()
+    if (raw instanceof Collection) {
+      for (Object o : (Collection) raw) {
+        String p = o?.toString()?.trim()?.toLowerCase(Locale.ROOT)
+        if (p) {
+          paths.add(p)
+        }
+      }
+    }
+    toolsLoopSessionBundle.put('toolsLoopWriteContentRepoPaths', paths)
+    return paths
+  }
+
+  private static void seedRequiredToolSuccessFromSessionBundle(
+    Map toolsLoopSessionBundle,
+    Map<String, Boolean> requiredToolSuccess
+  ) {
+    if (!(toolsLoopSessionBundle instanceof Map) || !(requiredToolSuccess instanceof Map)) {
+      return
+    }
+    if (Boolean.TRUE.equals(toolsLoopSessionBundle.toolsLoopWriteContentOkThisTurn) &&
+      requiredToolSuccess.containsKey('WriteContent')) {
+      requiredToolSuccess.put('WriteContent', Boolean.TRUE)
+    }
+    if (Boolean.TRUE.equals(toolsLoopSessionBundle.toolsLoopGenerateImageOkThisTurn) &&
+      requiredToolSuccess.containsKey('GenerateImage')) {
+      requiredToolSuccess.put('GenerateImage', Boolean.TRUE)
+    }
+  }
+
+  /**
+   * Research-backed page refresh is done when copy saved and (when expected) hero image generated.
+   * Used to skip redundant correction passes that would re-run slow GenerateImage calls.
+   */
+  private static boolean toolsLoopResearchPageRefreshSubstantiallyComplete(Map toolsLoopSessionBundle) {
+    if (!(toolsLoopSessionBundle instanceof Map)) {
+      return false
+    }
+    if (!Boolean.TRUE.equals(toolsLoopSessionBundle.toolsLoopWriteContentOkThisTurn)) {
+      return false
+    }
+    if (!Boolean.TRUE.equals(toolsLoopSessionBundle.toolsLoopResearchPageRefreshExpectsHeroImage)) {
+      return true
+    }
+    if (toolsLoopSessionBundle.toolsLoopPreviewHttpOk == Boolean.FALSE) {
+      return false
+    }
+    if (toolsLoopSessionBundle.toolsLoopPreviewVerificationFound == Boolean.FALSE) {
+      return false
+    }
+    return Boolean.TRUE.equals(toolsLoopSessionBundle.toolsLoopGenerateImageOkThisTurn)
+  }
+
+  private static void injectPendingWriteContentRecoveryNudge(List<Map> wireMessages, Map toolsLoopSessionBundle) {
+    if (!(wireMessages instanceof List) || !(toolsLoopSessionBundle instanceof Map)) {
+      return
+    }
+    String nudge = (toolsLoopSessionBundle.remove('toolsLoopPendingWriteContentRecoveryNudge') ?: '').toString().trim()
+    if (!nudge) {
+      return
+    }
+    wireMessages << [role: 'user', content: nudge]
+  }
+
   /**
    * Tools loop required tools still pending.
    * @return True when the check succeeds.
@@ -5037,11 +5372,29 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
   }
 
   /**
+   * Force {@code FetchHttpUrl} when search succeeded but no substantive retrieved body yet (research-grounded writes).
+   */
+  private static boolean toolsLoopShouldForceFetchHttpUrlToolChoice(Map toolsLoopSessionBundle) {
+    if (!(toolsLoopSessionBundle instanceof Map)) {
+      return false
+    }
+    if (!Boolean.TRUE.equals(toolsLoopSessionBundle.toolsLoopExternalLookupRequired)) {
+      return false
+    }
+    if (AuthoringResearchGrounding.hasSubstantiveRetrievedSource(toolsLoopSessionBundle)) {
+      return false
+    }
+    return Boolean.TRUE.equals(toolsLoopSessionBundle.toolsLoopSearchOkThisTurn)
+  }
+
+  /**
    * Force {@code WriteContent} only when it is required and every other required tool has already succeeded.
+   * Defer when external lookup is required but retrieved source text is not on the session yet.
    */
   private static boolean toolsLoopShouldForceWriteContentToolChoice(
     Map<String, Boolean> requiredToolSuccess,
-    Map intentTelLoop
+    Map intentTelLoop,
+    Map toolsLoopSessionBundle = null
   ) {
     if (createFromChatDraftWriteVerificationActive(intentTelLoop)) {
       if (!requiredToolSuccess.containsKey('WriteContent') ||
@@ -5059,9 +5412,18 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     if (Boolean.TRUE.equals(requiredToolSuccess.get('WriteContent'))) {
       return false
     }
+    if (toolsLoopSessionBundle instanceof Map &&
+      Boolean.TRUE.equals(toolsLoopSessionBundle.toolsLoopExternalLookupRequired) &&
+      !AuthoringResearchGrounding.hasSubstantiveRetrievedSource(toolsLoopSessionBundle)) {
+      return false
+    }
     for (Map.Entry entry : requiredToolSuccess.entrySet()) {
       String name = entry.key?.toString()?.trim() ?: ''
       if ('WriteContent'.equals(name)) {
+        continue
+      }
+      // Hero image is sequenced after copy write — do not defer WriteContent force for pending GenerateImage.
+      if ('GenerateImage'.equals(name)) {
         continue
       }
       if (!Boolean.TRUE.equals(entry.value)) {
@@ -5069,6 +5431,74 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       }
     }
     return true
+  }
+
+  /**
+   * Research page refresh: copy must persist before hero image generation.
+   */
+  private static boolean shouldBlockGenerateImageUntilCopyWrite(Map toolsLoopSessionBundle) {
+    if (!(toolsLoopSessionBundle instanceof Map)) {
+      return false
+    }
+    if (!Boolean.TRUE.equals(toolsLoopSessionBundle.toolsLoopResearchPageRefreshExpectsHeroImage)) {
+      return false
+    }
+    return !Boolean.TRUE.equals(toolsLoopSessionBundle.toolsLoopWriteContentOkThisTurn)
+  }
+
+  /**
+   * Force {@code GenerateImage} after copy {@code WriteContent} on research-backed page refreshes with image-asset fields.
+   */
+  private static boolean toolsLoopShouldForceGenerateImageToolChoice(
+    Map<String, Boolean> requiredToolSuccess,
+    Map toolsLoopSessionBundle = null
+  ) {
+    if (!(requiredToolSuccess instanceof Map) || !(toolsLoopSessionBundle instanceof Map)) {
+      return false
+    }
+    if (!requiredToolSuccess.containsKey('GenerateImage')) {
+      return false
+    }
+    if (Boolean.TRUE.equals(requiredToolSuccess.get('GenerateImage'))) {
+      return false
+    }
+    if (generateImageAlreadySucceededForTurn(toolsLoopSessionBundle)) {
+      return false
+    }
+    if (!Boolean.TRUE.equals(toolsLoopSessionBundle.toolsLoopResearchPageRefreshExpectsHeroImage)) {
+      return false
+    }
+    if (requiredToolSuccess.containsKey('WriteContent') &&
+      !Boolean.TRUE.equals(requiredToolSuccess.get('WriteContent'))) {
+      return false
+    }
+    if (!AuthoringResearchGrounding.hasSubstantiveRetrievedSource(toolsLoopSessionBundle)) {
+      return false
+    }
+    return true
+  }
+
+  private static void augmentRequiredToolsForResearchPageRefresh(
+    Map toolsLoopSessionBundle,
+    Map<String, Boolean> requiredToolSuccess,
+    String authorVisible
+  ) {
+    if (!(toolsLoopSessionBundle instanceof Map) || !(requiredToolSuccess instanceof Map)) {
+      return
+    }
+    AuthoringResearchGrounding.refreshResearchHeroImageExpectation(toolsLoopSessionBundle, authorVisible ?: '')
+    if (!Boolean.TRUE.equals(toolsLoopSessionBundle.toolsLoopResearchPageRefreshExpectsHeroImage)) {
+      return
+    }
+    if (generateImageAlreadySucceededForTurn(toolsLoopSessionBundle)) {
+      if (requiredToolSuccess.containsKey('GenerateImage')) {
+        requiredToolSuccess.put('GenerateImage', Boolean.TRUE)
+      }
+      return
+    }
+    if (!requiredToolSuccess.containsKey('GenerateImage')) {
+      requiredToolSuccess.put('GenerateImage', Boolean.FALSE)
+    }
   }
 
   /**
@@ -5269,8 +5699,44 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
   }
 
   /**
-   * When recipe + supplement prefetch loaded discovery data, skip repeat read tools until WriteContent.
+   * Pre-enrich every {@code WriteContent} payload (existing and new items) so invented root elements
+   * are stripped and baseline merge runs before the tool executes.
    */
+  private static Map gateWriteContentPreEnrich(
+    String argsStr,
+    StudioToolOperations ops,
+    JsonSlurper slurper
+  ) {
+    if (!ops) {
+      return [proceed: true, argsStr: argsStr]
+    }
+    try {
+      Object parsed = slurper.parseText(argsStr ?: '{}')
+      if (!(parsed instanceof Map)) {
+        return [proceed: true, argsStr: argsStr]
+      }
+      Map args = (Map) parsed
+      String contentXml = args.get('contentXml')?.toString()
+      String repoPath = repoPathFromToolArgsMap(args)
+      if (!contentXml?.trim() || !repoPath?.trim()) {
+        return [proceed: true, argsStr: argsStr]
+      }
+      String siteId = (args.get('siteId') ?: '').toString().trim()
+      if (!siteId) {
+        siteId = ops.resolveEffectiveSiteId('')
+      }
+      String enriched = plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.CmsWriteContent
+        .enrichContentXmlBeforeFormValidation(ops, siteId, repoPath, contentXml)
+      if (enriched?.trim() && !enriched.equals(contentXml)) {
+        args.put('contentXml', enriched)
+        return [proceed: true, argsStr: JsonOutput.toJson(args)]
+      }
+    } catch (Throwable t) {
+      log.debug('Tools-loop: WriteContent pre-enrich skipped: {}', t.message)
+    }
+    return [proceed: true, argsStr: argsStr]
+  }
+
   private static boolean toolsLoopSkipDiscoveryUntilWriteContent(
     String fnName,
     Map intentTelLoop,
@@ -5640,6 +6106,13 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     if (requiredHint?.trim()) {
       sb.append(requiredHint)
     }
+    if (toolsLoopSessionBundle instanceof Map &&
+      !Boolean.TRUE.equals(toolsLoopSessionBundle.toolsLoopWriteContentOkThisTurn)) {
+      sb.append(
+        '\n**WriteContent** has not saved yet — call it with full page XML and fixed **original-headline** copy. ' +
+          'Do not search again or generate images until the write succeeds.\n'
+      )
+    }
     sb.append('Respond with **## Plan Execution** when repository work is done or explain the blocker in plain language.\n')
     sb.toString()
   }
@@ -5680,7 +6153,208 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     String s = (toolWireJson ?: '').toString()
     return s.contains('field fragment') ||
       s.contains('root <page> or <component>') ||
-      s.contains('missing typical Crafter item markers')
+      s.contains('missing typical Crafter item markers') ||
+      s.contains('non-compliant with form definition') ||
+      s.contains('Unknown element(s) not in form definition')
+  }
+
+  /**
+   * Stable signature for repeated form-definition WriteContent rejections (stall guard).
+   */
+  private static String writeContentFormRejectionSignature(String toolWireJson) {
+    String s = (toolWireJson ?: '').toString()
+    if (!s.contains('non-compliant with form definition') &&
+      !s.contains('Unknown element(s) not in form definition')) {
+      return ''
+    }
+    int idx = s.indexOf('Unknown element(s) not in form definition:')
+    if (idx >= 0) {
+      return s.substring(idx, Math.min(idx + 120, s.length())).trim()
+    }
+    idx = s.indexOf('WriteContent rejected')
+    if (idx >= 0) {
+      return s.substring(idx, Math.min(idx + 120, s.length())).trim()
+    }
+    return s.length() > 120 ? s.substring(0, 120) : s
+  }
+
+  /**
+   * Shrinks {@code GetPreviewHtml} tool JSON on the wire: caps {@code html}, keeps a plain-text excerpt.
+   */
+  private static String compactGetPreviewHtmlToolWire(String s, int maxHtmlChars) {
+    if (!s?.trim() || maxHtmlChars < 512) {
+      return s ?: ''
+    }
+    try {
+      def parsed = new JsonSlurper().parseText(s)
+      if (!(parsed instanceof Map)) {
+        return s.length() <= NATIVE_TOOLS_WIRE_JSON_MAX_CHARS ? s : s.substring(0, NATIVE_TOOLS_WIRE_JSON_MAX_CHARS)
+      }
+      Map m = new LinkedHashMap<>((Map) parsed)
+      Object htmlObj = m.get('html')
+      String html = htmlObj != null ? htmlObj.toString() : ''
+      if (html.length() > maxHtmlChars) {
+        String plain = htmlToRoughPlainText(html)
+        int excerptCap = Math.min(2500, maxHtmlChars)
+        String excerpt = plain.length() > excerptCap ? plain.substring(0, excerptCap) + '…' : plain
+        m.put('htmlOriginalChars', html.length())
+        m.put('htmlPlainTextExcerpt', excerpt)
+        m.put('htmlOmittedOnWire', Boolean.TRUE)
+        m.remove('html')
+      }
+      String out = JsonOutput.toJson(m)
+      return out.length() <= NATIVE_TOOLS_WIRE_JSON_MAX_CHARS ?
+        out :
+        out.substring(0, NATIVE_TOOLS_WIRE_JSON_MAX_CHARS) +
+          '\n…[GetPreviewHtml JSON truncated on wire]'
+    } catch (Throwable ignored) {
+      return s.length() <= NATIVE_TOOLS_WIRE_JSON_MAX_CHARS ? s : s.substring(0, NATIVE_TOOLS_WIRE_JSON_MAX_CHARS)
+    }
+  }
+
+  /** Normalizes preview URLs for duplicate-fetch detection within one turn. */
+  private static String normalizePreviewUrlKey(String url) {
+    String u = (url ?: '').trim()
+    if (!u) {
+      return ''
+    }
+    return u.replaceAll('/+$', '').toLowerCase(Locale.ROOT)
+  }
+
+  /** Preview URL from GetPreviewHtml tool args. */
+  private static String previewUrlFromToolArgsJson(String argsStr, JsonSlurper slurper) {
+    try {
+      Object parsed = slurper.parseText(argsStr ?: '{}')
+      if (parsed instanceof Map) {
+        Map args = (Map) parsed
+        return (args.url ?: args.previewUrl ?: '').toString().trim()
+      }
+    } catch (Throwable ignored) {
+    }
+    return ''
+  }
+
+  /**
+   * Re-compacts older GetPreviewHtml payloads still on the wire (tool rows and auto-preview user injections).
+   */
+  private static void recompactPreviewHtmlOnWire(List<Map> wireMessages) {
+    if (!(wireMessages instanceof List)) {
+      return
+    }
+    for (int i = 0; i < wireMessages.size(); i++) {
+      def row = wireMessages.get(i)
+      if (!(row instanceof Map)) {
+        continue
+      }
+      Map m = (Map) row
+      String role = m.get('role')?.toString() ?: ''
+      String content = m.get('content')?.toString() ?: ''
+      if (!content || (!content.contains('"html"') && !content.contains('htmlPlainTextExcerpt'))) {
+        continue
+      }
+      if (!'tool'.equals(role) && !content.contains('GetPreviewHtml')) {
+        continue
+      }
+      String compact = compactGetPreviewHtmlToolWire(content, GET_PREVIEW_HTML_WIRE_MAX_HTML_CHARS)
+      if (!compact.equals(content)) {
+        Map next = new LinkedHashMap<>(m)
+        next.put('content', compact)
+        wireMessages.set(i, next)
+      }
+    }
+  }
+
+  /**
+   * Skip redundant GetContent / GetContentTypeFormDefinition when intent prefetch already loaded them.
+   */
+  private static boolean toolsLoopSkipRedundantPrefetchDiscovery(String fnName, Map intentTelLoop) {
+    if (!(intentTelLoop instanceof Map)) {
+      return false
+    }
+    if (!Boolean.TRUE.equals(intentTelLoop.get('prefetchRan'))) {
+      return false
+    }
+    if (!Boolean.TRUE.equals(intentTelLoop.get('toolsLoopFormDefsPrefetched'))) {
+      return false
+    }
+    if (!'modify_page_content'.equals(intentTelLoop.get('recipeId')?.toString()?.trim())) {
+      return false
+    }
+    return ['GetContent', 'GetContentTypeFormDefinition'].contains((fnName ?: '').trim())
+  }
+
+  /**
+   * Only skip prefetch-redundant reads when the tool targets the same path or content type prefetch loaded.
+   */
+  private static boolean toolArgsMatchPrefetchedPathOrType(
+    String fnName,
+    String argsStr,
+    Map toolsLoopSessionBundle,
+    JsonSlurper slurper
+  ) {
+    String tool = (fnName ?: '').trim()
+    if (!['GetContent', 'GetContentTypeFormDefinition'].contains(tool)) {
+      return false
+    }
+    Object parsed
+    try {
+      parsed = slurper.parseText(argsStr ?: '{}')
+    } catch (Throwable ignored) {
+      return false
+    }
+    if (!(parsed instanceof Map)) {
+      return false
+    }
+    Map args = (Map) parsed
+    String anchorPath = ''
+    String anchorType = ''
+    if (toolsLoopSessionBundle instanceof Map) {
+      anchorPath = (toolsLoopSessionBundle.contentPath ?: '').toString().trim()
+      anchorType = (toolsLoopSessionBundle.contentTypeId ?: '').toString().trim()
+    }
+    if ('GetContent'.equals(tool)) {
+      String reqPath = repoPathFromToolArgsMap(args)
+      if (!reqPath || !anchorPath) {
+        return false
+      }
+      return AuthoringPreviewContext.sameRepoPath(reqPath, anchorPath)
+    }
+    String reqType = (args.contentTypeId ?: args.contentType ?: '').toString().trim()
+    if (!reqType || !anchorType) {
+      return false
+    }
+    return reqType.equalsIgnoreCase(anchorType)
+  }
+
+  /** Clears per-turn preview verification after a successful write so stale preview results are not reused. */
+  private static int invalidateTurnPreviewVerification(
+    Map previewState,
+    Set<String> previewHtmlUrlsThisTurn,
+    Map toolsLoopSessionBundle
+  ) {
+    if (previewState instanceof Map) {
+      previewState.lastPreviewContentGoalFound = null
+      previewState.lastPreviewContentGoalPhrase = null
+    }
+    if (previewHtmlUrlsThisTurn != null) {
+      previewHtmlUrlsThisTurn.clear()
+    }
+    if (toolsLoopSessionBundle instanceof Map) {
+      toolsLoopSessionBundle.remove('toolsLoopPreviewVerificationFound')
+      toolsLoopSessionBundle.remove('toolsLoopPreviewVerificationReason')
+      toolsLoopSessionBundle.remove('toolsLoopPreviewVerificationDetail')
+      toolsLoopSessionBundle.remove('toolsLoopPreviewHttpOk')
+      toolsLoopSessionBundle.remove('toolsLoopPreviewHttpStatus')
+    }
+    return 0
+  }
+
+  private static String firstPersistedWriteContentRepoPath(Map toolsLoopSessionBundle) {
+    Object raw = toolsLoopSessionBundle?.toolsLoopWriteContentRepoPaths
+    if (raw instanceof Collection && !((Collection) raw).isEmpty()) {
+      return ((Collection) raw).iterator().next()?.toString() ?: ''
+    }
+    return (toolsLoopSessionBundle?.contentPath ?: '').toString()
   }
 
   /**
@@ -5706,9 +6380,15 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
         m.put(
           'body',
           body.substring(0, maxBodyChars) +
-            '\n…[FetchHttpUrl body truncated on wire — use WebSearch snippets or fetch a narrower page]'
+            '\n…[FetchHttpUrl body truncated on wire — use plainTextExcerpt below or fetch a narrower page]'
         )
         m.put('bodyTruncatedOnWire', Boolean.TRUE)
+      }
+
+      String plainExcerpt = plugins.org.craftercms.aiassistant.studio.engine.turn.AuthoringFetchedPageFacts
+        .plainTextExcerpt(body, Math.min(maxBodyChars, 12_000))
+      if (plainExcerpt) {
+        m.put('plainTextExcerpt', plainExcerpt)
       }
 
       if (m.containsKey('stylesheetHrefs')) {
@@ -6142,7 +6822,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     Closure confirmationProgressListener = null
     if (sseOut != null) {
       confirmationProgressListener = { String tn, String ph, Map inp, Throwable er, Object tres, Long dur ->
-        writeToolProgressSse(sseOut, tn, ph, inp instanceof Map ? inp : [:], er, tres, dur)
+        writeToolProgressSse(sseOut, tn, ph, inp instanceof Map ? inp : [:], er, tres, dur, ops)
       }
     }
     Map confirmationLlmContext = buildRecipeConfirmationLlmContext(toolsLoopSessionBundle)
@@ -6158,7 +6838,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       block.confirmationSourceMarkdown = (lastAssistantMarkdown ?: '').toString().trim()
     }
     long elapsed = System.currentTimeMillis() - t0
-    writeToolProgressSse(sseOut, 'Recipe confirmation', 'done', [:], null, block, elapsed)
+    writeToolProgressSse(sseOut, 'Recipe confirmation', 'done', [:], null, block, elapsed, ops)
     toolsLoopSessionBundle.recipeConfirmationStepsExecuted = Boolean.TRUE
     applyRecipeConfirmationTelemetry(toolsLoopSessionBundle, block)
     String md = (block.markdown ?: '').toString().trim()
@@ -6359,6 +7039,9 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       }
       return compactFetchHttpUrlToolWire(s, bodyCap)
     }
+    if (pol.wireOutputMode == plugins.org.craftercms.aiassistant.studio.engine.policy.ToolsLoopWirePolicy.WIRE_COMPACT_PREVIEW_HTML) {
+      return compactGetPreviewHtmlToolWire(s, GET_PREVIEW_HTML_WIRE_MAX_HTML_CHARS)
+    }
     if (s.length() <= NATIVE_TOOLS_WIRE_JSON_MAX_CHARS) {
       return s
     }
@@ -6398,14 +7081,18 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     boolean finished = false
     boolean toolsRan = false
     boolean previousRoundHadRepoMutation = false
-    Set<String> writeContentPathsThisTurn = new LinkedHashSet<>()
-    boolean generateImageSucceededThisTurn = false
+    Set<String> writeContentPathsThisTurn = persistedWriteContentRepoPaths(toolsLoopSessionBundle)
+    Set<String> previewHtmlUrlsThisTurn = new LinkedHashSet<>()
+    int successfulPreviewFetchesThisTurn = 0
+    boolean generateImageSucceededThisTurn = generateImageAlreadySucceededForTurn(toolsLoopSessionBundle)
     boolean generateImageWrapUpInjectedThisTurn = false
     Boolean lastPreviewContentGoalFound = null
     String authorVisibleForToolsLoop = resolveToolsLoopAuthorVisible(toolsLoopSessionBundle, wireMessages) ?: ''
     String frozenAuthorOutcomePhrase = extractAuthoringOutcomePhrase(authorVisibleForToolsLoop)
     String lastPreviewContentGoalPhrase = frozenAuthorOutcomePhrase ?: ''
     int writeContentInvalidDocumentFailures = 0
+    String lastWriteContentFormRejectionSignature = ''
+    int writeContentRepeatedFormRejectionCount = 0
     String lastInvalidWriteContentPath = ''
     int maxFetchHttpUrlCallsThisTurn = toolsLoopMaxFetchHttpUrlCallsFromBundle(toolsLoopSessionBundle)
     int fetchHttpUrlCallsThisTurn = 0
@@ -6421,6 +7108,8 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     List<String> toolsLoopBannedRepoPaths = stringListFromRecipeTelemetry(intentTelLoop, 'toolsLoopBannedRepoPaths')
     List<String> toolsLoopRequiredWireNames = stringListFromRecipeTelemetry(intentTelLoop, 'toolsLoopRequireSuccessfulTools')
     Map<String, Boolean> requiredToolSuccess = freshRequiredToolSuccessMap(toolsLoopRequiredWireNames)
+    augmentRequiredToolsForResearchPageRefresh(toolsLoopSessionBundle, requiredToolSuccess, authorVisibleForToolsLoop)
+    seedRequiredToolSuccessFromSessionBundle(toolsLoopSessionBundle, requiredToolSuccess)
     StudioToolOperations ops = (toolsLoopSessionBundle?.studioOps instanceof StudioToolOperations) ?
       (StudioToolOperations) toolsLoopSessionBundle.studioOps :
       null
@@ -6444,7 +7133,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
         if (forceTool && wireToolsIncludeNamedTool(effectiveWireTools, forceTool)) {
           boolean deferWriteForce =
             'WriteContent'.equals(forceTool) &&
-              !toolsLoopShouldForceWriteContentToolChoice(requiredToolSuccess, intentTelForce)
+              !toolsLoopShouldForceWriteContentToolChoice(requiredToolSuccess, intentTelForce, toolsLoopSessionBundle)
           if (!deferWriteForce) {
             toolChoice = [type: 'function', function: [name: forceTool]]
             log.info(
@@ -6455,8 +7144,24 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
             )
           }
         }
+      } else if (wireToolsIncludeNamedTool(effectiveWireTools, 'FetchHttpUrl') &&
+        toolsLoopShouldForceFetchHttpUrlToolChoice(toolsLoopSessionBundle)) {
+        toolChoice = [type: 'function', function: [name: 'FetchHttpUrl']]
+        log.info(
+          'Tools-loop: tool_choice forced to FetchHttpUrl (research grounding — fetch before write) agentId={} round={}',
+          agentId,
+          round
+        )
+      } else if (wireToolsIncludeNamedTool(effectiveWireTools, 'GenerateImage') &&
+        toolsLoopShouldForceGenerateImageToolChoice(requiredToolSuccess, toolsLoopSessionBundle)) {
+        toolChoice = [type: 'function', function: [name: 'GenerateImage']]
+        log.info(
+          'Tools-loop: tool_choice forced to GenerateImage (research page refresh hero image) agentId={} round={}',
+          agentId,
+          round
+        )
       } else if (wireToolsIncludeNamedTool(effectiveWireTools, 'WriteContent') &&
-        toolsLoopShouldForceWriteContentToolChoice(requiredToolSuccess, intentTelLoop)) {
+        toolsLoopShouldForceWriteContentToolChoice(requiredToolSuccess, intentTelLoop, toolsLoopSessionBundle)) {
         toolChoice = [type: 'function', function: [name: 'WriteContent']]
         log.info(
           'Tools-loop: tool_choice forced to WriteContent (required tool still pending) agentId={} round={} recipeId={}',
@@ -6654,12 +7359,23 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
             String cleanedPreTool = assistantPreTool?.trim() ? stripForbiddenMetaPlanFromAssistantText(assistantPreTool.trim()) : ''
             String trimmedPlan = (cleanedPreTool ?: '').trim()
             if (trimmedPlan && shouldStreamPreToolAssistantSseForToolsLoop(trimmedPlan, toolsLoopSessionBundle, round)) {
-              def chunk = trimmedPlan + '\n\n'
-              synchronized (ssePreToolAssistantText) {
-                ssePreToolAssistantText.write(
-                  ("data: ${JsonOutput.toJson([text: chunk, metadata: [:]])}\n\n").getBytes(StandardCharsets.UTF_8)
+              if (!isToolsLoopStatusFillerProse(trimmedPlan) || !toolsLoopStatusFillerAlreadyEmitted(toolsLoopSessionBundle)) {
+                if (isToolsLoopStatusFillerProse(trimmedPlan)) {
+                  markToolsLoopStatusFillerEmitted(toolsLoopSessionBundle)
+                }
+                def chunk = trimmedPlan + '\n\n'
+                synchronized (ssePreToolAssistantText) {
+                  ssePreToolAssistantText.write(
+                    ("data: ${JsonOutput.toJson([text: chunk, metadata: [:]])}\n\n").getBytes(StandardCharsets.UTF_8)
+                  )
+                  ssePreToolAssistantText.flush()
+                }
+              } else {
+                log.debug(
+                  'Tools-loop tools-on: suppressed duplicate status filler before tool_calls agentId={} round={}',
+                  agentId,
+                  round
                 )
-                ssePreToolAssistantText.flush()
               }
             } else if (trimmedPlan) {
               log.debug(
@@ -6670,7 +7386,8 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
               )
             } else {
               String fallbackPlan = minimalPlanWhenToolsWithoutProse(round)
-              if (fallbackPlan?.trim()) {
+              if (fallbackPlan?.trim() && !toolsLoopStatusFillerAlreadyEmitted(toolsLoopSessionBundle)) {
+                markToolsLoopStatusFillerEmitted(toolsLoopSessionBundle)
                 synchronized (ssePreToolAssistantText) {
                   ssePreToolAssistantText.write(
                     ("data: ${JsonOutput.toJson([text: fallbackPlan + '\n\n', metadata: [:]])}\n\n").getBytes(StandardCharsets.UTF_8)
@@ -6679,6 +7396,12 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
                 }
                 log.info(
                   'Tools-loop tools-on: injected minimal prose before tool_calls (empty assistant content) agentId={} round={}',
+                  agentId,
+                  round
+                )
+              } else if (fallbackPlan?.trim()) {
+                log.debug(
+                  'Tools-loop tools-on: skipped duplicate minimal prose before tool_calls agentId={} round={}',
                   agentId,
                   round
                 )
@@ -6855,23 +7578,52 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
             } catch (Throwable ignoredDup) {
             }
           }
-          if (toolPol.duplicateGenerateImageThisTurnGuard && generateImageSucceededThisTurn) {
+          if (toolPol.duplicateGenerateImageThisTurnGuard &&
+            (generateImageSucceededThisTurn || generateImageAlreadySucceededForTurn(toolsLoopSessionBundle))) {
             String skipOut = JsonOutput.toJson([
               ok                                   : true,
               skippedDuplicateGenerateImageThisTurn: true,
               tool                                 : 'GenerateImage',
               message                              :
                 'GenerateImage skipped: one generated bitmap already completed this chat turn. ' +
-                  'The image is in the Studio chat strip — reply in short prose only. ' +
-                  'Do not call GenerateImage again unless the author explicitly asks for a different image.'
+                  'The image is in the Studio chat strip and was applied to the anchored page when applicable — ' +
+                  'reply in short prose only. Do not call GenerateImage again unless the author explicitly asks for a different image.'
             ])
+            wireMessages << [role: 'tool', tool_call_id: id, content: skipOut]
+            continue
+          }
+          if (toolsLoopSkipRedundantPrefetchDiscovery(fnName, intentTelLoop) &&
+            writeContentInvalidDocumentFailures == 0 &&
+            writeContentRepeatedFormRejectionCount == 0 &&
+            toolArgsMatchPrefetchedPathOrType(fnName, argsStr, toolsLoopSessionBundle, slurper)) {
+            Map skipInp = toolProgressInputFromArgsJson(argsStr, slurper, fnName)
+            long skipT0 = System.currentTimeMillis()
+            writeToolProgressSse(ssePreToolAssistantText, fnName, 'start', skipInp, null, null, null, ops)
+            String skipOut = JsonOutput.toJson([
+              ok                         : true,
+              skippedRedundantPrefetch   : true,
+              tool                       : fnName,
+              message                    :
+                "${fnName} skipped: intent-recipe prefetch already loaded this page XML and form definition for this turn. " +
+                  'Use the prefetch results — proceed to research (if needed), then **WriteContent**.'
+            ])
+            writeToolProgressSse(
+              ssePreToolAssistantText,
+              fnName,
+              'warn',
+              skipInp,
+              null,
+              slurper.parseText(skipOut),
+              System.currentTimeMillis() - skipT0,
+              ops
+            )
             wireMessages << [role: 'tool', tool_call_id: id, content: skipOut]
             continue
           }
           if (toolsLoopSkipDiscoveryUntilWriteContent(fnName, intentTelLoop, requiredToolSuccess)) {
             Map skipInp = toolProgressInputFromArgsJson(argsStr, slurper, fnName)
             long skipT0 = System.currentTimeMillis()
-            writeToolProgressSse(ssePreToolAssistantText, fnName, 'start', skipInp, null, null, null)
+            writeToolProgressSse(ssePreToolAssistantText, fnName, 'start', skipInp, null, null, null, ops)
             Map validationPlan = newContentItemFormValidationPlan(intentTelLoop)
             List requiredHint = validationPlan.requiredFieldIds instanceof List ?
               (List) validationPlan.requiredFieldIds : []
@@ -6894,7 +7646,8 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
               skipInp,
               null,
               slurper.parseText(skipOut),
-              System.currentTimeMillis() - skipT0
+              System.currentTimeMillis() - skipT0,
+              ops
             )
             wireMessages << [role: 'tool', tool_call_id: id, content: skipOut]
             continue
@@ -6912,6 +7665,40 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
                   'GetPreviewHtml skipped: WriteContent did not succeed in this tool round. Fix the write (check contentXml and required fields), then call GetPreviewHtml again.'
               ])
               wireMessages << [role: 'tool', tool_call_id: id, content: skipOut]
+              continue
+            }
+          }
+          if ('GetPreviewHtml'.equals(fnName)) {
+            String previewUrlThisCall = previewUrlFromToolArgsJson(argsStr, slurper)
+            String previewUrlKey = normalizePreviewUrlKey(previewUrlThisCall)
+            if (previewUrlKey && previewHtmlUrlsThisTurn.contains(previewUrlKey)) {
+              String dupOut = JsonOutput.toJson([
+                ok                              : true,
+                skippedDuplicatePreviewThisTurn : true,
+                url                             : previewUrlThisCall,
+                message                         :
+                  'GetPreviewHtml skipped: this preview URL was already fetched in this chat turn. ' +
+                    'Use the prior preview result — reply to the author or call WriteContent only if content still needs correction.'
+              ])
+              wireMessages << [role: 'tool', tool_call_id: id, content: dupOut]
+              continue
+            }
+            if (successfulPreviewFetchesThisTurn >= GET_PREVIEW_HTML_MAX_FETCHES_PER_TURN) {
+              String limitOut = JsonOutput.toJson([
+                ok                        : true,
+                skippedPreviewFetchLimit  : true,
+                maxPreviewFetchesPerTurn  : GET_PREVIEW_HTML_MAX_FETCHES_PER_TURN,
+                message                   :
+                  'GetPreviewHtml limit reached for this turn (' + GET_PREVIEW_HTML_MAX_FETCHES_PER_TURN +
+                    '). Preview was already verified — finish with a short author summary; do not fetch preview again.'
+              ])
+              wireMessages << [role: 'tool', tool_call_id: id, content: limitOut]
+              log.info(
+                'Tools-loop: GetPreviewHtml capped at {} for turn agentId={} round={}',
+                GET_PREVIEW_HTML_MAX_FETCHES_PER_TURN,
+                agentId,
+                round
+              )
               continue
             }
           }
@@ -6991,11 +7778,76 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           } else {
             try {
               if ('WriteContent'.equals(fnName)) {
+                Map researchGate = AuthoringResearchGrounding.gateWriteContent(toolsLoopSessionBundle)
+                if (Boolean.FALSE.equals(researchGate.proceed)) {
+                  Map wcInp = toolProgressInputFromArgsJson(argsStr, slurper)
+                  long wcT0 = System.currentTimeMillis()
+                  writeToolProgressSse(ssePreToolAssistantText, 'WriteContent', 'start', wcInp, null, null, null, ops)
+                  toolOut = researchGate.toolOut?.toString() ?: ''
+                  roundHadWriteAttempt = true
+                  roundHadWriteFailure = true
+                  Object researchGateParsed = null
+                  try {
+                    researchGateParsed = slurper.parseText(toolOut)
+                  } catch (Throwable ignoredResearchGate) {
+                  }
+                  writeToolProgressSse(
+                    ssePreToolAssistantText,
+                    'WriteContent',
+                    'warn',
+                    wcInp,
+                    null,
+                    researchGateParsed,
+                    System.currentTimeMillis() - wcT0,
+                    ops
+                  )
+                  log.warn(
+                    'Tools-loop: WriteContent blocked by research grounding gate agentId={} round={}',
+                    agentId,
+                    round
+                  )
+                } else {
+                Map copyPlanGate = FormDefinitionCopyFieldPlan.gateWriteContent(toolsLoopSessionBundle, ops, argsStr, slurper)
+                if (Boolean.FALSE.equals(copyPlanGate.proceed)) {
+                  Map wcInp = toolProgressInputFromArgsJson(argsStr, slurper)
+                  long wcT0 = System.currentTimeMillis()
+                  writeToolProgressSse(ssePreToolAssistantText, 'WriteContent', 'start', wcInp, null, null, null, ops)
+                  toolOut = copyPlanGate.toolOut?.toString() ?: ''
+                  roundHadWriteAttempt = true
+                  roundHadWriteFailure = true
+                  Object copyPlanGateParsed = null
+                  try {
+                    copyPlanGateParsed = slurper.parseText(toolOut)
+                  } catch (Throwable ignoredCopyPlanGate) {
+                  }
+                  writeToolProgressSse(
+                    ssePreToolAssistantText,
+                    'WriteContent',
+                    'warn',
+                    wcInp,
+                    null,
+                    copyPlanGateParsed,
+                    System.currentTimeMillis() - wcT0,
+                    ops
+                  )
+                  log.warn(
+                    'Tools-loop: WriteContent blocked by copy-field-plan gate agentId={} round={}',
+                    agentId,
+                    round
+                  )
+                  String headlineNudge = FormDefinitionCopyFieldPlan.formatWriteContentGateRecoveryNudge(
+                    toolsLoopSessionBundle,
+                    copyPlanGateParsed instanceof Map ? (Map) copyPlanGateParsed : null
+                  )
+                  if (headlineNudge?.trim()) {
+                    toolsLoopSessionBundle.toolsLoopPendingWriteContentRecoveryNudge = headlineNudge
+                  }
+                } else {
                 Map siblingGate = gateNewContentItemWriteContent(argsStr, intentTelLoop, slurper, ops)
                 if (Boolean.FALSE.equals(siblingGate.proceed)) {
                   Map wcInp = toolProgressInputFromArgsJson(argsStr, slurper)
                   long wcT0 = System.currentTimeMillis()
-                  writeToolProgressSse(ssePreToolAssistantText, 'WriteContent', 'start', wcInp, null, null, null)
+                  writeToolProgressSse(ssePreToolAssistantText, 'WriteContent', 'start', wcInp, null, null, null, ops)
                   toolOut = siblingGate.toolOut?.toString() ?: ''
                   roundHadWriteAttempt = true
                   roundHadWriteFailure = true
@@ -7011,7 +7863,8 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
                     wcInp,
                     null,
                     sibGateParsed,
-                    System.currentTimeMillis() - wcT0
+                    System.currentTimeMillis() - wcT0,
+                    ops
                   )
                   log.warn(
                     'Tools-loop: WriteContent blocked by new-content-item placeholder gate agentId={} round={}',
@@ -7024,7 +7877,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
                 if (Boolean.FALSE.equals(gate.proceed)) {
                   Map wcInp = toolProgressInputFromArgsJson(argsStr, slurper)
                   long wcT0 = System.currentTimeMillis()
-                  writeToolProgressSse(ssePreToolAssistantText, 'WriteContent', 'start', wcInp, null, null, null)
+                  writeToolProgressSse(ssePreToolAssistantText, 'WriteContent', 'start', wcInp, null, null, null, ops)
                   toolOut = gate.toolOut?.toString() ?: ''
                   roundHadWriteAttempt = true
                   roundHadWriteFailure = true
@@ -7040,7 +7893,8 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
                     wcInp,
                     null,
                     gateParsed,
-                    System.currentTimeMillis() - wcT0
+                    System.currentTimeMillis() - wcT0,
+                    ops
                   )
                   log.warn(
                     'Tools-loop: WriteContent blocked by createFromChatDraft write verification agentId={} round={}',
@@ -7049,6 +7903,8 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
                   )
                 } else {
                   argsStr = (gate.argsStr ?: argsStr).toString()
+                  Map preEnrich = gateWriteContentPreEnrich(argsStr, ops, slurper)
+                  argsStr = (preEnrich.argsStr ?: argsStr).toString()
                   if (fn instanceof Map) {
                     fn.put('arguments', argsStr)
                   }
@@ -7057,6 +7913,36 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
                   }
                 }
                 }
+                }
+                }
+              } else if ('GenerateImage'.equals(fnName) && shouldBlockGenerateImageUntilCopyWrite(toolsLoopSessionBundle)) {
+                Map giInp = toolProgressInputFromArgsJson(argsStr, slurper, fnName)
+                long giT0 = System.currentTimeMillis()
+                writeToolProgressSse(ssePreToolAssistantText, 'GenerateImage', 'start', giInp, null, null, null, ops)
+                toolOut = JsonOutput.toJson([
+                  ok                         : false,
+                  skippedUntilWriteContent   : true,
+                  tool                       : 'GenerateImage',
+                  message                    :
+                    'GenerateImage **blocked** — save page copy with **WriteContent** first. ' +
+                      'Use a **newsroom-quality** headline (specific story angle), not the author\'s task wording or "Latest updates on…". ' +
+                      'Then call **GenerateImage** for the hero image.'
+                ])
+                writeToolProgressSse(
+                  ssePreToolAssistantText,
+                  'GenerateImage',
+                  'warn',
+                  giInp,
+                  null,
+                  slurper.parseText(toolOut.toString()),
+                  System.currentTimeMillis() - giT0,
+                  ops
+                )
+                log.warn(
+                  'Tools-loop: GenerateImage blocked until WriteContent succeeds (research page refresh) agentId={} round={}',
+                  agentId,
+                  round
+                )
               } else {
                 toolOut = ChatCompletionsToolWire.runWithNativeToolCallId(id) {
                   tcb.call(argsStr)
@@ -7119,6 +8005,12 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
                   'written'.equalsIgnoreCase(((Map) parsedW).get('result')?.toString()?.trim())
                 if (wOk) {
                   roundHadWriteSuccess = true
+                  lastPreviewContentGoalFound = null
+                  successfulPreviewFetchesThisTurn =
+                    invalidateTurnPreviewVerification(previewState, previewHtmlUrlsThisTurn, toolsLoopSessionBundle)
+                  if (toolsLoopSessionBundle instanceof Map) {
+                    toolsLoopSessionBundle.toolsLoopWriteContentOkThisTurn = Boolean.TRUE
+                  }
                   markTaskCompletionWallMsIfUnset(toolTimingCtx)
                   Object argsParsed = slurper.parseText(argsStr ?: '{}')
                   if (argsParsed instanceof Map) {
@@ -7143,12 +8035,24 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
                         } catch (Throwable ignoredBindingWrite) {
                         }
                       }
+                      if (wxml?.trim()) {
+                        FormDefinitionCopyFieldPlan.recordWrittenCopyForPreviewVerification(toolsLoopSessionBundle, wxml)
+                      }
                     }
                   }
                 } else {
                   roundHadWriteFailure = true
                   if (toolWireIndicatesInvalidSiteItemDocument(toolOut.toString())) {
                     writeContentInvalidDocumentFailures++
+                    String formSig = writeContentFormRejectionSignature(toolOut.toString())
+                    if (formSig) {
+                      if (formSig.equals(lastWriteContentFormRejectionSignature)) {
+                        writeContentRepeatedFormRejectionCount++
+                      } else {
+                        lastWriteContentFormRejectionSignature = formSig
+                        writeContentRepeatedFormRejectionCount = 1
+                      }
+                    }
                     try {
                       Object argsParsed = slurper.parseText(argsStr ?: '{}')
                       if (argsParsed instanceof Map) {
@@ -7166,7 +8070,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
             }
           }
           if (toolPol.enrichPreviewHtmlResult) {
-            Map enriched = enrichGetPreviewHtmlToolResult(toolOut.toString(), frozenAuthorOutcomePhrase, slurper)
+            Map enriched = enrichGetPreviewHtmlToolResult(toolOut.toString(), frozenAuthorOutcomePhrase, slurper, toolsLoopSessionBundle)
             toolOut = enriched.toolOut?.toString() ?: toolOut
             if (enriched.previewGoalFound instanceof Boolean) {
               lastPreviewContentGoalFound = enriched.previewGoalFound
@@ -7176,10 +8080,25 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
               lastPreviewContentGoalPhrase = enriched.previewGoalPhrase.toString()
               previewState.lastPreviewContentGoalPhrase = enriched.previewGoalPhrase.toString()
             }
-            if (lastPreviewContentGoalFound == Boolean.FALSE && frozenAuthorOutcomePhrase?.trim()) {
+            try {
+              def parsedPrevOk = slurper.parseText(toolOut.toString())
+              if (parsedPrevOk instanceof Map && Boolean.TRUE.equals(((Map) parsedPrevOk).get('ok'))) {
+                successfulPreviewFetchesThisTurn++
+                String previewUrlRecorded = previewUrlFromToolArgsJson(argsStr, slurper)
+                String previewKey = normalizePreviewUrlKey(previewUrlRecorded)
+                if (previewKey) {
+                  previewHtmlUrlsThisTurn.add(previewKey)
+                }
+              }
+            } catch (Throwable ignoredPrevCount) {
+            }
+            if (lastPreviewContentGoalFound == Boolean.FALSE) {
+              String prevReason = (toolsLoopSessionBundle?.toolsLoopPreviewVerificationReason ?: '').toString()
+              String prevPhrase = (lastPreviewContentGoalPhrase ?: toolsLoopSessionBundle?.toolsLoopPreviewVerificationPhrase ?: '').toString()
               log.warn(
-                'Tools-loop: GetPreviewHtml missing expected phrase "{}" agentId={} round={}',
-                frozenAuthorOutcomePhrase,
+                'Tools-loop: GetPreviewHtml verification failed reason={} phrase="{}" agentId={} round={}',
+                prevReason ?: 'unknown',
+                prevPhrase,
                 agentId,
                 round
               )
@@ -7210,6 +8129,9 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
                   roundSuccessfulWriteRepoPath = autoPath
                   repoMutationThisRound = true
                   roundHadWriteSuccess = true
+                  lastPreviewContentGoalFound = null
+                  successfulPreviewFetchesThisTurn =
+                    invalidateTurnPreviewVerification(previewState, previewHtmlUrlsThisTurn, toolsLoopSessionBundle)
                   if (requiredToolSuccess.containsKey('WriteContent')) {
                     requiredToolSuccess.put('WriteContent', Boolean.TRUE)
                   }
@@ -7233,7 +8155,8 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           emitStepBridgeForLatestArtifact(ssePreToolAssistantText, toolsLoopSessionBundle)
           if (toolWire.length() < toolOut.length() &&
             toolPol.wireOutputMode != plugins.org.craftercms.aiassistant.studio.engine.policy.ToolsLoopWirePolicy.WIRE_COMPACT_GENERATE_IMAGE &&
-            toolPol.wireOutputMode != plugins.org.craftercms.aiassistant.studio.engine.policy.ToolsLoopWirePolicy.WIRE_COMPACT_FETCH_HTTP) {
+            toolPol.wireOutputMode != plugins.org.craftercms.aiassistant.studio.engine.policy.ToolsLoopWirePolicy.WIRE_COMPACT_FETCH_HTTP &&
+            toolPol.wireOutputMode != plugins.org.craftercms.aiassistant.studio.engine.policy.ToolsLoopWirePolicy.WIRE_COMPACT_PREVIEW_HTML) {
             log.warn(
               'Tools-loop native tools: truncated tool wire output tool={} agentId={} beforeChars={} afterChars={}',
               fnName,
@@ -7264,15 +8187,20 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
               boolean reqOk = parsedReq instanceof Map &&
                 (Boolean.TRUE.equals(((Map) parsedReq).get('ok')) ||
                   'written'.equalsIgnoreCase(((Map) parsedReq).get('result')?.toString()?.trim()))
+              if ('GenerateImage'.equals(fnName) && generateImageSucceededThisTurn) {
+                reqOk = true
+              }
               if (reqOk && !Boolean.TRUE.equals(((Map) parsedReq).get('skippedBannedRepoPath')) &&
                 !Boolean.TRUE.equals(((Map) parsedReq).get('skippedDuplicateWriteThisTurn')) &&
-                !Boolean.TRUE.equals(((Map) parsedReq).get('skippedDuplicateGenerateImageThisTurn'))) {
+                !Boolean.TRUE.equals(((Map) parsedReq).get('skippedDuplicateGenerateImageThisTurn')) &&
+                !Boolean.TRUE.equals(((Map) parsedReq).get('skippedUntilWriteContent'))) {
                 requiredToolSuccess.put(fnName, Boolean.TRUE)
               }
             } catch (Throwable ignoredReqTrack) {
             }
           }
         }
+        injectPendingWriteContentRecoveryNudge(wireMessages, toolsLoopSessionBundle)
         if (finished) {
           break
         }
@@ -7295,9 +8223,36 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
         if (previewState.lastPreviewContentGoalPhrase) {
           lastPreviewContentGoalPhrase = previewState.lastPreviewContentGoalPhrase.toString()
         }
-        if (generateImageSucceededThisTurn && !generateImageWrapUpInjectedThisTurn &&
-          !toolsLoopRequiredToolsStillPending(requiredToolSuccess) &&
-          !isGenerateImageChatOnlyRecipeTurn(intentTelLoop, authorVisibleForToolsLoop)) {
+        if (generateImageSucceededThisTurn && !generateImageWrapUpInjectedThisTurn) {
+          boolean writeContentPending = requiredToolSuccess.containsKey('WriteContent') &&
+            !Boolean.TRUE.equals(requiredToolSuccess.get('WriteContent'))
+          if (writeContentPending) {
+            Map<String, String> repoMap = GeneratedImageCmsPersistence.repoPathByToolCallId(toolsLoopSessionBundle)
+            String repoHint = ''
+            if (!repoMap.isEmpty()) {
+              repoHint =
+                '\n**GenerateImage repository path(s):** `' + repoMap.values().join('`, `') +
+                  '`. Set image-picker fields to one of these paths inside **WriteContent**.'
+            }
+            String copyNudge = FormDefinitionCopyFieldPlan.formatPreWriteReminder(toolsLoopSessionBundle)
+            wireMessages << [
+              role   : 'user',
+              content:
+                '[Studio — WriteContent required before you finish]\n' +
+                  '**GenerateImage** finished but the repository page was **not** updated. ' +
+                  'You **must** call **WriteContent** now with the **full** page XML from prefetch/GetContent, ' +
+                  'populating copy fields per the **[Studio — content field plan]**.' +
+                  repoHint +
+                  (copyNudge?.trim() ? '\n\n' + copyNudge.trim() : '')
+            ]
+            generateImageWrapUpInjectedThisTurn = true
+            log.info(
+              'Tools-loop: injected WriteContent-required nudge after GenerateImage agentId={} round={}',
+              agentId,
+              round
+            )
+          } else if (!toolsLoopRequiredToolsStillPending(requiredToolSuccess) &&
+            !isGenerateImageChatOnlyRecipeTurn(intentTelLoop, authorVisibleForToolsLoop)) {
           String repoHint = ''
           Map<String, String> repoMap = GeneratedImageCmsPersistence.repoPathByToolCallId(toolsLoopSessionBundle)
           if (!repoMap.isEmpty()) {
@@ -7316,8 +8271,9 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
             agentId,
             round
           )
+          }
         }
-        maybeAppendAutoConfirmationPreviewAfterRound(
+        boolean autoPreviewHttpOk = maybeAppendAutoConfirmationPreviewAfterRound(
           wireMessages,
           byName,
           slurper,
@@ -7329,8 +8285,16 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           round,
           agentId,
           previewState,
-          roundSuccessfulWriteRepoPath
+          roundSuccessfulWriteRepoPath,
+          previewHtmlUrlsThisTurn,
+          successfulPreviewFetchesThisTurn
         )
+        if (autoPreviewHttpOk) {
+          successfulPreviewFetchesThisTurn++
+        }
+        if (Boolean.TRUE.equals(previewState.lastPreviewContentGoalFound)) {
+          lastPreviewContentGoalFound = Boolean.TRUE
+        }
         if (previewState.lastPreviewContentGoalFound instanceof Boolean) {
           lastPreviewContentGoalFound = previewState.lastPreviewContentGoalFound
         }
@@ -7339,16 +8303,28 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
         }
         if (writeContentInvalidDocumentFailures >= 3 && !roundHadWriteSuccess) {
           log.warn(
-            'Tools-loop: stopping after {} invalid WriteContent attempts (fragment/partial XML) round={} agentId={}',
+            'Tools-loop: stopping after {} invalid WriteContent attempts (fragment/partial XML or form rejection) round={} agentId={}',
             writeContentInvalidDocumentFailures,
             round,
             agentId
           )
-          assistantAccum = synthesizeCorruptSiteItemXmlMessage(lastInvalidWriteContentPath ?: '/site/website/index.xml')
+          assistantAccum = writeContentRepeatedFormRejectionCount >= 2 ?
+            synthesizeFormDefinitionWriteRejectionMessage(lastInvalidWriteContentPath ?: '/site/website/index.xml') :
+            synthesizeCorruptSiteItemXmlMessage(lastInvalidWriteContentPath ?: '/site/website/index.xml')
           finished = true
           break
         }
-        if (writeContentInvalidDocumentFailures >= 2 && !roundHadWriteSuccess && round < maxRounds - 1) {
+        if (writeContentRepeatedFormRejectionCount >= 2 && !roundHadWriteSuccess && round < maxRounds - 1) {
+          wireMessages << [
+            role   : 'user',
+            content:
+              '[aiassistant: WriteContent blocked — internal]\n' +
+                '**WriteContent** failed repeatedly with the **same form-definition rejection** (invented field ids such as `orderDefault_f`). ' +
+                'Call **GetContent** on the anchored path, change **only** existing field elements listed in the **content field plan** in that full document, then **WriteContent** once — do not invent new root elements.\n'
+          ]
+        }
+        if (writeContentInvalidDocumentFailures >= 2 && writeContentRepeatedFormRejectionCount < 2 &&
+          !roundHadWriteSuccess && round < maxRounds - 1) {
           wireMessages << [
             role   : 'user',
             content:
@@ -7379,6 +8355,14 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
         if (copyFieldNudge?.trim() && (roundHadWriteAttempt || anySuccessfulFetchHttpUrl) &&
           round < maxRounds - 1 && !finished) {
           wireMessages << [role: 'user', content: copyFieldNudge]
+        }
+        String synthesisNudge = AuthoringResearchGrounding.formatSynthesisBeforeWriteNudge(toolsLoopSessionBundle)
+        if (synthesisNudge?.trim() && anySuccessfulFetchHttpUrl && round < maxRounds - 1 && !finished) {
+          wireMessages << [role: 'user', content: synthesisNudge]
+        }
+        String heroImageNudge = AuthoringResearchGrounding.formatHeroImageAfterCopyNudge(toolsLoopSessionBundle)
+        if (heroImageNudge?.trim() && round < maxRounds - 1 && !finished) {
+          wireMessages << [role: 'user', content: heroImageNudge]
         }
         String artifactsBlock = ToolsLoopTurnArtifacts.formatInjectionBlock(toolsLoopSessionBundle)
         if (artifactsBlock?.trim() && round < maxRounds - 1 && !finished) {
@@ -7415,14 +8399,22 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
         }
         if (repoMutationThisRound &&
           roundHadWriteSuccess &&
-          lastPreviewContentGoalFound == Boolean.TRUE) {
+          toolsLoopPreviewVerificationAllowsEarlyFinish(
+            successfulPreviewFetchesThisTurn,
+            lastPreviewContentGoalFound,
+            toolsLoopSessionBundle,
+            true
+          ) &&
+          !toolsLoopRequiredToolsStillPending(requiredToolSuccess)) {
           String previewUrl = previewUrlForRepoPath(roundSuccessfulWriteRepoPath, toolsLoopSessionBundle, wireMessages)
           assistantAccum = synthesizePlanExecutionAfterVerifiedWrite(
             frozenAuthorOutcomePhrase ?: lastPreviewContentGoalPhrase,
             previewUrl
           )
           log.info(
-            'Tools-loop: early finish after tool round — write ok, preview phrase verified; skip further LLM rounds round={} agentId={}',
+            'Tools-loop: early finish after tool round — write ok, preview verified (fetches={} phraseFound={}); skip further LLM rounds round={} agentId={}',
+            successfulPreviewFetchesThisTurn,
+            lastPreviewContentGoalFound,
             round,
             agentId
           )
@@ -7430,6 +8422,35 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           finished = true
           break
         }
+        if (!finished &&
+          !writeContentPathsThisTurn.isEmpty() &&
+          successfulPreviewFetchesThisTurn >= GET_PREVIEW_HTML_MAX_FETCHES_PER_TURN &&
+          toolsLoopPreviewVerificationAllowsEarlyFinish(
+            successfulPreviewFetchesThisTurn,
+            lastPreviewContentGoalFound,
+            toolsLoopSessionBundle,
+            true
+          )) {
+          String previewUrl = previewUrlForRepoPath(
+            roundSuccessfulWriteRepoPath ?: writeContentPathsThisTurn.iterator().next(),
+            toolsLoopSessionBundle,
+            wireMessages
+          )
+          assistantAccum = synthesizePlanExecutionAfterVerifiedWrite(
+            frozenAuthorOutcomePhrase ?: lastPreviewContentGoalPhrase,
+            previewUrl
+          )
+          log.info(
+            'Tools-loop: early finish after preview fetch cap ({}); write paths={} round={} agentId={}',
+            GET_PREVIEW_HTML_MAX_FETCHES_PER_TURN,
+            writeContentPathsThisTurn.size(),
+            round,
+            agentId
+          )
+          finished = true
+          break
+        }
+        recompactPreviewHtmlOnWire(wireMessages)
         previousRoundHadRepoMutation =
           createFromChatDraftWriteVerificationActive(intentTelLoop) ?
             roundHadWriteSuccess :
@@ -7536,7 +8557,35 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       }
       aiAssistantToolWorkerDiagPhase("native_tool_loop_round_${round}_final_assistant_message_no_more_tools")
       assistantAccum = assistantTextFromChoiceMessageMap(msgCopy)
-      if (!toolsRan && looksLikePseudoToolCallNarration(assistantAccum, byName)) {
+      boolean writeContentStillRequired = requiredToolSuccess.containsKey('WriteContent') &&
+        !Boolean.TRUE.equals(requiredToolSuccess.get('WriteContent'))
+      boolean pseudoNarration = looksLikePseudoToolCallNarration(assistantAccum, byName)
+      if ((!toolsRan || writeContentStillRequired) && pseudoNarration) {
+        log.warn(
+          'Tools-loop: detected pseudo tool-call narration (toolsRan={} writeContentRequired={}) agentId={} round={}',
+          toolsRan,
+          writeContentStillRequired,
+          agentId,
+          round
+        )
+        if (toolsLoopSessionBundle instanceof Map) {
+          toolsLoopSessionBundle.pseudoToolNarrationBlocked = Boolean.TRUE
+        }
+        if (writeContentStillRequired && round < maxRounds - 1) {
+          String guardMsg = AuthoringIntentRecipeCatalog.formatToolsLoopRequiredToolsGuardMessage(intentTelLoop)
+          if (guardMsg?.trim()) {
+            wireMessages << [role: 'user', content: guardMsg]
+          }
+          String copyNudge = FormDefinitionCopyFieldPlan.formatPreWriteReminder(toolsLoopSessionBundle)
+          if (copyNudge?.trim()) {
+            wireMessages << [role: 'user', content: copyNudge]
+          }
+          continue
+        }
+        assistantAccum = writeContentStillRequired ?
+          AuthoringIntentRecipeCatalog.formatToolsLoopRequiredToolsMissedMessage(intentTelLoop) :
+          pseudoToolNarrationFallbackMessage()
+      } else if (!toolsRan && pseudoNarration) {
         log.warn(
           'Tools-loop: detected pseudo tool-call narration without executed tools; replacing final assistant text with fallback agentId={} round={}',
           agentId,
@@ -7746,8 +8795,26 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     String assistantAccum = (loopOut?.text ?: '').toString()
     Boolean lastPreviewContentGoalFound = loopOut?.previewGoalFound instanceof Boolean ? (Boolean) loopOut.previewGoalFound : null
     String lastPreviewContentGoalPhrase = (loopOut?.previewGoalPhrase ?: '').toString()
+    List<String> requiredWriteToolsForReview = stringListFromRecipeTelemetry(intentTel, 'toolsLoopRequireSuccessfulTools')
+    boolean writeContentRequiredButMissing =
+      !Boolean.TRUE.equals(toolsLoopSessionBundle?.toolsLoopWriteContentOkThisTurn) &&
+        (
+          requiredWriteToolsForReview.contains('WriteContent') ||
+            'modify_page_content'.equals(intentTel?.recipeId?.toString()?.trim()) ||
+            AuthoringPreviewContext.authorVisibleSuggestsAnchoredPageContentModificationForAuthorText(origUser, origUser)
+        )
+    boolean skipPostToolReviewForPendingPageWrite =
+      !writeContentRequiredButMissing &&
+      !Boolean.TRUE.equals(toolsLoopSessionBundle?.toolsLoopWriteContentOkThisTurn) &&
+      AuthoringResearchGrounding.hasSubstantiveRetrievedSource(toolsLoopSessionBundle) &&
+      (
+        'modify_page_content'.equals(intentTel?.recipeId?.toString()?.trim()) ||
+        requiredWriteToolsForReview.contains('WriteContent') ||
+        AuthoringPreviewContext.authorVisibleSuggestsAnchoredPageContentModificationForAuthorText(origUser, origUser)
+      )
     if (postToolReviewEnabled(toolsLoopSessionBundle) &&
       !skipPostToolReviewForGenerateImageRecipe(toolsLoopSessionBundle) &&
+      !skipPostToolReviewForPendingPageWrite &&
       (cancelRequested == null || !cancelRequested.get())) {
       try {
         emitSseToolProgressLine(
@@ -7774,6 +8841,27 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           'summary'
         )
         boolean acc = rev?.accomplished != null && Boolean.TRUE.equals(rev.accomplished)
+        List<String> requiredWriteTools = stringListFromRecipeTelemetry(intentTel, 'toolsLoopRequireSuccessfulTools')
+        if (requiredWriteTools.contains('WriteContent') &&
+          !Boolean.TRUE.equals(toolsLoopSessionBundle?.toolsLoopWriteContentOkThisTurn)) {
+          acc = false
+          if (!(rev?.correctionInstructions ?: '').toString().trim()) {
+            rev = [
+              accomplished           : Boolean.FALSE,
+              reason                   : 'WriteContent did not succeed — page copy was not saved.',
+              correctionInstructions   :
+                'Call **WriteContent** with the **full** prefetched page XML, updated copy per the content field plan, ' +
+                  'and the **GenerateImage** repository path on image-picker fields. Do not finish with prose-only tool JSON.'
+            ]
+          }
+        }
+        if (!acc && toolsLoopResearchPageRefreshSubstantiallyComplete(toolsLoopSessionBundle)) {
+          log.info(
+            'Tools-loop post-tool review: research page refresh write+image ok — skipping correction pass agentId={}',
+            agentId
+          )
+          acc = true
+        }
         if (!acc) {
           String corr = (rev?.correctionInstructions ?: '').toString().trim()
           if (corr) {
@@ -7850,8 +8938,19 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     sanitized = appendPreviewVerificationWarningIfNeeded(
       sanitized,
       lastPreviewContentGoalFound,
-      lastPreviewContentGoalPhrase
+      lastPreviewContentGoalPhrase,
+      toolsLoopSessionBundle
     )
+    if (Boolean.TRUE.equals(toolsLoopSessionBundle?.toolsLoopWriteContentOkThisTurn) &&
+      toolsLoopSessionBundle?.toolsLoopPreviewHttpOk == Boolean.FALSE &&
+      !(sanitized ?: '').contains('## Not done yet')) {
+      String previewUrl = previewUrlForRepoPath(
+        firstPersistedWriteContentRepoPath(toolsLoopSessionBundle),
+        toolsLoopSessionBundle,
+        baseWire
+      )
+      sanitized = synthesizePlanExecutionAfterWritePendingPreview(previewUrl, toolsLoopSessionBundle)
+    }
     String authorMarkdown =
       ChatCompletionsToolWire.appendMissingInlineImageRefs(
         sanitized,
@@ -8826,7 +9925,8 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     Map input,
     Throwable err,
     Object toolResult = null,
-    Long taskDurationMs = null
+    Long taskDurationMs = null,
+    StudioToolOperations ops = null
   ) {
     if (o == null) return
     try {
@@ -8942,13 +10042,12 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
           Map gm = ChatCompletionsToolWire.unwrapGenerateImageToolResultMap((Map) toolResult)
           String tid = ChatCompletionsToolWire.generateImageBacklogToolCallId(gm)?.trim()
           String url = ChatCompletionsToolWire.generateImageResultUrlString(gm)?.trim()
-          boolean okHttp = url && (url.startsWith('http://') || url.startsWith('https://'))
-          boolean okSmallData =
-            url &&
-              url.startsWith('data:image') &&
-              url.length() <= GENERATE_IMAGE_TOOL_PROGRESS_METADATA_MAX_URL_CHARS
-          if (tid && url && (okHttp || okSmallData)) {
-            event.metadata.studioAiInlineImageUrls = [(tid): url]
+          if (tid && url) {
+            Map<String, String> compacted =
+              compactGenerateImageUrlsForAuthoringChat([(tid): url] as Map<String, String>, ops)
+            if (!compacted.isEmpty()) {
+              event.metadata.studioAiInlineImageUrls = compacted
+            }
           }
         } catch (Throwable ignoredGenImgMeta) {
         }
@@ -9313,6 +10412,7 @@ SerpApi and other tools may still work when only the chat host is blocked. From 
 
       def genImgBacklogByToolCallId = new ConcurrentHashMap<String, String>()
       def toolTimingCtx = createToolTimingContext()
+      StudioToolOperations chatStudioOps = null
       def toolProgressListener = { String tn, String ph, Map inp, Throwable er = null, Object tres = null, Long taskDurMs = null ->
         if ('GenerateImage'.equals(tn) && tres instanceof Map && ('done'.equals(ph) || 'warn'.equals(ph))) {
           try {
@@ -9341,7 +10441,7 @@ SerpApi and other tools may still work when only the chat host is blocked. From 
             log.warn('GenerateImage tool-progress: backlog capture failed: {}', genImgEx.message)
           }
         }
-        writeToolProgressSse(out, tn, ph, inp ?: [:], er, tres, taskDurMs)
+        writeToolProgressSse(out, tn, ph, inp ?: [:], er, tres, taskDurMs, chatStudioOps)
       }
 
       def fullSuppress = false
@@ -9355,6 +10455,9 @@ SerpApi and other tools may still work when only the chat host is blocked. From 
         }
       }
       def springAi = buildSpringAiChatClient(agentId, chatId, llm, chatModel, llmApiKey, toolProgressListener, imageModel, fullSuppress, protNorm, enableTools, imageGenerator, llmSecretKey)
+      if (springAi.studioOps instanceof StudioToolOperations) {
+        chatStudioOps = (StudioToolOperations) springAi.studioOps
+      }
       if (formEngineClientForward && !StudioAiLlmKind.useToolsLoopChatRestClient(springAi.llm, springAi)) {
         log.warn(
           'Form-engine client-apply: llm is {} (not a tools-loop RestClient row). Use openAI / xAI / deepSeek / llama / genesis (gemini) on this agent for native RestClient tools + best compliance with aiassistantFormFieldUpdates.',

@@ -26,6 +26,8 @@ final class ToolsLoopWirePolicy {
   static final String WIRE_COMPACT_GENERATE_IMAGE = 'compact_generate_image'
   /** Compact {@code FetchHttpUrl} payloads (cap HTML body on the chat wire). */
   static final String WIRE_COMPACT_FETCH_HTTP = 'compact_fetch_http'
+  /** Compact {@code GetPreviewHtml} payloads (cap HTML on the chat wire). */
+  static final String WIRE_COMPACT_PREVIEW_HTML = 'compact_preview_html'
 
   /** Maps to 🔍 / ✏️ / 📈 / 🔄 via {@link ToolsLoopWirePolicyRegistry#progressCategoryEmoji}. */
   final String progressCategory
@@ -114,9 +116,17 @@ final class ToolsLoopWirePolicy {
     return new ToolsLoopWirePolicy(PROGRESS_WRITE, false, false, false, false, false, wireOutputMode, null, null, 'main', false)
   }
 
-  /** GetPreviewHtml: verification stage; may skip after failed write; enriches result JSON. */
+  /** GetPreviewHtml: verification stage; compact HTML on wire; enriches result JSON. */
+  static ToolsLoopWirePolicy previewHtmlPolicy() {
+    return new ToolsLoopWirePolicy(
+      PROGRESS_READ, false, false, true, false, false,
+      WIRE_COMPACT_PREVIEW_HTML, null, null, 'verification', true
+    )
+  }
+
+  /** @deprecated use {@link #previewHtmlPolicy} */
   static ToolsLoopWirePolicy verificationReadPolicy() {
-    return new ToolsLoopWirePolicy(PROGRESS_READ, false, false, true, false, false, WIRE_TRUNCATE, null, null, 'verification', true)
+    return previewHtmlPolicy()
   }
 
   /** GeneratePlaceholderImage: Studio sample placeholder; not a repository mutation. */

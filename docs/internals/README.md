@@ -19,6 +19,7 @@
 | [**package-architecture.md**](package-architecture.md) | Groovy `spi` / `engine` / `contrib` / `studio` layout |
 | [**groovy-documentation-standard.md**](groovy-documentation-standard.md) | Required `/** … */` on Groovy under `authoring/scripts/` |
 | [**maintainer-review-checklist.md**](maintainer-review-checklist.md) | Review anti-patterns (React/TS, Groovy, SSE) |
+| [**content-field-plan.md**](content-field-plan.md) | **Dynamic content model** — form-definition-driven copy roles; no hardcoded field ids |
 | [**reference-spring-ai-completions-with-tools.md**](reference-spring-ai-completions-with-tools.md) | Archived Spring AI reference |
 
 ## Debug logging

@@ -1,6 +1,6 @@
 const { Fragment, jsx: jsx$1, jsxs } = craftercms.libs?.reactJsxRuntime;
 const require$$2 = craftercms.libs?.reactJsxRuntime && Object.prototype.hasOwnProperty.call(craftercms.libs?.reactJsxRuntime, 'default') ? craftercms.libs?.reactJsxRuntime['default'] : craftercms.libs?.reactJsxRuntime;
-const { useTheme, Box, CircularProgress, Typography, TableContainer, Paper, Table: Table$1, TableHead, TableBody, TableRow, TableCell, Stack: Stack$1, Tooltip, IconButton, Tabs, Tab, Button, Divider, TextField, Chip, FormControlLabel, Switch, Popover, paperClasses, GlobalStyles, Menu, MenuItem, ListItemIcon, ListItemText, Dialog, DialogContent, Alert, FormControl, InputLabel, Select, List, ListItem, Checkbox, ListItemButton, Badge, DialogTitle, DialogActions, Avatar, useMediaQuery, Slider, ListItemSecondaryAction, ListSubheader, FormLabel, FormGroup, Autocomplete, Snackbar, Link: Link$1, RadioGroup, Radio, InputAdornment } = craftercms.libs.MaterialUI;
+const { useTheme, Box, CircularProgress, Typography, TableContainer, Paper, Table: Table$1, TableHead, TableBody, TableRow, TableCell, Stack: Stack$1, Tooltip, IconButton, Tabs, Tab, Accordion, AccordionSummary, AccordionDetails, Button, Divider, TextField, Chip, FormControlLabel, Switch, Popover, paperClasses, GlobalStyles, Menu, MenuItem, ListItemIcon, ListItemText, Dialog, DialogContent, Alert, FormControl, InputLabel, Select, List, ListItem, Checkbox, ListItemButton, Badge, DialogTitle, DialogActions, Avatar, useMediaQuery, Slider, ListItemSecondaryAction, ListSubheader, FormLabel, FormGroup, Autocomplete, Snackbar, Link: Link$1, RadioGroup, Radio, InputAdornment } = craftercms.libs.MaterialUI;
 const React = craftercms.libs.React;
 const { useEffect, useRef, useState, useCallback, useMemo, useLayoutEffect, useSyncExternalStore, forwardRef, useImperativeHandle, createElement } = craftercms.libs.React;
 const React__default = craftercms.libs.React && Object.prototype.hasOwnProperty.call(craftercms.libs.React, 'default') ? craftercms.libs.React['default'] : craftercms.libs.React;
@@ -27,6 +27,7 @@ const { firstValueFrom, of } = craftercms.libs.rxjs;
 const { getGlobalHeaders } = craftercms.utils.ajax;
 const { getXSRFToken, getRequestForgeryTokenHeaderName } = craftercms.utils.auth;
 const DragIndicatorRounded = craftercms.utils.constants.components.get('@mui/icons-material/DragIndicatorRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/DragIndicatorRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/DragIndicatorRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/DragIndicatorRounded');
+const require$$0 = craftercms.libs.MaterialUI && Object.prototype.hasOwnProperty.call(craftercms.libs.MaterialUI, 'default') ? craftercms.libs.MaterialUI['default'] : craftercms.libs.MaterialUI;
 const { createSvgIcon: createSvgIcon$1 } = craftercms.libs.MaterialUI;
 const { createPortal } = craftercms.libs.ReactDOM;
 const ToolsPanelListItemButton = craftercms.components.ToolsPanelListItemButton && Object.prototype.hasOwnProperty.call(craftercms.components.ToolsPanelListItemButton, 'default') ? craftercms.components.ToolsPanelListItemButton['default'] : craftercms.components.ToolsPanelListItemButton;
@@ -45,7 +46,6 @@ const { useIntl } = craftercms.libs.ReactIntl;
 const { getPossibleTranslation } = craftercms.utils.i18n;
 const { fetchAll } = craftercms.services.users;
 const { getInitials, toColor } = craftercms.utils.string;
-const require$$0 = craftercms.libs.MaterialUI && Object.prototype.hasOwnProperty.call(craftercms.libs.MaterialUI, 'default') ? craftercms.libs.MaterialUI['default'] : craftercms.libs.MaterialUI;
 const ChevronRightRounded = craftercms.utils.constants.components.get('@mui/icons-material/ChevronRightRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/ChevronRightRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/ChevronRightRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/ChevronRightRounded');
 const InfoOutlined = craftercms.utils.constants.components.get('@mui/icons-material/InfoOutlined') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/InfoOutlined'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/InfoOutlined')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/InfoOutlined');
 const ChevronLeftRounded = craftercms.utils.constants.components.get('@mui/icons-material/ChevronLeftRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/ChevronLeftRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/ChevronLeftRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/ChevronLeftRounded');
@@ -29961,6 +29961,74 @@ function getSpeechRecognitionCtor() {
     return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
+var ExpandMore = {};
+
+var interopRequireDefault = {exports: {}};
+
+(function (module) {
+	function _interopRequireDefault(e) {
+	  return e && e.__esModule ? e : {
+	    "default": e
+	  };
+	}
+	module.exports = _interopRequireDefault, module.exports.__esModule = true, module.exports["default"] = module.exports; 
+} (interopRequireDefault));
+
+var interopRequireDefaultExports = interopRequireDefault.exports;
+
+var createSvgIcon = {};
+
+var hasRequiredCreateSvgIcon;
+
+function requireCreateSvgIcon () {
+	if (hasRequiredCreateSvgIcon) return createSvgIcon;
+	hasRequiredCreateSvgIcon = 1;
+	(function (exports) {
+		'use client';
+
+		Object.defineProperty(exports, "__esModule", {
+		  value: true
+		});
+		Object.defineProperty(exports, "default", {
+		  enumerable: true,
+		  get: function () {
+		    return _utils.createSvgIcon;
+		  }
+		});
+		var _utils = require$$0; 
+	} (createSvgIcon));
+	return createSvgIcon;
+}
+
+var _interopRequireDefault$3 = interopRequireDefaultExports;
+Object.defineProperty(ExpandMore, "__esModule", {
+  value: true
+});
+var default_1$3 = ExpandMore.default = void 0;
+var _createSvgIcon$3 = _interopRequireDefault$3(requireCreateSvgIcon());
+var _jsxRuntime$3 = require$$2;
+default_1$3 = ExpandMore.default = (0, _createSvgIcon$3.default)( /*#__PURE__*/(0, _jsxRuntime$3.jsx)("path", {
+  d: "M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z"
+}), 'ExpandMore');
+
+function IntentCardMessage(props) {
+    const { card } = props;
+    const elaboration = card.elaboration.trim();
+    if (!elaboration)
+        return null;
+    return (jsxs(Box, { children: [jsx$1(Typography, { variant: "subtitle2", sx: { fontWeight: 700, mb: 0.75 }, children: "Intent" }), jsx$1(Typography, { variant: "body2", sx: { whiteSpace: 'pre-wrap', lineHeight: 1.5 }, children: elaboration }), card.anchorPath ? (jsxs(Typography, { variant: "body2", sx: { mt: 1 }, children: [jsxs(Box, { component: "span", sx: { fontWeight: 600 }, children: ["On page:", ' '] }), jsx$1(Box, { component: "code", sx: { fontSize: '0.85em' }, children: card.anchorPath })] })) : null, card.successBars.length > 0 ? (jsxs(Box, { sx: { mt: 1 }, children: [jsx$1(Typography, { variant: "body2", sx: { fontWeight: 600, mb: 0.35 }, children: "Success looks like:" }), jsx$1(Box, { component: "ul", sx: { m: 0, pl: 2.25 }, children: card.successBars.map((bar) => (jsx$1(Typography, { component: "li", variant: "body2", sx: { mb: 0.25 }, children: bar }, bar))) })] })) : null, card.willNot.length > 0 ? (jsxs(Accordion, { disableGutters: true, elevation: 0, sx: {
+                    mt: 1,
+                    bgcolor: 'transparent',
+                    '&:before': { display: 'none' },
+                    border: 'none'
+                }, children: [jsx$1(AccordionSummary, { expandIcon: jsx$1(default_1$3, { fontSize: "small" }), sx: {
+                            minHeight: 0,
+                            px: 0,
+                            py: 0,
+                            '& .MuiAccordionSummary-content': { my: 0.25 }
+                        }, children: jsx$1(Typography, { variant: "body2", sx: { fontWeight: 600 }, children: "Other details" }) }), jsxs(AccordionDetails, { sx: { px: 0, pt: 0, pb: 0.5 }, children: [jsx$1(Typography, { variant: "caption", sx: { fontWeight: 600, display: 'block', mb: 0.35 }, children: "I will not:" }), jsx$1(Box, { component: "ul", sx: { m: 0, pl: 2.25 }, children: card.willNot.map((line) => (jsx$1(Typography, { component: "li", variant: "caption", sx: { mb: 0.25, display: 'block' }, children: line }, line))) })] })] })) : null, jsx$1(Typography, { variant: "caption", component: "p", sx: { mt: 1, mb: 0, fontStyle: 'italic', color: 'text.secondary' }, children: "Proceeding with tools\u2026" }), card.recipeWorkflowLine?.trim() ? (jsx$1(Box, { sx: { mt: 0.75 }, children: jsx$1(MarkdownMessage, { text: card.recipeWorkflowLine }) })) : null] }));
+}
+
 /** Fallback when server does not send {@code recipeChatLine} (catalog {@code chatDefaults.prefixEmoji}). */
 const INTENT_RECIPE_CHAT_PREFIX_EMOJI = '🥗';
 /** Fallback workflow emoji when server does not send {@code recipeChatLine} (catalog {@code chatDefaults.fallbackEmoji}). */
@@ -29999,47 +30067,133 @@ function intentRecipeLineFromRoutingTelemetry(telemetry) {
     const title = String(o.recipeTitle ?? '').trim() || id;
     return formatIntentRecipeChatLine(id, title);
 }
-/** Author-visible intent contract from SSE {@code intentRecipeRouting.intentCardMarkdown}. */
-function intentCardFromRoutingTelemetry(telemetry) {
+function splitSuccessBars(criteria) {
+    const out = [];
+    for (const part of criteria.split(/\s*;\s*/)) {
+        const t = part.trim();
+        if (t)
+            out.push(t);
+    }
+    if (!out.length && criteria.trim()) {
+        out.push(criteria.trim());
+    }
+    return out;
+}
+function stringListFromTelemetry(raw) {
+    if (!Array.isArray(raw))
+        return [];
+    return raw.map((s) => String(s).trim()).filter(Boolean);
+}
+/** Structured intent card from SSE {@code intentRecipeRouting} (preferred over markdown fallback). */
+function parseIntentCardFromTelemetry(telemetry) {
     if (!telemetry || typeof telemetry !== 'object')
         return undefined;
     const o = telemetry;
+    const elaboration = String(o.intentCardElaboration ?? '').trim();
+    const recipeWorkflowLine = intentRecipeLineFromRoutingTelemetry(telemetry);
+    const willNot = stringListFromTelemetry(o.intentCardWillNot);
+    const anchorPath = String(o.intentCardAnchorPath ?? o.anchorPath ?? '').trim() || undefined;
+    let successBars = stringListFromTelemetry(o.intentCardSuccessBars);
+    if (!successBars.length) {
+        const criteria = String(o.successCriteria ?? '').trim();
+        if (criteria) {
+            successBars = splitSuccessBars(criteria);
+        }
+    }
+    if (elaboration) {
+        return {
+            elaboration,
+            anchorPath,
+            successBars,
+            willNot,
+            ...(recipeWorkflowLine ? { recipeWorkflowLine } : {})
+        };
+    }
     const card = String(o.intentCardMarkdown ?? '').trim();
-    if (card) {
-        return card.endsWith('\n') ? card : `${card}\n`;
+    if (!card) {
+        const authorText = String(o.authorRequestText ?? o.turnGoal ?? '').trim();
+        if (!authorText)
+            return undefined;
+        return {
+            elaboration: authorText,
+            anchorPath,
+            successBars,
+            willNot,
+            ...(recipeWorkflowLine ? { recipeWorkflowLine } : {})
+        };
     }
-    const stepsRaw = o.authorRequestSteps;
-    const steps = Array.isArray(stepsRaw)
-        ? stepsRaw.map((s) => String(s).trim()).filter(Boolean)
-        : [];
-    const authorText = String(o.authorRequestText ?? o.turnGoal ?? '').trim();
-    if (!authorText && !steps.length)
+    const lines = card.split(/\r?\n/);
+    const body = [];
+    let inSuccess = false;
+    let parsedAnchor = anchorPath;
+    const parsedSuccess = [];
+    const parsedWillNot = [];
+    let inWillNot = false;
+    for (const line of lines) {
+        const t = line.trim();
+        if (!t || t === '## Intent')
+            continue;
+        if (t.startsWith('**On page:**')) {
+            const m = /`([^`]+)`/.exec(t);
+            if (m?.[1])
+                parsedAnchor = m[1].trim();
+            continue;
+        }
+        if (t.startsWith('**Success looks like:**')) {
+            inSuccess = true;
+            inWillNot = false;
+            continue;
+        }
+        if (t.startsWith('**I will not:**')) {
+            inWillNot = true;
+            inSuccess = false;
+            continue;
+        }
+        if (t.startsWith('_Proceeding with tools')) {
+            inSuccess = false;
+            inWillNot = false;
+            continue;
+        }
+        if (inSuccess && t.startsWith('- ')) {
+            parsedSuccess.push(t.slice(2).trim());
+            continue;
+        }
+        if (inWillNot && t.startsWith('- ')) {
+            parsedWillNot.push(t.slice(2).trim());
+            continue;
+        }
+        if (!t.startsWith('**') && !inSuccess && !inWillNot) {
+            body.push(t);
+        }
+    }
+    const parsedElaboration = body.join(' ').trim();
+    if (!parsedElaboration)
         return undefined;
-    const lines = ['## Intent', ''];
-    if (steps.length) {
-        lines.push('**Your request:**');
-        steps.forEach((step, i) => lines.push(`${i + 1}. ${step}`));
-        lines.push('');
+    return {
+        elaboration: parsedElaboration,
+        anchorPath: parsedAnchor,
+        successBars: parsedSuccess.length ? parsedSuccess : successBars,
+        willNot: parsedWillNot.length ? parsedWillNot : willNot,
+        ...(recipeWorkflowLine ? { recipeWorkflowLine } : {})
+    };
+}
+/** Author-visible intent contract from SSE {@code intentRecipeRouting.intentCardMarkdown}. */
+function intentCardFromRoutingTelemetry(telemetry) {
+    const model = parseIntentCardFromTelemetry(telemetry);
+    if (model?.elaboration) {
+        const lines = ['## Intent', '', model.elaboration, ''];
+        if (model.anchorPath) {
+            lines.push(`**On page:** \`${model.anchorPath}\``, '');
+        }
+        if (model.successBars.length) {
+            lines.push('**Success looks like:**');
+            model.successBars.forEach((bar) => lines.push(`- ${bar}`));
+            lines.push('');
+        }
+        lines.push('_Proceeding with tools…_', '');
+        return lines.join('\n');
     }
-    else if (authorText) {
-        lines.push(`**Your request:** ${authorText}`, '');
-    }
-    const anchor = String(o.anchorPath ?? '').trim();
-    if (anchor) {
-        lines.push(`**On page:** \`${anchor}\``, '');
-    }
-    const criteria = String(o.successCriteria ?? '').trim();
-    if (criteria) {
-        lines.push('**Success looks like:**');
-        criteria.split(/\s*;\s*/).forEach((bar) => {
-            const t = bar.trim();
-            if (t)
-                lines.push(`- ${t}`);
-        });
-        lines.push('');
-    }
-    lines.push('_Proceeding with tools…_', '');
-    return lines.join('\n');
+    return undefined;
 }
 /** Intent card first, then optional matched-recipe workflow line. */
 function intentRoutingDisplayMarkdown(telemetry, streamText) {
@@ -30071,6 +30225,8 @@ const STUDIO_AI_BUILTIN_TOOL_IDS = [
     'ListStudioContentTypes',
     'GetContentTypeFormDefinition',
     'GetContentVersionHistory',
+    'FindContentVersion',
+    'CompareContentVersions',
     'GetPreviewHtml',
     'FetchHttpUrl',
     'PostHttpUrl',
@@ -30348,6 +30504,9 @@ function stripForbiddenLazyPlanLines(raw) {
             return true;
         }
         if (n.includes('execute the user request') && n.includes('studio authoring') && n.includes('message')) {
+            return true;
+        }
+        if (n === 'applying your request with the appropriate tools.' || n === 'applying your request with the appropriate tools') {
             return true;
         }
         return false;
@@ -31300,6 +31459,96 @@ function getConversationStorageKey(siteId, agentId) {
     const agent = (agentId || 'default').replace(/[^a-zA-Z0-9-_]/g, '_');
     return `aiassistant-conversation-${site}-${agent}`;
 }
+function optionalTrimmedString(value) {
+    if (typeof value !== 'string')
+        return undefined;
+    const t = value.trim();
+    return t || undefined;
+}
+function optionalStringRecord(value) {
+    if (!value || typeof value !== 'object')
+        return undefined;
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+        if (typeof k !== 'string' || typeof v !== 'string')
+            continue;
+        const t = v.trim();
+        if (t)
+            out[k] = t;
+    }
+    return Object.keys(out).length ? out : undefined;
+}
+function optionalStringArray(value) {
+    if (!Array.isArray(value))
+        return undefined;
+    const out = value
+        .map((item) => (typeof item === 'string' ? item.trim() : ''))
+        .filter(Boolean);
+    return out.length ? out : undefined;
+}
+function parseStoredIntentCard(value) {
+    if (!value || typeof value !== 'object')
+        return undefined;
+    const o = value;
+    const elaboration = typeof o.elaboration === 'string' ? o.elaboration.trim() : '';
+    if (!elaboration)
+        return undefined;
+    const anchorPath = typeof o.anchorPath === 'string' ? o.anchorPath.trim() || undefined : undefined;
+    const successBars = optionalStringArray(o.successBars) ?? [];
+    const willNot = optionalStringArray(o.willNot) ?? [];
+    const recipeWorkflowLine = typeof o.recipeWorkflowLine === 'string' ? o.recipeWorkflowLine.trim() || undefined : undefined;
+    return {
+        elaboration,
+        anchorPath,
+        successBars,
+        willNot,
+        ...(recipeWorkflowLine ? { recipeWorkflowLine } : {})
+    };
+}
+/** Rehydrate a persisted bubble with every author-visible card field (intent, step-bridge, images, tools). */
+function restoreUiMessageFromStorage(raw) {
+    if (!raw || typeof raw !== 'object')
+        return null;
+    const m = raw;
+    if (typeof m.id !== 'string' || typeof m.text !== 'string' || typeof m.role !== 'string') {
+        return null;
+    }
+    const role = m.role === 'assistant' || m.role === 'system' ? m.role : 'user';
+    let text = m.text;
+    let reasoningStreamText = optionalTrimmedString(m.reasoningStreamText);
+    if (reasoningStreamText) {
+        const folded = foldAssistantReasoningIntoMainText({ text, reasoningStreamText });
+        text = folded.text;
+        reasoningStreamText = folded.reasoningStreamText.trim() || undefined;
+    }
+    const assistantPreToolsText = optionalTrimmedString(m.assistantPreToolsText);
+    const toolProgressText = optionalTrimmedString(m.toolProgressText);
+    const intentRecipeLine = optionalTrimmedString(m.intentRecipeLine);
+    const intentCard = parseStoredIntentCard(m.intentCard);
+    const stepBridgeCards = optionalStringArray(m.stepBridgeCards);
+    const studioAiInlineImageUrls = optionalStringRecord(m.studioAiInlineImageUrls);
+    const generateImagePrompt = optionalTrimmedString(m.generateImagePrompt);
+    const wallMs = parseNonNegativeNumber(m.toolPipelineWallMs);
+    const totalSec = parseNonNegativeNumber(m.toolPipelineTotalSec);
+    const taskSec = parseNonNegativeNumber(m.toolPipelineTaskCompletionSec);
+    return {
+        id: m.id,
+        role,
+        text,
+        isStreaming: false,
+        ...(assistantPreToolsText ? { assistantPreToolsText } : {}),
+        ...(toolProgressText ? { toolProgressText } : {}),
+        ...(intentRecipeLine ? { intentRecipeLine } : {}),
+        ...(intentCard ? { intentCard } : {}),
+        ...(stepBridgeCards ? { stepBridgeCards } : {}),
+        ...(reasoningStreamText ? { reasoningStreamText } : {}),
+        ...(studioAiInlineImageUrls ? { studioAiInlineImageUrls } : {}),
+        ...(generateImagePrompt ? { generateImagePrompt } : {}),
+        ...(wallMs != null ? { toolPipelineWallMs: Math.round(wallMs) } : {}),
+        ...(totalSec != null ? { toolPipelineTotalSec: totalSec } : {}),
+        ...(taskSec != null ? { toolPipelineTaskCompletionSec: taskSec } : {})
+    };
+}
 function loadConversation(siteId, agentId) {
     if (typeof localStorage === 'undefined')
         return null;
@@ -31310,34 +31559,14 @@ function loadConversation(siteId, agentId) {
         const parsed = JSON.parse(raw);
         if (parsed?.version !== 1 || !Array.isArray(parsed.messages))
             return null;
+        const messages = parsed.messages
+            .map((m) => restoreUiMessageFromStorage(m))
+            .filter((m) => m != null);
         return {
             version: 1,
             chatId: typeof parsed.chatId === 'string' ? parsed.chatId : undefined,
             assumedSiteId: typeof parsed.assumedSiteId === 'string' ? sanitizeCandidateSiteId(parsed.assumedSiteId) : undefined,
-            messages: parsed.messages
-                .filter((m) => m && typeof m.id === 'string' && typeof m.text === 'string' && typeof m.role === 'string')
-                .map((m) => {
-                const toolProgressText = typeof m.toolProgressText === 'string'
-                    ? m.toolProgressText
-                    : undefined;
-                const assistantPreToolsText = typeof m.assistantPreToolsText === 'string'
-                    ? m.assistantPreToolsText
-                    : undefined;
-                const wallMs = parseNonNegativeNumber(m.toolPipelineWallMs);
-                const totalSec = parseNonNegativeNumber(m.toolPipelineTotalSec);
-                const taskSec = parseNonNegativeNumber(m.toolPipelineTaskCompletionSec);
-                return {
-                    id: m.id,
-                    role: m.role === 'assistant' || m.role === 'system' ? m.role : 'user',
-                    text: m.text,
-                    ...(assistantPreToolsText !== undefined ? { assistantPreToolsText } : {}),
-                    ...(toolProgressText !== undefined && toolProgressText !== '' ? { toolProgressText } : {}),
-                    ...(wallMs != null ? { toolPipelineWallMs: Math.round(wallMs) } : {}),
-                    ...(totalSec != null ? { toolPipelineTotalSec: totalSec } : {}),
-                    ...(taskSec != null ? { toolPipelineTaskCompletionSec: taskSec } : {}),
-                    isStreaming: false
-                };
-            })
+            messages
         };
     }
     catch {
@@ -31600,6 +31829,10 @@ function AiAssistantChat(props) {
     });
     const messagesRef = useRef(messages);
     messagesRef.current = messages;
+    const chatIdRef = useRef(chatId);
+    chatIdRef.current = chatId;
+    const assumedSiteIdRef = useRef(assumedSiteId);
+    assumedSiteIdRef.current = assumedSiteId;
     const [draft, setDraft] = useState('');
     const [sending, setSending] = useState(false);
     const [readResponsesAloud, setReadResponsesAloud] = useState(false);
@@ -31669,15 +31902,20 @@ function AiAssistantChat(props) {
     }, [siteId, agentId, chatId, assumedSiteId, messages]);
     useEffect(() => {
         return () => {
-            const p = pendingPersistRef.current;
-            if (p && typeof localStorage !== 'undefined' && !p.messages.some((m) => m.isStreaming)) {
-                saveConversation(p.siteId, p.agentId, {
-                    version: 1,
-                    chatId: p.chatId,
-                    assumedSiteId: p.assumedSiteId,
-                    messages: p.messages.map((m) => ({ ...m, isStreaming: false }))
-                });
+            if (saveDebounceRef.current) {
+                window.clearTimeout(saveDebounceRef.current);
+                saveDebounceRef.current = null;
             }
+            const msgs = messagesRef.current;
+            if (typeof localStorage === 'undefined' || msgs.some((m) => m.isStreaming)) {
+                return;
+            }
+            saveConversation(siteId, agentId, {
+                version: 1,
+                chatId: chatIdRef.current,
+                assumedSiteId: assumedSiteIdRef.current,
+                messages: msgs.map((m) => ({ ...m, isStreaming: false }))
+            });
         };
     }, [siteId, agentId]);
     const quickMessagesToShow = useMemo(() => {
@@ -32098,6 +32336,7 @@ function AiAssistantChat(props) {
             /** Set when the client stream wait hits the hard cap (try/catch are separate scopes — must be outside `try`). */
             let streamHitTimeout = false;
             try {
+                let terminalStreamHadError = false;
                 const streamPromise = streamChat({
                     agentId,
                     chatId,
@@ -32185,9 +32424,15 @@ function AiAssistantChat(props) {
                         }
                         if (mdStatus === 'intent-recipe-routing') {
                             const tel = md.intentRecipeRouting;
-                            const line = intentRoutingDisplayMarkdown(tel, rawTextChunk) || '';
-                            if (line.trim()) {
-                                setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, intentRecipeLine: line.trimEnd() + '\n' } : m)));
+                            const intentCard = parseIntentCardFromTelemetry(tel);
+                            if (intentCard) {
+                                setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, intentCard, intentRecipeLine: undefined } : m)));
+                            }
+                            else {
+                                const line = intentRoutingDisplayMarkdown(tel, rawTextChunk) || '';
+                                if (line.trim()) {
+                                    setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, intentRecipeLine: line.trimEnd() + '\n' } : m));
+                                }
                             }
                             return;
                         }
@@ -32326,6 +32571,7 @@ function AiAssistantChat(props) {
                             }
                         }
                         if (streamErr && streamErrMsg) {
+                            terminalStreamHadError = true;
                             const errLine = '\n\n**Stream error:** ' + sanitizeErrorForAuthor(String(streamErrMsg));
                             setMessages((prev) => prev.map((m) => {
                                 if (m.id !== assistantId)
@@ -32423,7 +32669,7 @@ function AiAssistantChat(props) {
                     pushStreamLog(sessionStreamLogRef, JSON.stringify({
                         kind: 'client.streamOutcome',
                         ts: new Date().toISOString(),
-                        outcome: 'stream_finished_ok'
+                        outcome: terminalStreamHadError ? 'stream_finished_with_error' : 'stream_finished_ok'
                     }));
                 }
                 catch {
@@ -32567,7 +32813,16 @@ function AiAssistantChat(props) {
                                     opacity: 0.9,
                                     '&:hover': { opacity: 1, bgcolor: 'action.hover' }
                                 })
-                        }, children: jsx$1(CloseRounded, { fontSize: "inherit", sx: { fontSize: 18 } }) }) }), jsx$1(Box, { sx: { minWidth: 0 }, children: m.role === 'assistant' || m.role === 'system' ? (jsxs(Box, { children: [m.reasoningStreamText?.trim() && m.isStreaming ? (jsx$1(AssistantReasoningLive, { text: m.reasoningStreamText || '' })) : null, m.pipelineHeartbeat ? (jsx$1(PipelineHeartbeatBar, { elapsedSec: m.pipelineHeartbeat.elapsedSec, nextInSec: m.pipelineHeartbeat.nextInSec, hint: m.pipelineHeartbeat.hint })) : null, m.intentRecipeLine?.trim() ? (jsx$1(Box, { sx: {
+                        }, children: jsx$1(CloseRounded, { fontSize: "inherit", sx: { fontSize: 18 } }) }) }), jsx$1(Box, { sx: { minWidth: 0 }, children: m.role === 'assistant' || m.role === 'system' ? (jsxs(Box, { children: [m.reasoningStreamText?.trim() && m.isStreaming ? (jsx$1(AssistantReasoningLive, { text: m.reasoningStreamText || '' })) : null, m.pipelineHeartbeat ? (jsx$1(PipelineHeartbeatBar, { elapsedSec: m.pipelineHeartbeat.elapsedSec, nextInSec: m.pipelineHeartbeat.nextInSec, hint: m.pipelineHeartbeat.hint })) : null, m.intentCard ? (jsx$1(Box, { sx: {
+                                    mb: 1,
+                                    py: 0.5,
+                                    px: 1,
+                                    borderRadius: 1,
+                                    bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.50',
+                                    border: `1px solid ${theme.palette.divider}`,
+                                    fontSize: '0.875rem',
+                                    lineHeight: 1.45
+                                }, children: jsx$1(IntentCardMessage, { card: m.intentCard }) })) : m.intentRecipeLine?.trim() ? (jsx$1(Box, { sx: {
                                     mb: 1,
                                     py: 0.5,
                                     px: 1,
@@ -32588,7 +32843,12 @@ function AiAssistantChat(props) {
                                     lineHeight: 1.45
                                 }, children: jsx$1(MarkdownMessage, { text: card }) }, `step-bridge-${m.id}-${bridgeIdx}`)) : null), m.toolProgressText?.trim() && m.assistantPreToolsText !== undefined ? (jsxs(Fragment, { children: [m.assistantPreToolsText.trim() ? (jsx$1(Box, { sx: { mb: 1 }, children: jsx$1(MarkdownMessage, { text: stripDisplayedGeneratedImages(stripStudioAiInlineImageMarkdownFromText(m.assistantPreToolsText, m.studioAiInlineImageUrls), combineGeneratedImageSources(m.studioAiInlineImageUrls, m.assistantPreToolsText)), studioAiInlineImageUrls: combineGeneratedImageSources(m.studioAiInlineImageUrls, m.assistantPreToolsText).length
                                                 ? undefined
-                                                : m.studioAiInlineImageUrls }) })) : null, jsx$1(ToolProgressScrollArea, { text: m.toolProgressText }), m.summarizingResults ? (jsx$1(Typography, { variant: "caption", component: "p", sx: {
+                                                : m.studioAiInlineImageUrls }) })) : null, (() => {
+                                        const tailRawEarly = dedupeAssistantPostToolsMarkdown(m.assistantPreToolsText, m.text);
+                                        const imageStripSourcesEarly = combineGeneratedImageSources(m.studioAiInlineImageUrls, tailRawEarly);
+                                        const showGenImgPlaceholderEarly = shouldShowGenerateImagePlaceholder(m.toolProgressText, tailRawEarly, m.studioAiInlineImageUrls);
+                                        return (jsxs(Fragment, { children: [imageStripSourcesEarly.length ? (jsx$1(AssistantChatGeneratedImages, { sources: imageStripSourcesEarly })) : null, imageStripSourcesEarly.length ? (jsx$1(GenerateImagePromptCaption, { prompt: m.generateImagePrompt })) : null, !imageStripSourcesEarly.length && showGenImgPlaceholderEarly ? (jsx$1(GenerateImageBlurredPlaceholder, { prompt: m.generateImagePrompt })) : null] }));
+                                    })(), jsx$1(ToolProgressScrollArea, { text: m.toolProgressText }), m.summarizingResults ? (jsx$1(Typography, { variant: "caption", component: "p", sx: {
                                             mt: 0.75,
                                             mb: 0,
                                             color: 'text.secondary',
@@ -32599,9 +32859,13 @@ function AiAssistantChat(props) {
                                         const imageStripSources = combineGeneratedImageSources(m.studioAiInlineImageUrls, tailRaw);
                                         const tailDisplay = stripDisplayedGeneratedImages(stripStudioAiInlineImageMarkdownFromText(tailRaw, m.studioAiInlineImageUrls), imageStripSources);
                                         const mdUrls = imageStripSources.length ? undefined : m.studioAiInlineImageUrls;
-                                        const showGenImgPlaceholder = shouldShowGenerateImagePlaceholder(m.toolProgressText, tailRaw, m.studioAiInlineImageUrls);
-                                        return (jsxs(Fragment, { children: [imageStripSources.length ? jsx$1(AssistantChatGeneratedImages, { sources: imageStripSources }) : null, imageStripSources.length ? (jsx$1(GenerateImagePromptCaption, { prompt: m.generateImagePrompt })) : null, !imageStripSources.length && showGenImgPlaceholder ? (jsx$1(GenerateImageBlurredPlaceholder, { prompt: m.generateImagePrompt })) : null, jsx$1(MarkdownMessage, { text: tailDisplay, studioAiInlineImageUrls: mdUrls })] }));
-                                    })(), jsx$1(AssistantPipelineTimingLine, { wallMs: m.toolPipelineWallMs, totalSec: m.toolPipelineTotalSec, taskSec: m.toolPipelineTaskCompletionSec })] })) : (jsxs(Fragment, { children: [m.toolProgressText?.trim() ? (jsx$1(ToolProgressScrollArea, { text: m.toolProgressText })) : null, m.summarizingResults ? (jsx$1(Typography, { variant: "caption", component: "p", sx: {
+                                        return jsx$1(MarkdownMessage, { text: tailDisplay, studioAiInlineImageUrls: mdUrls });
+                                    })(), jsx$1(AssistantPipelineTimingLine, { wallMs: m.toolPipelineWallMs, totalSec: m.toolPipelineTotalSec, taskSec: m.toolPipelineTaskCompletionSec })] })) : (jsxs(Fragment, { children: [(() => {
+                                        const tailRawEarly = dedupeAssistantPostToolsMarkdown(m.assistantPreToolsText, m.text);
+                                        const imageStripSourcesEarly = combineGeneratedImageSources(m.studioAiInlineImageUrls, tailRawEarly);
+                                        const showGenImgPlaceholderEarly = shouldShowGenerateImagePlaceholder(m.toolProgressText, tailRawEarly, m.studioAiInlineImageUrls);
+                                        return (jsxs(Fragment, { children: [imageStripSourcesEarly.length ? (jsx$1(AssistantChatGeneratedImages, { sources: imageStripSourcesEarly })) : null, imageStripSourcesEarly.length ? (jsx$1(GenerateImagePromptCaption, { prompt: m.generateImagePrompt })) : null, !imageStripSourcesEarly.length && showGenImgPlaceholderEarly ? (jsx$1(GenerateImageBlurredPlaceholder, { prompt: m.generateImagePrompt })) : null] }));
+                                    })(), m.toolProgressText?.trim() ? (jsx$1(ToolProgressScrollArea, { text: m.toolProgressText })) : null, m.summarizingResults ? (jsx$1(Typography, { variant: "caption", component: "p", sx: {
                                             mt: 0.75,
                                             mb: 0,
                                             color: 'text.secondary',
@@ -32612,8 +32876,7 @@ function AiAssistantChat(props) {
                                         const imageStripSources = combineGeneratedImageSources(m.studioAiInlineImageUrls, tailRaw);
                                         const tailDisplay = stripDisplayedGeneratedImages(stripStudioAiInlineImageMarkdownFromText(tailRaw, m.studioAiInlineImageUrls), imageStripSources);
                                         const mdUrls = imageStripSources.length ? undefined : m.studioAiInlineImageUrls;
-                                        const showGenImgPlaceholder = shouldShowGenerateImagePlaceholder(m.toolProgressText, tailRaw, m.studioAiInlineImageUrls);
-                                        return (jsxs(Fragment, { children: [imageStripSources.length ? jsx$1(AssistantChatGeneratedImages, { sources: imageStripSources }) : null, imageStripSources.length ? (jsx$1(GenerateImagePromptCaption, { prompt: m.generateImagePrompt })) : null, !imageStripSources.length && showGenImgPlaceholder ? (jsx$1(GenerateImageBlurredPlaceholder, { prompt: m.generateImagePrompt })) : null, jsx$1(MarkdownMessage, { text: tailDisplay, studioAiInlineImageUrls: mdUrls })] }));
+                                        return jsx$1(MarkdownMessage, { text: tailDisplay, studioAiInlineImageUrls: mdUrls });
                                     })(), jsx$1(AssistantPipelineTimingLine, { wallMs: m.toolPipelineWallMs, totalSec: m.toolPipelineTotalSec, taskSec: m.toolPipelineTaskCompletionSec })] }))] })) : (jsxs(Fragment, { children: [jsx$1(Typography, { variant: "body2", sx: { whiteSpace: 'pre-wrap' }, children: m.text }), jsxs(Box, { sx: {
                                     display: 'flex',
                                     justifyContent: 'flex-end',
@@ -35014,43 +35277,6 @@ function usePossibleTranslation(
 }
 
 var ContentCopy = {};
-
-var interopRequireDefault = {exports: {}};
-
-(function (module) {
-	function _interopRequireDefault(e) {
-	  return e && e.__esModule ? e : {
-	    "default": e
-	  };
-	}
-	module.exports = _interopRequireDefault, module.exports.__esModule = true, module.exports["default"] = module.exports; 
-} (interopRequireDefault));
-
-var interopRequireDefaultExports = interopRequireDefault.exports;
-
-var createSvgIcon = {};
-
-var hasRequiredCreateSvgIcon;
-
-function requireCreateSvgIcon () {
-	if (hasRequiredCreateSvgIcon) return createSvgIcon;
-	hasRequiredCreateSvgIcon = 1;
-	(function (exports) {
-		'use client';
-
-		Object.defineProperty(exports, "__esModule", {
-		  value: true
-		});
-		Object.defineProperty(exports, "default", {
-		  enumerable: true,
-		  get: function () {
-		    return _utils.createSvgIcon;
-		  }
-		});
-		var _utils = require$$0; 
-	} (createSvgIcon));
-	return createSvgIcon;
-}
 
 var _interopRequireDefault$2 = interopRequireDefaultExports;
 Object.defineProperty(ContentCopy, "__esModule", {
@@ -38294,6 +38520,7 @@ var multiGoalDefer = {
 		cmsAuthoring: [
 			"new_content_item",
 			"modify_page_content",
+			"restore_fields_from_version",
 			"translate_content_item",
 			"revert_content_version",
 			"generate_image",
@@ -38311,6 +38538,7 @@ var recipeOrder = [
 	"llm_research",
 	"open_page_inquiry",
 	"modify_page_content",
+	"restore_fields_from_version",
 	"revert_content_version",
 	"generate_image",
 	"template_display_change",
@@ -38557,7 +38785,15 @@ var recipes = [
 			"headlines",
 			"breaking news",
 			"search the web",
-			"look up the latest"
+			"look up the latest",
+			"didn't ask you to change",
+			"did not ask you to change",
+			"revert the copy",
+			"previous copy",
+			"put back the image",
+			"wrong photo",
+			"re-insert",
+			"don't want a new image"
 		],
 		phases: {
 			context: {
@@ -38591,39 +38827,111 @@ var recipes = [
 			confirmation: [
 				"When an Engine preview URL exists, use GetPreviewHtml after substantive writes affecting rendered output."
 			]
-		}
+		},
+		toolsLoopRequireSuccessfulTools: [
+			"WriteContent"
+		]
+	},
+	{
+		id: "restore_fields_from_version",
+		title: "Restore fields from version history",
+		chatEmoji: "🕰️",
+		description: "Author wants specific fields (copy, hero image) restored from a prior Studio version without rolling back the entire item. Use FindContentVersion or GetContentVersionHistory, CompareContentVersions optional, GetContent at versionNumber, merge fields into HEAD, WriteContent.",
+		matchHints: [
+			"restore copy",
+			"previous copy",
+			"put back the copy",
+			"put back the image",
+			"put the image back",
+			"look up previous",
+			"from version history",
+			"revert the copy",
+			"revert copy",
+			"wrong photo",
+			"wrong image",
+			"previous image",
+			"re-insert",
+			"reinsert",
+			"didn't ask you to change"
+		],
+		dontMatchHints: [
+			"revert the page",
+			"revert this page",
+			"revert the item",
+			"undo the page",
+			"roll back the page",
+			"summarize",
+			"summary",
+			"latest news",
+			"headlines",
+			"breaking news",
+			"search the web",
+			"look up the latest"
+		],
+		toolsLoopExcludeTools: [
+			"revert_change",
+			"GenerateImage"
+		],
+		phases: {
+			context: [
+				"Confirm siteId and anchored repository path. Call FindContentVersion (contentContains, imagePathContains, or field criteria) or GetContentVersionHistory to pick versionNumber. Optionally CompareContentVersions (HEAD vs version) to show what changed."
+			],
+			action: [
+				"GetContent with commitRef set to the target versionNumber to read historical XML. GetContent on HEAD for current XML. Merge only the requested fields (e.g. hero_title_html, hero_text_html, title_t, hero_image_s) from history into current. WriteContent the merged full item. Do NOT call revert_change. When restoring a prior image, reuse hero_image_s from history or a known repositoryPath from earlier GenerateImage — do NOT call GenerateImage."
+			],
+			confirmation: [
+				"GetPreviewHtml after WriteContent when a preview URL exists. Do not claim success on HTTP 500."
+			]
+		},
+		toolsLoopRequireSuccessfulTools: [
+			"WriteContent"
+		]
 	},
 	{
 		id: "revert_content_version",
-		title: "Revert to previous version",
+		title: "Revert entire item to previous version",
 		chatEmoji: "↩️",
+		description: "Author wants the **entire** content item rolled back via revert_change. Not for restoring only copy or an image field — use restore_fields_from_version instead.",
 		matchHints: [
-			"revert",
-			"undo",
-			"rollback",
-			"restore version",
-			"previous version"
+			"revert the page",
+			"revert this page",
+			"revert the item",
+			"undo the page",
+			"roll back the page",
+			"rollback the page",
+			"restore the whole page",
+			"revert everything"
 		],
 		dontMatchHints: [
+			"revert the copy",
+			"revert copy",
+			"previous copy",
+			"put back the copy",
+			"put back the image",
+			"wrong photo",
+			"wrong image",
+			"re-insert",
+			"don't revert the page",
+			"do not revert the page",
+			"just look up",
+			"didn't ask you to change",
 			"summarize",
 			"summary",
 			"describe",
 			"explain",
-			"what is this page",
-			"tell me about",
 			"draft",
 			"blog",
 			"news"
 		],
 		phases: {
 			context: [
-				"Confirm siteId and anchored repository path from Studio context."
+				"Confirm siteId and anchored repository path. Call GetContentVersionHistory."
 			],
 			action: [
-				"Use revert_change on the anchored /site/.../*.xml item when the author wants to roll back."
+				"Use revert_change only for a full-item rollback. For copy-only or image-only restore, use GetContentVersionHistory → GetContent(version) → merge → WriteContent instead."
 			],
 			confirmation: [
-				"Summarize the reverted version from the tool result."
+				"GetPreviewHtml after revert when a preview URL exists. Do not claim success on HTTP 500."
 			]
 		}
 	},
@@ -39021,6 +39329,8 @@ const INTENT_RECIPE_READ_ONLY_TOOLS = [
     'ListContentDependencyScope',
     'ListStudioContentTypes',
     'GetContentVersionHistory',
+    'FindContentVersion',
+    'CompareContentVersions',
     'GetPreviewHtml'
 ];
 /** Confirmation-phase server steps (not prefetch); used by recipe preview swimlane only. */
@@ -74258,6 +74568,33 @@ const INTENT_RECIPE_PREFETCH_TOOL_DOCS = {
             { name: 'contentPath', description: 'Alias for path' }
         ],
         defaultArgs: { siteId: '$siteId', path: '$contentPath' }
+    },
+    FindContentVersion: {
+        summary: 'Search version history by text, field value, or image path (read-only).',
+        args: [
+            { name: 'siteId', required: true, description: 'Project id', example: '$siteId' },
+            { name: 'path', required: true, description: 'Repository path', example: '$contentPath' },
+            { name: 'contentContains', description: 'Phrases that must all appear in body or contentFieldId' },
+            { name: 'imagePathContains', description: 'Substring to find in *_s image fields' },
+            { name: 'includeFieldPreview', description: 'Include truncated preview in matches' }
+        ],
+        defaultArgs: { siteId: '$siteId', path: '$contentPath', includeFieldPreview: true }
+    },
+    CompareContentVersions: {
+        summary: 'Field-level diff between HEAD and a historical version (read-only).',
+        args: [
+            { name: 'siteId', required: true, description: 'Project id', example: '$siteId' },
+            { name: 'path', required: true, description: 'Repository path', example: '$contentPath' },
+            { name: 'compareCommitRef', required: true, description: 'versionNumber from history or FindContentVersion' },
+            { name: 'baseCommitRef', description: 'Default HEAD' },
+            { name: 'fieldIds', description: 'Optional list of field element ids to compare' }
+        ],
+        defaultArgs: {
+            siteId: '$siteId',
+            path: '$contentPath',
+            compareCommitRef: '$step0.versionNumber',
+            baseCommitRef: 'HEAD'
+        }
     },
     GetPreviewHtml: {
         summary: 'Fetch rendered preview HTML from Engine (confirmation phase).',

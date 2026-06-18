@@ -23,13 +23,30 @@ final class AuthoringIntentCard {
     String routerSuccessCriteria,
     String authorVisible,
     String anchorPath,
-    String routerReason = ''
+    String routerReason = '',
+    String routingMode = ''
   ) {
     String authorRequest = extractCleanAuthorRequest(authorVisible)
     List<String> steps = deriveSteps(authorRequest, '')
     String goal = (routerTurnGoal ?: '').trim()
     String criteria = (routerSuccessCriteria ?: '').trim()
     String reason = (routerReason ?: '').trim()
+    boolean chatOnly = 'chat_only'.equals((routingMode ?: '').trim())
+
+    if (chatOnly) {
+      if (isWeakTurnGoal(goal) && reason && !isWeakTurnGoal(reason)) {
+        goal = reason
+      }
+      if (isWeakSuccessCriteria(criteria)) {
+        criteria = ''
+      }
+      return [
+        turnGoal        : goal ?: '',
+        successCriteria : criteria ?: '',
+        authorRequest   : authorRequest ?: '',
+        steps           : steps ?: []
+      ]
+    }
 
     if (isWeakTurnGoal(goal)) {
       goal = ''
@@ -58,16 +75,245 @@ final class AuthoringIntentCard {
   }
 
   /**
+   * Intent card narrative: router LLM first; keyword heuristics only when the router omitted a usable goal.
+   */
+  static String elaborateAuthorIntentNarrative(
+    String authorRequest,
+    String anchorPath,
+    List<String> steps,
+    String recipeId = '',
+    String routerTurnGoal = '',
+    String routerReason = '',
+    String routingMode = ''
+  ) {
+    String mode = (routingMode ?: '').trim()
+    if ('chat_only'.equals(mode)) {
+      String fromAuthor = chatOnlyIntentFromAuthorRequest(authorRequest)
+      if (fromAuthor?.trim()) {
+        return fromAuthor.trim()
+      }
+      return intentNarrativeFromRouterLlm(routerTurnGoal, routerReason, mode)
+    }
+
+    String rid = (recipeId ?: '').trim()
+    if ('generate_image'.equals(rid)) {
+      return 'The user wants me to generate an image for this turn and show it in the Studio chat strip. ' +
+        'I will create the image from their description and reply in short prose without unnecessary CMS writes ' +
+        'unless they explicitly asked to update a page field.'
+    }
+
+    String routerGoal = (routerTurnGoal ?: '').trim()
+    if (!routerGoal && (routerReason ?: '').trim() && !isWeakTurnGoal(routerReason)) {
+      routerGoal = routerReason.trim()
+    }
+    if (routerGoal && !isWeakTurnGoal(routerGoal)) {
+      return intentNarrativeFromRouterLlm(routerGoal, routerReason, mode)
+    }
+
+    return elaborateAuthorIntentHeuristicFallback(authorRequest, anchorPath, steps)
+  }
+
+  /**
+   * Author-facing intent line for {@code chat_only}: reflect what the author said, not router process-speak.
+   */
+  static String chatOnlyIntentFromAuthorRequest(String authorRequest) {
+    String req = normalizeInline(authorRequest)?.trim()
+    if (!req) {
+      return ''
+    }
+    String opinionTopic = extractOpinionQuestionTopic(req)
+    if (opinionTopic) {
+      return "The user wants to know what I think about ${opinionTopic}."
+    }
+    if (req.endsWith('?')) {
+      return "The user is asking: ${req}"
+    }
+    return "The user said: ${req}"
+  }
+
+  /** e.g. "what do you think of baseball?" → "baseball" */
+  private static String extractOpinionQuestionTopic(String req) {
+    if (!req?.trim()) {
+      return ''
+    }
+    def m = (req.trim() =~ /(?i)^what\s+do\s+you\s+think\s+(?:of|about)\s+(.+?)\??\s*$/)
+    if (m.matches()) {
+      return m[0][1]?.toString()?.trim() ?: ''
+    }
+    m = (req.trim() =~ /(?i)^what(?:'s| is)\s+your\s+(?:take|opinion)\s+(?:on|about)\s+(.+?)\??\s*$/)
+    if (m.matches()) {
+      return m[0][1]?.toString()?.trim() ?: ''
+    }
+    return ''
+  }
+
+  /**
+   * Displays the intent router LLM's {@code turnGoal} / {@code reason} — no keyword pattern matching.
+   */
+  private static String intentNarrativeFromRouterLlm(
+    String routerTurnGoal,
+    String routerReason,
+    String routingMode
+  ) {
+    String goal = (routerTurnGoal ?: '').trim()
+    String reason = (routerReason ?: '').trim()
+    if (!goal && reason && !isWeakTurnGoal(reason)) {
+      goal = reason
+      reason = ''
+    }
+    if (!goal || isWeakTurnGoal(goal)) {
+      return 'chat_only'.equals((routingMode ?: '').trim()) ?
+        'Conversational turn — respond naturally in prose.' :
+        ''
+    }
+
+    StringBuilder sb = new StringBuilder()
+    if ('chat_only'.equals((routingMode ?: '').trim())) {
+      sb.append(goal)
+    } else {
+      sb.append('This turn: ').append(goal)
+    }
+    if (!goal.endsWith('.')) {
+      sb.append('.')
+    }
+    if (reason && !reason.equalsIgnoreCase(goal) && !isWeakTurnGoal(reason)) {
+      sb.append(' ').append(reason)
+      if (!reason.endsWith('.')) {
+        sb.append('.')
+      }
+    }
+    return sb.toString()
+  }
+
+  /** Used only when the router LLM did not supply a usable {@code turnGoal}. */
+  private static String elaborateAuthorIntentHeuristicFallback(
+    String authorRequest,
+    String anchorPath,
+    List<String> steps
+  ) {
+    String req = normalizeInline(authorRequest)
+    if (!req) {
+      return ''
+    }
+    String lower = req.toLowerCase(Locale.ROOT)
+    String anchor = (anchorPath ?: '').trim()
+    String pagePhrase = anchor ?
+      "the copy and content on this page (`${anchor}`)" :
+      'the copy and content on this page'
+
+    if (steps instanceof List && steps.size() > 1) {
+      StringBuilder chained = new StringBuilder(
+        'The user wants me to work through a chained request on this page: '
+      )
+      int cap = Math.min(steps.size(), 4)
+      for (int i = 0; i < cap; i++) {
+        if (i > 0) {
+          chained.append('; then ')
+        }
+        chained.append(steps.get(i))
+      }
+      if (steps.size() > cap) {
+        chained.append('; and additional steps')
+      }
+      chained.append(
+        '. I will complete each step with verifiable tool outcomes before moving to the next.'
+      )
+      return chained.toString()
+    }
+
+    boolean search = mentionsSearch(lower)
+    boolean contentUpdate = mentionsContentUpdate(lower)
+    boolean heroImage =
+      mentionsHeroOrImagePersist(lower) ||
+        (lower.contains('generate') && lower.contains('image'))
+
+    StringBuilder narrative = new StringBuilder('The user wants me to ')
+    if (search && contentUpdate && heroImage) {
+      narrative.append('find current, relevant source material, update ').append(pagePhrase)
+      narrative.append(
+        ' with accurate copy based on what I find, generate matching visual assets, and persist those updates in the CMS.'
+      )
+    } else if (search && contentUpdate) {
+      narrative.append('research the latest relevant information and update ').append(pagePhrase)
+      String topic = extractAboutTopicPhrase(req)
+      if (topic) {
+        narrative.append(' with specific events and details about ').append(topic).append('.')
+      } else {
+        narrative.append(' with accurate, specific details from trustworthy sources.')
+      }
+      narrative.append(
+        ' I will search for news, read source pages, compare what I find with what I know (and whether it is still current), ' +
+        'formulate an overall page idea, then write distinct copy for each field—headlines, paragraphs, alt text, and the rest—before saving.'
+      )
+    } else if (contentUpdate) {
+      narrative.append('update ').append(pagePhrase)
+      String topic = extractAboutTopicPhrase(req)
+      if (topic) {
+        narrative.append(' with specific events and details about ').append(topic).append('.')
+      } else {
+        narrative.append(' to reflect what they described.')
+      }
+      boolean topicalNews =
+        topic ||
+          lower.contains('latest') ||
+          lower.contains('news') ||
+          lower.contains('development') ||
+          lower.contains('headline')
+      if (topicalNews && heroImage) {
+        narrative.append(
+          ' I will identify specific, interesting developments, generate copy and visual assets to highlight them, and update the page elements accordingly.'
+        )
+      } else if (topicalNews) {
+        narrative.append(
+          ' I will search for current sources, read them, synthesize a clear page angle, and write field-appropriate copy—not generic filler.'
+        )
+      } else if (heroImage) {
+        narrative.append(
+          ' I will identify what to highlight, generate copy and assets as needed, and update the page elements accordingly.'
+        )
+      } else {
+        narrative.append(' I will draft focused copy and update the page elements accordingly.')
+      }
+    } else if (heroImage) {
+      narrative.append('generate visual assets and update image fields on ')
+      narrative.append(anchor ? "`${anchor}`" : 'this page')
+      narrative.append(' to match their request.')
+    } else if (search) {
+      narrative.append(
+        'look up specific, verifiable information related to their request and apply what I find with clear sourcing.'
+      )
+    } else {
+      narrative.append('help with their request on ')
+      narrative.append(anchor ? "`${anchor}`" : 'the open page')
+      narrative.append('. I will interpret what they need, use the right CMS tools, and verify repository and preview outcomes before finishing.')
+    }
+    if (!narrative.toString().contains(' I will ')) {
+      narrative.append(' I will use the appropriate tools and verify outcomes before finishing.')
+    }
+    return narrative.toString()
+  }
+
+  /**
    * Markdown shown in chat before tools run (SSE {@code intent-recipe-routing} text + telemetry field).
+   * Guardrails ({@code I will not}) are emitted separately as {@code intentCardWillNot} for a collapsible UI block.
    */
   static String formatCardMarkdown(
     String turnGoal,
     String successCriteria,
     String anchorPath,
     String authorVisible,
-    String recipeId = ''
+    String recipeId = '',
+    String routingMode = '',
+    String routerReason = ''
   ) {
-    Map resolved = resolveAuthorIntent(turnGoal, successCriteria, authorVisible, anchorPath, '')
+    Map resolved = resolveAuthorIntent(
+      turnGoal,
+      successCriteria,
+      authorVisible,
+      anchorPath,
+      routerReason,
+      routingMode
+    )
     String authorRequest = resolved.authorRequest?.toString()?.trim() ?: ''
     List<String> steps = resolved.steps instanceof List ? (List<String>) resolved.steps : []
     String criteria = resolved.successCriteria?.toString()?.trim() ?: ''
@@ -75,33 +321,37 @@ final class AuthoringIntentCard {
       return ''
     }
 
+    String resolvedGoal = (resolved.turnGoal ?: turnGoal ?: '').trim()
+    boolean chatOnly = 'chat_only'.equals((routingMode ?: '').trim())
+    String elaboration = elaborateAuthorIntentNarrative(
+      authorRequest,
+      anchorPath,
+      steps,
+      recipeId,
+      resolvedGoal,
+      routerReason,
+      routingMode
+    )
+    if (!elaboration?.trim()) {
+      elaboration = resolvedGoal ?: condenseAuthorGoal(authorRequest, anchorPath)
+    }
+
     StringBuilder sb = new StringBuilder()
     sb.append('## Intent\n\n')
-
-    if (!steps.isEmpty()) {
-      sb.append('**Your request:**\n')
-      int i = 1
-      for (String step : steps) {
-        sb.append(i++).append('. ').append(step).append('\n')
-      }
-      sb.append('\n')
-    } else if (authorRequest) {
-      sb.append('**Your request:** ').append(normalizeInline(authorRequest)).append('\n\n')
-    } else {
-      String g = (resolved.turnGoal ?: turnGoal ?: '').trim()
-      if (g) {
-        sb.append('**Goal:** ').append(g).append('\n\n')
-      }
-    }
+    sb.append(elaboration.trim()).append('\n\n')
 
     String anchor = (anchorPath ?: '').trim()
     String rid = (recipeId ?: '').trim()
-    if (anchor && !'generate_image'.equals(rid)) {
+    if (anchor && !'generate_image'.equals(rid) && !chatOnly) {
       sb.append('**On page:** `').append(anchor).append('`\n\n')
     }
 
     if ('generate_image'.equals(rid)) {
       criteria = 'You see the generated image in the Studio chat strip.'
+    }
+
+    if (chatOnly && (isWeakSuccessCriteria(criteria) || !criteria?.trim())) {
+      criteria = ''
     }
 
     if (criteria) {
@@ -112,16 +362,11 @@ final class AuthoringIntentCard {
       sb.append('\n')
     }
 
-    String goalForGuards = (resolved.turnGoal ?: turnGoal ?: authorRequest ?: '').trim()
-    List<String> willNot = deriveWillNot(goalForGuards, criteria, rid)
-    if (!willNot.isEmpty()) {
-      sb.append('**I will not:**\n')
-      for (String line : willNot) {
-        sb.append('- ').append(line).append('\n')
-      }
-      sb.append('\n')
+    if (chatOnly) {
+      sb.append('_Replying in chat — no CMS tools this turn._\n')
+    } else {
+      sb.append('_Proceeding with tools…_\n')
     }
-    sb.append('_Proceeding with tools…_\n')
     return sb.toString()
   }
 
@@ -177,6 +422,12 @@ final class AuthoringIntentCard {
       return true
     }
     if (t == 'each step in the author request was completed with verifiable tool outcomes.') {
+      return true
+    }
+    if (t.contains('optional short phrase')) {
+      return true
+    }
+    if (t.startsWith('optional ')) {
       return true
     }
     return false
@@ -250,6 +501,27 @@ final class AuthoringIntentCard {
     return (v ?: '').trim()
   }
 
+  /** Short execution goal from intent elaboration (first sentence, capped length). */
+  static String condenseElaborationForExecutionGoal(String elaboration) {
+    String e = (elaboration ?: '').trim()
+    if (!e) {
+      return ''
+    }
+    int dot = e.indexOf('. ')
+    if (dot > 40 && dot < 380) {
+      return e.substring(0, dot + 1)
+    }
+    if (e.length() > 420) {
+      return e.substring(0, 417) + '…'
+    }
+    return e
+  }
+
+  /** Short execution goal from author text without echoing frustration verbatim. */
+  static String condenseAuthorGoalForExecution(String authorRequest, String anchorPath) {
+    return condenseAuthorGoal(authorRequest, anchorPath)
+  }
+
   private static String condenseAuthorGoal(String authorRequest, String anchorPath) {
     String normalized = normalizeInline(authorRequest)
     String anchor = (anchorPath ?: '').trim()
@@ -273,17 +545,35 @@ final class AuthoringIntentCard {
     String anchorPath,
     List<String> steps
   ) {
-    String lower = (authorRequest ?: '').toLowerCase()
+    String lower = (authorRequest ?: '').toLowerCase(Locale.ROOT)
     String anchor = (anchorPath ?: '').trim() ?: 'the anchored page'
     List<String> bars = []
 
+    if (AuthoringPreviewContext.authorVisibleReportsBrokenPreviewRepair(authorRequest)) {
+      bars.add('GetPreviewHtml returns HTTP 200 with no FreeMarker or rendering errors in the HTML body')
+      bars.add(
+        'GetContent read-back at `' + anchor + '` is a valid full item document (including content-type) after WriteContent'
+      )
+      return bars.join('; ')
+    }
+    if (AuthoringPreviewContext.authorVisibleIsAcknowledgmentOrPraise(authorRequest)) {
+      return 'A brief, natural thank-you — no ## Plan checklist or CMS tools.'
+    }
+    if (mentionsFollowUpIncompleteWork(lower)) {
+      bars.add('WriteContent persisted the requested changes at `' + anchor + '` with verifiable read-back')
+      bars.add('GetPreviewHtml confirms HTTP 200 preview reflecting the saved copy')
+      return bars.join('; ')
+    }
+
     if (mentionsSearch(lower)) {
       bars.add(
-        'A specific search/fetch result was chosen (not a generic homepage or index title) and its facts drive later steps'
+        'Sources were searched and read; fetched facts were synthesized into a clear page idea before writing'
       )
     }
     if (mentionsContentUpdate(lower)) {
-      bars.add('Page copy at `' + anchor + '` was updated via WriteContent and verified with GetContent or preview')
+      bars.add(
+        'Page copy at `' + anchor + '` uses distinct, field-appropriate text (headlines, body, alt text) grounded in research — verified via preview'
+      )
     }
     if (mentionsHeroOrImagePersist(lower)) {
       bars.add(
@@ -323,6 +613,22 @@ final class AuthoringIntentCard {
     return (s ?: '').replaceAll(/\s+/, ' ').trim()
   }
 
+  /** Topic phrase after "about", "regarding", "on", or "for" in the author request. */
+  private static String extractAboutTopicPhrase(String authorRequest) {
+    String req = normalizeInline(authorRequest)
+    if (!req) {
+      return ''
+    }
+    def m = (req =~ /(?i)\b(?:about|regarding|on|for)\s+(.+?)(?:\.|$)/)
+    if (m.find()) {
+      String topic = m.group(1)?.toString()?.trim() ?: ''
+      if (topic.length() > 3 && topic.length() < 140) {
+        return topic
+      }
+    }
+    return ''
+  }
+
   private static boolean mentionsSearch(String lower) {
     return lower.contains('search') || lower.contains('lookup') || lower.contains('find ') ||
       lower.contains('headline') || lower.contains("today's")
@@ -336,6 +642,36 @@ final class AuthoringIntentCard {
     return lower.contains('hero') || (lower.contains('image') && lower.contains('update'))
   }
 
+  /** Prior turn promised work; author is asking why it did not land in the repository. */
+  private static boolean mentionsFollowUpIncompleteWork(String lower) {
+    if (!lower) {
+      return false
+    }
+    if (lower.contains('talked about') && (lower.contains("didn't") || lower.contains('didnt') || lower.contains('not do'))) {
+      return true
+    }
+    if (lower.contains('what happened')) {
+      boolean repositoryFollowUp =
+        lower.contains('update') || lower.contains('change') || lower.contains('write') ||
+          lower.contains('save') || lower.contains('page') || lower.contains('content') ||
+          lower.contains('cms') || lower.contains('repository') || lower.contains('preview') ||
+          lower.contains('plan')
+      if (repositoryFollowUp) {
+        return true
+      }
+    }
+    if (lower.contains('said you would') || lower.contains('you said but')) {
+      return true
+    }
+    if (lower.contains('without doing') || lower.contains('did not do')) {
+      return true
+    }
+    if (lower.contains('plan only') || lower.contains('just a plan')) {
+      return true
+    }
+    return false
+  }
+
   static List<String> deriveWillNot(String turnGoal, String successCriteria, String recipeId = '') {
     String rid = (recipeId ?: '').trim()
     if ('generate_image'.equals(rid)) {
@@ -343,6 +679,19 @@ final class AuthoringIntentCard {
         'Call GetContent, WriteContent, or update_content on this chat-only image turn.',
         'Call GenerateImage again in the same turn for the same subject.',
         'Claim the image was saved to the CMS unless you also ran WriteContent at the author\'s request.'
+      ]
+    }
+    if ('restore_fields_from_version'.equals(rid)) {
+      return [
+        'Call revert_change — selective restore merges fields from history into HEAD via GetContent + WriteContent only.',
+        'Call GenerateImage when the author wants a prior image re-inserted or says they do not want a new image.',
+        'Claim success while GetPreviewHtml returns HTTP 500 or FreeMarker/rendering errors.'
+      ]
+    }
+    if ('revert_content_version'.equals(rid)) {
+      return [
+        'Use revert_change when the author only wanted copy or an image field restored — use restore_fields_from_version instead.',
+        'Call GenerateImage to fix a wrong hero image when a historical hero_image_s path exists in version history.'
       ]
     }
     List<String> lines = []
@@ -353,6 +702,16 @@ final class AuthoringIntentCard {
       'Treat search snippets, page titles, or index URLs as verified facts without selecting a specific result that matches the goal.'
     )
     String combined = ((turnGoal ?: '') + ' ' + (successCriteria ?: '')).toLowerCase()
+    if (combined.contains('500') || combined.contains('http 500') ||
+      (combined.contains('preview') && combined.contains('error')) ||
+      combined.contains('broken preview') || combined.contains('rendering error')) {
+      lines.add(
+        'Claim the page is fixed or preview looks good while GetPreviewHtml still returns HTTP 500 or FreeMarker/rendering errors.'
+      )
+      lines.add(
+        'Reply chat-only or with a plan when the author reported a broken preview — run GetContent, repair XML, WriteContent, and re-check preview.'
+      )
+    }
     if (combined.contains('write') || combined.contains('update') || combined.contains('persist') ||
       combined.contains('attach') || combined.contains('hero') || combined.contains('image')) {
       lines.add(

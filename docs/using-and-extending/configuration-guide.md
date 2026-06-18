@@ -572,6 +572,8 @@ Other **`pluginRag`** fields control retrieval (**`topK`**, **`maxAppendChars`**
 | `GetContentTypeFormDefinition` |
 | `ConsultCrafterQ` |
 | `GetContentVersionHistory` |
+| `FindContentVersion` |
+| `CompareContentVersions` |
 | `GetCrafterizingPlaybook` |
 | `GetPreviewHtml` |
 | `InvokeSiteUserTool` |

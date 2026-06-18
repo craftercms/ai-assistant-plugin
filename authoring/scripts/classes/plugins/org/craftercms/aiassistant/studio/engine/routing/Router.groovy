@@ -831,6 +831,12 @@ final class Router {
     String probe = (authorVisible ?: '').toString().trim() ?
       authorVisible.toString() :
       (wirePrompt ?: '').toString()
+    if (AuthoringPreviewContext.authorVisibleWantsPriorGeneratedImageRestored(probe)) {
+      return decision
+    }
+    if (AuthoringPreviewContext.authorVisibleSuggestsSelectiveVersionRestoreForAuthorText(wirePrompt, probe)) {
+      return decision
+    }
     if (AuthoringPreviewContext.authorGenerateImageRequiresPageContextFirst(wirePrompt, authorVisible ?: probe)) {
       return decision
     }
@@ -1006,6 +1012,251 @@ final class Router {
   }
 
   /**
+   * Selective field restore from version history — not full-page revert or new GenerateImage.
+   */
+  private static Map applyAuthorSelectiveVersionRestoreRoutingCorrection(
+    Map decision,
+    List recipes,
+    String authorVisible,
+    String wirePrompt,
+    double minC
+  ) {
+    if (!(decision instanceof Map)) {
+      return decision ?: [:]
+    }
+    String authorText = (authorVisible ?: '').toString().trim() ?
+      authorVisible.toString() :
+      (wirePrompt ?: '').toString()
+    if (!AuthoringPreviewContext.authorVisibleSuggestsSelectiveVersionRestoreForAuthorText(
+      wirePrompt,
+      authorText
+    )) {
+      return decision
+    }
+    Map recipe = AuthoringIntentRecipeCatalog.findRecipeById(recipes ?: [], 'restore_fields_from_version')
+    if (recipe == null) {
+      return decision
+    }
+    String rid = decision.recipeId?.toString()?.trim()
+    if ('recipe'.equals(decision.mode?.toString()?.trim()?.toLowerCase()) &&
+      'restore_fields_from_version'.equals(rid)) {
+      return decision
+    }
+    double conf = decision.confidence instanceof Number ? ((Number) decision.confidence).doubleValue() : 0.0d
+    double boosted = Math.max(conf, 0.9d)
+    if (boosted < minC) {
+      return decision
+    }
+    log.info(
+      'Intent recipe routing: selective version restore — using recipe restore_fields_from_version (was mode={} recipeId={})',
+      decision.mode,
+      rid ?: '(null)'
+    )
+    return [
+      mode      : 'recipe',
+      recipeId  : 'restore_fields_from_version',
+      toolName  : null,
+      confidence: boosted,
+      reason    : 'Author wants specific fields restored from version history — not a full-page revert or new image generation.'
+    ]
+  }
+
+  /**
+   * Author complained about unwanted copy changes — restore from history instead of rewriting.
+   */
+  private static Map applyAuthorContentModificationComplaintRoutingCorrection(
+    Map decision,
+    List recipes,
+    String authorVisible,
+    String wirePrompt,
+    double minC
+  ) {
+    if (!(decision instanceof Map)) {
+      return decision ?: [:]
+    }
+    String authorText = (authorVisible ?: '').toString().trim() ?
+      authorVisible.toString() :
+      (wirePrompt ?: '').toString()
+    if (!AuthoringPreviewContext.authorVisibleIsContentModificationComplaint(authorText)) {
+      return decision
+    }
+    Map recipe = AuthoringIntentRecipeCatalog.findRecipeById(recipes ?: [], 'restore_fields_from_version')
+    if (recipe == null) {
+      return decision
+    }
+    String rid = decision.recipeId?.toString()?.trim()
+    String mode = decision.mode?.toString()?.trim()?.toLowerCase() ?: ''
+    if ('restore_fields_from_version'.equals(rid)) {
+      return decision
+    }
+    if (!'modify_page_content'.equals(rid) && !'plan'.equals(mode)) {
+      return decision
+    }
+    double conf = decision.confidence instanceof Number ? ((Number) decision.confidence).doubleValue() : 0.0d
+    double boosted = Math.max(conf, 0.88d)
+    if (boosted < minC) {
+      return decision
+    }
+    log.info(
+      'Intent recipe routing: content modification complaint — using restore_fields_from_version (was mode={} recipeId={})',
+      mode,
+      rid ?: '(null)'
+    )
+    return [
+      mode      : 'recipe',
+      recipeId  : 'restore_fields_from_version',
+      toolName  : null,
+      confidence: boosted,
+      reason    : 'Author complained about unwanted copy changes — restore prior field values from version history instead of rewriting.'
+    ]
+  }
+
+  /**
+   * {@code revert_content_version} only when the author wants a full-item rollback — otherwise selective restore.
+   */
+  private static Map applyAuthorFullPageRevertOnlyCorrection(
+    Map decision,
+    List recipes,
+    String authorVisible,
+    String wirePrompt,
+    double minC
+  ) {
+    if (!(decision instanceof Map)) {
+      return decision ?: [:]
+    }
+    String rid = decision.recipeId?.toString()?.trim()
+    if (!'revert_content_version'.equals(rid)) {
+      return decision
+    }
+    String authorText = (authorVisible ?: '').toString().trim() ?
+      authorVisible.toString() :
+      (wirePrompt ?: '').toString()
+    if (AuthoringPreviewContext.authorVisibleSuggestsFullPageRevertIntent(authorText)) {
+      return decision
+    }
+    Map recipe = AuthoringIntentRecipeCatalog.findRecipeById(recipes ?: [], 'restore_fields_from_version')
+    if (recipe == null) {
+      return decision
+    }
+    double conf = decision.confidence instanceof Number ? ((Number) decision.confidence).doubleValue() : 0.0d
+    double boosted = Math.max(conf, 0.88d)
+    if (boosted < minC) {
+      return decision
+    }
+    log.info(
+      'Intent recipe routing: revert wording is field-level — using restore_fields_from_version (was revert_content_version)'
+    )
+    return [
+      mode      : 'recipe',
+      recipeId  : 'restore_fields_from_version',
+      toolName  : null,
+      confidence: boosted,
+      reason    : 'Revert wording targets copy or fields only — use selective version restore, not revert_change on the whole item.'
+    ]
+  }
+
+  /**
+   * Anchored topical rewrite (“redo / make the page about …”) → {@code modify_page_content}, not
+   * {@code open_page_inquiry} or chat-only.
+   */
+  private static Map applyAuthorPageContentModificationRoutingCorrection(
+    Map decision,
+    List recipes,
+    String authorVisible,
+    String wirePrompt,
+    double minC
+  ) {
+    if (!(decision instanceof Map)) {
+      return decision ?: [:]
+    }
+    String authorText = (authorVisible ?: '').toString().trim() ?
+      authorVisible.toString() :
+      (wirePrompt ?: '').toString()
+    if (!AuthoringPreviewContext.authorVisibleSuggestsAnchoredPageContentModificationForAuthorText(
+      wirePrompt,
+      authorText
+    )) {
+      return decision
+    }
+    Map recipe = AuthoringIntentRecipeCatalog.findRecipeById(recipes ?: [], 'modify_page_content')
+    if (recipe == null) {
+      return decision
+    }
+    String rid = decision.recipeId?.toString()?.trim()
+    if ('recipe'.equals(decision.mode?.toString()?.trim()?.toLowerCase()) && 'modify_page_content'.equals(rid)) {
+      return decision
+    }
+    double conf = decision.confidence instanceof Number ? ((Number) decision.confidence).doubleValue() : 0.0d
+    double boosted = Math.max(conf, 0.9d)
+    if (boosted < minC) {
+      return decision
+    }
+    log.info(
+      'Intent recipe routing: anchored page content modification — using recipe modify_page_content (was mode={} recipeId={})',
+      decision.mode,
+      rid ?: '(null)'
+    )
+    return [
+      mode      : 'recipe',
+      recipeId  : 'modify_page_content',
+      toolName  : null,
+      confidence: boosted,
+      reason    : 'Author wants to rewrite topical copy on the anchored page; not a read-only inquiry.'
+    ]
+  }
+
+  /**
+   * Broken preview / HTTP 500 repair — force tools on ({@code modify_page_content} or plan), never chat-only.
+   */
+  private static Map applyAuthorBrokenPreviewRepairRoutingCorrection(
+    Map decision,
+    List recipes,
+    String authorVisible,
+    String wirePrompt,
+    double minC
+  ) {
+    if (!(decision instanceof Map)) {
+      return decision ?: [:]
+    }
+    String authorText = (authorVisible ?: '').toString().trim() ?
+      authorVisible.toString() :
+      (wirePrompt ?: '').toString()
+    if (!AuthoringPreviewContext.authorVisibleReportsBrokenPreviewRepair(authorText)) {
+      return decision
+    }
+    String mode = decision.mode?.toString()?.trim()?.toLowerCase() ?: 'plan'
+    if (!'chat_only'.equals(mode) && !Boolean.TRUE.equals(decision.toolsLoopDisable)) {
+      return decision
+    }
+    Map recipe = AuthoringIntentRecipeCatalog.findRecipeById(recipes ?: [], 'modify_page_content')
+    if (recipe == null) {
+      return [
+        mode      : 'plan',
+        recipeId  : null,
+        toolName  : null,
+        confidence: Math.max(
+          decision.confidence instanceof Number ? ((Number) decision.confidence).doubleValue() : 0.85d,
+          minC
+        ),
+        reason    : 'Author reports a broken preview; plan mode with tools to repair content and verify render.'
+      ]
+    }
+    double conf = decision.confidence instanceof Number ? ((Number) decision.confidence).doubleValue() : 0.85d
+    double boosted = Math.max(conf, 0.9d)
+    log.info(
+      'Intent recipe routing: broken preview repair — overriding chat_only to modify_page_content (was mode={})',
+      mode
+    )
+    return [
+      mode      : 'recipe',
+      recipeId  : 'modify_page_content',
+      toolName  : null,
+      confidence: boosted,
+      reason    : 'Author reports preview/render failure; repair anchored page content and re-verify preview.'
+    ]
+  }
+
+  /**
    * LLM classifier pass: optional prefetch, then {@code llmCompleter} with router system prompt.
    * Resolves {@code turnGoal} and {@code successCriteria} via {@link AuthoringTurnGoal#resolveFromRouterDecision}.
    *
@@ -1072,6 +1323,27 @@ final class Router {
       userRouter
     )
     Map decision = AuthoringIntentRecipeRouter.parseRouterJson(rawJson)
+    decision = applyAuthorSelectiveVersionRestoreRoutingCorrection(
+      decision,
+      recipes,
+      visible,
+      wireForMemory,
+      minC
+    )
+    decision = applyAuthorContentModificationComplaintRoutingCorrection(
+      decision,
+      recipes,
+      visible,
+      wireForMemory,
+      minC
+    )
+    decision = applyAuthorFullPageRevertOnlyCorrection(
+      decision,
+      recipes,
+      visible,
+      wireForMemory,
+      minC
+    )
     decision = applyAuthorGeneratedImageRoutingCorrection(
       decision,
       recipes,
@@ -1081,6 +1353,20 @@ final class Router {
       minC
     )
     decision = applyAuthorOpenPageInquiryRoutingCorrection(
+      decision,
+      recipes,
+      visible,
+      wireForMemory,
+      minC
+    )
+    decision = applyAuthorPageContentModificationRoutingCorrection(
+      decision,
+      recipes,
+      visible,
+      wireForMemory,
+      minC
+    )
+    decision = applyAuthorBrokenPreviewRepairRoutingCorrection(
       decision,
       recipes,
       visible,
@@ -1100,7 +1386,7 @@ final class Router {
     out.routingMode = mode
     out.routerReason = reason
 
-    String anchorPath = AuthoringPreviewContext.extractAnchoredRepositoryPath(wireForMemory)?.trim() ?: ''
+    String anchorPath = AuthoringPreviewContext.resolveAnchoredRepositoryPath(wireForMemory)?.trim() ?: ''
 
     log.info(
       'Intent recipe routing: LLM router mode={} recipeId={} toolName={} confidence={} reason={}',
@@ -1573,7 +1859,9 @@ final class Router {
       turnGoal,
       successCriteria,
       anchor,
-      authorVisible
+      authorVisible,
+      activePass?.routingMode?.toString()?.trim() ?: '',
+      activePass?.routerReason?.toString()?.trim() ?: decision.reason?.toString()?.trim() ?: ''
     )
   }
 
@@ -1589,7 +1877,26 @@ final class Router {
       return
     }
     Map tel = (Map) result.intentRecipeRoutingTelemetry
+    String routingMode = tel.routingMode?.toString()?.trim() ?: ''
+    String routerReason = tel.routerReason?.toString()?.trim() ?: ''
     String card = toolsLoopSessionBundle.authorIntentCardMarkdown?.toString()?.trim()
+    if ('chat_only'.equals(routingMode) && card?.contains('Proceeding with tools')) {
+      String goal = toolsLoopSessionBundle.authorTurnGoal?.toString()?.trim() ?:
+        tel.turnGoal?.toString()?.trim() ?: ''
+      String criteria = toolsLoopSessionBundle.authorTurnSuccessCriteria?.toString()?.trim() ?:
+        tel.successCriteria?.toString()?.trim() ?: ''
+      String anchor = toolsLoopSessionBundle.authorTurnAnchorPath?.toString()?.trim() ?: ''
+      String authorVisible = toolsLoopSessionBundle.authorIntentCardAuthorVisible?.toString()?.trim() ?: ''
+      card = AuthoringIntentCard.formatCardMarkdown(
+        goal,
+        criteria,
+        anchor,
+        authorVisible,
+        tel.recipeId?.toString()?.trim() ?: '',
+        routingMode,
+        routerReason
+      )?.trim() ?: card
+    }
     if (card) {
       tel.intentCardMarkdown = card
     }
