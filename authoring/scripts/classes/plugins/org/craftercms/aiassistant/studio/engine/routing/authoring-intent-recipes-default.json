@@ -72,6 +72,8 @@
         "translate_content_item",
         "revert_content_version",
         "generate_image",
+        "build_page_feature",
+        "stylesheet_change",
         "template_display_change",
         "publish_site",
         "publish_item",
@@ -89,6 +91,8 @@
       "restore_fields_from_version",
       "revert_content_version",
     "generate_image",
+    "build_page_feature",
+    "stylesheet_change",
     "template_display_change",
     "publish_site",
     "publish_item",
@@ -315,20 +319,31 @@
       "id": "modify_page_content",
       "title": "Modify page or component content",
       "chatEmoji": "\u270f\ufe0f",
-      "description": "Change copy, tone, grammar, or field values on a page or component XML item. If the user provides the page URL, Title or Internal name then they may not be talking about the current page - resolve the page path first.",
+      "description": "Change author-visible copy, tone, grammar, or CMS field values stored in page/component XML (title_t, body_html, navLabel, SEO fields, component text fields, etc.). Use when the deliverable is different words or field values in content items — not visual styling, CSS, stylesheets, or FreeMarker/layout code. An open page anchor alone does not imply this recipe; infer whether the author means copy in XML vs presentation in CSS/FTL.",
       "matchHints": [
-        "update",
-        "change",
-        "rewrite",
+        "rewrite copy",
         "proofread",
         "grammar",
         "tone",
-        "rephrase"
+        "rephrase",
+        "title",
+        "headline",
+        "body text",
+        "field value"
       ],
       "dontMatchHints": [
         "summarize",
         "summary",
         "summarize this page",
+        "css",
+        "stylesheet",
+        "styling",
+        "add a section",
+        "embed a",
+        "new widget",
+        "chatbot",
+        "interactive feature",
+        "build a feature",
         "latest news",
         "headlines",
         "breaking news",
@@ -534,19 +549,67 @@
       }
     },
     {
+      "id": "stylesheet_change",
+      "title": "Stylesheet / CSS change",
+      "chatEmoji": "\ud83c\udfa8",
+      "description": "Author wants visual presentation changed in stylesheets: layout, typography, spacing, themes, branding, CSS variables, selectors, or other values under /static-assets/ or linked CSS discovered from the page template — not CMS copy or field values in page/component XML. Success means stylesheet files were edited and preview reflects the change.",
+      "matchHints": [
+        "visual styling",
+        "look and feel",
+        "stylesheet files",
+        "css files",
+        "static assets styling"
+      ],
+      "dontMatchHints": [
+        "rewrite copy",
+        "proofread",
+        "translate",
+        "summarize",
+        "add a section",
+        "embed",
+        "widget",
+        "chatbot",
+        "new feature on the page",
+        "interactive feature"
+      ],
+      "phases": {
+        "context": [
+          "GetContent on anchored page/component XML only to read display-template and discover linked CSS under /static-assets/ (from FTL, head fragments, or GetPreviewHtml). Page XML is context — not the stylesheet write target."
+        ],
+        "action": [
+          "GetContent on each stylesheet path you will edit. Change only what the author asked for — preserve selectors, class names, and file structure unless they requested otherwise. WriteContent on .css/.scss paths only; do not WriteContent page/component XML when the deliverable is stylesheet changes."
+        ],
+        "confirmation": [
+          "GetPreviewHtml when preview URL is available to verify the visual change."
+        ]
+      },
+      "toolsLoopRequireSuccessfulTools": [
+        "WriteContent"
+      ],
+      "matchedUserPrelude": "[Studio — stylesheet / CSS change]\n\n**Goal:** Update linked stylesheet file(s) under `/static-assets/` (or paths discovered from FTL/head fragments). The anchored page XML is **context only** — **do not WriteContent** `/site/.../*.xml` unless the author explicitly asked for copy changes.\n\n**Surgical edit workflow (mandatory):**\n1. **Discover** — **GetContent** on page/template/head only to find exact `.css` / `.scss` paths linked from this page.\n2. **Read baseline** — **GetContent** on **each** stylesheet path you will edit. Treat `contentXml` as the **raw CSS file body** (not XML).\n3. **Edit in place** — Start from that **full** GetContent body. Change **only** what the author asked for (color values, CSS variables, etc.). **Do not** rename selectors, remove rules, reorder blocks, or rewrite layout/spacing/typography unless requested.\n4. **Write full file** — **WriteContent** with the **entire** edited CSS string in `contentXml`. **Never** send placeholders (`/*placeholder*/`), XML declarations (`<?xml …?>`), stubs, or partial snippets. The server rejects truncated or restructured files.\n5. **Verify** — **GetPreviewHtml** when a preview URL exists.\n\n**Plan lines** must name stylesheet paths and value-level edits — not “save page XML”."
+    },
+    {
       "id": "template_display_change",
       "title": "Template / display (FTL) change",
       "chatEmoji": "\ud83e\udde9",
-      "description": "Author explicitly wants layout, FreeMarker, listing markup, dates formatting in code, or how the page renders.",
+      "description": "Author wants how the page renders in code changed: FreeMarker templates, layout markup, listing shells, display-template structure, or component template wiring — not CMS field copy and not stylesheet work (use stylesheet_change for the latter).",
       "matchHints": [
-        "template",
-        "ftl",
         "freemarker",
-        "render",
-        "layout",
-        "listing",
-        "cards",
-        "display"
+        "display template markup",
+        "layout structure",
+        "listing template",
+        "render markup",
+        "component template"
+      ],
+      "dontMatchHints": [
+        "rewrite copy",
+        "title field",
+        "proofread",
+        "add a section",
+        "embed",
+        "widget",
+        "chatbot",
+        "full page feature"
       ],
       "phases": {
         "context": [
@@ -557,6 +620,83 @@
         ],
         "confirmation": [
           "GetPreviewHtml when preview URL is available."
+        ]
+      }
+    },
+    {
+      "id": "build_page_feature",
+      "title": "Build page feature (section / widget)",
+      "chatEmoji": "\ud83e\uddf1",
+      "description": "Author wants a new on-page feature or section (chatbot, form, search box, carousel, embed, widget, etc.) that usually spans the Crafter stack: content type and component item when needed, wire into the page sections_o, FreeMarker display template, CSS under /static-assets/, and Groovy REST/controller under /scripts/ when the feature needs server logic. Not copy-only field edits (modify_page_content), not stylesheet-only work (stylesheet_change), not template-only markup without new content (template_display_change), and not a brand-new top-level page URL with no feature on an existing page (new_content_item).",
+      "matchHints": [
+        "add a section",
+        "new section",
+        "embed",
+        "widget",
+        "interactive",
+        "chatbot",
+        "on this page",
+        "page feature",
+        "build a component"
+      ],
+      "dontMatchHints": [
+        "rewrite copy",
+        "proofread",
+        "translate",
+        "summarize",
+        "stylesheet only",
+        "new page url",
+        "create a new page"
+      ],
+      "toolsLoopRequireSuccessfulTools": [
+        "WriteContent"
+      ],
+      "matchedUserPrelude": "[Studio \u2014 build page feature (multi-surface)]\n\n**Goal:** Deliver a working feature on the anchored page across every layer the author needs \u2014 typically **content model + items**, **FTL**, **CSS**, and **Groovy backend** when server logic is required.\n\n**Plan first:** Stream **## Plan** with **\ud83d\udccb** lines in execution order \u2014 one verifiable outcome per layer (model, content items, template, styles, backend, preview). Then **tool_calls** in the same message.\n\n**Layers (include only what the feature needs; do not skip required layers):**\n1. **Content model** \u2014 **ListStudioContentTypes** / **GetContentTypeFormDefinition**; create or extend component type + form definition via **update_content_type** then **WriteContent** when no suitable type exists.\n2. **Content items** \u2014 component item under `/site/components/...`; add reference to page **sections_o** (or correct collection) via **GetContent** \u2192 **WriteContent** on page + component paths.\n3. **Template** \u2014 **analyze_template** / **update_template** or **GetContent** on `.ftl`; **WriteContent** on display templates with `@crafter` / XB markup.\n4. **CSS** \u2014 discover linked styles from FTL or `/static-assets/`; **WriteContent** on stylesheet paths.\n5. **Groovy backend** \u2014 when the feature needs API/controller logic: **GetContent** on existing `/scripts/rest/` or `/scripts/controllers/` patterns; **WriteContent** on new `.groovy` scripts.\n6. **Verify** \u2014 **GetPreviewHtml** when preview URL exists.\n\nUse **GetCrafterizingPlaybook** when you need the full crafterization checklist. **Project authoring context** wins on site-specific XML shape.",
+      "phases": {
+        "context": {
+          "hints": [
+            "Prefetch loads anchored page XML and form definition when Studio anchors /site/.../*.xml.",
+            "Read sections_o allowed content types and display-template paths before creating new component types or items.",
+            "Call GetCrafterizingPlaybook when unsure about content-type vs component vs template order for this site."
+          ],
+          "engineSteps": [
+            {
+              "as": "pageItem",
+              "tool": "GetContent",
+              "args": {
+                "siteId": "$siteId",
+                "path": "$contentPath"
+              }
+            },
+            {
+              "as": "pageForm",
+              "tool": "GetContentTypeFormDefinition",
+              "args": {
+                "siteId": "$siteId",
+                "contentPath": "$contentPath"
+              }
+            },
+            {
+              "tool": "ListStudioContentTypes",
+              "args": {
+                "siteId": "$siteId",
+                "searchable": false
+              }
+            }
+          ]
+        },
+        "action": [
+          "Emit ## Plan with ordered outcomes for content model, items, FTL, CSS, Groovy (as needed), then execute with tool_calls.",
+          "Content model: ListStudioContentTypes and GetContentTypeFormDefinition; update_content_type + WriteContent on form-definition when creating a new component type.",
+          "Content items: WriteContent on new component XML and update page sections_o (or parent collection) on the anchored page.",
+          "Template: analyze_template or GetContent on .ftl paths from display-template; update_template then WriteContent for markup changes.",
+          "CSS: GetContent on linked /static-assets/ stylesheets; WriteContent with preserved selectors/class names.",
+          "Groovy: when the feature needs server endpoints, WriteContent under /scripts/rest/ or /scripts/controllers/ following existing site patterns from GetContent reads.",
+          "Do not treat a feature build as modify_page_content copy-only — implement every layer the feature requires."
+        ],
+        "confirmation": [
+          "GetPreviewHtml when Engine preview URL is available.",
+          "Summarize repository paths touched at each layer (content type, component item, page reference, FTL, CSS, Groovy)."
         ]
       }
     },
@@ -640,6 +780,7 @@
       ],
       "toolsLoopExcludeTools": [
         "GenerateImage",
+        "GenerateTextNoTools",
         "GetCrafterzingPlaybook",
         "SerpApiWebSearch",
         "WebSearch",
@@ -659,6 +800,7 @@
       "toolsLoopRequireSuccessfulTools": [
         "WriteContent"
       ],
+      "toolsLoopPrefetchSupplement": "createFromChatDraft",
       "toolsLoopWriteVerification": "createFromChatDraft",
       "writeVerification": {
         "repairRootObjectIds": true,

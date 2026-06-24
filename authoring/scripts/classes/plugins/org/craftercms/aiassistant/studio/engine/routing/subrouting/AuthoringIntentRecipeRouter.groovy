@@ -23,7 +23,8 @@ final class AuthoringIntentRecipeRouter {
    *         {@code mode} ({@code chat_only} | {@code recipe} | {@code tool} | {@code plan}),
    *         {@code recipeId} (String or null), {@code toolName} (String or null),
    *         {@code confidence} (double 0..1), {@code reason} (String),
-   *         {@code turnGoal} (String or null), {@code successCriteria} (String or null).
+   *         {@code turnGoal} (String or null), {@code successCriteria} (String or null),
+   *         {@code authorUnderstanding}, {@code deliverable}, {@code turnRelation}, {@code sessionObjective}.
    *         On parse failure returns {@code mode: plan} with {@code reason} describing the error.
    */
   static Map parseRouterJson(String raw) {
@@ -59,6 +60,22 @@ final class AuthoringIntentRecipeRouter {
       if (!successCriteria || 'null'.equalsIgnoreCase(successCriteria)) {
         successCriteria = null
       }
+      String authorUnderstanding = m.get('authorUnderstanding')?.toString()?.trim()
+      if (!authorUnderstanding || 'null'.equalsIgnoreCase(authorUnderstanding)) {
+        authorUnderstanding = null
+      }
+      String deliverable = m.get('deliverable')?.toString()?.trim()
+      if (!deliverable || 'null'.equalsIgnoreCase(deliverable)) {
+        deliverable = null
+      }
+      String turnRelation = m.get('turnRelation')?.toString()?.trim()
+      if (!turnRelation || 'null'.equalsIgnoreCase(turnRelation)) {
+        turnRelation = null
+      }
+      String sessionObjective = m.get('sessionObjective')?.toString()?.trim()
+      if (!sessionObjective || 'null'.equalsIgnoreCase(sessionObjective)) {
+        sessionObjective = null
+      }
 
       if (!mode) {
         mode = 'plan'
@@ -73,13 +90,17 @@ final class AuthoringIntentRecipeRouter {
       }
 
       [
-        mode            : mode,
-        recipeId        : rid,
-        toolName        : toolName,
-        confidence      : conf,
-        reason          : reason,
-        turnGoal        : turnGoal,
-        successCriteria : successCriteria
+        mode                : mode,
+        recipeId            : rid,
+        toolName            : toolName,
+        confidence          : conf,
+        reason              : reason,
+        turnGoal            : turnGoal,
+        successCriteria     : successCriteria,
+        authorUnderstanding : authorUnderstanding,
+        deliverable         : deliverable,
+        turnRelation        : turnRelation,
+        sessionObjective    : sessionObjective
       ]
     } catch (Throwable t2) {
       return [

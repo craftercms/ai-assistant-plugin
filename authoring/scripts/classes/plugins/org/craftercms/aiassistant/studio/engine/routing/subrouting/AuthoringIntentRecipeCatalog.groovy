@@ -1650,7 +1650,16 @@ private AuthoringIntentRecipeCatalog() {}
       return fromEntry
     }
     Map recipe = detMatch.recipe instanceof Map ? (Map) detMatch.recipe : null
-    return recipe?.get('toolsLoopPrefetchSupplement')?.toString()?.trim() ?: ''
+    String fromRecipe = recipe?.get('toolsLoopPrefetchSupplement')?.toString()?.trim() ?: ''
+    if (fromRecipe) {
+      return fromRecipe
+    }
+    String writeVerification = detMatch.get('toolsLoopWriteVerification')?.toString()?.trim() ?:
+      recipe?.get('toolsLoopWriteVerification')?.toString()?.trim() ?: ''
+    if ('createFromChatDraft'.equals(writeVerification)) {
+      return 'createFromChatDraft'
+    }
+    return ''
   }
 
   /**
@@ -1921,6 +1930,10 @@ private AuthoringIntentRecipeCatalog() {}
   /** Author-visible message when required tools never succeeded. */
   static String formatToolsLoopRequiredToolsMissedMessage(Map telemetry) {
     Map tel = telemetry instanceof Map ? telemetry : [:]
+    String recipeId = (tel.recipeId ?: '').toString().trim()
+    if ('stylesheet_change'.equals(recipeId)) {
+      return formatStylesheetChangeToolsLoopMissedMessage(tel)
+    }
     List<String> required = []
     Object reqObj = tel.get('toolsLoopRequireSuccessfulTools')
     if (reqObj instanceof List) {
@@ -1946,6 +1959,26 @@ private AuthoringIntentRecipeCatalog() {}
     }
     sb.append('Retry with a shorter request, or complete the step manually in Studio.\n')
     sb.toString()
+  }
+
+  /** When stylesheet_change could not WriteContent — explain protection, not a generic repo failure. */
+  private static String formatStylesheetChangeToolsLoopMissedMessage(Map tel) {
+    StringBuilder sb = new StringBuilder()
+    sb.append('## Plan Execution\n\n')
+    sb.append('⚠️ **Your stylesheet was not changed** — Studio blocked the write **on purpose** to protect your theme CSS.\n\n')
+    sb.append(
+      'The **LLM returned a smaller response than expected** (a partial stylesheet instead of the full file). ' +
+        'Studio needs the complete CSS body with only your requested edits. If a partial write had been accepted, most rules and styles on the page would have been **removed**.\n\n'
+    )
+    sb.append(
+      'Large bundled CSS files (common in site themes) are often **bigger than the LLM can return in one response**, so chat cannot safely replace the whole file. ' +
+        'That is a workflow limit, not a random Studio error.\n\n'
+    )
+    sb.append('**What you can do now:**\n')
+    sb.append('- Open the linked stylesheet under `/static-assets/` in Studio and edit the specific color values or CSS variables the assistant identified (e.g. `--accent-color`).\n')
+    sb.append('- Or ask the assistant to list **exact** lines or variables to change — without replacing the whole file.\n\n')
+    sb.append('_No repository stylesheet was modified this turn._\n')
+    return sb.toString()
   }
 
   /** Stall-guard hint when required tools are still pending. */

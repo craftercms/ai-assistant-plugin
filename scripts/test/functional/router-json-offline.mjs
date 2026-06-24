@@ -4,6 +4,7 @@
  * (parity with AuthoringIntentRecipeRouter.groovy).
  */
 import { extractJsonPayload, parseRouterJson } from '../lib/router-json-parity.mjs';
+import { finalizeAfterCorrections, authorVisibleLooksLikeChatProseBrief, authorVisibleReportsBrokenPreviewRepair } from '../lib/deliverable-policy-parity.mjs';
 
 function assert(condition, message) {
   if (!condition) {
@@ -54,5 +55,45 @@ assert(badTool.mode === 'plan', 'tool without toolName → plan');
 
 const garbage = parseRouterJson('not json at all');
 assert(garbage.mode === 'plan' && garbage.reason.includes('parse error'), 'invalid JSON → plan + parse error');
+
+const extended = parseRouterJson(
+  '{"mode":"chat_only","deliverable":"chat_prose","turnRelation":"correction","sessionObjective":"Original blog brief.","authorUnderstanding":"Re-deliver architectural blog copy in chat.","turnGoal":"Produce blog sections in chat.","confidence":0.9,"reason":"correction"}',
+);
+assert(extended.deliverable === 'chat_prose', 'deliverable parsed');
+assert(extended.turnRelation === 'correction', 'turnRelation parsed');
+assert(extended.sessionObjective === 'Original blog brief.', 'sessionObjective parsed');
+assert(extended.authorUnderstanding?.includes('blog'), 'authorUnderstanding parsed');
+
+const forced = finalizeAfterCorrections({
+  mode: 'recipe',
+  recipeId: 'new_content_item',
+  deliverable: 'chat_prose',
+  confidence: 0.9,
+});
+assert(forced.mode === 'chat_only', 'chat_prose forces chat_only');
+assert(forced.recipeId == null, 'create recipe cleared for chat_prose');
+
+const blogBrief = `Draft a substantive blog copy about the Crafter Studio AI Assistant for CrafterCMS.
+Audience: Enterprise architects evaluating CMS platforms.
+Summarizing or rewriting page content
+Check for broken references
+the page, component, field, content type, site, repository path
+Developer Skills are not just prompt engineering.`.repeat(3);
+assert(authorVisibleLooksLikeChatProseBrief(blogBrief), 'long blog brief → chat_prose inference');
+assert(!authorVisibleReportsBrokenPreviewRepair(blogBrief), 'blog brief must not trigger broken-preview repair');
+assert(authorVisibleReportsBrokenPreviewRepair('The preview is broken and shows HTTP 500'), 'real broken preview still matches');
+
+const repaired = finalizeAfterCorrections(
+  {
+    mode: 'recipe',
+    recipeId: 'modify_page_content',
+    deliverable: 'repo_write',
+    reason: 'Author reports preview/render failure; repair anchored page content and re-verify preview.',
+    sessionObjective: 'Draft blog copy about the AI Assistant.',
+  },
+  blogBrief,
+);
+assert(repaired.mode === 'chat_only', 'finalizeAfterCorrections undoes modify_page_content for blog brief');
+assert(repaired.recipeId == null, 'recipe cleared after finalize for blog brief');
 
 console.log('router-json-offline: OK');

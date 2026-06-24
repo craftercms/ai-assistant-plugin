@@ -1255,12 +1255,7 @@ private AuthoringIntentRecipeEngine() {}
     }
 
     if (!resolvedType) {
-      for (String phrase : phraseCandidates) {
-        resolvedType = exactCatalogMatchContentTypeId(typeRows, phrase)
-        if (resolvedType) {
-          break
-        }
-      }
+      resolvedType = resolveCreateContentTypeFromCatalog(typeRows, phraseCandidates)
     }
 
     List<Map> stepSummaries = new ArrayList<>()
@@ -1520,12 +1515,7 @@ private AuthoringIntentRecipeEngine() {}
     }
 
     if (!resolvedType) {
-      for (String phrase : phraseCandidates) {
-        resolvedType = exactCatalogMatchContentTypeId(typeRows, phrase)
-        if (resolvedType) {
-          break
-        }
-      }
+      resolvedType = resolveCreateContentTypeFromCatalog(typeRows, phraseCandidates)
     }
 
     List<Map> stepSummaries = new ArrayList<>()
@@ -1621,7 +1611,7 @@ private AuthoringIntentRecipeEngine() {}
     if (!suggestedPath) {
       suggestedPath = suggestNewItemPathFromQuickCreate(quickCreateTemplate, '', objectType)
     }
-    int priorAssistantChars = PriorConversationDraftExtract.lastAssistantBlockText(prior).length()
+    int priorAssistantChars = PriorConversationDraftExtract.lastSubstantiveAssistantBlockText(prior).length()
 
     Boolean suggestedPathExists = null
     if (suggestedPath) {
@@ -2474,9 +2464,20 @@ private AuthoringIntentRecipeEngine() {}
     String prior = (priorBody ?: '').toString()
     String current = (currentRequest ?: '').toString()
 
+    if ((current =~ /(?i)\b(?:create|make)\b.{0,48}\b(?:technical\s+)?(?:blog\s+)?post\b/).find()) {
+      phrases.add('article')
+      phrases.add('blog post')
+      phrases.add('post')
+    }
     if ((current =~ /(?i)\b(?:blog\s+)?post\b/).find()) {
       phrases.add('post')
       phrases.add('blog post')
+      phrases.add('article')
+    }
+    if ((current =~ /(?i)\btechnical\s+blog\s+post\b/).find()) {
+      phrases.add('article')
+      phrases.add('blog post')
+      phrases.add('post')
     }
     if ((current =~ /(?i)\bblog\s+page\b/).find()) {
       phrases.add('post')
@@ -2485,21 +2486,37 @@ private AuthoringIntentRecipeEngine() {}
     }
     if ((current =~ /(?i)\barticle\b/).find()) {
       phrases.add('article')
+      phrases.add('blog post')
     }
     if ((prior =~ /(?i)\bdraft\s+(?:a\s+)?(?:\w+\s+){0,3}blog\b/).find() || (prior =~ /(?i)\bblog\b/).find()) {
-      phrases.add('blog')
       phrases.add('blog post')
       phrases.add('post')
+      phrases.add('article')
     }
     if ((prior =~ /(?i)\bpost\b/).find()) {
       phrases.add('post')
-    }
-    if (phrases.isEmpty()) {
-      phrases.add('post')
-      phrases.add('article')
       phrases.add('blog post')
     }
-    return new ArrayList<>(phrases)
+    if (phrases.isEmpty()) {
+      phrases.add('article')
+      phrases.add('blog post')
+      phrases.add('post')
+    }
+    if (phrases.contains('blog post') || phrases.contains('article') || phrases.contains('post')) {
+      phrases.remove('blog')
+    }
+    List<String> ordered = new ArrayList<>()
+    for (String preferred : ['article', 'blog post', 'post', 'blog']) {
+      if (phrases.contains(preferred)) {
+        ordered.add(preferred)
+      }
+    }
+    for (String p : phrases) {
+      if (!ordered.contains(p)) {
+        ordered.add(p)
+      }
+    }
+    return ordered
   }
 
   /**
@@ -2528,6 +2545,67 @@ private AuthoringIntentRecipeEngine() {}
       }
     }
     return hits.size() == 1 ? (hits.get(0).get('name') ?: '').toString().trim() : ''
+  }
+
+  /**
+   * Scored catalog match for create flows — prefers blog-post/article types over listing/hub pages
+   * when phrases like {@code blog post} or bare {@code blog} from prior chat are ambiguous.
+   */
+  static String resolveCreateContentTypeFromCatalog(List<Map> typeRows, List<String> phraseCandidates) {
+    if (!(typeRows instanceof List) || !(phraseCandidates instanceof List) || phraseCandidates.isEmpty()) {
+      return ''
+    }
+    String bestId = ''
+    int bestScore = 0
+    for (Map row : typeRows) {
+      if (!(row instanceof Map)) {
+        continue
+      }
+      int score = scoreCatalogRowForCreatePhrases(row, phraseCandidates)
+      if (score > bestScore) {
+        bestScore = score
+        bestId = (row.get('name') ?: '').toString().trim()
+      }
+    }
+    return bestScore >= 55 ? bestId : ''
+  }
+
+  private static int scoreCatalogRowForCreatePhrases(Map row, List<String> phraseCandidates) {
+    String name = (row.get('name') ?: '').toString().trim()
+    String label = (row.get('label') ?: '').toString().trim()
+    String labelNorm = normalizeCatalogMatchPhrase(label)
+    String nameNorm = normalizeCatalogMatchPhrase(name)
+    String tail = name.contains('/') ? name.substring(name.lastIndexOf('/') + 1) : name
+    String tailNorm = normalizeCatalogMatchPhrase(tail)
+    int score = 0
+    for (String phrase : phraseCandidates) {
+      String norm = normalizeCatalogMatchPhrase(phrase)
+      if (!norm) {
+        continue
+      }
+      if (norm == tailNorm) {
+        score = Math.max(score, norm.length() >= 5 ? 90 : 70)
+      } else if (norm == labelNorm || norm == nameNorm) {
+        score = Math.max(score, 95)
+      } else if (labelNorm.endsWith(' ' + norm) || labelNorm.contains(' ' + norm + ' ')) {
+        score = Math.max(score, 85)
+      } else if (labelNorm.contains(norm)) {
+        score = Math.max(score, norm.length() >= 4 ? 68 : 48)
+      }
+      if (('article'.equals(norm) || norm.contains('post')) && 'article'.equals(tailNorm)) {
+        score = Math.max(score, 92)
+      }
+      if (norm.contains('blog post') && labelNorm.contains('blog post')) {
+        score = Math.max(score, 94)
+      }
+    }
+    if (labelNorm.contains(' roll') || labelNorm.contains(' listing') || labelNorm.endsWith(' roll')) {
+      score -= 55
+    }
+    if ('blog'.equals(tailNorm) && labelNorm.contains('blog roll')) {
+      score -= 45
+    }
+    return Math.max(0, score)
   }
 
   /**
@@ -2645,7 +2723,24 @@ private AuthoringIntentRecipeEngine() {}
     if (s.length() > 80) {
       s = s.substring(0, 80).replaceAll(/-+$/, '')
     }
+    if (slugLooksLikeToolOrOrchestrationNoise(s)) {
+      return ''
+    }
     return s
+  }
+
+  /** Reject slugs derived from tool-strip titles (e.g. {@code generate-text-no-tools}). */
+  static boolean slugLooksLikeToolOrOrchestrationNoise(String slug) {
+    String s = (slug ?: '').toString().trim().toLowerCase(Locale.ROOT)
+    if (!s) {
+      return true
+    }
+    return s.contains('generate-text-no-tools') ||
+      s.contains('generatetextnotools') ||
+      s.contains('tools-loop') ||
+      s ==~ /^(get|write|list)-content.*/ ||
+      s ==~ /^generate-text.*/ ||
+      s ==~ /^generatetext.*/
   }
 
   /**

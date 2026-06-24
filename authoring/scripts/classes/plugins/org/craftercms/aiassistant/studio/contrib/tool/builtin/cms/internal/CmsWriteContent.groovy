@@ -1773,6 +1773,9 @@ private CmsWriteContent() {}
           siteId, normalized
         )
       }
+      if (CmsStylesheetWriteGuard.isStylesheetPath(normalized)) {
+        safeBody = CmsStylesheetWriteGuard.prepareForWrite(ops, siteId, normalized, safeBody)
+      }
       if (CmsRepositorySupport.isLikelyXmlRepositoryPath(normalized)) {
         String typoFixed = normalizeCommonLlmXmlTagTypos(safeBody)
         if (!typoFixed.equals(safeBody)) {

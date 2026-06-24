@@ -10,6 +10,7 @@ import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.Autho
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentRecipeEngine
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentRecipePlanCompiler
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentRecipeRouter
+import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringDeliverablePolicy
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringTurnGoal
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentCard
 import plugins.org.craftercms.aiassistant.studio.engine.routing.subrouting.AuthoringIntentRoutingEngine
@@ -608,6 +609,7 @@ final class Router {
     wireAuthorTurnGoal(result, toolsLoopSessionBundle, author, activePass)
     chatTel.turnGoal = activePass.turnGoal?.toString()?.trim() ?: ''
     chatTel.successCriteria = activePass.successCriteria?.toString()?.trim() ?: ''
+    putDeliverableTelemetryIfPresent(chatTel, activePass)
     attachTelemetry(ops, cfg, result, 'chat_only', chatTel)
     mergeAuthorTurnGoalFromBundle(result, toolsLoopSessionBundle)
     return result
@@ -773,7 +775,8 @@ final class Router {
     String currentTurnVisible,
     String priorConversationBody,
     Map cfg,
-    String orchestrationWireForSiteContext = null
+    String orchestrationWireForSiteContext = null,
+    String priorSessionObjective = null
   ) {
     StringBuilder sb = new StringBuilder()
     sb.append('## Recipe catalog\n\n').append((catalogMd ?: '').toString().trim())
@@ -789,6 +792,11 @@ final class Router {
       sb.append('There is no open-preview repository anchor for the session site on this turn. ')
       sb.append('Prior conversation may describe the session site only — choose a recipe that reads the working site ')
       sb.append('(e.g. site content search with ResearchSiteContent), not read-only open-page inquiry, unless bindings include a path on the working site.\n')
+    }
+    String stickyObjective = (priorSessionObjective ?: '').toString().trim()
+    if (stickyObjective) {
+      sb.append('\n\n## Session objective (from prior turns in this chat)\n\n')
+      sb.append(stickyObjective).append('\n')
     }
     String prior = (priorConversationBody ?: '').toString().trim()
     if (prior) {
@@ -1157,7 +1165,7 @@ final class Router {
 
   /**
    * Anchored topical rewrite (“redo / make the page about …”) → {@code modify_page_content}, not
-   * {@code open_page_inquiry} or chat-only.
+   * {@code open_page_inquiry} or chat-only. Never overrides LLM presentation-layer recipes or styling asks.
    */
   private static Map applyAuthorPageContentModificationRoutingCorrection(
     Map decision,
@@ -1169,9 +1177,15 @@ final class Router {
     if (!(decision instanceof Map)) {
       return decision ?: [:]
     }
+    if (AuthoringDeliverablePolicy.shouldSuppressRepoRoutingCorrections(authorVisible, decision)) {
+      return decision
+    }
     String authorText = (authorVisible ?: '').toString().trim() ?
       authorVisible.toString() :
       (wirePrompt ?: '').toString()
+    if (AuthoringPreviewContext.authorVisibleSuggestsPresentationLayerWork(authorText)) {
+      return decision
+    }
     if (!AuthoringPreviewContext.authorVisibleSuggestsAnchoredPageContentModificationForAuthorText(
       wirePrompt,
       authorText
@@ -1183,7 +1197,18 @@ final class Router {
       return decision
     }
     String rid = decision.recipeId?.toString()?.trim()
-    if ('recipe'.equals(decision.mode?.toString()?.trim()?.toLowerCase()) && 'modify_page_content'.equals(rid)) {
+    String mode = decision.mode?.toString()?.trim()?.toLowerCase() ?: ''
+    if ('modify_page_content'.equals(rid)) {
+      return decision
+    }
+    if (['stylesheet_change', 'template_display_change', 'build_page_feature'].contains(rid)) {
+      return decision
+    }
+    boolean eligibleMisroute =
+      'open_page_inquiry'.equals(rid) ||
+      'chat_only'.equals(mode) ||
+      Boolean.TRUE.equals(decision.toolsLoopDisable)
+    if (!eligibleMisroute) {
       return decision
     }
     double conf = decision.confidence instanceof Number ? ((Number) decision.confidence).doubleValue() : 0.0d
@@ -1196,13 +1221,20 @@ final class Router {
       decision.mode,
       rid ?: '(null)'
     )
-    return [
+    Map replacement = [
       mode      : 'recipe',
       recipeId  : 'modify_page_content',
       toolName  : null,
       confidence: boosted,
       reason    : 'Author wants to rewrite topical copy on the anchored page; not a read-only inquiry.'
     ]
+    for (String key : ['sessionObjective', 'authorUnderstanding', 'turnGoal', 'turnRelation', 'deliverable', 'successCriteria']) {
+      def val = decision[key]
+      if (val?.toString()?.trim()) {
+        replacement[key] = val
+      }
+    }
+    return replacement
   }
 
   /**
@@ -1217,6 +1249,9 @@ final class Router {
   ) {
     if (!(decision instanceof Map)) {
       return decision ?: [:]
+    }
+    if (AuthoringDeliverablePolicy.shouldSuppressRepoRoutingCorrections(authorVisible, decision)) {
+      return decision
     }
     String authorText = (authorVisible ?: '').toString().trim() ?
       authorVisible.toString() :
@@ -1306,13 +1341,17 @@ final class Router {
     )
     String routingPrefixForRouter = AuthoringIntentRoutingEngine.wirePrefixFromBundle(toolsLoopSessionBundle)
     String priorForRouter = AuthoringPreviewContext.extractPriorConversationBody(wireForMemory)?.trim()
+    String priorSessionObjective = toolsLoopSessionBundle instanceof Map ?
+      toolsLoopSessionBundle.authorSessionObjective?.toString()?.trim() ?: '' :
+      ''
     String userRouter = routingPrefixForRouter + buildRouterUserMessage(
       catalogMd,
       toolsCatalogMd,
       visible,
       priorForRouter,
       cfg,
-      wireForMemory
+      wireForMemory,
+      priorSessionObjective
     )
     if (!(llmCompleter instanceof Closure)) {
       throw new IllegalArgumentException('Router.matchPass: llmCompleter is required')
@@ -1323,6 +1362,21 @@ final class Router {
       userRouter
     )
     Map decision = AuthoringIntentRecipeRouter.parseRouterJson(rawJson)
+    decision = AuthoringDeliverablePolicy.apply(
+      decision,
+      visible,
+      wireForMemory,
+      priorSessionObjective
+    )
+    decision = AuthoringDeliverablePolicy.bindApprovalToPersistRecipeMode(
+      decision,
+      visible,
+      wireForMemory,
+      priorSessionObjective
+    )
+    if (toolsLoopSessionBundle instanceof Map && decision.sessionObjective?.toString()?.trim()) {
+      toolsLoopSessionBundle.authorSessionObjective = decision.sessionObjective.toString().trim()
+    }
     decision = applyAuthorSelectiveVersionRestoreRoutingCorrection(
       decision,
       recipes,
@@ -1373,6 +1427,10 @@ final class Router {
       wireForMemory,
       minC
     )
+    decision = AuthoringDeliverablePolicy.finalizeAfterCorrections(decision, visible)
+    if (toolsLoopSessionBundle instanceof Map && decision.sessionObjective?.toString()?.trim()) {
+      toolsLoopSessionBundle.authorSessionObjective = decision.sessionObjective.toString().trim()
+    }
     String mode = decision.mode?.toString()?.trim()?.toLowerCase() ?: 'plan'
     double conf = decision.confidence instanceof Number ? ((Number) decision.confidence).doubleValue() : 0.0d
     String rid = decision.recipeId?.toString()?.trim()
@@ -1385,6 +1443,10 @@ final class Router {
     out.minConfidence = minC
     out.routingMode = mode
     out.routerReason = reason
+    out.routerDeliverable = decision.deliverable?.toString()?.trim() ?: ''
+    out.routerTurnRelation = decision.turnRelation?.toString()?.trim() ?: ''
+    out.routerSessionObjective = decision.sessionObjective?.toString()?.trim() ?: ''
+    out.routerAuthorUnderstanding = decision.authorUnderstanding?.toString()?.trim() ?: ''
 
     String anchorPath = AuthoringPreviewContext.resolveAnchoredRepositoryPath(wireForMemory)?.trim() ?: ''
 
@@ -1849,6 +1911,20 @@ final class Router {
     )
     String turnGoal = resolved.turnGoal?.toString()?.trim() ?: ''
     String successCriteria = resolved.successCriteria?.toString()?.trim() ?: ''
+    if (toolsLoopSessionBundle instanceof Map) {
+      if (resolved.authorUnderstanding?.toString()?.trim()) {
+        toolsLoopSessionBundle.routerAuthorUnderstanding = resolved.authorUnderstanding.toString().trim()
+      }
+      if (resolved.sessionObjective?.toString()?.trim()) {
+        toolsLoopSessionBundle.authorSessionObjective = resolved.sessionObjective.toString().trim()
+      }
+      if (resolved.turnRelation?.toString()?.trim()) {
+        toolsLoopSessionBundle.routerTurnRelation = resolved.turnRelation.toString().trim()
+      }
+      if (resolved.deliverable?.toString()?.trim()) {
+        toolsLoopSessionBundle.routerDeliverable = resolved.deliverable.toString().trim()
+      }
+    }
     if (activePass instanceof Map) {
       activePass.turnGoal = turnGoal
       activePass.successCriteria = successCriteria
@@ -1894,7 +1970,8 @@ final class Router {
         authorVisible,
         tel.recipeId?.toString()?.trim() ?: '',
         routingMode,
-        routerReason
+        routerReason,
+        toolsLoopSessionBundle.routerAuthorUnderstanding?.toString()?.trim() ?: ''
       )?.trim() ?: card
     }
     if (card) {
@@ -1911,6 +1988,39 @@ final class Router {
     String ar = toolsLoopSessionBundle.authorIntentCardAuthorVisible?.toString()?.trim()
     if (ar) {
       tel.authorRequestText = ar
+    }
+    putDeliverableTelemetryIfPresent(tel, [
+      routerDeliverable        : toolsLoopSessionBundle.routerDeliverable,
+      routerTurnRelation       : toolsLoopSessionBundle.routerTurnRelation,
+      routerSessionObjective   : toolsLoopSessionBundle.authorSessionObjective,
+      routerAuthorUnderstanding: toolsLoopSessionBundle.routerAuthorUnderstanding
+    ])
+  }
+
+  /** Copies deliverable interpretation fields onto routing telemetry when present. */
+  private static void putDeliverableTelemetryIfPresent(Map tel, Map source) {
+    if (!(tel instanceof Map) || !(source instanceof Map)) {
+      return
+    }
+    String deliverable = source.routerDeliverable?.toString()?.trim() ?:
+      source.deliverable?.toString()?.trim() ?: ''
+    String relation = source.routerTurnRelation?.toString()?.trim() ?:
+      source.turnRelation?.toString()?.trim() ?: ''
+    String objective = source.routerSessionObjective?.toString()?.trim() ?:
+      source.sessionObjective?.toString()?.trim() ?: ''
+    String understanding = source.routerAuthorUnderstanding?.toString()?.trim() ?:
+      source.authorUnderstanding?.toString()?.trim() ?: ''
+    if (deliverable) {
+      tel.deliverable = deliverable
+    }
+    if (relation) {
+      tel.turnRelation = relation
+    }
+    if (objective) {
+      tel.sessionObjective = objective
+    }
+    if (understanding) {
+      tel.authorUnderstanding = understanding
     }
   }
 }

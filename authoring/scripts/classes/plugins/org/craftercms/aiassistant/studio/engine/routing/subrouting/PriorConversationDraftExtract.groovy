@@ -54,7 +54,7 @@ private PriorConversationDraftExtract() {}
         return section
       }
     }
-    return lastAssistantBlockText(prior)
+    return lastSubstantiveAssistantBlockText(prior)
   }
 
   /**
@@ -132,7 +132,7 @@ private PriorConversationDraftExtract() {}
         }
       }
     }
-    return inferTitleFromDraftProse(lastAssistantBlockText(prior))
+    return inferTitleFromDraftProse(lastSubstantiveAssistantBlockText(prior))
   }
 
   /**
@@ -204,7 +204,7 @@ private PriorConversationDraftExtract() {}
    * not configured marker phrases.
    */
   static boolean priorConversationHasMaterializableAssistantReply(String priorBody, int minChars = 200) {
-    String last = lastAssistantBlockText(priorBody)
+    String last = lastSubstantiveAssistantBlockText(priorBody, minChars)
     return last.length() >= Math.max(80, minChars)
   }
 
@@ -242,12 +242,7 @@ private PriorConversationDraftExtract() {}
     if (!prior.trim() || minChars <= 0) {
       return false
     }
-    String lastAssistant = ''
-    def m = (prior =~ /(?is)Assistant:\s*([\s\S]*?)(?=\nUser:|\z)/)
-    while (m.find()) {
-      lastAssistant = (m.group(1) ?: '').toString().trim()
-    }
-    return lastAssistant.length() >= minChars
+    return lastSubstantiveAssistantBlockText(prior, minChars).length() >= minChars
   }
 
   /**
@@ -363,6 +358,77 @@ private PriorConversationDraftExtract() {}
       lastAssistant = (m.group(1) ?: '').toString().trim()
     }
     return lastAssistant
+  }
+
+  /**
+   * Last assistant reply that is actual prose — skips tool-progress / orchestration strips
+   * (e.g. {@code GenerateTextNoTools}, {@code WriteContent} on the anchored page).
+   */
+  static String lastSubstantiveAssistantBlockText(String priorBody, int minChars = 200) {
+    String prior = (priorBody ?: '').toString()
+    if (!prior.trim()) {
+      return ''
+    }
+    List<String> blocks = []
+    def m = (prior =~ /(?is)Assistant:\s*([\s\S]*?)(?=\nUser:|\z)/)
+    while (m.find()) {
+      blocks.add((m.group(1) ?: '').toString().trim())
+    }
+    if (blocks.isEmpty()) {
+      return ''
+    }
+    int floor = Math.max(80, minChars)
+    for (int i = blocks.size() - 1; i >= 0; i--) {
+      String block = blocks.get(i)
+      if (!assistantBlockLooksLikeToolStrip(block) && block.length() >= floor) {
+        return block
+      }
+    }
+    for (int i = blocks.size() - 1; i >= 0; i--) {
+      String block = blocks.get(i)
+      if (!assistantBlockLooksLikeToolStrip(block) && block.length() >= 80) {
+        return block
+      }
+    }
+    return ''
+  }
+
+  /** True when an abbreviated {@code Assistant:} block is tool/orchestration noise, not author-visible prose. */
+  static boolean assistantBlockLooksLikeToolStrip(String text) {
+    String t = (text ?: '').toString().trim()
+    if (!t) {
+      return true
+    }
+    if (t.contains('🛠') || t.contains('\uD83D\uDEE0')) {
+      return true
+    }
+    if (t.contains('**GenerateTextNoTools**') ||
+      t.contains('**WriteContent**') ||
+      t.contains('**GetContent**') ||
+      t.contains('**ListStudioContentTypes**') ||
+      t.contains('**GetContentTypeFormDefinition**')) {
+      return true
+    }
+    if (t.contains('*Stopped.*') || t.contains('BodyStreamBuffer')) {
+      return true
+    }
+    if (t.length() <= 120 && (t.contains('finished.') || t.contains('…') || t.endsWith('…'))) {
+      return true
+    }
+    List<String> lines = t.split(/\r?\n/) as List
+    int nonEmpty = 0
+    int toolish = 0
+    for (String line : lines) {
+      String l = (line ?: '').trim()
+      if (!l) {
+        continue
+      }
+      nonEmpty++
+      if (l.contains('🛠') || l.contains('**') && l.contains('finished')) {
+        toolish++
+      }
+    }
+    return nonEmpty > 0 && toolish >= nonEmpty
   }
 
   /**

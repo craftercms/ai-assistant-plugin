@@ -115,7 +115,7 @@
     {
       "id": "FindContentVersion",
       "group": "builtin-tools",
-      "summary": "Find content version by criteria.",
+      "summary": "Find version by criteria (read-only).",
       "prompt": "[Matrix harness — required tool call] You MUST invoke the FindContentVersion tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with path \"/site/website/index.xml\" and revertToPrevious true. After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
@@ -132,8 +132,8 @@
     {
       "id": "CompareContentVersions",
       "group": "builtin-tools",
-      "summary": "Compare HEAD vs historical version.",
-      "prompt": "[Matrix harness — required tool call] You MUST invoke the CompareContentVersions tool exactly once before writing any assistant reply. You may call GetContentVersionHistory first only to obtain a versionNumber. Call CompareContentVersions with path \"/site/website/index.xml\" and compareCommitRef set to a versionNumber from history. After CompareContentVersions finishes, reply in one short sentence that cites one concrete value from the CompareContentVersions result.",
+      "summary": "Compare HEAD vs prior version (read-only).",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the CompareContentVersions tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call GetContentVersionHistory first, then CompareContentVersions with path \"/site/website/index.xml\" and compareCommitRef set to the second-newest versionNumber from history. After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
       "request": {
         "enabledBuiltInTools": [
           "CompareContentVersions",

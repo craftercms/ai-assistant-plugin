@@ -86,6 +86,23 @@
       "partialOnMissingConfig": true
     },
     {
+      "id": "restore_fields_from_version",
+      "group": "intent-recipes",
+      "summary": "Restore specific fields from version history.",
+      "prompt": "Put back the previous hero copy from version history — not a full page revert.",
+      "request": {
+        "authoringSurface": "preview",
+        "contentPath": "/site/website/index.xml"
+      },
+      "expect": {
+        "recipeId": "restore_fields_from_version",
+        "recipeIdSoft": true
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",
+      "partialOnMissingConfig": true
+    },
+    {
       "id": "revert_content_version",
       "group": "intent-recipes",
       "summary": "Revert anchored item to prior version.",
@@ -122,6 +139,24 @@
       "partialOnMissingConfig": true
     },
     {
+      "id": "stylesheet_change",
+      "group": "intent-recipes",
+      "summary": "Stylesheet / CSS change on anchored page.",
+      "prompt": "Update the styles/CSS on this page so that the color blue becomes red. DO NOT change the structure or names of styles. Just change colors.",
+      "request": {
+        "authoringSurface": "preview",
+        "contentPath": "/site/website/index.xml",
+        "displayTemplate": "/templates/web/pages/home.ftl"
+      },
+      "expect": {
+        "recipeId": "stylesheet_change",
+        "recipeIdSoft": true
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",
+      "partialOnMissingConfig": true
+    },
+    {
       "id": "template_display_change",
       "group": "intent-recipes",
       "summary": "Template / display change on anchored page.",
@@ -133,6 +168,25 @@
       },
       "expect": {
         "recipeId": "template_display_change"
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",
+      "partialOnMissingConfig": true
+    },
+    {
+      "id": "build_page_feature",
+      "group": "intent-recipes",
+      "summary": "Multi-surface page feature (section / widget).",
+      "prompt": "Add a chatbot section to this page with a new component, template markup, CSS, and a Groovy REST endpoint for chat messages.",
+      "request": {
+        "authoringSurface": "preview",
+        "contentPath": "/site/website/index.xml",
+        "contentTypeId": "/page/home",
+        "displayTemplate": "/templates/web/pages/home.ftl"
+      },
+      "expect": {
+        "recipeId": "build_page_feature",
+        "recipeIdSoft": true
       },
       "optional": true,
       "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",

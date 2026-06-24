@@ -129,6 +129,8 @@ if command -v node >/dev/null 2>&1; then
   node --check "${REPO_ROOT}/scripts/test/functional/tool-id-parity.mjs"
   node --check "${REPO_ROOT}/scripts/test/lib/partial-failure.mjs"
   node --check "${REPO_ROOT}/scripts/test/lib/chat-llm-env.mjs"
+  node --check "${REPO_ROOT}/scripts/test/lib/stylesheet-write-guard-parity.mjs"
+  node --check "${REPO_ROOT}/scripts/test/lib/routing-correction-parity.mjs"
   node --check "${REPO_ROOT}/scripts/test/functional/sse-telemetry-offline.mjs"
   node --check "${REPO_ROOT}/scripts/test/lib/sse-telemetry.mjs"
   node --check "${REPO_ROOT}/scripts/test/lib/router-json-parity.mjs"
@@ -136,10 +138,15 @@ if command -v node >/dev/null 2>&1; then
   node --check "${REPO_ROOT}/scripts/test/functional/copy-field-plan-offline.mjs"
   node --check "${REPO_ROOT}/scripts/test/functional/intent-execution-plan-offline.mjs"
   node --check "${REPO_ROOT}/scripts/test/functional/serp-api-parse-offline.mjs"
+  node --check "${REPO_ROOT}/scripts/test/functional/create-from-chat-draft-offline.mjs"
   node --check "${REPO_ROOT}/scripts/test/lib/copy-field-plan-parity.mjs"
   node --check "${REPO_ROOT}/scripts/test/lib/intent-execution-plan-parity.mjs"
   report_run "step1-offline" "tool-id-parity" "CORE_TOOLS vs UI tool id parity" \
     node "${REPO_ROOT}/scripts/test/functional/tool-id-parity.mjs"
+  report_run "step1-offline" "stylesheet-write-guard-parity" "Stylesheet WriteContent structure guard" \
+    node "${REPO_ROOT}/scripts/test/lib/stylesheet-write-guard-parity.mjs"
+  report_run "step1-offline" "routing-correction-parity" "Presentation vs copy-modification routing guards" \
+    node "${REPO_ROOT}/scripts/test/lib/routing-correction-parity.mjs"
   report_run "step1-offline" "recipe-catalog-offline" "Bundled intent recipe catalog JSON" \
     node "${REPO_ROOT}/scripts/test/functional/recipe-catalog-offline.mjs"
   report_run "step1-offline" "scenario-fixture-drift" "tool-recipe matrix fixture drift check" \
@@ -156,6 +163,8 @@ if command -v node >/dev/null 2>&1; then
     node "${REPO_ROOT}/scripts/test/functional/intent-execution-plan-offline.mjs"
   report_run "step1-offline" "serp-api-parse-offline" "SerpApi result merge + failure messages" \
     node "${REPO_ROOT}/scripts/test/functional/serp-api-parse-offline.mjs"
+  report_run "step1-offline" "create-from-chat-draft-offline" "Create-from-chat-draft prefetch parity" \
+    node "${REPO_ROOT}/scripts/test/functional/create-from-chat-draft-offline.mjs"
 fi
 export REST_CONTRACTS_SELFTEST=1
 "${REPO_ROOT}/scripts/test/functional/rest-contracts.sh"

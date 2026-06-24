@@ -112,6 +112,10 @@ export function parseRouterJson(raw) {
     let reason = String(m.reason ?? '').trim();
     const turnGoal = nullIfEmpty(m.turnGoal);
     const successCriteria = nullIfEmpty(m.successCriteria);
+    const authorUnderstanding = nullIfEmpty(m.authorUnderstanding);
+    const deliverable = nullIfEmpty(m.deliverable);
+    const turnRelation = nullIfEmpty(m.turnRelation);
+    const sessionObjective = nullIfEmpty(m.sessionObjective);
 
     if (!mode) mode = 'plan';
     if (mode === 'recipe' && !rid) {
@@ -123,7 +127,19 @@ export function parseRouterJson(raw) {
       reason = reason || 'mode tool but toolName null';
     }
 
-    return { mode, recipeId: rid, toolName, confidence: conf, reason, turnGoal, successCriteria };
+    return {
+      mode,
+      recipeId: rid,
+      toolName,
+      confidence: conf,
+      reason,
+      turnGoal,
+      successCriteria,
+      authorUnderstanding,
+      deliverable,
+      turnRelation,
+      sessionObjective,
+    };
   } catch (e) {
     return {
       mode: 'plan',

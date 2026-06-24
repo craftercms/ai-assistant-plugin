@@ -28,6 +28,8 @@ final class ToolsLoopWirePolicy {
   static final String WIRE_COMPACT_FETCH_HTTP = 'compact_fetch_http'
   /** Compact {@code GetPreviewHtml} payloads (cap HTML on the chat wire). */
   static final String WIRE_COMPACT_PREVIEW_HTML = 'compact_preview_html'
+  /** Compact {@code GetContentTypeFormDefinition} payloads (drop bulky form XML on the chat wire). */
+  static final String WIRE_COMPACT_FORM_DEFINITION = 'compact_form_definition'
 
   /** Maps to 🔍 / ✏️ / 📈 / 🔄 via {@link ToolsLoopWirePolicyRegistry#progressCategoryEmoji}. */
   final String progressCategory
@@ -142,6 +144,11 @@ final class ToolsLoopWirePolicy {
   /** FetchHttpUrl: cap large HTML bodies on the tools-loop wire to avoid context overflow. */
   static ToolsLoopWirePolicy fetchHttpUrlPolicy() {
     return new ToolsLoopWirePolicy(PROGRESS_READ, false, false, false, false, false, WIRE_COMPACT_FETCH_HTTP, null, null, 'main', false)
+  }
+
+  /** GetContentTypeFormDefinition: keep validation plan + field ids; omit full form XML on the wire. */
+  static ToolsLoopWirePolicy formDefinitionPolicy() {
+    return new ToolsLoopWirePolicy(PROGRESS_READ, false, false, false, false, false, WIRE_COMPACT_FORM_DEFINITION, null, null, 'main', false)
   }
 
   /** InvokeSiteUserTool: prose blocks may use {@code {"toolId":"…"}} instead of API tool_calls. */

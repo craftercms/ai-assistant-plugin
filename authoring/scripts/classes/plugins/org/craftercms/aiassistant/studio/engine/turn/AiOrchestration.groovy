@@ -5519,10 +5519,15 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       return false
     }
     String supplement = intentTelLoop.get('toolsLoopPrefetchSupplement')?.toString()?.trim() ?: ''
-    if ('newContentItem'.equals(supplement)) {
+    if ('newContentItem'.equals(supplement) || 'createFromChatDraft'.equals(supplement)) {
       return true
     }
-    return 'new_content_item'.equals(intentTelLoop.get('recipeId')?.toString()?.trim())
+    String rid = intentTelLoop.get('recipeId')?.toString()?.trim() ?: ''
+    if ('new_content_item'.equals(rid)) {
+      return true
+    }
+    return 'new_content_item_from_chat_draft'.equals(rid) &&
+      createFromChatDraftWriteVerificationActive(intentTelLoop)
   }
 
   private static boolean writeContentXmlLooksLikePlaceholder(String contentXml) {
@@ -5569,10 +5574,65 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     if (required) {
       msg.append(' **Required fields:** `').append(required.join('`, `')).append('`.')
     }
-    msg.append(
-      ' Call **GetContentTypeFormDefinition** for the resolved **contentTypeId** (and nested types), populate every required field and minSize collection, then **WriteContent** again.'
-    )
+    if (plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.FormDefinitionWriteContentValidator
+      .planIsActionable(validationPlan)) {
+      msg.append(
+        ' Use the **formValidationPlan** / prefetch **requiredFieldIds** already on this turn — populate every required element in **contentXml**, then **WriteContent** again. Do **not** call **GetContentTypeFormDefinition** again for the same **contentTypeId**.'
+      )
+    } else {
+      msg.append(
+        ' Call **GetContentTypeFormDefinition** for the resolved **contentTypeId** (and nested types), populate every required field and minSize collection, then **WriteContent** again.'
+      )
+    }
     return msg.toString()
+  }
+
+  private static String formatCreateFromChatDraftWriteRejectionNudge(
+    Map intentTelLoop,
+    String repoPath,
+    int invalidFailures,
+    int repeatedRejections
+  ) {
+    if (!(intentTelLoop instanceof Map) || !createFromChatDraftWriteVerificationActive(intentTelLoop)) {
+      return ''
+    }
+    if (invalidFailures < 1) {
+      return ''
+    }
+    Map validationPlan = newContentItemFormValidationPlan(intentTelLoop)
+    List<String> required = []
+    Object reqObj = validationPlan?.get('requiredFieldIds')
+    if (reqObj instanceof List) {
+      for (Object o : (List) reqObj) {
+        String r = o?.toString()?.trim()
+        if (r) {
+          required.add(r)
+        }
+      }
+    }
+    String path = (repoPath ?: intentTelLoop.get('toolsLoopSuggestedNewItemPath') ?: '').toString().trim()
+    StringBuilder sb = new StringBuilder()
+    sb.append('[aiassistant: create-from-chat-draft WriteContent — internal]\n')
+    sb.append('**WriteContent** failed form validation')
+    if (path) {
+      sb.append(' for `').append(path).append('`')
+    }
+    sb.append('. ')
+    if (required) {
+      sb.append('Include **every** required field in **contentXml**: `')
+        .append(required.join('`, `'))
+        .append('`. ')
+    }
+    sb.append(
+      'Map title/body from **[Prior conversation]** (last **Assistant** reply). ' +
+        'Do **not** call **GetContentTypeFormDefinition** again — use prefetch **formValidationPlan**. ' +
+        'Retry **WriteContent** once with a complete `<page>` document.'
+    )
+    if (repeatedRejections >= 2) {
+      sb.append(' Same rejection repeated — double-check missing fields (e.g. `topic_s`, `date_dt`, `metaDescription`).')
+    }
+    sb.append('\n')
+    return sb.toString()
   }
 
   /**
@@ -5596,9 +5656,6 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     StudioToolOperations ops
   ) {
     if (!newContentItemPrefetchSupplementActive(intentTelLoop)) {
-      return [proceed: true, argsStr: argsStr]
-    }
-    if (createFromChatDraftWriteVerificationActive(intentTelLoop)) {
       return [proceed: true, argsStr: argsStr]
     }
     try {
@@ -5762,7 +5819,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     }
     String n = (fnName ?: '').trim()
     if ('GetContentTypeFormDefinition'.equals(n)) {
-      return false
+      return Boolean.TRUE.equals(intentTelLoop?.get('toolsLoopFormDefsPrefetched'))
     }
     return [
       'ListStudioContentTypes',
@@ -6277,7 +6334,14 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     if (!Boolean.TRUE.equals(intentTelLoop.get('toolsLoopFormDefsPrefetched'))) {
       return false
     }
-    if (!'modify_page_content'.equals(intentTelLoop.get('recipeId')?.toString()?.trim())) {
+    String recipeId = intentTelLoop.get('recipeId')?.toString()?.trim() ?: ''
+    String supplement = intentTelLoop.get('toolsLoopPrefetchSupplement')?.toString()?.trim() ?: ''
+    boolean prefetchDiscoveryRecipe =
+      'modify_page_content'.equals(recipeId) ||
+        'new_content_item_from_chat_draft'.equals(recipeId) ||
+        'createFromChatDraft'.equals(supplement) ||
+        'newContentItem'.equals(supplement)
+    if (!prefetchDiscoveryRecipe) {
       return false
     }
     return ['GetContent', 'GetContentTypeFormDefinition'].contains((fnName ?: '').trim())
@@ -6320,10 +6384,162 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
       return AuthoringPreviewContext.sameRepoPath(reqPath, anchorPath)
     }
     String reqType = (args.contentTypeId ?: args.contentType ?: '').toString().trim()
-    if (!reqType || !anchorType) {
+    if (!reqType) {
       return false
     }
-    return reqType.equalsIgnoreCase(anchorType)
+    if (toolsLoopSessionBundle instanceof Map) {
+      Map tel = toolsLoopSessionBundle.intentRecipeRoutingTelemetry instanceof Map ?
+        (Map) toolsLoopSessionBundle.intentRecipeRoutingTelemetry :
+        null
+      String prefetchType = (tel?.toolsLoopPrefetchResolvedContentTypeId ?: '').toString().trim()
+      if (prefetchType && reqType.equalsIgnoreCase(prefetchType)) {
+        return true
+      }
+    }
+    if (anchorType && reqType.equalsIgnoreCase(anchorType)) {
+      return true
+    }
+    return false
+  }
+
+  private static Set<String> toolsLoopFormDefinitionFetchedTypes(Map toolsLoopSessionBundle) {
+    if (!(toolsLoopSessionBundle instanceof Map)) {
+      return new LinkedHashSet<>()
+    }
+    Object raw = toolsLoopSessionBundle.get('toolsLoopFormDefinitionFetchedTypes')
+    if (raw instanceof Set) {
+      return (Set<String>) raw
+    }
+    Set<String> created = new LinkedHashSet<>()
+    toolsLoopSessionBundle.put('toolsLoopFormDefinitionFetchedTypes', created)
+    return created
+  }
+
+  private static boolean toolsLoopFormDefinitionTypeAlreadyFetched(
+    Map toolsLoopSessionBundle,
+    Map intentTelLoop,
+    String contentTypeId
+  ) {
+    String type = (contentTypeId ?: '').toString().trim()
+    if (!type && intentTelLoop instanceof Map) {
+      type = (intentTelLoop.toolsLoopPrefetchResolvedContentTypeId ?: '').toString().trim()
+    }
+    if (!type) {
+      return false
+    }
+    Set<String> fetched = toolsLoopFormDefinitionFetchedTypes(toolsLoopSessionBundle)
+    return fetched.contains(type.toLowerCase(Locale.ROOT))
+  }
+
+  private static void markToolsLoopFormDefinitionFetched(Map toolsLoopSessionBundle, String contentTypeId) {
+    String type = (contentTypeId ?: '').toString().trim()
+    if (!type || !(toolsLoopSessionBundle instanceof Map)) {
+      return
+    }
+    toolsLoopFormDefinitionFetchedTypes(toolsLoopSessionBundle).add(type.toLowerCase(Locale.ROOT))
+  }
+
+  private static String contentTypeIdFromFormDefinitionToolArgs(String argsStr, JsonSlurper slurper) {
+    try {
+      Object parsed = slurper.parseText(argsStr ?: '{}')
+      if (parsed instanceof Map) {
+        return (parsed.contentTypeId ?: parsed.contentType ?: '').toString().trim()
+      }
+    } catch (Throwable ignored) {
+    }
+    return ''
+  }
+
+  private static boolean toolsLoopSkipRepeatedFormDefinitionFetch(
+    String fnName,
+    String argsStr,
+    Map toolsLoopSessionBundle,
+    Map intentTelLoop,
+    JsonSlurper slurper
+  ) {
+    if (!'GetContentTypeFormDefinition'.equals((fnName ?: '').trim())) {
+      return false
+    }
+    String reqType = contentTypeIdFromFormDefinitionToolArgs(argsStr, slurper)
+    if (!reqType) {
+      return false
+    }
+    if (toolsLoopFormDefinitionTypeAlreadyFetched(toolsLoopSessionBundle, intentTelLoop, reqType)) {
+      return true
+    }
+    if (Boolean.TRUE.equals(intentTelLoop?.get('toolsLoopFormDefsPrefetched'))) {
+      String prefetchType = (intentTelLoop?.toolsLoopPrefetchResolvedContentTypeId ?: '').toString().trim()
+      if (prefetchType && reqType.equalsIgnoreCase(prefetchType)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  private static String compactGetContentTypeFormDefinitionToolWire(String rawJson, int maxChars) {
+    String s = (rawJson ?: '').toString()
+    if (!s.trim()) {
+      return s
+    }
+    try {
+      Object parsed = new JsonSlurper().parseText(s)
+      if (!(parsed instanceof Map)) {
+        return s.length() <= maxChars ? s : s.substring(0, maxChars)
+      }
+      Map m = new LinkedHashMap<>((Map) parsed)
+      if (m.containsKey('formDefinitionXml')) {
+        Object xmlObj = m.get('formDefinitionXml')
+        int xmlLen = xmlObj != null ? xmlObj.toString().length() : 0
+        m.remove('formDefinitionXml')
+        m.put('formDefinitionXmlOmittedOnWire', Boolean.TRUE)
+        if (xmlLen > 0) {
+          m.put('formDefinitionXmlChars', xmlLen)
+        }
+      }
+      if (!m.containsKey('formValidationPlan') && m.containsKey('requiredFieldIds')) {
+        m.put('formValidationPlan', [
+          requiredFieldIds: m.get('requiredFieldIds'),
+          formFieldIds    : m.get('formFieldIds')
+        ])
+      }
+      String out = JsonOutput.toJson(m)
+      if (out.length() <= maxChars) {
+        return out
+      }
+      return out.substring(0, maxChars) +
+        '\n…[GetContentTypeFormDefinition compacted on wire — use requiredFieldIds / formValidationPlan]'
+    } catch (Throwable ignored) {
+      return s.length() <= maxChars ? s : s.substring(0, maxChars)
+    }
+  }
+
+  private static void compactHistoricalFormDefinitionToolWireMessages(List wireMessages) {
+    if (!(wireMessages instanceof List)) {
+      return
+    }
+    for (int i = 0; i < wireMessages.size(); i++) {
+      Object row = wireMessages.get(i)
+      if (!(row instanceof Map)) {
+        continue
+      }
+      Map m = (Map) row
+      if (!'tool'.equalsIgnoreCase((m.get('role') ?: '').toString().trim())) {
+        continue
+      }
+      def c = m.get('content')
+      if (!(c instanceof CharSequence)) {
+        continue
+      }
+      String s = c.toString()
+      if (!s.contains('formDefinitionXml') && !s.contains('GetContentTypeFormDefinition')) {
+        continue
+      }
+      String compact = compactGetContentTypeFormDefinitionToolWire(s, NATIVE_TOOLS_WIRE_JSON_MAX_CHARS)
+      if (compact && !compact.equals(s)) {
+        m.put('content', compact)
+        wireMessages.set(i, m)
+      }
+    }
   }
 
   /** Clears per-turn preview verification after a successful write so stale preview results are not reused. */
@@ -7042,6 +7258,9 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     if (pol.wireOutputMode == plugins.org.craftercms.aiassistant.studio.engine.policy.ToolsLoopWirePolicy.WIRE_COMPACT_PREVIEW_HTML) {
       return compactGetPreviewHtmlToolWire(s, GET_PREVIEW_HTML_WIRE_MAX_HTML_CHARS)
     }
+    if (pol.wireOutputMode == plugins.org.craftercms.aiassistant.studio.engine.policy.ToolsLoopWirePolicy.WIRE_COMPACT_FORM_DEFINITION) {
+      return compactGetContentTypeFormDefinitionToolWire(s, NATIVE_TOOLS_WIRE_JSON_MAX_CHARS)
+    }
     if (s.length() <= NATIVE_TOOLS_WIRE_JSON_MAX_CHARS) {
       return s
     }
@@ -7110,6 +7329,12 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
     Map<String, Boolean> requiredToolSuccess = freshRequiredToolSuccessMap(toolsLoopRequiredWireNames)
     augmentRequiredToolsForResearchPageRefresh(toolsLoopSessionBundle, requiredToolSuccess, authorVisibleForToolsLoop)
     seedRequiredToolSuccessFromSessionBundle(toolsLoopSessionBundle, requiredToolSuccess)
+    if (intentTelLoop instanceof Map && Boolean.TRUE.equals(intentTelLoop.get('toolsLoopFormDefsPrefetched'))) {
+      markToolsLoopFormDefinitionFetched(
+        toolsLoopSessionBundle,
+        (intentTelLoop.get('toolsLoopPrefetchResolvedContentTypeId') ?: '').toString()
+      )
+    }
     StudioToolOperations ops = (toolsLoopSessionBundle?.studioOps instanceof StudioToolOperations) ?
       (StudioToolOperations) toolsLoopSessionBundle.studioOps :
       null
@@ -7118,6 +7343,7 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
         Thread.currentThread().interrupt()
         throw new InterruptedException(AIASSISTANT_PIPELINE_CANCELLED)
       }
+      compactHistoricalFormDefinitionToolWireMessages(wireMessages)
       if (round == 0) {
         // Execution plan stays on the LLM wire only — do not emit author plan cards in chat UI.
       }
@@ -7606,6 +7832,37 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
               message                    :
                 "${fnName} skipped: intent-recipe prefetch already loaded this page XML and form definition for this turn. " +
                   'Use the prefetch results — proceed to research (if needed), then **WriteContent**.'
+            ])
+            writeToolProgressSse(
+              ssePreToolAssistantText,
+              fnName,
+              'warn',
+              skipInp,
+              null,
+              slurper.parseText(skipOut),
+              System.currentTimeMillis() - skipT0,
+              ops
+            )
+            wireMessages << [role: 'tool', tool_call_id: id, content: skipOut]
+            continue
+          }
+          if (toolsLoopSkipRepeatedFormDefinitionFetch(fnName, argsStr, toolsLoopSessionBundle, intentTelLoop, slurper)) {
+            Map skipInp = toolProgressInputFromArgsJson(argsStr, slurper, fnName)
+            long skipT0 = System.currentTimeMillis()
+            writeToolProgressSse(ssePreToolAssistantText, fnName, 'start', skipInp, null, null, null, ops)
+            String reqType = contentTypeIdFromFormDefinitionToolArgs(argsStr, slurper)
+            Map validationPlan = newContentItemFormValidationPlan(intentTelLoop)
+            List requiredHint = validationPlan.requiredFieldIds instanceof List ?
+              (List) validationPlan.requiredFieldIds : []
+            String skipOut = JsonOutput.toJson([
+              ok                              : true,
+              skippedDuplicateFormDefinition  : true,
+              tool                            : fnName,
+              contentTypeId                   : reqType,
+              requiredFieldIds                : requiredHint,
+              message                         :
+                "GetContentTypeFormDefinition skipped: form definition for `${reqType}` was already loaded this turn (prefetch or prior tool call). " +
+                  'Use **requiredFieldIds** / **formValidationPlan** from prefetch — fix **contentXml** and call **WriteContent** again.'
             ])
             writeToolProgressSse(
               ssePreToolAssistantText,
@@ -8151,12 +8408,19 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
             toolWire = augmentContentExistsWireForCreateFromChatDraft(toolWire, toolOut.toString(), intentTelLoop, slurper)
           }
           ToolsLoopTurnArtifacts.record(toolsLoopSessionBundle, fnName, toolOut.toString(), argsStr, slurper)
+          if ('GetContentTypeFormDefinition'.equals(fnName)) {
+            markToolsLoopFormDefinitionFetched(
+              toolsLoopSessionBundle,
+              contentTypeIdFromFormDefinitionToolArgs(argsStr, slurper)
+            )
+          }
           AuthoringResearchGrounding.recordTool(toolsLoopSessionBundle, fnName, toolOut.toString(), slurper)
           emitStepBridgeForLatestArtifact(ssePreToolAssistantText, toolsLoopSessionBundle)
           if (toolWire.length() < toolOut.length() &&
             toolPol.wireOutputMode != plugins.org.craftercms.aiassistant.studio.engine.policy.ToolsLoopWirePolicy.WIRE_COMPACT_GENERATE_IMAGE &&
             toolPol.wireOutputMode != plugins.org.craftercms.aiassistant.studio.engine.policy.ToolsLoopWirePolicy.WIRE_COMPACT_FETCH_HTTP &&
-            toolPol.wireOutputMode != plugins.org.craftercms.aiassistant.studio.engine.policy.ToolsLoopWirePolicy.WIRE_COMPACT_PREVIEW_HTML) {
+            toolPol.wireOutputMode != plugins.org.craftercms.aiassistant.studio.engine.policy.ToolsLoopWirePolicy.WIRE_COMPACT_PREVIEW_HTML &&
+            toolPol.wireOutputMode != plugins.org.craftercms.aiassistant.studio.engine.policy.ToolsLoopWirePolicy.WIRE_COMPACT_FORM_DEFINITION) {
             log.warn(
               'Tools-loop native tools: truncated tool wire output tool={} agentId={} beforeChars={} afterChars={}',
               fnName,
@@ -8322,6 +8586,15 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
                 '**WriteContent** failed repeatedly with the **same form-definition rejection** (invented field ids such as `orderDefault_f`). ' +
                 'Call **GetContent** on the anchored path, change **only** existing field elements listed in the **content field plan** in that full document, then **WriteContent** once — do not invent new root elements.\n'
           ]
+        }
+        String createDraftNudge = formatCreateFromChatDraftWriteRejectionNudge(
+          intentTelLoop,
+          lastInvalidWriteContentPath,
+          writeContentInvalidDocumentFailures,
+          writeContentRepeatedFormRejectionCount
+        )
+        if (createDraftNudge?.trim() && !roundHadWriteSuccess && round < maxRounds - 1 && !finished) {
+          wireMessages << [role: 'user', content: createDraftNudge]
         }
         if (writeContentInvalidDocumentFailures >= 2 && writeContentRepeatedFormRejectionCount < 2 &&
           !roundHadWriteSuccess && round < maxRounds - 1) {
@@ -9956,10 +10229,23 @@ Use tools if repository work is still missing. **Do not** stream a new **## Plan
         line = body ? (pfx + body + (body.endsWith('\n') ? '' : '\n')) : (pfx + ' **' + toolName + '** …\n')
       } else if ('error'.equals(phase)) {
         def em = (err?.message ?: err?.toString() ?: 'error').toString()
-        if (em.length() > 220) {
-          em = em.substring(0, 217) + '…'
+        boolean stylesheetProtected =
+          'WriteContent'.equalsIgnoreCase(toolName ?: '') &&
+            plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.CmsStylesheetWriteGuard
+              .isAuthorProtectedMessage(em)
+        if (stylesheetProtected) {
+          em = plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.CmsStylesheetWriteGuard
+            .authorVisibleFromGuardMessage(em)
         }
-        line = pfx + ' ❌ **' + toolName + '** failed: ' + em + '\n'
+        int emMax = stylesheetProtected ? 560 : 220
+        if (em.length() > emMax) {
+          em = em.substring(0, emMax - 3) + '…'
+        }
+        if (stylesheetProtected) {
+          line = pfx + ' ⚠️ **' + toolName + '** blocked (LLM response too small): ' + em + '\n'
+        } else {
+          line = pfx + ' ❌ **' + toolName + '** failed: ' + em + '\n'
+        }
       } else if ('warn'.equals(phase)) {
         def hint = ''
         int hintMax = 140

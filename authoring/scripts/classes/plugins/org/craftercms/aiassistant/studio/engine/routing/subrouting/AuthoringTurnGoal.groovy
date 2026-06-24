@@ -38,21 +38,25 @@ final class AuthoringTurnGoal {
     String routingMode
   ) {
     String reason = decision?.reason?.toString()?.trim() ?: ''
+    String turnRelation = decision?.turnRelation?.toString()?.trim() ?: ''
     Map resolved = AuthoringIntentCard.resolveAuthorIntent(
       decision?.turnGoal?.toString(),
       decision?.successCriteria?.toString(),
       authorVisible,
       anchorPath,
       reason,
-      routingMode
+      routingMode,
+      decision?.authorUnderstanding?.toString(),
+      decision?.sessionObjective?.toString(),
+      turnRelation
     )
     String goal = resolved.turnGoal?.toString()?.trim() ?: ''
     String criteria = resolved.successCriteria?.toString()?.trim() ?: ''
     if (!goal) {
-      goal = deriveFallbackGoal(authorVisible, anchorPath, recipeId, routingMode, reason)
+      goal = deriveFallbackGoal(authorVisible, anchorPath, recipeId, routingMode, reason, decision)
     }
     if (!criteria) {
-      criteria = deriveFallbackSuccessCriteria(recipeId, routingMode, anchorPath, authorVisible)
+      criteria = deriveFallbackSuccessCriteria(recipeId, routingMode, anchorPath, authorVisible, decision)
     }
     if (AuthoringIntentCard.isWeakTurnGoal(goal)) {
       String authorRequest = AuthoringIntentCard.extractCleanAuthorRequest(authorVisible)
@@ -63,18 +67,32 @@ final class AuthoringTurnGoal {
         recipeId,
         decision?.turnGoal?.toString(),
         reason,
-        routingMode
+        routingMode,
+        decision?.authorUnderstanding?.toString()
       )
       if (elaboration?.trim()) {
         goal = AuthoringIntentCard.condenseElaborationForExecutionGoal(elaboration)
-      } else if (authorRequest) {
+      } else if (authorRequest && !'correction'.equals(turnRelation)) {
         goal = AuthoringIntentCard.condenseAuthorGoalForExecution(authorRequest, anchorPath)
+      } else if (decision?.sessionObjective?.toString()?.trim()) {
+        goal = decision.sessionObjective.toString().trim()
       }
     }
     if (AuthoringIntentCard.isWeakSuccessCriteria(criteria)) {
-      criteria = AuthoringIntentCard.resolveAuthorIntent('', '', authorVisible, anchorPath, '').successCriteria?.toString() ?: criteria
+      if ('chat_only'.equals((routingMode ?: '').trim()) && decision?.sessionObjective?.toString()?.trim()) {
+        criteria = 'Substantive chat prose that fulfills the session objective; no CMS tools or repository writes.'
+      } else if (!'correction'.equals(turnRelation)) {
+        criteria = AuthoringIntentCard.resolveAuthorIntent('', '', authorVisible, anchorPath, '').successCriteria?.toString() ?: criteria
+      }
     }
-    return [turnGoal: goal ?: '', successCriteria: criteria ?: '']
+    return [
+      turnGoal         : goal ?: '',
+      successCriteria  : criteria ?: '',
+      authorUnderstanding: resolved.authorUnderstanding?.toString() ?: decision?.authorUnderstanding?.toString() ?: '',
+      sessionObjective : resolved.sessionObjective?.toString() ?: decision?.sessionObjective?.toString() ?: '',
+      deliverable      : decision?.deliverable?.toString()?.trim() ?: '',
+      turnRelation     : turnRelation
+    ]
   }
 
   /**
@@ -117,7 +135,10 @@ final class AuthoringTurnGoal {
       authorVisible,
       anchorPath,
       routerReason,
-      routingMode
+      routingMode,
+      toolsLoopSessionBundle instanceof Map ? toolsLoopSessionBundle.routerAuthorUnderstanding?.toString() : '',
+      toolsLoopSessionBundle instanceof Map ? toolsLoopSessionBundle.authorSessionObjective?.toString() : '',
+      toolsLoopSessionBundle instanceof Map ? toolsLoopSessionBundle.routerTurnRelation?.toString() : ''
     )
     String execGoal = resolved.turnGoal?.toString()?.trim() ?: (turnGoal ?: '').trim()
     String execCriteria = resolved.successCriteria?.toString()?.trim() ?: (successCriteria ?: '').trim()
@@ -147,7 +168,8 @@ final class AuthoringTurnGoal {
       authorVisible,
       recipeId,
       routingMode,
-      routerReason
+      routerReason,
+      resolved.authorUnderstanding?.toString() ?: ''
     )
     if (toolsLoopSessionBundle instanceof Map) {
       toolsLoopSessionBundle.authorTurnGoal = execGoal
@@ -183,9 +205,17 @@ final class AuthoringTurnGoal {
       result.authorTurnSuccessCriteria = execCriteria
       String ut = (result.userTextForToolsLoop ?: '').toString()
       if (chatOnly && !ut.contains('[Studio — chat-only turn]')) {
-        result.userTextForToolsLoop =
-          '[Studio — chat-only turn]\nReply directly in natural prose. **No** ## Plan, **no** 📋 checklist, **no** tool_calls.\n\n' +
-          ut
+        String sessionObj = toolsLoopSessionBundle instanceof Map ?
+          toolsLoopSessionBundle.authorSessionObjective?.toString()?.trim() ?: '' :
+          ''
+        StringBuilder chatPrefix = new StringBuilder('[Studio — chat-only turn]\n')
+        if (sessionObj) {
+          chatPrefix.append('**Session objective:** ').append(sessionObj).append('\n\n')
+        }
+        chatPrefix.append(
+          'Reply directly in natural prose. **No** ## Plan, **no** 📋 checklist, **no** tool_calls.\n\n'
+        )
+        result.userTextForToolsLoop = chatPrefix.toString() + ut
       } else if (!ut.startsWith('[Studio — turn goal')) {
         String prefix = block
         if (executionPlan?.trim()) {
@@ -213,7 +243,8 @@ final class AuthoringTurnGoal {
           recipeId,
           execGoal,
           routerReason,
-          routingMode
+          routingMode,
+          resolved.authorUnderstanding?.toString() ?: ''
         )
         if (elaboration?.trim()) {
           result.intentRecipeRoutingTelemetry.intentCardElaboration = elaboration.trim()
@@ -340,8 +371,21 @@ final class AuthoringTurnGoal {
     String anchorPath,
     String recipeId,
     String routingMode,
-    String routerReason
+    String routerReason,
+    Map decision = null
   ) {
+    if (decision instanceof Map) {
+      String understanding = decision.authorUnderstanding?.toString()?.trim()
+      if (understanding) {
+        return understanding
+      }
+      if ('correction'.equals(decision.turnRelation?.toString()?.trim())) {
+        String objective = decision.sessionObjective?.toString()?.trim()
+        if (objective) {
+          return objective
+        }
+      }
+    }
     String author = (authorVisible ?: '').trim()
     String cleanAuthor = AuthoringIntentCard.extractCleanAuthorRequest(author)
     if (cleanAuthor) {
@@ -381,14 +425,22 @@ final class AuthoringTurnGoal {
     String recipeId,
     String routingMode,
     String anchorPath,
-    String authorVisible
+    String authorVisible,
+    Map decision = null
   ) {
     String rid = (recipeId ?: '').trim()
+    if ('chat_only'.equals((routingMode ?: '').trim())) {
+      if (decision instanceof Map && AuthoringDeliverablePolicy.isChatDeliverable(decision.deliverable?.toString())) {
+        String objective = decision.sessionObjective?.toString()?.trim() ?: ''
+        if (objective) {
+          return 'Substantive chat prose that fulfills the session objective; no CMS tools or repository writes.'
+        }
+        return 'Substantive reply in chat matching the author\'s objective, tone, and constraints; no repository changes.'
+      }
+      return 'A natural conversational reply — no CMS tools or plan checklist.'
+    }
     if ('open_page_inquiry'.equals(rid)) {
       return 'Author receives an accurate read-only summary; no repository writes.'
-    }
-    if ('chat_only'.equals((routingMode ?: '').trim())) {
-      return 'A natural conversational reply — no CMS tools or plan checklist.'
     }
     if ('generate_image'.equals(rid)) {
       return 'GenerateImage succeeded and the author sees the generated bitmap.'
@@ -402,6 +454,15 @@ final class AuthoringTurnGoal {
     }
     if ('modify_page_content'.equals(rid) && (anchorPath ?: '').trim()) {
       return 'WriteContent updated `' + anchorPath.trim() + '`; preview reflects the requested changes.'
+    }
+    if ('stylesheet_change'.equals(rid)) {
+      return 'Linked stylesheet(s) under /static-assets/ updated via WriteContent with the full CSS file preserved (selectors/rules unchanged except requested value edits); preview shows the visual change; page/component XML unchanged unless the author asked otherwise.'
+    }
+    if ('template_display_change'.equals(rid)) {
+      return 'Target .ftl template(s) updated via WriteContent; GetPreviewHtml reflects the layout/display change.'
+    }
+    if ('build_page_feature'.equals(rid)) {
+      return 'Feature is wired on the page: content type/items (when needed), sections_o reference, FTL, CSS, and Groovy backend (when needed) saved via WriteContent; GetPreviewHtml shows the feature when preview is available.'
     }
     if (AuthoringPreviewContext.authorGenerateImageRequiresPageContextFirst('', authorVisible ?: '') &&
       (anchorPath ?: '').trim()) {

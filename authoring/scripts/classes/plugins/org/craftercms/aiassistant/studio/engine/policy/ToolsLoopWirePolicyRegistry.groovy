@@ -45,7 +45,13 @@ final class ToolsLoopWirePolicyRegistry {
       'GenerateTextNoTools'
     ]
     for (String w : readTools) {
-      m.put(w, 'FetchHttpUrl'.equals(w) ? ToolsLoopWirePolicy.fetchHttpUrlPolicy() : ToolsLoopWirePolicy.readPolicy())
+      if ('FetchHttpUrl'.equals(w)) {
+        m.put(w, ToolsLoopWirePolicy.fetchHttpUrlPolicy())
+      } else if ('GetContentTypeFormDefinition'.equals(w)) {
+        m.put(w, ToolsLoopWirePolicy.formDefinitionPolicy())
+      } else {
+        m.put(w, ToolsLoopWirePolicy.readPolicy())
+      }
     }
 
     m.put('QueryExpertGuidance', ToolsLoopWirePolicy.expertReadPolicy())

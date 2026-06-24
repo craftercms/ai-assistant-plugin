@@ -1083,11 +1083,26 @@ ${asstLine}"""
       '\\blets?\\s+redo\\b'
   )
 
+  /** CSS/FTL/static-asset presentation work — not CMS field copy in page/component XML. */
+  private static final Pattern PRESENTATION_LAYER_AUTHOR_INTENT = Pattern.compile(
+    '(?is)\\b(?:css|stylesheet|stylesheets|scss|less|static-assets|freemarker|\\.ftl\\b|display[-\\s]?template|layout\\s+markup|render\\s+markup|selectors?)\\b|' +
+      '\\b(?:visual|styling|look\\s+and\\s+feel|theme|branding)\\b.{0,64}\\b(?:css|stylesheet|styles?\\b|page\\b)|' +
+      '\\bstyles?\\b.{0,48}\\b(?:on\\s+)?(?:this|the)\\s+page\\b'
+  )
+
+  /** True when the author-visible turn targets presentation layers (CSS/FTL/assets), not XML copy fields. */
+  static boolean authorVisibleSuggestsPresentationLayerWork(String authorVisibleText) {
+    def v = stripStudioInjectedPromptBlocks((authorVisibleText ?: '').toString())?.trim()
+    return v && PRESENTATION_LAYER_AUTHOR_INTENT.matcher(v).find()
+  }
+
   /** Author reports preview/render failure and expects a repair pass — never chat-only. */
   private static final Pattern BROKEN_PREVIEW_REPAIR = Pattern.compile(
     '(?is)\\b(?:500|502|503|http\\s+500|server\\s+error|rendering\\s+error|free\\s*marker\\s+template\\s+error)\\b|' +
-      '\\b(?:broke|broken|break|fix|repair|unacceptable|not\\s+working|doesn.?t\\s+work|still\\s+failing)\\b.{0,96}\\b(?:page|preview|site|homepage|home)\\b|' +
-      '\\b(?:page|preview)\\b.{0,96}\\b(?:broke|broken|500|error|unacceptable)\\b|' +
+      '\\b(?:broke|broken|break|fix|repair|unacceptable|not\\s+working|doesn.?t\\s+work|still\\s+failing)\\b' +
+      '(?!(?:\\s+references?\\b|\\s+links?\\b)).{0,96}\\b(?:preview|(?:the|this|a)\\s+page|homepage|home\\s+page|site\\b)\\b|' +
+      '\\b(?:preview|(?:the|this|a)\\s+page|homepage|home\\s+page)\\b.{0,96}\\b(?:broke|broken|500|error|unacceptable)\\b' +
+      '(?!(?:\\s+references?\\b))|' +
       '\\bpreview\\s+check\\s+confir(?:m|med)\\b'
   )
 
@@ -1197,6 +1212,9 @@ ${asstLine}"""
       return false
     }
     if (authorVisibleWantsPriorGeneratedImageRestored(v)) {
+      return false
+    }
+    if (authorVisibleSuggestsPresentationLayerWork(v)) {
       return false
     }
     return ANCHORED_PAGE_CONTENT_MODIFICATION.matcher(v).find()

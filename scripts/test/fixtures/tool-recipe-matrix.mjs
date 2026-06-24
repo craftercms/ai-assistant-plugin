@@ -86,6 +86,47 @@ export const RECIPE_CASES = {
     optional: true,
     partialOnMissingConfig: true,
   },
+  restore_fields_from_version: {
+    summary: 'Restore specific fields from version history.',
+    prompt: 'Put back the previous hero copy from version history — not a full page revert.',
+    request: {
+      authoringSurface: 'preview',
+      contentPath: '/site/website/index.xml',
+    },
+    expect: { recipeId: 'restore_fields_from_version', recipeIdSoft: true },
+    optional: true,
+    skipUnless: 'CHAT_MATRIX_ALLOW_WRITES',
+    partialOnMissingConfig: true,
+  },
+  stylesheet_change: {
+    summary: 'Stylesheet / CSS change on anchored page.',
+    prompt:
+      'Update the styles/CSS on this page so that the color blue becomes red. DO NOT change the structure or names of styles. Just change colors.',
+    request: {
+      authoringSurface: 'preview',
+      contentPath: '/site/website/index.xml',
+      displayTemplate: '/templates/web/pages/home.ftl',
+    },
+    expect: { recipeId: 'stylesheet_change', recipeIdSoft: true },
+    optional: true,
+    skipUnless: 'CHAT_MATRIX_ALLOW_WRITES',
+    partialOnMissingConfig: true,
+  },
+  build_page_feature: {
+    summary: 'Multi-surface page feature (section / widget).',
+    prompt:
+      'Add a chatbot section to this page with a new component, template markup, CSS, and a Groovy REST endpoint for chat messages.',
+    request: {
+      authoringSurface: 'preview',
+      contentPath: '/site/website/index.xml',
+      contentTypeId: '/page/home',
+      displayTemplate: '/templates/web/pages/home.ftl',
+    },
+    expect: { recipeId: 'build_page_feature', recipeIdSoft: true },
+    optional: true,
+    skipUnless: 'CHAT_MATRIX_ALLOW_WRITES',
+    partialOnMissingConfig: true,
+  },
   template_display_change: {
     summary: 'Template / display change on anchored page.',
     prompt:

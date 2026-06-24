@@ -24,27 +24,50 @@ final class AuthoringIntentCard {
     String authorVisible,
     String anchorPath,
     String routerReason = '',
-    String routingMode = ''
+    String routingMode = '',
+    String authorUnderstanding = '',
+    String sessionObjective = '',
+    String turnRelation = ''
   ) {
     String authorRequest = extractCleanAuthorRequest(authorVisible)
     List<String> steps = deriveSteps(authorRequest, '')
     String goal = (routerTurnGoal ?: '').trim()
     String criteria = (routerSuccessCriteria ?: '').trim()
     String reason = (routerReason ?: '').trim()
+    String understanding = (authorUnderstanding ?: '').trim()
+    String objective = (sessionObjective ?: '').trim()
+    String relation = (turnRelation ?: '').trim()
     boolean chatOnly = 'chat_only'.equals((routingMode ?: '').trim())
+    boolean correction = 'correction'.equals(relation)
+
+    if (understanding && (AuthoringIntentCard.isWeakTurnGoal(goal) || goalEchoesAuthorRequest(goal, authorRequest))) {
+      goal = understanding
+    }
+    if (correction && objective && (AuthoringIntentCard.isWeakTurnGoal(goal) || goalEchoesAuthorRequest(goal, authorRequest))) {
+      goal = objective
+    }
 
     if (chatOnly) {
       if (isWeakTurnGoal(goal) && reason && !isWeakTurnGoal(reason)) {
         goal = reason
       }
+      if (understanding && isWeakTurnGoal(goal)) {
+        goal = understanding
+      }
       if (isWeakSuccessCriteria(criteria)) {
-        criteria = ''
+        if (objective) {
+          criteria = 'Substantive chat prose that fulfills the session objective; no CMS tools or repository writes.'
+        } else {
+          criteria = ''
+        }
       }
       return [
         turnGoal        : goal ?: '',
         successCriteria : criteria ?: '',
         authorRequest   : authorRequest ?: '',
-        steps           : steps ?: []
+        steps           : steps ?: [],
+        authorUnderstanding: understanding ?: '',
+        sessionObjective: objective ?: ''
       ]
     }
 
@@ -70,8 +93,22 @@ final class AuthoringIntentCard {
       turnGoal         : goal ?: '',
       successCriteria  : criteria ?: '',
       authorRequest    : authorRequest ?: '',
-      steps            : steps ?: []
+      steps            : steps ?: [],
+      authorUnderstanding: understanding ?: '',
+      sessionObjective : objective ?: ''
     ]
+  }
+
+  private static boolean goalEchoesAuthorRequest(String goal, String authorRequest) {
+    String g = (goal ?: '').replaceAll(/\s+/, ' ').trim().toLowerCase(Locale.ROOT)
+    String r = (authorRequest ?: '').replaceAll(/\s+/, ' ').trim().toLowerCase(Locale.ROOT)
+    if (!g || !r) {
+      return false
+    }
+    if (g == r) {
+      return true
+    }
+    return g.startsWith('the user said:') || g.startsWith('the user is asking:')
   }
 
   /**
@@ -84,15 +121,21 @@ final class AuthoringIntentCard {
     String recipeId = '',
     String routerTurnGoal = '',
     String routerReason = '',
-    String routingMode = ''
+    String routingMode = '',
+    String authorUnderstanding = ''
   ) {
+    String understanding = (authorUnderstanding ?: '').trim()
+    if (understanding) {
+      return understanding
+    }
+
     String mode = (routingMode ?: '').trim()
     if ('chat_only'.equals(mode)) {
-      String fromAuthor = chatOnlyIntentFromAuthorRequest(authorRequest)
-      if (fromAuthor?.trim()) {
-        return fromAuthor.trim()
+      String fromRouter = intentNarrativeFromRouterLlm(routerTurnGoal, routerReason, mode)
+      if (fromRouter?.trim() && !isWeakTurnGoal(fromRouter)) {
+        return fromRouter.trim()
       }
-      return intentNarrativeFromRouterLlm(routerTurnGoal, routerReason, mode)
+      return ''
     }
 
     String rid = (recipeId ?: '').trim()
@@ -114,7 +157,7 @@ final class AuthoringIntentCard {
   }
 
   /**
-   * Author-facing intent line for {@code chat_only}: reflect what the author said, not router process-speak.
+   * @deprecated Prefer router {@code authorUnderstanding}; kept for offline parity tests only.
    */
   static String chatOnlyIntentFromAuthorRequest(String authorRequest) {
     String req = normalizeInline(authorRequest)?.trim()
@@ -123,12 +166,12 @@ final class AuthoringIntentCard {
     }
     String opinionTopic = extractOpinionQuestionTopic(req)
     if (opinionTopic) {
-      return "The user wants to know what I think about ${opinionTopic}."
+      return "The author wants to know what I think about ${opinionTopic}."
     }
     if (req.endsWith('?')) {
-      return "The user is asking: ${req}"
+      return "The author is asking a question about: ${condenseAuthorGoal(req, '')}."
     }
-    return "The user said: ${req}"
+    return ''
   }
 
   /** e.g. "what do you think of baseball?" → "baseball" */
@@ -304,7 +347,8 @@ final class AuthoringIntentCard {
     String authorVisible,
     String recipeId = '',
     String routingMode = '',
-    String routerReason = ''
+    String routerReason = '',
+    String authorUnderstanding = ''
   ) {
     Map resolved = resolveAuthorIntent(
       turnGoal,
@@ -312,7 +356,10 @@ final class AuthoringIntentCard {
       authorVisible,
       anchorPath,
       routerReason,
-      routingMode
+      routingMode,
+      authorUnderstanding,
+      '',
+      ''
     )
     String authorRequest = resolved.authorRequest?.toString()?.trim() ?: ''
     List<String> steps = resolved.steps instanceof List ? (List<String>) resolved.steps : []
@@ -330,7 +377,8 @@ final class AuthoringIntentCard {
       recipeId,
       resolvedGoal,
       routerReason,
-      routingMode
+      routingMode,
+      resolved.authorUnderstanding?.toString() ?: authorUnderstanding
     )
     if (!elaboration?.trim()) {
       elaboration = resolvedGoal ?: condenseAuthorGoal(authorRequest, anchorPath)
