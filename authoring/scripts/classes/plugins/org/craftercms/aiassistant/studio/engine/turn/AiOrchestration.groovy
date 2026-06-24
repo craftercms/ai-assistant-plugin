@@ -963,7 +963,7 @@ For **content XML** (pages/components): do not invent a new element tree — pre
 
   /**
    * Canonical image model id for {@code POST /v1/images/generations}: {@link #llmCanonicalizeApiModelToken(String)}
-   * on trimmed input. Returns the raw parameter when blank or when canonicalization yields an empty string.
+   * on trimmed input. Maps deprecated DALL·E ids to {@code gpt-image-1}.
    */
   static String normalizeImagesApiModelId(String modelIdRawOrCanonical) {
     if (modelIdRawOrCanonical == null || !modelIdRawOrCanonical.toString().trim()) {
@@ -973,7 +973,17 @@ For **content XML** (pages/components): do not invent a new element tree — pre
     if (!canon) {
       return modelIdRawOrCanonical
     }
+    if (isDeprecatedDallEImageModel(canon)) {
+      log.warn('Deprecated DALL·E image model "{}" — using gpt-image-1 for Images API', canon)
+      return 'gpt-image-1'
+    }
     return canon
+  }
+
+  /** True for legacy {@code dall-e*} / {@code dalle*} image model ids (no longer supported on the Images API). */
+  static boolean isDeprecatedDallEImageModel(String model) {
+    String m = (model ?: '').toString().trim().toLowerCase(Locale.US).replace('_', '-')
+    return m.startsWith('dall-e') || m.startsWith('dalle')
   }
 
   /** Wire JSON body for {@code /v1/chat/completions}: read {@code model} for author-facing errors. */

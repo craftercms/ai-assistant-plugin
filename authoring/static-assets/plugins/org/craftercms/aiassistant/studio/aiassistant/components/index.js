@@ -1,8 +1,8 @@
 const { Fragment, jsx: jsx$1, jsxs } = craftercms.libs?.reactJsxRuntime;
 const require$$2 = craftercms.libs?.reactJsxRuntime && Object.prototype.hasOwnProperty.call(craftercms.libs?.reactJsxRuntime, 'default') ? craftercms.libs?.reactJsxRuntime['default'] : craftercms.libs?.reactJsxRuntime;
-const { useTheme, Box, CircularProgress, Typography, TableContainer, Paper, Table: Table$1, TableHead, TableBody, TableRow, TableCell, Stack: Stack$1, Tooltip, IconButton, Tabs, Tab, Accordion, AccordionSummary, AccordionDetails, Button, Divider, TextField, Chip, FormControlLabel, Switch, Popover, paperClasses, GlobalStyles, Menu, MenuItem, ListItemIcon, ListItemText, Dialog, DialogContent, Alert, FormControl, InputLabel, Select, List, ListItem, Checkbox, ListItemButton, Badge, DialogTitle, DialogActions, Avatar, useMediaQuery, Slider, ListItemSecondaryAction, ListSubheader, FormLabel, FormGroup, Autocomplete, Snackbar, Link: Link$1, RadioGroup, Radio, InputAdornment } = craftercms.libs.MaterialUI;
+const { useTheme, Box, CircularProgress, Typography, TableContainer, Paper, Table: Table$1, TableHead, TableBody, TableRow, TableCell, Stack: Stack$1, Tooltip, IconButton, Tabs, Tab, Accordion, AccordionSummary, AccordionDetails, Button, Divider, TextField, ToggleButtonGroup, ToggleButton, FormControlLabel, Switch, Chip, Popover, paperClasses, GlobalStyles, Menu, MenuItem, ListItemIcon, ListItemText, Dialog, DialogContent, Alert, FormControl, InputLabel, Select, List, ListItem, Checkbox, ListItemButton, Badge, DialogTitle, DialogActions, Avatar, useMediaQuery, Slider, ListItemSecondaryAction, ListSubheader, FormLabel, FormGroup, Autocomplete, Snackbar, Link: Link$1, RadioGroup, Radio, InputAdornment } = craftercms.libs.MaterialUI;
 const React = craftercms.libs.React;
-const { useEffect, useRef, useState, useCallback, useMemo, useLayoutEffect, useSyncExternalStore, forwardRef, useImperativeHandle, createElement } = craftercms.libs.React;
+const { useEffect, useRef, useState, useCallback, useMemo, useSyncExternalStore, useLayoutEffect, forwardRef, useImperativeHandle, createElement } = craftercms.libs.React;
 const React__default = craftercms.libs.React && Object.prototype.hasOwnProperty.call(craftercms.libs.React, 'default') ? craftercms.libs.React['default'] : craftercms.libs.React;
 const MinimizedBar = craftercms.components.MinimizedBar && Object.prototype.hasOwnProperty.call(craftercms.components.MinimizedBar, 'default') ? craftercms.components.MinimizedBar['default'] : craftercms.components.MinimizedBar;
 const DialogHeader = craftercms.components.DialogHeader && Object.prototype.hasOwnProperty.call(craftercms.components.DialogHeader, 'default') ? craftercms.components.DialogHeader['default'] : craftercms.components.DialogHeader;
@@ -22,10 +22,11 @@ const { useSelector, useDispatch } = craftercms.libs.ReactRedux;
 const { createAction } = craftercms.libs.ReduxToolkit;
 const { fetchContentXML, fetchItemsByPath, writeContent } = craftercms.services.content;
 const { fetchConfigurationXML, writeConfiguration } = craftercms.services.configuration;
-const { getHostToGuestBus, getHostToHostBus, getGuestToHostBus } = craftercms.utils.subjects;
+const { getGuestToHostBus, getHostToGuestBus, getHostToHostBus } = craftercms.utils.subjects;
 const { firstValueFrom, of } = craftercms.libs.rxjs;
 const { getGlobalHeaders } = craftercms.utils.ajax;
 const { getXSRFToken, getRequestForgeryTokenHeaderName } = craftercms.utils.auth;
+const { extractCollectionItem, value } = craftercms.utils.model;
 const DragIndicatorRounded = craftercms.utils.constants.components.get('@mui/icons-material/DragIndicatorRounded') && Object.prototype.hasOwnProperty.call(craftercms.utils.constants.components.get('@mui/icons-material/DragIndicatorRounded'), 'default') ? craftercms.utils.constants.components.get('@mui/icons-material/DragIndicatorRounded')['default'] : craftercms.utils.constants.components.get('@mui/icons-material/DragIndicatorRounded');
 const require$$0 = craftercms.libs.MaterialUI && Object.prototype.hasOwnProperty.call(craftercms.libs.MaterialUI, 'default') ? craftercms.libs.MaterialUI['default'] : craftercms.libs.MaterialUI;
 const { createSvgIcon: createSvgIcon$1 } = craftercms.libs.MaterialUI;
@@ -223,18 +224,25 @@ function useCurrentPreviewItem() {
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+const guestCheckIn = /*#__PURE__*/ createAction('GUEST_CHECK_IN');
 const fetchGuestModel = /*#__PURE__*/ createAction('FETCH_GUEST_MODEL');
 const updateFieldValueOperation = /*#__PURE__*/ createAction('UPDATE_FIELD_VALUE_OPERATION');
+const iceZoneSelected = /*#__PURE__*/ createAction('ICE_ZONE_SELECTED');
+const clearSelectedZones = /*#__PURE__*/ createAction('CLEAR_SELECTED_ZONES');
 const assetDragStarted = /*#__PURE__*/ createAction('ASSET_DRAG_STARTED');
 const assetDragEnded = /*#__PURE__*/ createAction('ASSET_DRAG_ENDED');
 const contentTypesResponse = /*#__PURE__*/ createAction('CONTENT_TYPES_RESPONSE');
 const reloadRequest = /*#__PURE__*/ createAction('RELOAD_REQUEST');
 const contentTypeDropTargetsResponse = /*#__PURE__*/ createAction('CONTENT_TYPE_DROP_TARGETS_RESPONSE');
+const contentTreeFieldSelected = /*#__PURE__*/ createAction('CONTENT_TREE_FIELD_SELECTED');
+const CLEAR_SELECT_FOR_EDIT = 'CLEAR_SELECT_FOR_EDIT';
 const FETCH_CONTENT_TYPES = 'FETCH_CONTENT_TYPES';
+const clearSelectForEdit = /*#__PURE__*/ createAction(CLEAR_SELECT_FOR_EDIT);
 const fetchContentTypes = /*#__PURE__*/ createAction(FETCH_CONTENT_TYPES);
 /*#__PURE__*/ createAction(contentTypeDropTargetsResponse.type);
 const setPreviewEditMode = /*#__PURE__*/ createAction('EDIT_MODE_CHANGED');
 const initToolbarConfig = /*#__PURE__*/ createAction('INIT_TOOLBAR_CONFIG');
+const requestEdit = /*#__PURE__*/ createAction('REQUEST_EDIT');
 // endregion
 // region ICE panel stack
 const pushIcePanelPage = /*#__PURE__*/ createAction('PUSH_ICE_PANEL_PAGE');
@@ -394,7 +402,7 @@ function buildStudioAuthHeaders() {
     return out;
 }
 async function streamChat(args) {
-    const { agentId, prompt, chatId, contentPath, contentTypeId, contentTypeLabel, displayTemplate, studioPreviewPageUrl, authoringSurface, formEngineClientJsonApply, formEngineItemPath, llm, llmModel, imageModel, imageGenerator, llmApiKey, siteId, pluginRequestSiteId, previewToken, enableTools, omitTools, enabledBuiltInTools, skills, translateBatchConcurrency, signal, onMessage, onRawSseDataLine } = args;
+    const { agentId, prompt, chatId, contentPath, contentTypeId, contentTypeLabel, displayTemplate, studioPreviewPageUrl, authoringSurface, authoringScope, pageContentPath, xbFocusedContentPath, xbFocusedFieldId, xbFocusedFieldIndex, xbFocusedFieldLabel, xbFocusedComponentLabel, formEngineClientJsonApply, formEngineItemPath, llm, llmModel, imageModel, imageGenerator, llmApiKey, siteId, pluginRequestSiteId, previewToken, enableTools, omitTools, enabledBuiltInTools, skills, translateBatchConcurrency, signal, onMessage, onRawSseDataLine } = args;
     const headers = {
         'Content-Type': 'application/json',
         Accept: 'text/event-stream',
@@ -432,6 +440,20 @@ async function streamChat(args) {
         requestBody.studioPreviewPageUrl = String(studioPreviewPageUrl).trim();
     if (authoringSurface != null && String(authoringSurface).trim() !== '')
         requestBody.authoringSurface = String(authoringSurface).trim();
+    if (authoringScope != null && String(authoringScope).trim() !== '')
+        requestBody.authoringScope = String(authoringScope).trim();
+    if (pageContentPath != null && String(pageContentPath).trim() !== '')
+        requestBody.pageContentPath = String(pageContentPath).trim();
+    if (xbFocusedContentPath != null && String(xbFocusedContentPath).trim() !== '')
+        requestBody.xbFocusedContentPath = String(xbFocusedContentPath).trim();
+    if (xbFocusedFieldId != null && String(xbFocusedFieldId).trim() !== '')
+        requestBody.xbFocusedFieldId = String(xbFocusedFieldId).trim();
+    if (xbFocusedFieldIndex != null && String(xbFocusedFieldIndex).trim() !== '')
+        requestBody.xbFocusedFieldIndex = xbFocusedFieldIndex;
+    if (xbFocusedFieldLabel != null && String(xbFocusedFieldLabel).trim() !== '')
+        requestBody.xbFocusedFieldLabel = String(xbFocusedFieldLabel).trim();
+    if (xbFocusedComponentLabel != null && String(xbFocusedComponentLabel).trim() !== '')
+        requestBody.xbFocusedComponentLabel = String(xbFocusedComponentLabel).trim();
     if (formEngineClientJsonApply === true)
         requestBody.formEngineClientJsonApply = true;
     if (formEngineItemPath != null && String(formEngineItemPath).trim() !== '')
@@ -734,10 +756,15 @@ function buildParsedTimeline(lines) {
                         'imageModel',
                         'imageGenerator',
                         'authoringSurface',
+                        'authoringScope',
                         'omitTools',
                         'enableTools',
                         'chatId',
                         'contentPath',
+                        'pageContentPath',
+                        'xbFocusedFieldId',
+                        'xbFocusedFieldLabel',
+                        'xbFocusedComponentLabel',
                         'contentTypeId',
                         'displayTemplate',
                         'studioPreviewPageUrl'
@@ -973,6 +1000,1128 @@ function formatSessionLogForDebugCopy(lines) {
         verbatim || '(empty)',
         ''
     ].join('\n');
+}
+
+function normalizeFieldIdParts(raw) {
+    if (!raw)
+        return [];
+    if (Array.isArray(raw)) {
+        return raw.map((s) => String(s).trim()).filter(Boolean);
+    }
+    const one = String(raw).trim();
+    if (!one)
+        return [];
+    return one.includes('.') ? one.split('.').map((s) => s.trim()).filter(Boolean) : [one];
+}
+function contentTypeFields(fields) {
+    if (!fields)
+        return [];
+    if (Array.isArray(fields))
+        return fields;
+    return Object.values(fields);
+}
+function findFieldDef(fields, id) {
+    if (!id)
+        return undefined;
+    return contentTypeFields(fields).find((f) => f.id === id);
+}
+function findFieldDefByPath(fields, idParts) {
+    let currentFields = fields;
+    let def;
+    for (const part of idParts) {
+        def = findFieldDef(currentFields, part);
+        if (!def)
+            return undefined;
+        currentFields = def.fields;
+    }
+    return def;
+}
+/** Resolves Studio form-definition display name for a field path (repeat groups supported). */
+function resolveContentTypeFieldLabel(contentType, fieldIdParts) {
+    if (!fieldIdParts.length)
+        return '';
+    let fields = contentType?.fields;
+    let label = '';
+    for (const part of fieldIdParts) {
+        const def = findFieldDef(fields, part);
+        if (!def)
+            break;
+        label = (def.name || def.id || part).trim();
+        fields = def.fields;
+    }
+    return label || fieldIdParts.join('.');
+}
+/**
+ * Normalizes {@code guest.selected[0]} whether stored as flat {@code EditSelection} or {@code ICE_ZONE_SELECTED} payload.
+ */
+function normalizeIceSelection(sel) {
+    if (!sel)
+        return undefined;
+    const coords = sel.coordinates;
+    const flatModelId = (sel.modelId ?? '').trim();
+    if (flatModelId) {
+        const fieldIdParts = normalizeFieldIdParts(sel.fieldId ?? coords?.fieldId);
+        if (!fieldIdParts.length)
+            return undefined;
+        const out = { modelId: flatModelId, fieldIdParts };
+        const idx = sel.index ?? coords?.index;
+        if (idx != null && String(idx).trim() !== '') {
+            out.fieldIndex = idx;
+        }
+        return out;
+    }
+    if (!coords || typeof coords !== 'object')
+        return undefined;
+    const modelId = String(coords.modelId ?? '').trim();
+    if (!modelId)
+        return undefined;
+    const fieldIdParts = normalizeFieldIdParts(coords.fieldId);
+    if (!fieldIdParts.length)
+        return undefined;
+    const out = { modelId, fieldIdParts };
+    const idx = coords.index ?? sel.index;
+    if (idx != null && String(idx).trim() !== '') {
+        out.fieldIndex = idx;
+    }
+    return out;
+}
+function resolveModelContentPath(guest, modelId, parentModelId) {
+    const models = guest.models ?? {};
+    const model = models[modelId];
+    const direct = model?.craftercms?.path?.trim();
+    if (direct)
+        return direct;
+    const byPath = guest.modelIdByPath;
+    if (byPath) {
+        for (const [path, id] of Object.entries(byPath)) {
+            if (String(id).trim() === modelId)
+                return path.trim();
+        }
+    }
+    const parentId = (parentModelId ?? '').trim();
+    if (parentId) {
+        const parentPath = models[parentId]?.craftercms?.path?.trim();
+        if (parentPath)
+            return parentPath;
+    }
+    const pagePath = (guest.path ?? '').trim();
+    if (pagePath)
+        return pagePath;
+    const mainId = (guest.modelId ?? '').trim();
+    if (mainId) {
+        return models[mainId]?.craftercms?.path?.trim() ?? '';
+    }
+    return '';
+}
+function selectionKeyFromNormalized(norm) {
+    if (!norm)
+        return '';
+    const idx = norm.fieldIndex != null && String(norm.fieldIndex).trim() !== '' ? String(norm.fieldIndex) : '';
+    return `${norm.modelId}|${norm.fieldIdParts.join('.')}|${idx}`;
+}
+/**
+ * Reads the highlighted XB field from a guest ICE/edit selection payload.
+ */
+function resolveXbFieldFocusFromSelection(sel, guest, contentTypesById) {
+    if (!guest.models || !sel)
+        return undefined;
+    const norm = normalizeIceSelection(sel);
+    if (!norm)
+        return undefined;
+    const parentModelId = sel.coordinates?.parentModelId;
+    const contentPath = resolveModelContentPath(guest, norm.modelId, parentModelId);
+    if (!contentPath)
+        return undefined;
+    const model = guest.models[norm.modelId];
+    const fieldId = norm.fieldIdParts.join('.');
+    const rawCt = model?.craftercms?.contentTypeId?.trim() || '';
+    const contentTypeId = rawCt.startsWith('/') ? rawCt : rawCt ? `/${rawCt}` : '';
+    const ct = contentTypeId ? contentTypesById?.[contentTypeId] : undefined;
+    const fieldDef = findFieldDefByPath(ct?.fields, norm.fieldIdParts);
+    if (fieldDef?.type === 'node-selector') {
+        const idx = norm.fieldIndex;
+        if (idx != null && String(idx).trim() !== '') {
+            return undefined;
+        }
+    }
+    const fieldLabel = resolveContentTypeFieldLabel(ct, norm.fieldIdParts) || fieldId;
+    const focus = {
+        modelId: norm.modelId,
+        contentPath,
+        contentTypeId,
+        fieldId,
+        fieldLabel
+    };
+    if (norm.fieldIndex != null) {
+        focus.fieldIndex = norm.fieldIndex;
+    }
+    return focus;
+}
+/** True when ICE selection maps to assistant Field scope (content-type field defs, not field ids). */
+function isAssistantScopedFieldIceSelection(sel, guest, contentTypesById) {
+    return Boolean(resolveXbFieldFocusFromSelection(sel, guest, contentTypesById));
+}
+/**
+ * Reads the highlighted XB field from {@code preview.guest} (when the author clicks a field in Experience Builder).
+ */
+function resolveXbFieldFocus(guest, contentTypesById) {
+    if (!guest?.models)
+        return undefined;
+    return resolveXbFieldFocusFromSelection(guest.selected?.[0], guest, contentTypesById);
+}
+function buildXbSelectionKey(guest) {
+    return selectionKeyFromNormalized(normalizeIceSelection(guest?.selected?.[0]));
+}
+function resolveNodeSelectorChildModelId(hostModel, fieldId, index, models) {
+    let childRef;
+    try {
+        if (fieldId.includes('.')) {
+            childRef = extractCollectionItem(hostModel, fieldId, index);
+        }
+        else {
+            const collection = value(hostModel, fieldId);
+            if (Array.isArray(collection)) {
+                childRef = collection[Number(index)];
+            }
+        }
+    }
+    catch {
+        return undefined;
+    }
+    if (typeof childRef === 'string') {
+        const id = childRef.trim();
+        return id && models[id] ? id : undefined;
+    }
+    if (childRef && typeof childRef === 'object') {
+        const id = childRef.craftercms?.id?.trim();
+        if (id && models[id])
+            return id;
+    }
+    return undefined;
+}
+function hostModelIdFromSelection(sel) {
+    if (!sel)
+        return '';
+    const coords = sel.coordinates;
+    return String(sel.modelId ?? coords?.modelId ?? '').trim();
+}
+function fieldIdPartsFromSelection(sel) {
+    if (!sel)
+        return [];
+    const coords = sel.coordinates;
+    return normalizeFieldIdParts(sel.fieldId ?? coords?.fieldId);
+}
+function indexFromSelection(sel) {
+    if (!sel)
+        return undefined;
+    const coords = sel.coordinates;
+    const idx = sel.index ?? coords?.index;
+    if (idx == null || String(idx).trim() === '')
+        return undefined;
+    return idx;
+}
+/**
+ * Resolves the XB component model id from guest selection — including page section picks
+ * (node-selector collection field + item index) that Studio surfaces as component chrome.
+ */
+function resolveXbComponentModelIdFromSelection(sel, guest, contentTypesById) {
+    if (!sel || !guest.models)
+        return undefined;
+    const hostModelId = hostModelIdFromSelection(sel);
+    if (!hostModelId)
+        return undefined;
+    const fieldIdParts = fieldIdPartsFromSelection(sel);
+    if (!fieldIdParts.length) {
+        return hostModelId;
+    }
+    const index = indexFromSelection(sel);
+    if (index == null)
+        return undefined;
+    const hostModel = guest.models[hostModelId];
+    if (!hostModel)
+        return undefined;
+    const rawCt = hostModel?.craftercms?.contentTypeId?.trim() || '';
+    const contentTypeId = rawCt.startsWith('/') ? rawCt : rawCt ? `/${rawCt}` : '';
+    const ct = contentTypeId ? contentTypesById?.[contentTypeId] : undefined;
+    const fieldDef = findFieldDefByPath(ct?.fields, fieldIdParts);
+    if (fieldDef?.type !== 'node-selector') {
+        return undefined;
+    }
+    const fieldId = fieldIdParts.join('.');
+    return resolveNodeSelectorChildModelId(hostModel, fieldId, index, guest.models);
+}
+function resolveXbComponentModelId(guest, contentTypesById) {
+    if (!guest?.models)
+        return undefined;
+    return resolveXbComponentModelIdFromSelection(guest.selected?.[0], guest, contentTypesById);
+}
+function isComponentRepoPath(path) {
+    return path.startsWith('/site/components/');
+}
+function resolveModelLabel(guest, modelId, contentPath) {
+    const fromModel = guest?.models?.[modelId]?.craftercms?.label?.trim();
+    if (fromModel)
+        return fromModel;
+    const base = contentPath.split('/').filter(Boolean).pop() ?? '';
+    const stem = base.replace(/\.xml$/i, '');
+    return stem || 'Component';
+}
+/**
+ * Reads the highlighted XB component from {@code preview.guest} when selection has model id only.
+ */
+function resolveXbComponentFocus(guest, contentTypesById) {
+    if (!guest?.models)
+        return undefined;
+    const componentModelId = resolveXbComponentModelId(guest, contentTypesById);
+    if (!componentModelId)
+        return undefined;
+    const sel = guest.selected?.[0];
+    const parentModelId = sel?.coordinates?.parentModelId;
+    const contentPath = resolveModelContentPath(guest, componentModelId, parentModelId);
+    if (!contentPath || !isComponentRepoPath(contentPath))
+        return undefined;
+    const model = guest.models[componentModelId];
+    const rawCt = model?.craftercms?.contentTypeId?.trim() || '';
+    const contentTypeId = rawCt.startsWith('/') ? rawCt : rawCt ? `/${rawCt}` : '';
+    return {
+        modelId: componentModelId,
+        contentPath,
+        contentTypeId,
+        label: resolveModelLabel(guest, componentModelId, contentPath)
+    };
+}
+function buildXbComponentSelectionKey(guest, contentTypesById) {
+    return resolveXbComponentModelId(guest, contentTypesById)?.trim() ?? '';
+}
+function buildDomIceComponentSelectionKey(dom) {
+    const modelId = dom?.modelId?.trim() ?? '';
+    const modelPath = dom?.modelPath?.trim() ?? '';
+    if (!modelId)
+        return '';
+    if (modelPath && isComponentRepoPath(modelPath))
+        return `${modelId}|${modelPath}`;
+    return modelId;
+}
+/**
+ * Resolves component focus from preview iframe DOM when the author clicks component chrome (not a field).
+ */
+function resolveXbComponentFocusFromDom(dom, guest) {
+    const modelId = dom?.modelId?.trim();
+    if (!modelId)
+        return undefined;
+    const contentPath = dom?.modelPath?.trim() ||
+        guest?.models?.[modelId]?.craftercms?.path?.trim() ||
+        resolveModelContentPath(guest ?? {}, modelId);
+    if (!contentPath || !isComponentRepoPath(contentPath))
+        return undefined;
+    const model = guest?.models?.[modelId];
+    const rawCt = model?.craftercms?.contentTypeId?.trim() || '';
+    const contentTypeId = rawCt.startsWith('/') ? rawCt : rawCt ? `/${rawCt}` : '';
+    return {
+        modelId,
+        contentPath,
+        contentTypeId,
+        label: resolveModelLabel(guest, modelId, contentPath)
+    };
+}
+/** When a field on a shared component is focused, the same item can be targeted as Component scope. */
+function xbComponentFocusFromField(field, guest) {
+    if (!field?.contentPath || !isComponentRepoPath(field.contentPath))
+        return undefined;
+    return {
+        modelId: field.modelId,
+        contentPath: field.contentPath,
+        contentTypeId: field.contentTypeId,
+        label: resolveModelLabel(guest ?? null, field.modelId, field.contentPath)
+    };
+}
+function buildDomIceSelectionKey(dom) {
+    if (!dom?.fieldId?.trim() || !dom.modelId?.trim())
+        return '';
+    const idx = dom.fieldIndex != null && String(dom.fieldIndex).trim() !== '' ? String(dom.fieldIndex) : '';
+    return `${dom.modelId.trim()}|${dom.fieldId.trim()}|${idx}`;
+}
+/**
+ * Resolves field focus from preview iframe DOM / injected ICE reporter when {@code guest.selected} is empty.
+ */
+function resolveXbFieldFocusFromDom(dom, guest, contentTypesById) {
+    const fieldIdRaw = dom?.fieldId?.trim();
+    const modelId = dom?.modelId?.trim();
+    if (!fieldIdRaw || !modelId)
+        return undefined;
+    const fieldIdParts = normalizeFieldIdParts(fieldIdRaw);
+    if (!fieldIdParts.length)
+        return undefined;
+    const contentPath = dom?.modelPath?.trim() ||
+        guest?.models?.[modelId]?.craftercms?.path?.trim() ||
+        resolveModelContentPath(guest ?? {}, modelId);
+    if (!contentPath)
+        return undefined;
+    const model = guest?.models?.[modelId];
+    const fieldId = fieldIdParts.join('.');
+    const rawCt = model?.craftercms?.contentTypeId?.trim() || '';
+    const contentTypeId = rawCt.startsWith('/') ? rawCt : rawCt ? `/${rawCt}` : '';
+    const ct = contentTypeId ? contentTypesById?.[contentTypeId] : undefined;
+    const fieldLabel = resolveContentTypeFieldLabel(ct, fieldIdParts) || fieldId;
+    const focus = {
+        modelId,
+        contentPath,
+        contentTypeId,
+        fieldId,
+        fieldLabel
+    };
+    if (dom?.fieldIndex != null && String(dom.fieldIndex).trim() !== '') {
+        focus.fieldIndex = dom.fieldIndex;
+    }
+    return focus;
+}
+/**
+ * Label for the Field scope control — form-definition field title, plus component item name when the
+ * field lives on a shared component (disambiguates multiple image fields on a page).
+ */
+function formatXbFieldScopeButtonLabel(focus, guest, contentTypesById) {
+    const parts = focus.fieldId.split('.').filter(Boolean);
+    let fieldPart = focus.fieldLabel?.trim() || '';
+    if (contentTypesById && focus.contentTypeId) {
+        const fromCt = resolveContentTypeFieldLabel(contentTypesById[focus.contentTypeId], parts);
+        if (fromCt)
+            fieldPart = fromCt;
+    }
+    if (!fieldPart)
+        fieldPart = focus.fieldId;
+    const path = focus.contentPath?.trim() ?? '';
+    if (isComponentRepoPath(path)) {
+        const componentName = resolveModelLabel(guest ?? null, focus.modelId, path);
+        if (componentName) {
+            return `${fieldPart} · ${componentName}`;
+        }
+    }
+    return fieldPart;
+}
+/**
+ * Maps UI scope + preview anchors to stream POST fields.
+ * Project scope omits item paths; field scope uses the focused item path and field metadata.
+ */
+function buildScopedPreviewStreamContext(args) {
+    const pagePath = args.pageContentPath.trim();
+    const pageType = args.pageContentTypeId.trim();
+    const tpl = args.displayTemplate.trim();
+    if (args.scope === 'project') {
+        return { authoringScope: 'project' };
+    }
+    if (args.scope === 'field' && args.fieldFocus) {
+        const f = args.fieldFocus;
+        return {
+            authoringScope: 'field',
+            contentPath: f.contentPath,
+            contentTypeId: f.contentTypeId || pageType || undefined,
+            displayTemplate: tpl || undefined,
+            xbFocusedContentPath: f.contentPath,
+            xbFocusedFieldId: f.fieldId,
+            ...(f.fieldIndex != null ? { xbFocusedFieldIndex: f.fieldIndex } : {}),
+            xbFocusedFieldLabel: f.fieldLabel,
+            ...(pagePath ? { pageContentPath: pagePath } : {})
+        };
+    }
+    if (args.scope === 'component' && args.componentFocus) {
+        const c = args.componentFocus;
+        return {
+            authoringScope: 'component',
+            contentPath: c.contentPath,
+            contentTypeId: c.contentTypeId || pageType || undefined,
+            displayTemplate: tpl || undefined,
+            xbFocusedContentPath: c.contentPath,
+            xbFocusedComponentLabel: c.label,
+            ...(pagePath ? { pageContentPath: pagePath } : {})
+        };
+    }
+    return {
+        authoringScope: 'page',
+        ...(pagePath ? { contentPath: pagePath } : {}),
+        ...(pageType ? { contentTypeId: pageType } : {}),
+        ...(tpl ? { displayTemplate: tpl } : {})
+    };
+}
+
+const PREVIEW_IFRAME_ID = 'crafterCMSPreviewIframe';
+const ICE_REPORTER_SCRIPT_ID = 'aiassistant-ice-click-reporter-v6';
+let installed$2 = false;
+let lastSelection = null;
+let lastComponentSelection = null;
+let lastFieldEventAt = 0;
+let lastComponentEventAt = 0;
+const listeners = new Set();
+const componentListeners = new Set();
+const precedenceListeners = new Set();
+const ICE_CLICK_REPORTER_SOURCE = `(function () {
+  if (window.__aiassistantIceReporterInstalled) return;
+  window.__aiassistantIceReporterInstalled = true;
+
+  function fieldParts(fieldId) {
+    if (!fieldId) return [];
+    return fieldId.indexOf('.') >= 0 ? fieldId.split('.').filter(Boolean) : [fieldId];
+  }
+
+  function resolveIce(target) {
+    if (!target || target.nodeType !== 1) return null;
+    var fieldHost = target.closest('[data-craftercms-field-id]');
+    if (!fieldHost) return null;
+    var modelHost = fieldHost.closest('[data-craftercms-model-id]') || fieldHost;
+    var modelId = modelHost.getAttribute('data-craftercms-model-id');
+    var modelPath = modelHost.getAttribute('data-craftercms-model-path') || '';
+    var fieldId = fieldHost.getAttribute('data-craftercms-field-id');
+    var index = fieldHost.getAttribute('data-craftercms-index') || '';
+    if (!modelId || !fieldId) return null;
+    return { modelId: modelId, modelPath: modelPath, fieldId: fieldId, index: index };
+  }
+
+  function resolveComponent(target) {
+    if (!target || target.nodeType !== 1) return null;
+    if (target.closest('[data-craftercms-field-id]')) return null;
+    var modelHost = target.closest('[data-craftercms-model-id]');
+    if (!modelHost) return null;
+    var modelId = modelHost.getAttribute('data-craftercms-model-id');
+    var modelPath = modelHost.getAttribute('data-craftercms-model-path') || '';
+    if (!modelId) return null;
+    return { modelId: modelId, modelPath: modelPath };
+  }
+
+  var lastHoverComponent = null;
+  var lastHover = null;
+
+  document.addEventListener(
+    'mouseover',
+    function (e) {
+      var comp = resolveComponent(e.target);
+      if (comp) lastHoverComponent = comp;
+    },
+    true
+  );
+
+  document.addEventListener(
+    'mouseover',
+    function (e) {
+      var ice = resolveIce(e.target);
+      if (ice) lastHover = ice;
+    },
+    true
+  );
+
+  document.addEventListener(
+    'pointerup',
+    function (e) {
+      var ice = resolveIce(e.target);
+      if (ice && ice.fieldId) {
+        var parts = fieldParts(ice.fieldId);
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        var payload = {
+          modelId: ice.modelId,
+          fieldId: parts,
+          index: ice.index || '',
+          coordinates: {
+            x: e.clientX || 0,
+            y: e.clientY || 0,
+            modelId: ice.modelId,
+            fieldId: parts,
+            index: ice.index || ''
+          }
+        };
+        window.parent.postMessage(
+          { type: 'ICE_ZONE_SELECTED', payload: payload, meta: { craftercms: true, source: 'guest' } },
+          '*'
+        );
+        return;
+      }
+      var comp = resolveComponent(e.target) || lastHoverComponent;
+      if (!comp) return;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      window.parent.postMessage(
+        {
+          type: 'AIASSISTANT_ICE_COMPONENT_SELECTED',
+          payload: { modelId: comp.modelId, modelPath: comp.modelPath },
+          meta: { craftercms: true, source: 'guest' }
+        },
+        '*'
+      );
+    },
+    true
+  );
+})();`;
+function notifyPrecedence() {
+    for (const fn of precedenceListeners) {
+        try {
+            fn();
+        }
+        catch {
+            /* ignore */
+        }
+    }
+}
+function notifyComponent(sel) {
+    if (sel &&
+        lastComponentSelection &&
+        sel.modelId === lastComponentSelection.modelId &&
+        sel.modelPath === lastComponentSelection.modelPath) {
+        return;
+    }
+    lastComponentSelection = sel;
+    for (const fn of componentListeners) {
+        try {
+            fn(sel);
+        }
+        catch {
+            /* ignore listener errors */
+        }
+    }
+}
+function notify(sel) {
+    if (sel &&
+        lastSelection &&
+        sel.modelId === lastSelection.modelId &&
+        sel.fieldId === lastSelection.fieldId &&
+        (sel.fieldIndex ?? '') === (lastSelection.fieldIndex ?? '') &&
+        sel.modelPath === lastSelection.modelPath) {
+        return;
+    }
+    lastSelection = sel;
+    for (const fn of listeners) {
+        try {
+            fn(sel);
+        }
+        catch {
+            /* ignore listener errors */
+        }
+    }
+}
+function normalizeFieldId(raw) {
+    if (Array.isArray(raw)) {
+        return raw.map((s) => String(s).trim()).filter(Boolean).join('.');
+    }
+    return String(raw ?? '').trim();
+}
+function selectionFromIceZoneComponentPayload(payload) {
+    const coords = payload.coordinates;
+    const modelId = String(payload.modelId ?? coords?.modelId ?? '').trim();
+    if (!modelId)
+        return null;
+    const fieldId = normalizeFieldId(payload.fieldId ?? coords?.fieldId);
+    if (fieldId)
+        return null;
+    return { modelId, modelPath: '' };
+}
+function selectionFromIceZonePayload(payload) {
+    const coords = payload.coordinates;
+    const modelId = String(payload.modelId ?? coords?.modelId ?? '').trim();
+    const fieldId = normalizeFieldId(payload.fieldId ?? coords?.fieldId);
+    if (!modelId || !fieldId)
+        return null;
+    const out = { modelId, modelPath: '', fieldId };
+    const idxRaw = payload.index ?? coords?.index;
+    if (idxRaw != null && String(idxRaw).trim() !== '') {
+        out.fieldIndex = String(idxRaw);
+    }
+    return out;
+}
+function selectionFromRequestEditPayload(payload) {
+    const modelId = String(payload.modelId ?? '').trim();
+    const fieldId = normalizeFieldId(payload.fields ?? payload.fieldId);
+    if (!modelId || !fieldId)
+        return null;
+    const out = { modelId, modelPath: '', fieldId };
+    const idxRaw = payload.index;
+    if (idxRaw != null && String(idxRaw).trim() !== '') {
+        out.fieldIndex = String(idxRaw);
+    }
+    return out;
+}
+function selectionFromUpdateFieldPayload(payload) {
+    const modelId = String(payload.modelId ?? '').trim();
+    const fieldId = String(payload.fieldId ?? '').trim();
+    if (!modelId || !fieldId)
+        return null;
+    const out = { modelId, modelPath: '', fieldId };
+    const idxRaw = payload.index;
+    if (idxRaw != null && String(idxRaw).trim() !== '') {
+        out.fieldIndex = String(idxRaw);
+    }
+    return out;
+}
+function getStudioStore$1() {
+    try {
+        const w = window;
+        return w.craftercms?.getStore?.() ?? null;
+    }
+    catch {
+        return null;
+    }
+}
+function enrichModelPath(sel) {
+    if (sel.modelPath)
+        return sel;
+    try {
+        const guest = getStudioStore$1()?.getState?.()?.preview?.guest;
+        const path = guest?.models?.[sel.modelId]?.craftercms?.path?.trim();
+        if (path)
+            return { ...sel, modelPath: path };
+    }
+    catch {
+        /* ignore */
+    }
+    return sel;
+}
+function publishComponentSelection(sel) {
+    if (sel) {
+        lastComponentEventAt = Date.now();
+        lastSelection = null;
+        for (const fn of listeners) {
+            try {
+                fn(null);
+            }
+            catch {
+                /* ignore */
+            }
+        }
+        notifyPrecedence();
+    }
+    notifyComponent(sel);
+}
+function publishSelection(sel) {
+    if (sel?.fieldId) {
+        lastFieldEventAt = Date.now();
+        lastComponentSelection = null;
+        for (const fn of componentListeners) {
+            try {
+                fn(null);
+            }
+            catch {
+                /* ignore */
+            }
+        }
+        notifyPrecedence();
+    }
+    notify(sel);
+}
+function readComponentFromElement(start) {
+    if (!(start instanceof Element))
+        return null;
+    if (start.closest('[data-craftercms-field-id]'))
+        return null;
+    const modelHost = start.closest('[data-craftercms-model-id]');
+    if (!modelHost)
+        return null;
+    const modelId = modelHost.getAttribute('data-craftercms-model-id')?.trim() ?? '';
+    const modelPath = modelHost.getAttribute('data-craftercms-model-path')?.trim() ?? '';
+    if (!modelId)
+        return null;
+    return { modelId, modelPath };
+}
+function readIceFromElement(start) {
+    if (!(start instanceof Element))
+        return null;
+    const fieldHost = start.closest('[data-craftercms-field-id]') ??
+        (start.hasAttribute('data-craftercms-field-id') ? start : null);
+    const modelHost = fieldHost?.closest('[data-craftercms-model-id]') ?? start.closest('[data-craftercms-model-id]');
+    if (!modelHost)
+        return null;
+    const modelId = modelHost.getAttribute('data-craftercms-model-id')?.trim() ?? '';
+    const modelPath = modelHost.getAttribute('data-craftercms-model-path')?.trim() ?? '';
+    if (!modelId)
+        return null;
+    const fieldSource = fieldHost ?? modelHost;
+    const fieldId = fieldSource.getAttribute('data-craftercms-field-id')?.trim() ?? '';
+    if (!fieldId)
+        return null;
+    const rawIndex = fieldSource.getAttribute('data-craftercms-index')?.trim();
+    const out = { modelId, modelPath, fieldId };
+    if (rawIndex)
+        out.fieldIndex = rawIndex;
+    return out;
+}
+const attachedDocs = new WeakSet();
+const attachedIframes = new WeakSet();
+function injectIceClickReporter(doc) {
+    if (doc.getElementById(ICE_REPORTER_SCRIPT_ID))
+        return;
+    const script = doc.createElement('script');
+    script.id = ICE_REPORTER_SCRIPT_ID;
+    script.textContent = ICE_CLICK_REPORTER_SOURCE;
+    (doc.head || doc.documentElement).appendChild(script);
+}
+let lastHoverComponentSelection = null;
+function attachPreviewDocument(doc) {
+    if (attachedDocs.has(doc))
+        return;
+    attachedDocs.add(doc);
+    injectIceClickReporter(doc);
+    doc.addEventListener('mouseover', (e) => {
+        readIceFromElement(e.target);
+        const comp = readComponentFromElement(e.target);
+        if (comp)
+            lastHoverComponentSelection = comp;
+    }, true);
+    doc.addEventListener('pointerup', (e) => {
+        const ice = readIceFromElement(e.target);
+        if (ice?.fieldId) {
+            e.stopImmediatePropagation();
+            e.preventDefault();
+            publishSelection(enrichModelPath(ice));
+            return;
+        }
+        let comp = readComponentFromElement(e.target);
+        if (!comp && lastHoverComponentSelection) {
+            comp = lastHoverComponentSelection;
+        }
+        if (comp) {
+            e.stopImmediatePropagation();
+            e.preventDefault();
+            publishComponentSelection(enrichComponentPath(comp));
+        }
+    }, true);
+}
+function enrichComponentPath(sel) {
+    if (sel.modelPath)
+        return sel;
+    try {
+        const guest = getStudioStore$1()?.getState?.()?.preview?.guest;
+        const path = guest?.models?.[sel.modelId]?.craftercms?.path?.trim();
+        if (path)
+            return { ...sel, modelPath: path };
+        const byPath = guest?.modelIdByPath;
+        if (byPath) {
+            for (const [repoPath, id] of Object.entries(byPath)) {
+                if (String(id).trim() === sel.modelId)
+                    return { ...sel, modelPath: repoPath.trim() };
+            }
+        }
+    }
+    catch {
+        /* ignore */
+    }
+    return sel;
+}
+function attachPreviewIframe(iframe) {
+    if (attachedIframes.has(iframe))
+        return;
+    attachedIframes.add(iframe);
+    const onLoad = () => {
+        try {
+            const doc = iframe.contentDocument;
+            if (doc?.body)
+                attachPreviewDocument(doc);
+        }
+        catch {
+            /* cross-origin */
+        }
+    };
+    iframe.addEventListener('load', onLoad);
+    onLoad();
+}
+function selectionFromGuestStoreSelected(sel) {
+    if (!sel)
+        return null;
+    const coords = sel.coordinates;
+    const modelId = String(sel.modelId ?? coords?.modelId ?? '').trim();
+    const fieldId = normalizeFieldId(sel.fieldId ?? coords?.fieldId);
+    if (!modelId || !fieldId)
+        return null;
+    const out = { modelId, modelPath: '', fieldId };
+    const idxRaw = sel.index ?? coords?.index;
+    if (idxRaw != null && String(idxRaw).trim() !== '') {
+        out.fieldIndex = String(idxRaw);
+    }
+    return out;
+}
+function getContentTypesByIdFromStore() {
+    try {
+        return getStudioStore$1()?.getState?.()?.contentTypes?.byId;
+    }
+    catch {
+        return undefined;
+    }
+}
+function getGuestFromStore() {
+    try {
+        return getStudioStore$1()?.getState?.()?.preview?.guest;
+    }
+    catch {
+        return undefined;
+    }
+}
+function editSelectionFromRecord(sel) {
+    if (!sel)
+        return undefined;
+    const coords = sel.coordinates;
+    return {
+        modelId: sel.modelId,
+        fieldId: (sel.fieldId ?? coords?.fieldId),
+        index: (sel.index ?? coords?.index),
+        coordinates: coords
+    };
+}
+function publishFromGuestStoreSelection(sel) {
+    const guest = getGuestFromStore();
+    if (!guest || !sel)
+        return;
+    const editSel = editSelectionFromRecord(sel);
+    const contentTypesById = getContentTypesByIdFromStore();
+    const componentModelId = resolveXbComponentModelIdFromSelection(editSel, guest, contentTypesById);
+    if (componentModelId) {
+        publishComponentSelection(enrichComponentPath({ modelId: componentModelId, modelPath: '' }));
+        return;
+    }
+    const fieldSel = selectionFromGuestStoreSelected(sel);
+    if (fieldSel) {
+        publishSelection(enrichModelPath(fieldSel));
+    }
+}
+function watchGuestSelectedInStore() {
+    const store = getStudioStore$1();
+    if (!store?.subscribe) {
+        window.setTimeout(watchGuestSelectedInStore, 400);
+        return;
+    }
+    let prevKey = '';
+    store.subscribe(() => {
+        const sel = store.getState()?.preview?.guest?.selected?.[0];
+        const guest = getGuestFromStore();
+        const contentTypesById = getContentTypesByIdFromStore();
+        const editSel = editSelectionFromRecord(sel);
+        const componentModelId = guest && editSel ? resolveXbComponentModelIdFromSelection(editSel, guest, contentTypesById) : undefined;
+        const fieldSel = componentModelId ? null : selectionFromGuestStoreSelected(sel);
+        const key = componentModelId
+            ? `component:${componentModelId}`
+            : fieldSel
+                ? `field:${fieldSel.modelId}|${fieldSel.fieldId}|${fieldSel.fieldIndex ?? ''}`
+                : '';
+        if (!key) {
+            prevKey = '';
+            return;
+        }
+        if (key === prevKey)
+            return;
+        prevKey = key;
+        publishFromGuestStoreSelection(sel);
+    });
+}
+function attachPreviewIframes() {
+    if (typeof document === 'undefined')
+        return;
+    const primary = document.getElementById(PREVIEW_IFRAME_ID);
+    if (primary instanceof HTMLIFrameElement) {
+        attachPreviewIframe(primary);
+        return;
+    }
+    document.querySelectorAll('iframe').forEach((node) => {
+        if (node instanceof HTMLIFrameElement)
+            attachPreviewIframe(node);
+    });
+}
+function isStudioComponentIceMenuSelection(action) {
+    if (!action || typeof action !== 'object' || !('type' in action))
+        return false;
+    const a = action;
+    if (a.type !== iceZoneSelected.type || !a.payload)
+        return false;
+    const guest = getGuestFromStore();
+    if (!guest)
+        return false;
+    const editSel = editSelectionFromRecord(a.payload);
+    if (editSel && resolveXbComponentModelIdFromSelection(editSel, guest, getContentTypesByIdFromStore())) {
+        return true;
+    }
+    return Boolean(selectionFromIceZoneComponentPayload(a.payload));
+}
+function isStudioFieldIceMenuSelection(action) {
+    if (!action || typeof action !== 'object' || !('type' in action))
+        return false;
+    const a = action;
+    if (a.type !== iceZoneSelected.type || !a.payload)
+        return false;
+    const guest = getGuestFromStore();
+    if (!guest)
+        return false;
+    const editSel = editSelectionFromRecord(a.payload);
+    return Boolean(editSel && isAssistantScopedFieldIceSelection(editSel, guest, getContentTypesByIdFromStore()));
+}
+function shouldSuppressStudioIceMenu(action) {
+    return isStudioComponentIceMenuSelection(action) || isStudioFieldIceMenuSelection(action);
+}
+function dismissStudioEditMenu() {
+    try {
+        const store = getStudioStore$1();
+        if (!store?.dispatch)
+            return;
+        const selected = store.getState()?.preview?.guest?.selected;
+        if (!selected?.length)
+            return;
+        store.dispatch(clearSelectForEdit());
+        getHostToGuestBus().next(clearSelectedZones());
+    }
+    catch {
+        /* ignore */
+    }
+}
+function payloadHasIceFieldId(payload) {
+    if (!payload)
+        return false;
+    const iceProps = payload.iceProps;
+    const raw = iceProps?.fieldId ?? payload.fieldId;
+    if (raw == null || raw === '')
+        return false;
+    if (Array.isArray(raw))
+        return raw.map((s) => String(s).trim()).filter(Boolean).length > 0;
+    return String(raw).trim().length > 0;
+}
+function handleHostToGuestAction(action) {
+    if (!action || typeof action !== 'object' || !('type' in action))
+        return;
+    const a = action;
+    if (a.type === contentTreeFieldSelected.type && a.payload) {
+        const payload = a.payload;
+        const iceProps = payload.iceProps;
+        const modelId = String(iceProps?.modelId ?? payload.modelId ?? payload.parentId ?? '').trim();
+        if (!modelId || payloadHasIceFieldId(payload))
+            return;
+        publishComponentSelection(enrichComponentPath({ modelId, modelPath: '' }));
+    }
+}
+function handleGuestToHostAction(action) {
+    if (!action || typeof action !== 'object' || !('type' in action))
+        return;
+    const a = action;
+    if (a.type === clearSelectedZones.type) {
+        lastHoverComponentSelection = null;
+        lastFieldEventAt = 0;
+        lastComponentEventAt = 0;
+        publishSelection(null);
+        publishComponentSelection(null);
+        notifyPrecedence();
+        return;
+    }
+    if (a.type === guestCheckIn.type) {
+        lastHoverComponentSelection = null;
+        lastSelection = null;
+        lastComponentSelection = null;
+        window.setTimeout(attachPreviewIframes, 0);
+        window.setTimeout(attachPreviewIframes, 400);
+        return;
+    }
+    if (a.type === iceZoneSelected.type && a.payload) {
+        const guest = getGuestFromStore();
+        const editSel = editSelectionFromRecord(a.payload);
+        const componentModelId = guest && editSel
+            ? resolveXbComponentModelIdFromSelection(editSel, guest, getContentTypesByIdFromStore())
+            : undefined;
+        if (componentModelId) {
+            publishComponentSelection(enrichComponentPath({ modelId: componentModelId, modelPath: '' }));
+            return;
+        }
+        const raw = selectionFromIceZonePayload(a.payload);
+        if (raw) {
+            publishSelection(enrichModelPath(raw));
+            return;
+        }
+        const comp = selectionFromIceZoneComponentPayload(a.payload);
+        if (comp) {
+            publishComponentSelection(enrichComponentPath(comp));
+        }
+        return;
+    }
+    if (a.type === requestEdit.type && a.payload) {
+        const raw = selectionFromRequestEditPayload(a.payload);
+        if (raw)
+            publishSelection(enrichModelPath(raw));
+        return;
+    }
+    if (a.type === updateFieldValueOperation.type && a.payload) {
+        const raw = selectionFromUpdateFieldPayload(a.payload);
+        if (raw)
+            publishSelection(enrichModelPath(raw));
+    }
+}
+/**
+ * Bridges XB field clicks into the AI Assistant. Studio guest keeps FIELD_SELECTED local and does not post
+ * {@code ICE_ZONE_SELECTED}; this injects a reporter into {@code #crafterCMSPreviewIframe} and taps guest→host bus.
+ */
+function installXbIceSelectionBridge() {
+    if (installed$2 || typeof window === 'undefined')
+        return;
+    installed$2 = true;
+    window.addEventListener('message', (event) => {
+        const previewIframe = document.getElementById(PREVIEW_IFRAME_ID);
+        if (!(previewIframe instanceof HTMLIFrameElement) || event.source !== previewIframe.contentWindow)
+            return;
+        const data = event.data;
+        if (!data ||
+            typeof data !== 'object' ||
+            data.type !== 'AIASSISTANT_ICE_COMPONENT_SELECTED' ||
+            data.meta?.craftercms !== true ||
+            data.meta?.source !== 'guest') {
+            return;
+        }
+        const payload = data.payload;
+        const modelId = String(payload?.modelId ?? '').trim();
+        if (!modelId)
+            return;
+        const modelPath = String(payload?.modelPath ?? '').trim();
+        publishComponentSelection(enrichComponentPath({ modelId, modelPath }));
+    });
+    watchGuestSelectedInStore();
+    attachPreviewIframes();
+    const mo = new MutationObserver(() => attachPreviewIframes());
+    if (document.body) {
+        mo.observe(document.body, { childList: true, subtree: true });
+    }
+    const bus = getGuestToHostBus();
+    const rawNext = bus.next.bind(bus);
+    bus.next = (action) => {
+        handleGuestToHostAction(action);
+        if (shouldSuppressStudioIceMenu(action)) {
+            window.setTimeout(dismissStudioEditMenu, 0);
+            return;
+        }
+        rawNext(action);
+    };
+    const hostToGuest = getHostToGuestBus();
+    const rawHostNext = hostToGuest.next.bind(hostToGuest);
+    hostToGuest.next = (action) => {
+        handleHostToGuestAction(action);
+        rawHostNext(action);
+    };
+    hostToGuest.subscribe?.((action) => handleHostToGuestAction(action));
+}
+function subscribeXbDomIceSelection(listener) {
+    listeners.add(listener);
+    listener(lastSelection);
+    return () => listeners.delete(listener);
+}
+function getLastXbDomIceSelection() {
+    return lastSelection;
+}
+function subscribeXbDomComponentSelection(listener) {
+    componentListeners.add(listener);
+    listener(lastComponentSelection);
+    return () => componentListeners.delete(listener);
+}
+function getLastXbDomComponentSelection() {
+    return lastComponentSelection;
+}
+/** Which XB target the author clicked most recently — avoids stale field DOM overriding component scope. */
+function getXbSelectionPrecedence() {
+    if (lastFieldEventAt <= 0 && lastComponentEventAt <= 0)
+        return null;
+    if (lastComponentEventAt > lastFieldEventAt)
+        return 'component';
+    if (lastFieldEventAt > lastComponentEventAt)
+        return 'field';
+    return null;
+}
+function subscribeXbSelectionPrecedence(listener) {
+    precedenceListeners.add(listener);
+    listener();
+    return () => precedenceListeners.delete(listener);
 }
 
 function ok$1() {}
@@ -30296,10 +31445,24 @@ const STUDIO_AI_CLAUDE_CHAT_MODELS = [
     'claude-opus-4-20250514'
 ];
 const STUDIO_AI_DEFAULT_IMAGE_MODEL = 'gpt-image-1';
+/** Legacy OpenAI DALL·E ids are no longer valid on the Images API — map to {@link STUDIO_AI_DEFAULT_IMAGE_MODEL}. */
+function isDeprecatedDallEImageModel(raw) {
+    const m = raw.trim().toLowerCase().replace(/_/g, '-');
+    return m.startsWith('dall-e') || m.startsWith('dalle');
+}
+/** Canonical image model for agents.json and stream POST; coerces deprecated DALL·E ids. */
+function normalizeImageModelId(raw) {
+    const trimmed = (raw ?? '').trim();
+    if (!trimmed)
+        return undefined;
+    if (isDeprecatedDallEImageModel(trimmed))
+        return STUDIO_AI_DEFAULT_IMAGE_MODEL;
+    return trimmed;
+}
 
 /** When llm is openAI: send default image model when agent/panel snapshot omitted it (server applies the same default). */
 function resolveWireImageModel(llm, imageModel) {
-    const trimmed = imageModel?.trim();
+    const trimmed = normalizeImageModelId(imageModel);
     if (trimmed)
         return trimmed;
     const l = (llm ?? '').trim();
@@ -30546,164 +31709,6 @@ function assistantVisibleTextLen(m) {
         (m.toolProgressText || '').length +
         (m.text || '').length +
         (m.reasoningStreamText || '').length);
-}
-/** Collapse whitespace and case for deduping 📋 chips (pre-tools ## Plan vs post-tools ## Plan Execution often repeat the same steps). */
-function verificationPromptDedupeKey(step) {
-    return step
-        .toLowerCase()
-        .replace(/\s+/g, ' ')
-        .replace(/[…]+$/u, '')
-        .replace(/\.+$/u, '')
-        .trim();
-}
-/**
- * Pulls 📋 lines from ## Plan / ## Plan Execution so authors can one-click re-run a verification step as a new prompt.
- * At most **three** chips — combined markdown often contains the same checklist twice (plan + execution).
- */
-function extractVerificationPrompts(markdown) {
-    const raw = (markdown || '').trim();
-    if (!raw)
-        return [];
-    const lines = raw.split('\n');
-    const out = [];
-    const seen = new Set();
-    let inPlanSection = false;
-    const max = 3;
-    for (const line of lines) {
-        if (out.length >= max)
-            break;
-        const t = line.trim();
-        if (/^##\s+plan\b/i.test(t) || /^##\s+plan\s+execution\b/i.test(t)) {
-            inPlanSection = true;
-            continue;
-        }
-        if (/^##\s+/i.test(t)) {
-            inPlanSection = false;
-            continue;
-        }
-        if (!inPlanSection)
-            continue;
-        const m = t.match(/^📋\s*(.+)$/);
-        if (!m)
-            continue;
-        const step = m[1]
-            .replace(/✅\s*$/u, '')
-            .replace(/❌\s*$/u, '')
-            .replace(/⚠️\s*$/u, '')
-            .replace(/⬜\s*$/u, '')
-            .replace(/\s+/g, ' ')
-            .trim();
-        if (step.length < 8)
-            continue;
-        const key = verificationPromptDedupeKey(step);
-        if (!key || seen.has(key))
-            continue;
-        seen.add(key);
-        out.push(step);
-    }
-    return out;
-}
-/** Strip common markdown bold from a line for trigger matching. */
-function stripMarkdownBold(s) {
-    return (s || '').replace(/\*\*/g, '').trim();
-}
-/**
- * True when the line introduces optional follow-up actions (not a checklist 📋 step).
- */
-function isFollowUpTriggerLine(trimmed) {
-    const n = stripMarkdownBold(trimmed);
-    if (!n)
-        return false;
-    if (/^would you like (?:me )?to\b/i.test(n))
-        return true;
-    if (/^open items\b/i.test(n))
-        return true;
-    if (/^next steps\b/i.test(n))
-        return true;
-    if (/^what would you like\b/i.test(n))
-        return true;
-    if (/^optional\b/i.test(n) && /:/.test(n))
-        return true;
-    return false;
-}
-/**
- * Plain-line follow-up after "Would you like…" — avoid capturing section labels or preview URLs.
- */
-function looksLikeFollowUpPromptClause(t) {
-    const s = t.trim();
-    if (s.length < 10)
-        return false;
-    if (/^https?:\/\//i.test(s))
-        return false;
-    if (/^[-*]\s*📋/.test(s))
-        return false;
-    if (/^(review|preview|open)\b/i.test(s) && /:?\s*$/i.test(s) && s.length < 55)
-        return false;
-    if (/[?]$/.test(s))
-        return true;
-    return /^(mark|generate|add|publish|set|update|create|remove|delete|move|rename|link|unlink|feature|include|exclude|attach|detach|schedule|unschedule|localize|translate|revert|undo)\b/i.test(s);
-}
-/**
- * Pulls suggested follow-up lines after "Would you like me to:" / "Open items…" / etc.
- * so authors can one-click send them like 📋 verification chips.
- */
-function extractFollowUpActionPrompts(markdown) {
-    const raw = normalizeLlmLiteralEscapes((markdown || '').trim());
-    if (!raw)
-        return [];
-    const lines = raw.split(/\r?\n/);
-    const out = [];
-    const seen = new Set();
-    let mode = 'scan';
-    let blankRun = 0;
-    const max = 8;
-    for (const rawLine of lines) {
-        const t = rawLine.trim();
-        if (!t) {
-            if (mode === 'collect') {
-                blankRun++;
-                if (blankRun >= 2)
-                    break;
-            }
-            continue;
-        }
-        blankRun = 0;
-        if (t.startsWith('<!--') || /^##\s+/.test(t) || /^🛠️/.test(t)) {
-            if (mode === 'collect')
-                break;
-            continue;
-        }
-        if (mode === 'scan') {
-            if (isFollowUpTriggerLine(t)) {
-                mode = 'collect';
-            }
-            continue;
-        }
-        // collect
-        let item = '';
-        const listHyphen = t.match(/^\s*[-*]\s+(.+)$/);
-        const listNum = t.match(/^\s*\d+[.)]\s+(.+)$/);
-        if (listHyphen)
-            item = listHyphen[1].trim();
-        else if (listNum)
-            item = listNum[1].trim();
-        else if (looksLikeFollowUpPromptClause(t))
-            item = t;
-        else
-            continue;
-        if (item.length < 8)
-            continue;
-        if (/^https?:\/\//i.test(item))
-            continue;
-        const key = verificationPromptDedupeKey(item);
-        if (!key || seen.has(key))
-            continue;
-        seen.add(key);
-        out.push(item);
-        if (out.length >= max)
-            break;
-    }
-    return out;
 }
 async function copyToClipboard(text) {
     try {
@@ -31782,13 +32787,151 @@ function AiAssistantChat(props) {
     const previewItem = useCurrentPreviewItem();
     const contentTypesById = useContentTypes();
     const guest = usePreviewGuest();
+    const guestSelected = useSelector((state) => state.preview?.guest?.selected);
+    const guestForScope = useMemo(() => {
+        if (!guest)
+            return guest;
+        if (guestSelected === guest.selected)
+            return guest;
+        return { ...guest, selected: guestSelected };
+    }, [guest, guestSelected]);
     const user = useActiveUser();
+    const formEngineChat = isFormEngineAuthoringChat(getAuthoringFormContext);
+    const [authoringScope, setAuthoringScope] = useState('page');
+    const [latchedFieldFocus, setLatchedFieldFocus] = useState();
+    const [latchedComponentFocus, setLatchedComponentFocus] = useState();
+    const prevXbSelectionKeyRef = useRef('');
+    const prevXbComponentSelectionKeyRef = useRef('');
     /** Guest model (XB) — may exist when itemsByPath has not loaded DetailedItem yet. */
     const guestMainModel = guest?.modelId && guest?.models ? guest.models[guest.modelId] : undefined;
-    const resolvedContentPath = previewItem?.path?.trim() ||
+    const pageContentPath = previewItem?.path?.trim() ||
         (typeof guest?.path === 'string' ? guest.path.trim() : '') ||
         (guestMainModel?.craftercms?.path && String(guestMainModel.craftercms.path).trim()) ||
         '';
+    const resolvedContentPath = pageContentPath;
+    const domIceSelection = useSyncExternalStore(subscribeXbDomIceSelection, getLastXbDomIceSelection, () => null);
+    const domIceComponentSelection = useSyncExternalStore(subscribeXbDomComponentSelection, getLastXbDomComponentSelection, () => null);
+    const xbSelectionPrecedence = useSyncExternalStore(subscribeXbSelectionPrecedence, getXbSelectionPrecedence, () => null);
+    const xbFieldFocusLive = useMemo(() => {
+        if (formEngineChat)
+            return undefined;
+        const fromGuest = resolveXbFieldFocus(guestForScope, contentTypesById);
+        if (fromGuest?.fieldId)
+            return fromGuest;
+        if (xbSelectionPrecedence === 'component')
+            return undefined;
+        return (fromGuest ??
+            resolveXbFieldFocusFromDom(domIceSelection, guestForScope, contentTypesById));
+    }, [formEngineChat, guestForScope, contentTypesById, domIceSelection, xbSelectionPrecedence]);
+    /** Keeps the last XB field selection when focus moves to the assistant (XB clears selection on outside click). */
+    const xbFieldFocus = xbFieldFocusLive ?? (xbSelectionPrecedence === 'component' ? undefined : latchedFieldFocus);
+    const xbComponentFocusLive = useMemo(() => {
+        if (formEngineChat)
+            return undefined;
+        const fromGuest = resolveXbComponentFocus(guestForScope, contentTypesById);
+        if (fromGuest?.contentPath)
+            return fromGuest;
+        if (xbSelectionPrecedence === 'field' && resolveXbFieldFocus(guestForScope, contentTypesById)?.fieldId) {
+            return undefined;
+        }
+        return (fromGuest ??
+            resolveXbComponentFocusFromDom(domIceComponentSelection, guestForScope));
+    }, [formEngineChat, guestForScope, domIceComponentSelection, xbSelectionPrecedence, contentTypesById]);
+    const xbComponentFocusDerived = useMemo(() => xbComponentFocusFromField(xbFieldFocus, guestForScope), [xbFieldFocus, guestForScope]);
+    const xbComponentFocus = xbComponentFocusLive ??
+        (xbSelectionPrecedence === 'component' ? latchedComponentFocus : undefined) ??
+        xbComponentFocusDerived;
+    const xbSelectionKey = useMemo(() => {
+        if (formEngineChat)
+            return '';
+        return buildXbSelectionKey(guestForScope) || buildDomIceSelectionKey(domIceSelection);
+    }, [formEngineChat, guestForScope, domIceSelection]);
+    const xbFieldScopeButtonLabel = useMemo(() => {
+        if (!xbFieldFocus?.fieldId)
+            return '';
+        return formatXbFieldScopeButtonLabel(xbFieldFocus, guestForScope, contentTypesById);
+    }, [xbFieldFocus, guestForScope, contentTypesById]);
+    const xbComponentSelectionKey = useMemo(() => {
+        if (formEngineChat)
+            return '';
+        return (buildXbComponentSelectionKey(guestForScope, contentTypesById) ||
+            buildDomIceComponentSelectionKey(domIceComponentSelection));
+    }, [formEngineChat, guestForScope, contentTypesById, domIceComponentSelection]);
+    useEffect(() => {
+        if (formEngineChat || xbSelectionPrecedence !== 'field' || !xbSelectionKey || !xbFieldFocusLive?.fieldId) {
+            return;
+        }
+        if (resolveXbComponentModelId(guestForScope, contentTypesById))
+            return;
+        if (xbSelectionKey !== prevXbSelectionKeyRef.current) {
+            setLatchedFieldFocus(xbFieldFocusLive);
+            setLatchedComponentFocus(undefined);
+            setAuthoringScope('field');
+            prevXbSelectionKeyRef.current = xbSelectionKey;
+            prevXbComponentSelectionKeyRef.current = '';
+        }
+    }, [formEngineChat, xbSelectionPrecedence, xbSelectionKey, xbFieldFocusLive, guestForScope, contentTypesById]);
+    useEffect(() => {
+        if (formEngineChat || !domIceSelection?.fieldId)
+            return;
+        if (resolveXbComponentModelId(guestForScope, contentTypesById))
+            return;
+        const focus = resolveXbFieldFocusFromDom(domIceSelection, guestForScope, contentTypesById);
+        if (!focus?.fieldId)
+            return;
+        const key = buildDomIceSelectionKey(domIceSelection);
+        if (!key)
+            return;
+        if (key === prevXbSelectionKeyRef.current)
+            return;
+        setLatchedFieldFocus(focus);
+        setLatchedComponentFocus(undefined);
+        setAuthoringScope('field');
+        prevXbSelectionKeyRef.current = key;
+        prevXbComponentSelectionKeyRef.current = '';
+    }, [formEngineChat, domIceSelection, guestForScope, contentTypesById]);
+    useEffect(() => {
+        if (formEngineChat)
+            return;
+        const guestComponentKey = buildXbComponentSelectionKey(guestForScope, contentTypesById);
+        if (!guestComponentKey)
+            return;
+        const focus = resolveXbComponentFocus(guestForScope, contentTypesById) ??
+            resolveXbComponentFocusFromDom(domIceComponentSelection, guestForScope);
+        if (!focus?.contentPath)
+            return;
+        if (guestComponentKey === prevXbComponentSelectionKeyRef.current)
+            return;
+        setLatchedComponentFocus(focus);
+        setLatchedFieldFocus(undefined);
+        setAuthoringScope('component');
+        prevXbComponentSelectionKeyRef.current = guestComponentKey;
+        prevXbSelectionKeyRef.current = '';
+    }, [formEngineChat, guestForScope, contentTypesById, domIceComponentSelection]);
+    useEffect(() => {
+        if (formEngineChat ||
+            xbSelectionPrecedence !== 'component' ||
+            !xbComponentSelectionKey ||
+            !xbComponentFocusLive) {
+            return;
+        }
+        if (resolveXbFieldFocus(guestForScope, contentTypesById)?.fieldId)
+            return;
+        if (xbComponentSelectionKey !== prevXbComponentSelectionKeyRef.current) {
+            setLatchedComponentFocus(xbComponentFocusLive);
+            setLatchedFieldFocus(undefined);
+            setAuthoringScope('component');
+            prevXbComponentSelectionKeyRef.current = xbComponentSelectionKey;
+            prevXbSelectionKeyRef.current = '';
+        }
+    }, [
+        formEngineChat,
+        xbSelectionPrecedence,
+        xbComponentSelectionKey,
+        xbComponentFocusLive,
+        guestForScope,
+        contentTypesById
+    ]);
     const resolvedContentTypeId = previewItem?.contentTypeId?.trim() ||
         (guestMainModel?.craftercms?.contentTypeId && String(guestMainModel.craftercms.contentTypeId).trim()) ||
         '';
@@ -31976,22 +33119,15 @@ function AiAssistantChat(props) {
     }, []);
     // Allow sending even if a previous request is stuck; startSend aborts in-flight first.
     const canSend = useMemo(() => draft.trim().length > 0 && !sending, [draft, sending]);
-    /** 📋 plan lines from the latest finished assistant message — click runs as a new prompt. */
-    const verificationPrompts = useMemo(() => {
-        const last = [...messages].reverse().find((m) => m.role === 'assistant' && !m.isStreaming);
-        if (!last)
-            return [];
-        return extractVerificationPrompts(combinedAssistantMarkdownForVerification(last));
-    }, [messages]);
-    /** "Would you like me to:" / list follow-ups — click sends as next prompt (deduped vs 📋 chips). */
-    const followUpActionPrompts = useMemo(() => {
-        const last = [...messages].reverse().find((m) => m.role === 'assistant' && !m.isStreaming);
-        if (!last)
-            return [];
-        const combined = combinedAssistantMarkdownForVerification(last);
-        const verifyKeys = new Set(verificationPrompts.map((v) => verificationPromptDedupeKey(v)));
-        return extractFollowUpActionPrompts(combined).filter((p) => !verifyKeys.has(verificationPromptDedupeKey(p)));
-    }, [messages, verificationPrompts]);
+    const handleAuthoringScopeChange = useCallback((_event, value) => {
+        if (!value)
+            return;
+        if (value === 'field' && !xbFieldFocus?.fieldId)
+            return;
+        if (value === 'component' && !xbComponentFocus?.contentPath)
+            return;
+        setAuthoringScope(value);
+    }, [xbFieldFocus?.fieldId, xbComponentFocus?.contentPath]);
     const speechCtor = useMemo(() => getSpeechRecognitionCtor(), []);
     const recognitionRef = useRef(null);
     const voiceActiveRef = useRef(false);
@@ -32208,7 +33344,20 @@ function AiAssistantChat(props) {
         try {
             const now = new Date();
             const pad2 = (n) => String(n).padStart(2, '0');
-            const macroContentPath = crossSiteWorking ? undefined : macroValuesRef.current.contentPath;
+            const macroContentPathBase = crossSiteWorking ? undefined : macroValuesRef.current.contentPath;
+            const scopedPreview = !formEngineChat && !crossSiteWorking
+                ? buildScopedPreviewStreamContext({
+                    scope: authoringScope,
+                    pageContentPath: macroValuesRef.current.contentPath,
+                    pageContentTypeId: macroValuesRef.current.contentTypeId,
+                    displayTemplate: macroValuesRef.current.displayTemplate,
+                    fieldFocus: xbFieldFocus,
+                    componentFocus: xbComponentFocus
+                })
+                : null;
+            const macroContentPath = crossSiteWorking
+                ? undefined
+                : scopedPreview?.contentPath?.trim() || macroContentPathBase;
             const macroCtx = {
                 dateToday: `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`,
                 timeNow: `${pad2(now.getHours())}:${pad2(now.getMinutes())}`,
@@ -32228,11 +33377,10 @@ function AiAssistantChat(props) {
                     /* ignore — still send prompt without live form appendix / macro substitution */
                 }
             }
-            const formEngine = isFormEngineAuthoringChat(getAuthoringFormContext);
-            const wantClientJsonApply = formEngine && formEngineClientJsonApply !== false;
-            expandedPrompt = await expandContentTypeMacros(expandedPrompt, macroCtx.siteId, macroValuesRef.current.contentTypeId, { omitRepoFileBodies: !formEngine }).then((s) => s.trim());
+            const wantClientJsonApply = formEngineChat && formEngineClientJsonApply !== false;
+            expandedPrompt = await expandContentTypeMacros(expandedPrompt, macroCtx.siteId, scopedPreview?.contentTypeId || macroValuesRef.current.contentTypeId, { omitRepoFileBodies: !formEngineChat }).then((s) => s.trim());
             expandedPrompt = await expandContentMacros(expandedPrompt, macroCtx.siteId, macroContentPath, {
-                omitRepoFileBodies: !formEngine,
+                omitRepoFileBodies: !formEngineChat,
                 liveAuthoring: !crossSiteWorking && authoringSnap
                     ? {
                         contentItemPath: authoringSnap.contentPath,
@@ -32279,8 +33427,8 @@ function AiAssistantChat(props) {
             const userBubbleText = expandedDisplay || expandedPrompt;
             /** `crafterPreview` cookie when present — forwarded for server preview tools (GetPreviewHtml, etc.). */
             const previewTokenForStream = readCrafterPreviewTokenFromCookie();
-            const previewContentTypeLabel = formEngine || crossSiteWorking ? undefined : resolvePreviewContentTypeLabel(previewItem);
-            const studioPreviewPageUrl = formEngine || crossSiteWorking ? undefined : pickStudioPreviewPageUrlForServer(previewItem);
+            const previewContentTypeLabel = formEngineChat || crossSiteWorking ? undefined : resolvePreviewContentTypeLabel(previewItem);
+            const studioPreviewPageUrl = formEngineChat || crossSiteWorking ? undefined : pickStudioPreviewPageUrlForServer(previewItem);
             setMessages((prev) => [
                 ...prev,
                 { id: userId, role: 'user', text: userBubbleText },
@@ -32298,17 +33446,28 @@ function AiAssistantChat(props) {
                         llmModel: llmModel ?? null,
                         imageModel: wireImageModel ?? null,
                         imageGenerator: imageGenerator != null ? String(imageGenerator).trim() || null : null,
-                        authoringSurface: formEngine ? 'formEngine' : 'preview',
+                        authoringSurface: formEngineChat ? 'formEngine' : 'preview',
                         omitTools: omitToolsThisSend,
                         enableTools: enableTools !== false,
                         chatId: chatId ?? null,
-                        contentPath: formEngine || crossSiteWorking ? null : macroValuesRef.current.contentPath?.trim() || null,
-                        contentTypeId: formEngine || crossSiteWorking ? null : macroValuesRef.current.contentTypeId?.trim() || null,
-                        displayTemplate: formEngine || crossSiteWorking ? null : macroValuesRef.current.displayTemplate?.trim() || null,
+                        authoringScope: scopedPreview?.authoringScope ?? null,
+                        contentPath: formEngineChat || crossSiteWorking
+                            ? null
+                            : scopedPreview?.contentPath?.trim() || macroValuesRef.current.contentPath?.trim() || null,
+                        contentTypeId: formEngineChat || crossSiteWorking
+                            ? null
+                            : scopedPreview?.contentTypeId?.trim() || macroValuesRef.current.contentTypeId?.trim() || null,
+                        displayTemplate: formEngineChat || crossSiteWorking
+                            ? null
+                            : scopedPreview?.displayTemplate?.trim() || macroValuesRef.current.displayTemplate?.trim() || null,
+                        pageContentPath: scopedPreview?.pageContentPath?.trim() || null,
+                        xbFocusedFieldId: scopedPreview?.xbFocusedFieldId ?? null,
+                        xbFocusedFieldLabel: scopedPreview?.xbFocusedFieldLabel ?? null,
+                        xbFocusedComponentLabel: scopedPreview?.xbFocusedComponentLabel ?? null,
                         studioPreviewPageUrl: studioPreviewPageUrl ?? null,
                         crossSiteWorking,
                         formEngineClientJsonApply: wantClientJsonApply,
-                        formEngineItemPath: formEngine && wantClientJsonApply && authoringSnap?.contentPath?.trim()
+                        formEngineItemPath: formEngineChat && wantClientJsonApply && authoringSnap?.contentPath?.trim()
                             ? authoringSnap.contentPath.trim()
                             : null
                     },
@@ -32319,7 +33478,7 @@ function AiAssistantChat(props) {
                         formAppendixLen,
                         priorTurnsBlockLen,
                         wirePromptLen: wirePrompt.length,
-                        omitRepoFileBodies: !formEngine
+                        omitRepoFileBodies: !formEngineChat
                     }
                 }));
             }
@@ -32342,16 +33501,42 @@ function AiAssistantChat(props) {
                     chatId,
                     prompt: wirePrompt,
                     // Form engine: do not send preview path — server would treat it as repo truth for tools; unsaved edits are only in the prompt appendix.
-                    contentPath: formEngine || crossSiteWorking ? undefined : macroValuesRef.current.contentPath?.trim() || undefined,
-                    contentTypeId: formEngine || crossSiteWorking ? undefined : macroValuesRef.current.contentTypeId?.trim() || undefined,
+                    contentPath: formEngineChat || crossSiteWorking
+                        ? undefined
+                        : scopedPreview?.contentPath?.trim() || macroValuesRef.current.contentPath?.trim() || undefined,
+                    contentTypeId: formEngineChat || crossSiteWorking
+                        ? undefined
+                        : scopedPreview?.contentTypeId?.trim() || macroValuesRef.current.contentTypeId?.trim() || undefined,
                     ...(previewContentTypeLabel ? { contentTypeLabel: previewContentTypeLabel } : {}),
-                    ...(!crossSiteWorking && macroValuesRef.current.displayTemplate?.trim()
-                        ? { displayTemplate: macroValuesRef.current.displayTemplate.trim() }
+                    ...(!crossSiteWorking &&
+                        (scopedPreview?.displayTemplate?.trim() || macroValuesRef.current.displayTemplate?.trim())
+                        ? {
+                            displayTemplate: (scopedPreview?.displayTemplate || macroValuesRef.current.displayTemplate).trim()
+                        }
                         : {}),
                     ...(studioPreviewPageUrl ? { studioPreviewPageUrl } : {}),
-                    authoringSurface: formEngine ? 'formEngine' : undefined,
-                    formEngineClientJsonApply: formEngine && wantClientJsonApply ? true : undefined,
-                    formEngineItemPath: formEngine && wantClientJsonApply && authoringSnap?.contentPath?.trim()
+                    authoringSurface: formEngineChat ? 'formEngine' : undefined,
+                    ...(scopedPreview?.authoringScope ? { authoringScope: scopedPreview.authoringScope } : {}),
+                    ...(scopedPreview?.pageContentPath?.trim()
+                        ? { pageContentPath: scopedPreview.pageContentPath.trim() }
+                        : {}),
+                    ...(scopedPreview?.xbFocusedContentPath?.trim()
+                        ? { xbFocusedContentPath: scopedPreview.xbFocusedContentPath.trim() }
+                        : {}),
+                    ...(scopedPreview?.xbFocusedFieldId?.trim()
+                        ? { xbFocusedFieldId: scopedPreview.xbFocusedFieldId.trim() }
+                        : {}),
+                    ...(scopedPreview?.xbFocusedFieldIndex != null
+                        ? { xbFocusedFieldIndex: scopedPreview.xbFocusedFieldIndex }
+                        : {}),
+                    ...(scopedPreview?.xbFocusedFieldLabel?.trim()
+                        ? { xbFocusedFieldLabel: scopedPreview.xbFocusedFieldLabel.trim() }
+                        : {}),
+                    ...(scopedPreview?.xbFocusedComponentLabel?.trim()
+                        ? { xbFocusedComponentLabel: scopedPreview.xbFocusedComponentLabel.trim() }
+                        : {}),
+                    formEngineClientJsonApply: formEngineChat && wantClientJsonApply ? true : undefined,
+                    formEngineItemPath: formEngineChat && wantClientJsonApply && authoringSnap?.contentPath?.trim()
                         ? authoringSnap.contentPath.trim()
                         : undefined,
                     llm,
@@ -32470,7 +33655,7 @@ function AiAssistantChat(props) {
                         if (hasStudioAiInlineImageUrlPayload(incomingStudioAiInlineImgUrls)) {
                             setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls) } : m));
                         }
-                        if (!formEngine &&
+                        if (!formEngineChat &&
                             !streamErr &&
                             toolStatus === 'tool-progress' &&
                             toolPhase === 'done' &&
@@ -32610,7 +33795,7 @@ function AiAssistantChat(props) {
                             }));
                             if (isCompleted &&
                                 !streamErr &&
-                                formEngine &&
+                                formEngineChat &&
                                 wantClientJsonApply &&
                                 !formUpdatesApplied &&
                                 typeof getAuthoringFormContext === 'function' &&
@@ -32675,7 +33860,7 @@ function AiAssistantChat(props) {
                 catch {
                     /* ignore log serialization errors */
                 }
-                if (!formEngine && shouldRefreshPreview) {
+                if (!formEngineChat && shouldRefreshPreview) {
                     triggerStudioPreviewReload();
                 }
             }
@@ -32974,35 +34159,16 @@ function AiAssistantChat(props) {
                                             : 'Use voice instead of typing (browser speech recognition)', children: jsx$1("span", { children: jsx$1(IconButton, { color: voiceListening ? 'error' : 'default', onClick: () => toggleVoiceInput(), disabled: sending, "aria-label": voiceListening ? 'Stop voice input' : 'Start voice input', "aria-pressed": voiceListening, children: jsx$1(MicRounded, {}) }) }) })) : null, jsx$1(Tooltip, { title: sending ? 'Wait for the response to finish, or tap Stop beside Working' : 'Send', children: jsx$1("span", { children: jsx$1(IconButton, { color: "primary", onMouseDown: (e) => {
                                                 // Keep focus on the prompt through click so layout does not collapse before send fires.
                                                 e.preventDefault();
-                                            }, onClick: () => startSend(draft), disabled: !canSend || sending, "aria-label": "Send", children: jsx$1(SendRounded, {}) }) }) })] })] }), verificationPrompts.length > 0 && !sending ? (jsxs(Box, { sx: { mt: 1.25, px: 0.25, minWidth: 0, width: '100%' }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", sx: { display: 'block', mb: 0.75 }, children: "Optional checks \u2014 click to send as the next prompt" }), jsx$1(Stack$1, { spacing: 0.75, sx: { width: '100%', minWidth: 0 }, children: verificationPrompts.map((vp, idx) => (jsx$1(Chip, { label: replaceSlackColonEmojisInText(vp.length > 96 ? `${vp.slice(0, 93)}…` : vp), size: "small", variant: "outlined", clickable: true, disabled: sending, onClick: () => startSend(vp, vp), sx: {
-                                    width: '100%',
-                                    maxWidth: '100%',
-                                    height: 'auto',
-                                    minHeight: 32,
-                                    justifyContent: 'flex-start',
-                                    '& .MuiChip-label': {
-                                        whiteSpace: 'normal',
-                                        textAlign: 'left',
-                                        display: 'block',
-                                        py: 0.75,
-                                        overflowWrap: 'anywhere',
-                                        wordBreak: 'break-word'
+                                            }, onClick: () => startSend(draft), disabled: !canSend || sending, "aria-label": "Send", children: jsx$1(SendRounded, {}) }) }) })] })] }), !formEngineChat ? (jsx$1(Box, { sx: { mt: 1.25, px: 0.25, minWidth: 0, width: '100%' }, children: jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 1, alignItems: { xs: 'stretch', sm: 'center' }, sx: { width: '100%', minWidth: 0 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", sx: { flexShrink: 0, pt: { sm: 0.5 } }, children: "Scope" }), jsxs(ToggleButtonGroup, { exclusive: true, size: "small", value: authoringScope, onChange: handleAuthoringScopeChange, "aria-label": "Authoring scope", sx: {
+                                    flexWrap: 'wrap',
+                                    '& .MuiToggleButton-root': {
+                                        textTransform: 'none',
+                                        px: 1.25,
+                                        py: 0.5
                                     }
-                                } }, `cq-verify-${idx}-${vp.slice(0, 48)}`))) })] })) : null, followUpActionPrompts.length > 0 && !sending ? (jsxs(Box, { sx: { mt: verificationPrompts.length > 0 ? 1 : 1.25, px: 0.25, minWidth: 0, width: '100%' }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", sx: { display: 'block', mb: 0.75 }, children: "Suggested follow-ups \u2014 click to send as the next prompt" }), jsx$1(Stack$1, { spacing: 0.75, sx: { width: '100%', minWidth: 0 }, children: followUpActionPrompts.map((fp, idx) => (jsx$1(Chip, { label: replaceSlackColonEmojisInText(fp.length > 96 ? `${fp.slice(0, 93)}…` : fp), size: "small", variant: "outlined", color: "primary", clickable: true, disabled: sending, onClick: () => startSend(fp, fp), sx: {
-                                    width: '100%',
-                                    maxWidth: '100%',
-                                    height: 'auto',
-                                    minHeight: 32,
-                                    justifyContent: 'flex-start',
-                                    '& .MuiChip-label': {
-                                        whiteSpace: 'normal',
-                                        textAlign: 'left',
-                                        display: 'block',
-                                        py: 0.75,
-                                        overflowWrap: 'anywhere',
-                                        wordBreak: 'break-word'
-                                    }
-                                } }, `cq-follow-${idx}-${fp.slice(0, 48)}`))) })] })) : null, voiceError && !voiceListening ? (jsx$1(Typography, { variant: "caption", color: "error", sx: { mt: 0.75, display: 'block', px: 0.5 }, children: voiceError })) : null, ttsAvailable || showSiteOverridePill ? (jsxs(Stack$1, { direction: "row", alignItems: "center", spacing: 1, sx: { mt: 0.75, width: '100%', minWidth: 0, flexWrap: 'wrap', rowGap: 0.5 }, children: [ttsAvailable ? (jsx$1(FormControlLabel, { sx: {
+                                }, children: [jsx$1(ToggleButton, { value: "project", "aria-label": "Project scope", disabled: sending, children: "Project" }), jsx$1(ToggleButton, { value: "page", "aria-label": "Page scope", disabled: sending, children: "Page" }), jsx$1(ToggleButton, { value: "component", "aria-label": "Component scope", disabled: sending || !xbComponentFocus?.contentPath, sx: { maxWidth: { xs: '100%', sm: 'min(100%, 20rem)' } }, children: authoringScope === 'component' && xbComponentFocus?.label
+                                            ? `Component: ${xbComponentFocus.label}`
+                                            : 'Component' }), jsx$1(ToggleButton, { value: "field", "aria-label": "Field scope", disabled: sending || !xbFieldFocus?.fieldId, sx: { maxWidth: { xs: '100%', sm: 'min(100%, 20rem)' } }, children: xbFieldScopeButtonLabel ? `Field: ${xbFieldScopeButtonLabel}` : 'Field' })] })] }) })) : null, voiceError && !voiceListening ? (jsx$1(Typography, { variant: "caption", color: "error", sx: { mt: 0.75, display: 'block', px: 0.5 }, children: voiceError })) : null, ttsAvailable || showSiteOverridePill ? (jsxs(Stack$1, { direction: "row", alignItems: "center", spacing: 1, sx: { mt: 0.75, width: '100%', minWidth: 0, flexWrap: 'wrap', rowGap: 0.5 }, children: [ttsAvailable ? (jsx$1(FormControlLabel, { sx: {
                                 mr: 0,
                                 ml: 0,
                                 flex: '1 1 auto',
@@ -33951,8 +35117,11 @@ function entryToChatAgent(entry) {
     const lmTrim = typeof entry.llmModel === 'string' ? entry.llmModel.trim() : '';
     if (lmTrim)
         out.llmModel = lmTrim;
-    if (typeof entry.imageModel === 'string' && entry.imageModel.trim())
-        out.imageModel = entry.imageModel.trim();
+    if (typeof entry.imageModel === 'string' && entry.imageModel.trim()) {
+        const normalized = normalizeImageModelId(entry.imageModel);
+        if (normalized)
+            out.imageModel = normalized;
+    }
     if (typeof entry.imageGenerator === 'string' && entry.imageGenerator.trim())
         out.imageGenerator = entry.imageGenerator.trim();
     if (enableTools !== undefined)
@@ -33991,7 +35160,8 @@ function entryToAutonomousDefinition(entry) {
     const scope = scopeRaw === 'user' || scopeRaw === 'role' || scopeRaw === 'project' ? scopeRaw : 'project';
     let llm = String(entry.llm ?? 'openAI').trim();
     const llmModel = String(entry.llmModel ?? 'gpt-4o-mini').trim();
-    const imageModel = entry.imageModel != null ? String(entry.imageModel).trim() : undefined;
+    const imageModelRaw = entry.imageModel != null ? String(entry.imageModel).trim() : undefined;
+    const imageModel = imageModelRaw ? normalizeImageModelId(imageModelRaw) : undefined;
     const imageGenerator = entry.imageGenerator != null && String(entry.imageGenerator).trim()
         ? String(entry.imageGenerator).trim()
         : undefined;
@@ -37855,9 +39025,11 @@ function normalizeCatalogForSave(f) {
             delete outRec.prompts;
             const llmS = String(out.llm ?? '').toLowerCase();
             const scriptish = llmS === 'script' || llmS.startsWith('script:');
-            if (!scriptish && !String(out.imageModel ?? '').trim()) {
+            const img = normalizeImageModelId(String(out.imageModel ?? '')) ?? '';
+            if (img)
+                out.imageModel = img;
+            else if (!scriptish)
                 out.imageModel = STUDIO_AI_DEFAULT_IMAGE_MODEL;
-            }
             if (out.enableTools === false) {
                 delete outRec.enabledBuiltInTools;
                 delete outRec.enabled_built_in_tools;
@@ -37890,9 +39062,11 @@ function normalizeCatalogForSave(f) {
         }
         const llmChat = String(outChat.llm ?? '').toLowerCase();
         const chatScriptish = llmChat === 'script' || llmChat.startsWith('script:');
-        if (!chatScriptish && !String(outChat.imageModel ?? '').trim()) {
+        const chatImg = normalizeImageModelId(String(outChat.imageModel ?? '')) ?? '';
+        if (chatImg)
+            outChat.imageModel = chatImg;
+        else if (!chatScriptish)
             outChat.imageModel = STUDIO_AI_DEFAULT_IMAGE_MODEL;
-        }
         const opensPopup = recChat.openAsPopup === true ||
             String(recChat.openAsPopup ?? '').trim().toLowerCase() === 'true';
         if (opensPopup)
@@ -38382,7 +39556,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef(function AiAssistantCen
                                                                             return { ...d, imageGenerator: `script:${v}` };
                                                                         });
                                                                     }, children: [imgScriptRows.map((row) => (jsxs(MenuItem, { value: row.id, children: [row.id, !row.hasSource ? ' — add generate.groovy' : ''] }, row.id))), jsx$1(MenuItem, { value: CQ_SCRIPT_IMAGE_SELECT_CUSTOM, children: "Custom id\u2026" })] })] }), jsx$1(Tooltip, { title: "Refresh list", children: jsx$1(IconButton, { size: "small", sx: { mt: 0.5 }, "aria-label": "Refresh image script list", onClick: () => void loadScriptsSandboxIndex(), children: jsx$1(RefreshRounded, { fontSize: "small" }) }) })] }), imgScriptSelectVal === CQ_SCRIPT_IMAGE_SELECT_CUSTOM ? (jsx$1(TextField, { label: "Custom image generator script id", value: imageGenScriptId(draft.imageGenerator), onChange: (ev) => setDraft((d) => d ? { ...d, imageGenerator: `script:${ev.target.value.trim()}` } : d), fullWidth: true, size: "small", helperText: "1\u201364 characters: letters, numbers, dash, underscore." })) : null] })) : null, jsx$1(TextField, { label: "Image model", value: String(draft.imageModel ?? STUDIO_AI_DEFAULT_IMAGE_MODEL), onChange: (ev) => setDraft((d) => (d ? { ...d, imageModel: ev.target.value } : d)), fullWidth: true, size: "small", helperText: imgK === 'openai'
-                                                ? 'Model id for built-in image generation (e.g. gpt-image-1). Set on the agent — no server default.'
+                                                ? 'GPT Image model id (e.g. gpt-image-1). DALL·E ids are not supported — use gpt-image-1.'
                                                 : 'Ignored when image generator is None or a site script.' })] }));
                                 return (jsxs(Stack$1, { spacing: 2, sx: { mt: 1 }, children: [formError ? (jsx$1(Alert, { severity: "error", onClose: () => setFormError(null), children: formError })) : null, jsx$1(FormControlLabel, { control: jsx$1(Switch, { checked: mode === 'autonomous', onChange: (ev) => {
                                                     const autonomous = ev.target.checked;
@@ -70760,7 +71934,7 @@ class Buffer {
 /**
 Elements are used to compose syntax nodes during parsing.
 */
-let Element$1 = class Element {
+let Element$2 = class Element {
     /**
     @internal
     */
@@ -70817,7 +71991,7 @@ class TreeElement {
     toTree() { return this.tree; }
 }
 function elt(type, from, to, children) {
-    return new Element$1(type, from, to, children);
+    return new Element$2(type, from, to, children);
 }
 const EmphasisUnderscore = { resolve: "Emphasis", mark: "EmphasisMark" };
 const EmphasisAsterisk = { resolve: "Emphasis", mark: "EmphasisMark" };
@@ -71188,7 +72362,7 @@ class InlineContext {
             if (open.type.mark)
                 content.push(this.elt(open.type.mark, start, open.to));
             for (let k = j + 1; k < i; k++) {
-                if (this.parts[k] instanceof Element$1)
+                if (this.parts[k] instanceof Element$2)
                     content.push(this.parts[k]);
                 this.parts[k] = null;
             }
@@ -71208,7 +72382,7 @@ class InlineContext {
         let result = [];
         for (let i = from; i < this.parts.length; i++) {
             let part = this.parts[i];
-            if (part instanceof Element$1)
+            if (part instanceof Element$2)
                 result.push(part);
         }
         return result;
@@ -71279,8 +72453,8 @@ function injectMarks(elements, marks) {
             eI++;
         if (eI < elts.length && elts[eI].from < mark.from) {
             let e = elts[eI];
-            if (e instanceof Element$1)
-                elts[eI] = new Element$1(e.type, e.from, e.to, injectMarks(e.children, [mark]));
+            if (e instanceof Element$2)
+                elts[eI] = new Element$2(e.type, e.from, e.to, injectMarks(e.children, [mark]));
         }
         else {
             elts.splice(eI++, 0, mark);
@@ -71803,7 +72977,7 @@ const scriptText = 55,
   IncompleteTag = 14,
   IncompleteCloseTag = 15,
   commentContent$1 = 59,
-  Element = 21,
+  Element$1 = 21,
   TagName = 23,
   Attribute = 24,
   AttributeName = 25,
@@ -71889,7 +73063,7 @@ const elementContext = new ContextTracker({
     return startTagTerms.indexOf(term) > -1 ? new ElementContext(tagNameAfter(input, 1) || "", context) : context
   },
   reduce(context, term) {
-    return term == Element && context ? context.parent : context
+    return term == Element$1 && context ? context.parent : context
   },
   reuse(context, node, stack, input) {
     let type = node.type.id;
@@ -72093,7 +73267,7 @@ function configureNesting(tags = [], attributes = []) {
     if (id == StyleText) return maybeNest(node, input, style)
     if (id == TextareaText) return maybeNest(node, input, textarea)
 
-    if (id == Element && other.length) {
+    if (id == Element$1 && other.length) {
       let n = node.node, open = n.firstChild, tagName = open && findTagName(open, input), attrs;
       if (tagName) for (let tag of other) {
         if (tag.tag == tagName && (!tag.attrs || tag.attrs(attrs || (attrs = getAttrs(open, input))))) {
@@ -78143,6 +79317,7 @@ function installRemoteImageDropImportBridge() {
 
 installRemoteImageDropImportBridge();
 installAiAssistantContentTypesHighlightPatch();
+installXbIceSelectionBridge();
 const bootstrapSiteId = authoringSiteIdFromWindow();
 if (bootstrapSiteId) {
     patchAllStoredIcePanelPagesInLocalStorage(bootstrapSiteId);

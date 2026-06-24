@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   Box,
   Button,
@@ -11,6 +11,8 @@ import {
   Stack,
   Switch,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   Typography,
   useTheme
@@ -29,6 +31,7 @@ import useActiveUser from '@craftercms/studio-ui/hooks/useActiveUser';
 import useCurrentPreviewItem from '@craftercms/studio-ui/hooks/useCurrentPreviewItem';
 import useContentTypes from '@craftercms/studio-ui/hooks/useContentTypes';
 import usePreviewGuest from '@craftercms/studio-ui/hooks/usePreviewGuest';
+import { useSelector } from 'react-redux';
 import { fetchContentXML } from '@craftercms/studio-ui/services/content';
 import { fetchConfigurationXML } from '@craftercms/studio-ui/services/configuration';
 import { fetchGuestModel, reloadRequest } from '@craftercms/studio-ui/state/actions/preview';
@@ -49,6 +52,31 @@ import {
 } from './pipelineTiming';
 import type { AgentSkillConfig, PromptConfig } from './agentConfig';
 import type { AuthoringFormContextSnapshot } from './aiAssistantFormAuthoringTypes';
+import {
+  type AuthoringScope,
+  type XbFieldFocus,
+  type XbComponentFocus,
+  buildDomIceComponentSelectionKey,
+  buildDomIceSelectionKey,
+  buildScopedPreviewStreamContext,
+  buildXbComponentSelectionKey,
+  buildXbSelectionKey,
+  formatXbFieldScopeButtonLabel,
+  resolveXbComponentFocus,
+  resolveXbComponentFocusFromDom,
+  resolveXbComponentModelId,
+  resolveXbFieldFocus,
+  resolveXbFieldFocusFromDom,
+  xbComponentFocusFromField
+} from './aiAssistantAuthoringScope';
+import {
+  getLastXbDomComponentSelection,
+  getLastXbDomIceSelection,
+  getXbSelectionPrecedence,
+  subscribeXbDomComponentSelection,
+  subscribeXbDomIceSelection,
+  subscribeXbSelectionPrecedence
+} from './aiAssistantXbIceSelectionBridge';
 import MarkdownMessage, { normalizeLlmLiteralEscapes } from './MarkdownMessage';
 import GenerateImageBlurredPlaceholder from './GenerateImageBlurredPlaceholder';
 import GenerateImagePromptCaption from './GenerateImagePromptCaption';
@@ -66,10 +94,10 @@ import {
   type IntentCardModel
 } from './intentRecipeChatDisplay';
 import { replaceSlackColonEmojisInText } from './slackColonEmoji';
-import { STUDIO_AI_DEFAULT_IMAGE_MODEL } from './studioAiOrchestrationToolIds';
+import { STUDIO_AI_DEFAULT_IMAGE_MODEL, normalizeImageModelId } from './studioAiOrchestrationToolIds';
 /** When llm is openAI: send default image model when agent/panel snapshot omitted it (server applies the same default). */
 function resolveWireImageModel(llm: string | undefined, imageModel: string | undefined): string | undefined {
-  const trimmed = imageModel?.trim();
+  const trimmed = normalizeImageModelId(imageModel);
   if (trimmed) return trimmed;
   const l = (llm ?? '').trim();
   if (!l) return undefined;
@@ -325,149 +353,6 @@ function assistantVisibleTextLen(m: {
     (m.text || '').length +
     (m.reasoningStreamText || '').length
   );
-}
-
-/** Collapse whitespace and case for deduping 📋 chips (pre-tools ## Plan vs post-tools ## Plan Execution often repeat the same steps). */
-function verificationPromptDedupeKey(step: string): string {
-  return step
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .replace(/[…]+$/u, '')
-    .replace(/\.+$/u, '')
-    .trim();
-}
-
-/**
- * Pulls 📋 lines from ## Plan / ## Plan Execution so authors can one-click re-run a verification step as a new prompt.
- * At most **three** chips — combined markdown often contains the same checklist twice (plan + execution).
- */
-function extractVerificationPrompts(markdown: string): string[] {
-  const raw = (markdown || '').trim();
-  if (!raw) return [];
-  const lines = raw.split('\n');
-  const out: string[] = [];
-  const seen = new Set<string>();
-  let inPlanSection = false;
-  const max = 3;
-  for (const line of lines) {
-    if (out.length >= max) break;
-    const t = line.trim();
-    if (/^##\s+plan\b/i.test(t) || /^##\s+plan\s+execution\b/i.test(t)) {
-      inPlanSection = true;
-      continue;
-    }
-    if (/^##\s+/i.test(t)) {
-      inPlanSection = false;
-      continue;
-    }
-    if (!inPlanSection) continue;
-    const m = t.match(/^📋\s*(.+)$/);
-    if (!m) continue;
-    const step = m[1]
-      .replace(/✅\s*$/u, '')
-      .replace(/❌\s*$/u, '')
-      .replace(/⚠️\s*$/u, '')
-      .replace(/⬜\s*$/u, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (step.length < 8) continue;
-    const key = verificationPromptDedupeKey(step);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    out.push(step);
-  }
-  return out;
-}
-
-/** Strip common markdown bold from a line for trigger matching. */
-function stripMarkdownBold(s: string): string {
-  return (s || '').replace(/\*\*/g, '').trim();
-}
-
-/**
- * True when the line introduces optional follow-up actions (not a checklist 📋 step).
- */
-function isFollowUpTriggerLine(trimmed: string): boolean {
-  const n = stripMarkdownBold(trimmed);
-  if (!n) return false;
-  if (/^would you like (?:me )?to\b/i.test(n)) return true;
-  if (/^open items\b/i.test(n)) return true;
-  if (/^next steps\b/i.test(n)) return true;
-  if (/^what would you like\b/i.test(n)) return true;
-  if (/^optional\b/i.test(n) && /:/.test(n)) return true;
-  return false;
-}
-
-/**
- * Plain-line follow-up after "Would you like…" — avoid capturing section labels or preview URLs.
- */
-function looksLikeFollowUpPromptClause(t: string): boolean {
-  const s = t.trim();
-  if (s.length < 10) return false;
-  if (/^https?:\/\//i.test(s)) return false;
-  if (/^[-*]\s*📋/.test(s)) return false;
-  if (/^(review|preview|open)\b/i.test(s) && /:?\s*$/i.test(s) && s.length < 55) return false;
-  if (/[?]$/.test(s)) return true;
-  return /^(mark|generate|add|publish|set|update|create|remove|delete|move|rename|link|unlink|feature|include|exclude|attach|detach|schedule|unschedule|localize|translate|revert|undo)\b/i.test(
-    s
-  );
-}
-
-/**
- * Pulls suggested follow-up lines after "Would you like me to:" / "Open items…" / etc.
- * so authors can one-click send them like 📋 verification chips.
- */
-function extractFollowUpActionPrompts(markdown: string): string[] {
-  const raw = normalizeLlmLiteralEscapes((markdown || '').trim());
-  if (!raw) return [];
-  const lines = raw.split(/\r?\n/);
-  const out: string[] = [];
-  const seen = new Set<string>();
-  let mode: 'scan' | 'collect' = 'scan';
-  let blankRun = 0;
-  const max = 8;
-
-  for (const rawLine of lines) {
-    const t = rawLine.trim();
-    if (!t) {
-      if (mode === 'collect') {
-        blankRun++;
-        if (blankRun >= 2) break;
-      }
-      continue;
-    }
-    blankRun = 0;
-
-    if (t.startsWith('<!--') || /^##\s+/.test(t) || /^🛠️/.test(t)) {
-      if (mode === 'collect') break;
-      continue;
-    }
-
-    if (mode === 'scan') {
-      if (isFollowUpTriggerLine(t)) {
-        mode = 'collect';
-      }
-      continue;
-    }
-
-    // collect
-    let item = '';
-    const listHyphen = t.match(/^\s*[-*]\s+(.+)$/);
-    const listNum = t.match(/^\s*\d+[.)]\s+(.+)$/);
-    if (listHyphen) item = listHyphen[1].trim();
-    else if (listNum) item = listNum[1].trim();
-    else if (looksLikeFollowUpPromptClause(t)) item = t;
-    else continue;
-
-    if (item.length < 8) continue;
-    if (/^https?:\/\//i.test(item)) continue;
-    const key = verificationPromptDedupeKey(item);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    out.push(item);
-    if (out.length >= max) break;
-  }
-  return out;
 }
 
 type PromptMacrosContext = {
@@ -1823,17 +1708,182 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
   const previewItem = useCurrentPreviewItem();
   const contentTypesById = useContentTypes();
   const guest = usePreviewGuest();
+  const guestSelected = useSelector(
+    (state: { preview?: { guest?: { selected?: unknown } } }) => state.preview?.guest?.selected
+  );
+  const guestForScope = useMemo(() => {
+    if (!guest) return guest;
+    if (guestSelected === guest.selected) return guest;
+    return { ...guest, selected: guestSelected as typeof guest.selected };
+  }, [guest, guestSelected]);
   const user = useActiveUser();
+  const formEngineChat = isFormEngineAuthoringChat(getAuthoringFormContext);
+  const [authoringScope, setAuthoringScope] = useState<AuthoringScope>('page');
+  const [latchedFieldFocus, setLatchedFieldFocus] = useState<XbFieldFocus | undefined>();
+  const [latchedComponentFocus, setLatchedComponentFocus] = useState<XbComponentFocus | undefined>();
+  const prevXbSelectionKeyRef = useRef('');
+  const prevXbComponentSelectionKeyRef = useRef('');
 
   /** Guest model (XB) — may exist when itemsByPath has not loaded DetailedItem yet. */
   const guestMainModel =
     guest?.modelId && guest?.models ? (guest.models as Record<string, { craftercms?: { path?: string; contentTypeId?: string } }>)[guest.modelId] : undefined;
 
-  const resolvedContentPath =
+  const pageContentPath =
     (previewItem as { path?: string } | undefined)?.path?.trim() ||
     (typeof guest?.path === 'string' ? guest.path.trim() : '') ||
     (guestMainModel?.craftercms?.path && String(guestMainModel.craftercms.path).trim()) ||
     '';
+
+  const resolvedContentPath = pageContentPath;
+
+  const domIceSelection = useSyncExternalStore(
+    subscribeXbDomIceSelection,
+    getLastXbDomIceSelection,
+    () => null
+  );
+
+  const domIceComponentSelection = useSyncExternalStore(
+    subscribeXbDomComponentSelection,
+    getLastXbDomComponentSelection,
+    () => null
+  );
+
+  const xbSelectionPrecedence = useSyncExternalStore(
+    subscribeXbSelectionPrecedence,
+    getXbSelectionPrecedence,
+    () => null
+  );
+
+  const xbFieldFocusLive = useMemo(() => {
+    if (formEngineChat) return undefined;
+    const fromGuest = resolveXbFieldFocus(guestForScope, contentTypesById);
+    if (fromGuest?.fieldId) return fromGuest;
+    if (xbSelectionPrecedence === 'component') return undefined;
+    return (
+      fromGuest ??
+      resolveXbFieldFocusFromDom(domIceSelection, guestForScope, contentTypesById)
+    );
+  }, [formEngineChat, guestForScope, contentTypesById, domIceSelection, xbSelectionPrecedence]);
+
+  /** Keeps the last XB field selection when focus moves to the assistant (XB clears selection on outside click). */
+  const xbFieldFocus = xbFieldFocusLive ?? (xbSelectionPrecedence === 'component' ? undefined : latchedFieldFocus);
+
+  const xbComponentFocusLive = useMemo(() => {
+    if (formEngineChat) return undefined;
+    const fromGuest = resolveXbComponentFocus(guestForScope, contentTypesById);
+    if (fromGuest?.contentPath) return fromGuest;
+    if (xbSelectionPrecedence === 'field' && resolveXbFieldFocus(guestForScope, contentTypesById)?.fieldId) {
+      return undefined;
+    }
+    return (
+      fromGuest ??
+      resolveXbComponentFocusFromDom(domIceComponentSelection, guestForScope)
+    );
+  }, [formEngineChat, guestForScope, domIceComponentSelection, xbSelectionPrecedence, contentTypesById]);
+
+  const xbComponentFocusDerived = useMemo(
+    () => xbComponentFocusFromField(xbFieldFocus, guestForScope),
+    [xbFieldFocus, guestForScope]
+  );
+
+  const xbComponentFocus =
+    xbComponentFocusLive ??
+    (xbSelectionPrecedence === 'component' ? latchedComponentFocus : undefined) ??
+    xbComponentFocusDerived;
+
+  const xbSelectionKey = useMemo(() => {
+    if (formEngineChat) return '';
+    return buildXbSelectionKey(guestForScope) || buildDomIceSelectionKey(domIceSelection);
+  }, [formEngineChat, guestForScope, domIceSelection]);
+
+  const xbFieldScopeButtonLabel = useMemo(() => {
+    if (!xbFieldFocus?.fieldId) return '';
+    return formatXbFieldScopeButtonLabel(xbFieldFocus, guestForScope, contentTypesById);
+  }, [xbFieldFocus, guestForScope, contentTypesById]);
+
+  const xbComponentSelectionKey = useMemo(() => {
+    if (formEngineChat) return '';
+    return (
+      buildXbComponentSelectionKey(guestForScope, contentTypesById) ||
+      buildDomIceComponentSelectionKey(domIceComponentSelection)
+    );
+  }, [formEngineChat, guestForScope, contentTypesById, domIceComponentSelection]);
+
+  useEffect(() => {
+    if (formEngineChat || xbSelectionPrecedence !== 'field' || !xbSelectionKey || !xbFieldFocusLive?.fieldId) {
+      return;
+    }
+    if (resolveXbComponentModelId(guestForScope, contentTypesById)) return;
+    if (xbSelectionKey !== prevXbSelectionKeyRef.current) {
+      setLatchedFieldFocus(xbFieldFocusLive);
+      setLatchedComponentFocus(undefined);
+      setAuthoringScope('field');
+      prevXbSelectionKeyRef.current = xbSelectionKey;
+      prevXbComponentSelectionKeyRef.current = '';
+    }
+  }, [formEngineChat, xbSelectionPrecedence, xbSelectionKey, xbFieldFocusLive, guestForScope, contentTypesById]);
+
+  useEffect(() => {
+    if (formEngineChat || !domIceSelection?.fieldId) return;
+    if (resolveXbComponentModelId(guestForScope, contentTypesById)) return;
+
+    const focus = resolveXbFieldFocusFromDom(domIceSelection, guestForScope, contentTypesById);
+    if (!focus?.fieldId) return;
+
+    const key = buildDomIceSelectionKey(domIceSelection);
+    if (!key) return;
+    if (key === prevXbSelectionKeyRef.current) return;
+
+    setLatchedFieldFocus(focus);
+    setLatchedComponentFocus(undefined);
+    setAuthoringScope('field');
+    prevXbSelectionKeyRef.current = key;
+    prevXbComponentSelectionKeyRef.current = '';
+  }, [formEngineChat, domIceSelection, guestForScope, contentTypesById]);
+
+  useEffect(() => {
+    if (formEngineChat) return;
+    const guestComponentKey = buildXbComponentSelectionKey(guestForScope, contentTypesById);
+    if (!guestComponentKey) return;
+
+    const focus =
+      resolveXbComponentFocus(guestForScope, contentTypesById) ??
+      resolveXbComponentFocusFromDom(domIceComponentSelection, guestForScope);
+    if (!focus?.contentPath) return;
+    if (guestComponentKey === prevXbComponentSelectionKeyRef.current) return;
+
+    setLatchedComponentFocus(focus);
+    setLatchedFieldFocus(undefined);
+    setAuthoringScope('component');
+    prevXbComponentSelectionKeyRef.current = guestComponentKey;
+    prevXbSelectionKeyRef.current = '';
+  }, [formEngineChat, guestForScope, contentTypesById, domIceComponentSelection]);
+
+  useEffect(() => {
+    if (
+      formEngineChat ||
+      xbSelectionPrecedence !== 'component' ||
+      !xbComponentSelectionKey ||
+      !xbComponentFocusLive
+    ) {
+      return;
+    }
+    if (resolveXbFieldFocus(guestForScope, contentTypesById)?.fieldId) return;
+    if (xbComponentSelectionKey !== prevXbComponentSelectionKeyRef.current) {
+      setLatchedComponentFocus(xbComponentFocusLive);
+      setLatchedFieldFocus(undefined);
+      setAuthoringScope('component');
+      prevXbComponentSelectionKeyRef.current = xbComponentSelectionKey;
+      prevXbSelectionKeyRef.current = '';
+    }
+  }, [
+    formEngineChat,
+    xbSelectionPrecedence,
+    xbComponentSelectionKey,
+    xbComponentFocusLive,
+    guestForScope,
+    contentTypesById
+  ]);
 
   const resolvedContentTypeId =
     (previewItem as { contentTypeId?: string } | undefined)?.contentTypeId?.trim() ||
@@ -2041,21 +2091,15 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
   // Allow sending even if a previous request is stuck; startSend aborts in-flight first.
   const canSend = useMemo(() => draft.trim().length > 0 && !sending, [draft, sending]);
 
-  /** 📋 plan lines from the latest finished assistant message — click runs as a new prompt. */
-  const verificationPrompts = useMemo(() => {
-    const last = [...messages].reverse().find((m) => m.role === 'assistant' && !m.isStreaming);
-    if (!last) return [];
-    return extractVerificationPrompts(combinedAssistantMarkdownForVerification(last));
-  }, [messages]);
-
-  /** "Would you like me to:" / list follow-ups — click sends as next prompt (deduped vs 📋 chips). */
-  const followUpActionPrompts = useMemo(() => {
-    const last = [...messages].reverse().find((m) => m.role === 'assistant' && !m.isStreaming);
-    if (!last) return [];
-    const combined = combinedAssistantMarkdownForVerification(last);
-    const verifyKeys = new Set(verificationPrompts.map((v) => verificationPromptDedupeKey(v)));
-    return extractFollowUpActionPrompts(combined).filter((p) => !verifyKeys.has(verificationPromptDedupeKey(p)));
-  }, [messages, verificationPrompts]);
+  const handleAuthoringScopeChange = useCallback(
+    (_event: React.MouseEvent<HTMLElement>, value: AuthoringScope | null) => {
+      if (!value) return;
+      if (value === 'field' && !xbFieldFocus?.fieldId) return;
+      if (value === 'component' && !xbComponentFocus?.contentPath) return;
+      setAuthoringScope(value);
+    },
+    [xbFieldFocus?.fieldId, xbComponentFocus?.contentPath]
+  );
 
   const speechCtor = useMemo(() => getSpeechRecognitionCtor(), []);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
@@ -2288,7 +2332,21 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     try {
     const now = new Date();
     const pad2 = (n: number) => String(n).padStart(2, '0');
-    const macroContentPath = crossSiteWorking ? undefined : macroValuesRef.current.contentPath;
+    const macroContentPathBase = crossSiteWorking ? undefined : macroValuesRef.current.contentPath;
+    const scopedPreview =
+      !formEngineChat && !crossSiteWorking
+        ? buildScopedPreviewStreamContext({
+            scope: authoringScope,
+            pageContentPath: macroValuesRef.current.contentPath,
+            pageContentTypeId: macroValuesRef.current.contentTypeId,
+            displayTemplate: macroValuesRef.current.displayTemplate,
+            fieldFocus: xbFieldFocus,
+            componentFocus: xbComponentFocus
+          })
+        : null;
+    const macroContentPath = crossSiteWorking
+      ? undefined
+      : scopedPreview?.contentPath?.trim() || macroContentPathBase;
     const macroCtx: PromptMacrosContext = {
       dateToday: `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`,
       timeNow: `${pad2(now.getHours())}:${pad2(now.getMinutes())}`,
@@ -2309,18 +2367,17 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
       }
     }
 
-    const formEngine = isFormEngineAuthoringChat(getAuthoringFormContext);
-    const wantClientJsonApply = formEngine && formEngineClientJsonApply !== false;
+    const wantClientJsonApply = formEngineChat && formEngineClientJsonApply !== false;
 
     expandedPrompt = await expandContentTypeMacros(
       expandedPrompt,
       macroCtx.siteId,
-      macroValuesRef.current.contentTypeId,
-      { omitRepoFileBodies: !formEngine }
+      scopedPreview?.contentTypeId || macroValuesRef.current.contentTypeId,
+      { omitRepoFileBodies: !formEngineChat }
     ).then((s) => s.trim());
 
     expandedPrompt = await expandContentMacros(expandedPrompt, macroCtx.siteId, macroContentPath, {
-      omitRepoFileBodies: !formEngine,
+      omitRepoFileBodies: !formEngineChat,
       liveAuthoring:
         !crossSiteWorking && authoringSnap
           ? {
@@ -2383,9 +2440,9 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     /** `crafterPreview` cookie when present — forwarded for server preview tools (GetPreviewHtml, etc.). */
     const previewTokenForStream = readCrafterPreviewTokenFromCookie();
     const previewContentTypeLabel =
-      formEngine || crossSiteWorking ? undefined : resolvePreviewContentTypeLabel(previewItem);
+      formEngineChat || crossSiteWorking ? undefined : resolvePreviewContentTypeLabel(previewItem);
     const studioPreviewPageUrl =
-      formEngine || crossSiteWorking ? undefined : pickStudioPreviewPageUrlForServer(previewItem);
+      formEngineChat || crossSiteWorking ? undefined : pickStudioPreviewPageUrlForServer(previewItem);
 
     setMessages((prev) => [
       ...prev,
@@ -2406,19 +2463,32 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
             llmModel: llmModel ?? null,
             imageModel: wireImageModel ?? null,
             imageGenerator: imageGenerator != null ? String(imageGenerator).trim() || null : null,
-            authoringSurface: formEngine ? 'formEngine' : 'preview',
+            authoringSurface: formEngineChat ? 'formEngine' : 'preview',
             omitTools: omitToolsThisSend,
             enableTools: enableTools !== false,
             chatId: chatId ?? null,
-            contentPath: formEngine || crossSiteWorking ? null : macroValuesRef.current.contentPath?.trim() || null,
-            contentTypeId: formEngine || crossSiteWorking ? null : macroValuesRef.current.contentTypeId?.trim() || null,
+            authoringScope: scopedPreview?.authoringScope ?? null,
+            contentPath:
+              formEngineChat || crossSiteWorking
+                ? null
+                : scopedPreview?.contentPath?.trim() || macroValuesRef.current.contentPath?.trim() || null,
+            contentTypeId:
+              formEngineChat || crossSiteWorking
+                ? null
+                : scopedPreview?.contentTypeId?.trim() || macroValuesRef.current.contentTypeId?.trim() || null,
             displayTemplate:
-              formEngine || crossSiteWorking ? null : macroValuesRef.current.displayTemplate?.trim() || null,
+              formEngineChat || crossSiteWorking
+                ? null
+                : scopedPreview?.displayTemplate?.trim() || macroValuesRef.current.displayTemplate?.trim() || null,
+            pageContentPath: scopedPreview?.pageContentPath?.trim() || null,
+            xbFocusedFieldId: scopedPreview?.xbFocusedFieldId ?? null,
+            xbFocusedFieldLabel: scopedPreview?.xbFocusedFieldLabel ?? null,
+            xbFocusedComponentLabel: scopedPreview?.xbFocusedComponentLabel ?? null,
             studioPreviewPageUrl: studioPreviewPageUrl ?? null,
             crossSiteWorking,
             formEngineClientJsonApply: wantClientJsonApply,
             formEngineItemPath:
-              formEngine && wantClientJsonApply && authoringSnap?.contentPath?.trim()
+              formEngineChat && wantClientJsonApply && authoringSnap?.contentPath?.trim()
                 ? authoringSnap.contentPath.trim()
                 : null
           },
@@ -2429,7 +2499,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
             formAppendixLen,
             priorTurnsBlockLen,
             wirePromptLen: wirePrompt.length,
-            omitRepoFileBodies: !formEngine
+            omitRepoFileBodies: !formEngineChat
           }
         })
       );
@@ -2454,18 +2524,47 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
         chatId,
         prompt: wirePrompt,
         // Form engine: do not send preview path — server would treat it as repo truth for tools; unsaved edits are only in the prompt appendix.
-        contentPath: formEngine || crossSiteWorking ? undefined : macroValuesRef.current.contentPath?.trim() || undefined,
+        contentPath:
+          formEngineChat || crossSiteWorking
+            ? undefined
+            : scopedPreview?.contentPath?.trim() || macroValuesRef.current.contentPath?.trim() || undefined,
         contentTypeId:
-          formEngine || crossSiteWorking ? undefined : macroValuesRef.current.contentTypeId?.trim() || undefined,
+          formEngineChat || crossSiteWorking
+            ? undefined
+            : scopedPreview?.contentTypeId?.trim() || macroValuesRef.current.contentTypeId?.trim() || undefined,
         ...(previewContentTypeLabel ? { contentTypeLabel: previewContentTypeLabel } : {}),
-        ...(!crossSiteWorking && macroValuesRef.current.displayTemplate?.trim()
-          ? { displayTemplate: macroValuesRef.current.displayTemplate.trim() }
+        ...(!crossSiteWorking &&
+        (scopedPreview?.displayTemplate?.trim() || macroValuesRef.current.displayTemplate?.trim())
+          ? {
+              displayTemplate: (
+                scopedPreview?.displayTemplate || macroValuesRef.current.displayTemplate
+              ).trim()
+            }
           : {}),
         ...(studioPreviewPageUrl ? { studioPreviewPageUrl } : {}),
-        authoringSurface: formEngine ? 'formEngine' : undefined,
-        formEngineClientJsonApply: formEngine && wantClientJsonApply ? true : undefined,
+        authoringSurface: formEngineChat ? 'formEngine' : undefined,
+        ...(scopedPreview?.authoringScope ? { authoringScope: scopedPreview.authoringScope } : {}),
+        ...(scopedPreview?.pageContentPath?.trim()
+          ? { pageContentPath: scopedPreview.pageContentPath.trim() }
+          : {}),
+        ...(scopedPreview?.xbFocusedContentPath?.trim()
+          ? { xbFocusedContentPath: scopedPreview.xbFocusedContentPath.trim() }
+          : {}),
+        ...(scopedPreview?.xbFocusedFieldId?.trim()
+          ? { xbFocusedFieldId: scopedPreview.xbFocusedFieldId.trim() }
+          : {}),
+        ...(scopedPreview?.xbFocusedFieldIndex != null
+          ? { xbFocusedFieldIndex: scopedPreview.xbFocusedFieldIndex }
+          : {}),
+        ...(scopedPreview?.xbFocusedFieldLabel?.trim()
+          ? { xbFocusedFieldLabel: scopedPreview.xbFocusedFieldLabel.trim() }
+          : {}),
+        ...(scopedPreview?.xbFocusedComponentLabel?.trim()
+          ? { xbFocusedComponentLabel: scopedPreview.xbFocusedComponentLabel.trim() }
+          : {}),
+        formEngineClientJsonApply: formEngineChat && wantClientJsonApply ? true : undefined,
         formEngineItemPath:
-          formEngine && wantClientJsonApply && authoringSnap?.contentPath?.trim()
+          formEngineChat && wantClientJsonApply && authoringSnap?.contentPath?.trim()
             ? authoringSnap.contentPath.trim()
             : undefined,
         llm,
@@ -2619,7 +2718,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
           }
 
           if (
-            !formEngine &&
+            !formEngineChat &&
             !streamErr &&
             toolStatus === 'tool-progress' &&
             toolPhase === 'done' &&
@@ -2775,7 +2874,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
             if (
               isCompleted &&
               !streamErr &&
-              formEngine &&
+              formEngineChat &&
               wantClientJsonApply &&
               !formUpdatesApplied &&
               typeof getAuthoringFormContext === 'function' &&
@@ -2843,7 +2942,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
         /* ignore log serialization errors */
       }
 
-      if (!formEngine && shouldRefreshPreview) {
+      if (!formEngineChat && shouldRefreshPreview) {
         triggerStudioPreviewReload();
       }
     } catch (e) {
@@ -3529,74 +3628,57 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
             </Tooltip>
           </Stack>
         </Stack>
-        {verificationPrompts.length > 0 && !sending ? (
+        {!formEngineChat ? (
           <Box sx={{ mt: 1.25, px: 0.25, minWidth: 0, width: '100%' }}>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
-              Optional checks — click to send as the next prompt
-            </Typography>
-            <Stack spacing={0.75} sx={{ width: '100%', minWidth: 0 }}>
-              {verificationPrompts.map((vp, idx) => (
-                <Chip
-                  key={`cq-verify-${idx}-${vp.slice(0, 48)}`}
-                  label={replaceSlackColonEmojisInText(vp.length > 96 ? `${vp.slice(0, 93)}…` : vp)}
-                  size="small"
-                  variant="outlined"
-                  clickable
-                  disabled={sending}
-                  onClick={() => startSend(vp, vp)}
-                  sx={{
-                    width: '100%',
-                    maxWidth: '100%',
-                    height: 'auto',
-                    minHeight: 32,
-                    justifyContent: 'flex-start',
-                    '& .MuiChip-label': {
-                      whiteSpace: 'normal',
-                      textAlign: 'left',
-                      display: 'block',
-                      py: 0.75,
-                      overflowWrap: 'anywhere',
-                      wordBreak: 'break-word'
-                    }
-                  }}
-                />
-              ))}
-            </Stack>
-          </Box>
-        ) : null}
-        {followUpActionPrompts.length > 0 && !sending ? (
-          <Box sx={{ mt: verificationPrompts.length > 0 ? 1 : 1.25, px: 0.25, minWidth: 0, width: '100%' }}>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
-              Suggested follow-ups — click to send as the next prompt
-            </Typography>
-            <Stack spacing={0.75} sx={{ width: '100%', minWidth: 0 }}>
-              {followUpActionPrompts.map((fp, idx) => (
-                <Chip
-                  key={`cq-follow-${idx}-${fp.slice(0, 48)}`}
-                  label={replaceSlackColonEmojisInText(fp.length > 96 ? `${fp.slice(0, 93)}…` : fp)}
-                  size="small"
-                  variant="outlined"
-                  color="primary"
-                  clickable
-                  disabled={sending}
-                  onClick={() => startSend(fp, fp)}
-                  sx={{
-                    width: '100%',
-                    maxWidth: '100%',
-                    height: 'auto',
-                    minHeight: 32,
-                    justifyContent: 'flex-start',
-                    '& .MuiChip-label': {
-                      whiteSpace: 'normal',
-                      textAlign: 'left',
-                      display: 'block',
-                      py: 0.75,
-                      overflowWrap: 'anywhere',
-                      wordBreak: 'break-word'
-                    }
-                  }}
-                />
-              ))}
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1}
+              alignItems={{ xs: 'stretch', sm: 'center' }}
+              sx={{ width: '100%', minWidth: 0 }}
+            >
+              <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0, pt: { sm: 0.5 } }}>
+                Scope
+              </Typography>
+              <ToggleButtonGroup
+                exclusive
+                size="small"
+                value={authoringScope}
+                onChange={handleAuthoringScopeChange}
+                aria-label="Authoring scope"
+                sx={{
+                  flexWrap: 'wrap',
+                  '& .MuiToggleButton-root': {
+                    textTransform: 'none',
+                    px: 1.25,
+                    py: 0.5
+                  }
+                }}
+              >
+                <ToggleButton value="project" aria-label="Project scope" disabled={sending}>
+                  Project
+                </ToggleButton>
+                <ToggleButton value="page" aria-label="Page scope" disabled={sending}>
+                  Page
+                </ToggleButton>
+                <ToggleButton
+                  value="component"
+                  aria-label="Component scope"
+                  disabled={sending || !xbComponentFocus?.contentPath}
+                  sx={{ maxWidth: { xs: '100%', sm: 'min(100%, 20rem)' } }}
+                >
+                  {authoringScope === 'component' && xbComponentFocus?.label
+                    ? `Component: ${xbComponentFocus.label}`
+                    : 'Component'}
+                </ToggleButton>
+                <ToggleButton
+                  value="field"
+                  aria-label="Field scope"
+                  disabled={sending || !xbFieldFocus?.fieldId}
+                  sx={{ maxWidth: { xs: '100%', sm: 'min(100%, 20rem)' } }}
+                >
+                  {xbFieldScopeButtonLabel ? `Field: ${xbFieldScopeButtonLabel}` : 'Field'}
+                </ToggleButton>
+              </ToggleButtonGroup>
             </Stack>
           </Box>
         ) : null}

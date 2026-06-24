@@ -100,3 +100,17 @@ export const STUDIO_AI_CLAUDE_CHAT_MODELS: readonly string[] = [
 ] as const;
 
 export const STUDIO_AI_DEFAULT_IMAGE_MODEL = 'gpt-image-1';
+
+/** Legacy OpenAI DALL·E ids are no longer valid on the Images API — map to {@link STUDIO_AI_DEFAULT_IMAGE_MODEL}. */
+export function isDeprecatedDallEImageModel(raw: string): boolean {
+  const m = raw.trim().toLowerCase().replace(/_/g, '-');
+  return m.startsWith('dall-e') || m.startsWith('dalle');
+}
+
+/** Canonical image model for agents.json and stream POST; coerces deprecated DALL·E ids. */
+export function normalizeImageModelId(raw: string | undefined | null): string | undefined {
+  const trimmed = (raw ?? '').trim();
+  if (!trimmed) return undefined;
+  if (isDeprecatedDallEImageModel(trimmed)) return STUDIO_AI_DEFAULT_IMAGE_MODEL;
+  return trimmed;
+}

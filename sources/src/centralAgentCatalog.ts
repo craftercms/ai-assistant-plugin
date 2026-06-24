@@ -6,6 +6,7 @@ import { readAgentCatalogId, withAgentCatalogId } from './agentCatalogId';
 import type { AgentConfig, AgentLlm, PromptConfig } from './agentConfig';
 import { AI_ASSISTANT_DEFAULT_AGENT_ID, normalizeEnabledBuiltInToolsRaw } from './agentConfig';
 import type { AutonomousAgentDefinition } from './autonomousAssistantsConfig';
+import { normalizeImageModelId, STUDIO_AI_DEFAULT_IMAGE_MODEL } from './studioAiOrchestrationToolIds';
 import { fetchConfigurationXML } from '@craftercms/studio-ui/services/configuration';
 import { fetchContentXML, fetchItemsByPath } from '@craftercms/studio-ui/services/content';
 import { firstValueFrom, of } from 'rxjs';
@@ -203,7 +204,10 @@ export function entryToChatAgent(entry: CentralAgentFileEntry): AgentConfig | nu
   if (llm) out.llm = llm;
   const lmTrim = typeof entry.llmModel === 'string' ? entry.llmModel.trim() : '';
   if (lmTrim) out.llmModel = lmTrim;
-  if (typeof entry.imageModel === 'string' && entry.imageModel.trim()) out.imageModel = entry.imageModel.trim();
+  if (typeof entry.imageModel === 'string' && entry.imageModel.trim()) {
+    const normalized = normalizeImageModelId(entry.imageModel);
+    if (normalized) out.imageModel = normalized;
+  }
   if (typeof entry.imageGenerator === 'string' && entry.imageGenerator.trim())
     out.imageGenerator = entry.imageGenerator.trim();
   if (enableTools !== undefined) out.enableTools = enableTools;
@@ -235,7 +239,8 @@ export function entryToAutonomousDefinition(entry: CentralAgentFileEntry): Auton
     scopeRaw === 'user' || scopeRaw === 'role' || scopeRaw === 'project' ? scopeRaw : ('project' as const);
   let llm = String(entry.llm ?? 'openAI').trim();
   const llmModel = String(entry.llmModel ?? 'gpt-4o-mini').trim();
-  const imageModel = entry.imageModel != null ? String(entry.imageModel).trim() : undefined;
+  const imageModelRaw = entry.imageModel != null ? String(entry.imageModel).trim() : undefined;
+  const imageModel = imageModelRaw ? normalizeImageModelId(imageModelRaw) : undefined;
   const imageGenerator =
     entry.imageGenerator != null && String(entry.imageGenerator).trim()
       ? String(entry.imageGenerator).trim()

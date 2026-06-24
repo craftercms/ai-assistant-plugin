@@ -64,6 +64,23 @@ export interface StreamChatArgs {
    */
   authoringSurface?: 'preview' | 'formEngine';
   /**
+   * Preview/XB only — author-selected scope from the AI Assistant UI: `project` | `page` | `component` | `field`.
+   * Omitted defaults to `page` on the server. Form-engine omits this (live form context applies).
+   */
+  authoringScope?: 'project' | 'page' | 'component' | 'field';
+  /** Preview page repository path (parent page) — sent with field scope when the focused item is a nested component. */
+  pageContentPath?: string;
+  /** Repository path of the XB-focused content item (component or page). */
+  xbFocusedContentPath?: string;
+  /** Field id on the focused item (dot path for repeat groups). */
+  xbFocusedFieldId?: string;
+  /** Repeat-group / collection index when applicable. */
+  xbFocusedFieldIndex?: string | number;
+  /** Studio form-definition label for the focused field. */
+  xbFocusedFieldLabel?: string;
+  /** Studio internal-name / label for the focused component item. */
+  xbFocusedComponentLabel?: string;
+  /**
    * Only with `authoringSurface: 'formEngine'`. When true, server appends instructions for **`aiassistantFormFieldUpdates`** JSON
    * so the browser can apply edits.
    * **Never set for XB/ICE** — omit so preview uses tools + `contentPath` only.
@@ -180,6 +197,13 @@ export async function streamChat(args: StreamChatArgs): Promise<void> {
     displayTemplate,
     studioPreviewPageUrl,
     authoringSurface,
+    authoringScope,
+    pageContentPath,
+    xbFocusedContentPath,
+    xbFocusedFieldId,
+    xbFocusedFieldIndex,
+    xbFocusedFieldLabel,
+    xbFocusedComponentLabel,
     formEngineClientJsonApply,
     formEngineItemPath,
     llm,
@@ -232,6 +256,20 @@ export async function streamChat(args: StreamChatArgs): Promise<void> {
     requestBody.studioPreviewPageUrl = String(studioPreviewPageUrl).trim();
   if (authoringSurface != null && String(authoringSurface).trim() !== '')
     requestBody.authoringSurface = String(authoringSurface).trim();
+  if (authoringScope != null && String(authoringScope).trim() !== '')
+    requestBody.authoringScope = String(authoringScope).trim();
+  if (pageContentPath != null && String(pageContentPath).trim() !== '')
+    requestBody.pageContentPath = String(pageContentPath).trim();
+  if (xbFocusedContentPath != null && String(xbFocusedContentPath).trim() !== '')
+    requestBody.xbFocusedContentPath = String(xbFocusedContentPath).trim();
+  if (xbFocusedFieldId != null && String(xbFocusedFieldId).trim() !== '')
+    requestBody.xbFocusedFieldId = String(xbFocusedFieldId).trim();
+  if (xbFocusedFieldIndex != null && String(xbFocusedFieldIndex).trim() !== '')
+    requestBody.xbFocusedFieldIndex = xbFocusedFieldIndex;
+  if (xbFocusedFieldLabel != null && String(xbFocusedFieldLabel).trim() !== '')
+    requestBody.xbFocusedFieldLabel = String(xbFocusedFieldLabel).trim();
+  if (xbFocusedComponentLabel != null && String(xbFocusedComponentLabel).trim() !== '')
+    requestBody.xbFocusedComponentLabel = String(xbFocusedComponentLabel).trim();
   if (formEngineClientJsonApply === true) requestBody.formEngineClientJsonApply = true;
   if (formEngineItemPath != null && String(formEngineItemPath).trim() !== '')
     requestBody.formEngineItemPath = String(formEngineItemPath).trim();

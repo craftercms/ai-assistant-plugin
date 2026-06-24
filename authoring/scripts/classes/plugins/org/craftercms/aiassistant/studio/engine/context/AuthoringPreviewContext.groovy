@@ -3,6 +3,7 @@ package plugins.org.craftercms.aiassistant.studio.engine.context
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import plugins.org.craftercms.aiassistant.studio.config.StudioAiAssistantProjectConfig
+import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.cms.internal.CmsContentVersionXml
 import plugins.org.craftercms.aiassistant.studio.engine.context.SiteProjectContext
 import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 
@@ -209,7 +210,14 @@ Use these when the author asks about "today", "now", freshness, or dated content
     Object studioPreviewPageUrlRaw,
     StudioToolOperations publishingOps = null,
     Object applicationContext = null,
-    Map params = null
+    Map params = null,
+    Object authoringScopeRaw = null,
+    Object xbFocusedFieldIdRaw = null,
+    Object xbFocusedFieldIndexRaw = null,
+    Object xbFocusedFieldLabelRaw = null,
+    Object xbFocusedContentPathRaw = null,
+    Object pageContentPathRaw = null,
+    Object xbFocusedComponentLabelRaw = null
   ) {
     def stepDeltas = new LinkedHashMap<String, Integer>()
     def cur = (clientWire ?: '').toString()
@@ -233,17 +241,49 @@ Use these when the author asks about "today", "now", freshness, or dated content
         stepDeltas.formEngineClientJsonApply = cur.length() - prev
       }
     } else {
+      String authoringScope = normalizeAuthoringScope(authoringScopeRaw)
       Object pathForPreview = crossSiteWorking ? null : contentPathRaw
       Object typeForPreview = crossSiteWorking ? null : contentTypeIdRaw
       Object typeLabelForPreview = crossSiteWorking ? null : contentTypeLabelRaw
       Object templateForPreview = crossSiteWorking ? null : displayTemplateRaw
       Object previewUrlForHint = crossSiteWorking ? null : studioPreviewPageUrlRaw
+      Object pagePathHint = crossSiteWorking ? null : pageContentPathRaw
       int prev = cur.length()
-      cur = appendToUserPrompt(cur, site, pathForPreview, typeForPreview, typeLabelForPreview, templateForPreview)
-      stepDeltas.previewContext = cur.length() - prev
+      cur = appendAuthoringScopeContext(
+        cur,
+        authoringScope,
+        pathForPreview,
+        pagePathHint,
+        xbFocusedContentPathRaw,
+        xbFocusedFieldIdRaw,
+        xbFocusedFieldIndexRaw,
+        xbFocusedFieldLabelRaw,
+        xbFocusedComponentLabelRaw
+      )
+      stepDeltas.authoringScope = cur.length() - prev
+      if (authoringScope == 'field') {
+        prev = cur.length()
+        cur = appendXbFocusedFieldCurrentValue(
+          cur,
+          site,
+          pathForPreview,
+          xbFocusedContentPathRaw,
+          xbFocusedFieldIdRaw,
+          publishingOps
+        )
+        stepDeltas.xbFocusedFieldValue = cur.length() - prev
+      }
+      if (authoringScope != 'project') {
+        prev = cur.length()
+        cur = appendToUserPrompt(cur, site, pathForPreview, typeForPreview, typeLabelForPreview, templateForPreview)
+        stepDeltas.previewContext = cur.length() - prev
+      }
       prev = cur.length()
       if (!crossSiteWorking) {
-        cur = appendEnginePreviewHintIfPossible(cur, request, site, pathForPreview, previewUrlForHint)
+        def enginePath = pathForPreview ?: pagePathHint
+        if (enginePath) {
+          cur = appendEnginePreviewHintIfPossible(cur, request, site, enginePath, previewUrlForHint)
+        }
       }
       stepDeltas.enginePreviewUrls = cur.length() - prev
       if (site && publishingOps != null) {
@@ -304,6 +344,12 @@ Use these when the author asks about "today", "now", freshness, or dated content
     tel.hasPublishingStatus = finalPrompt.contains('--- Studio publishing status')
     tel.hasProjectContext = finalPrompt.contains('--- Studio project context')
     tel.hasWorkingCmsSite = finalPrompt.contains('--- Working CMS site')
+    tel.hasAuthoringScope = finalPrompt.contains('--- Author scope (Studio UI')
+    tel.hasXbFocusedField = finalPrompt.contains('XB focused field id:')
+    String scopeNorm = normalizeAuthoringScope(args?.authoringScope)
+    if (scopeNorm) {
+      tel.authoringScope = scopeNorm
+    }
     tel.contentPathPresent = normalizeRepoPath(args?.contentPath?.toString()).length() > 0
     tel.displayTemplatePresent = (args?.displayTemplate ?: '').toString().trim().length() > 0
     if (args?.enableToolsRequested != null) {
@@ -431,6 +477,25 @@ Use these when the author asks about "today", "now", freshness, or dated content
 
   private static final Pattern REPOSITORY_PATH_IN_PROMPT = Pattern.compile(
     '(?im)^(?:Repository path|Current content item repository path):\\s*(\\S+)\\s*$'
+  )
+
+  private static final Pattern XB_FOCUSED_CONTENT_PATH_IN_PROMPT = Pattern.compile(
+    '(?im)^XB focused content item path:\\s*(\\S+)\\s*$'
+  )
+
+  private static final Pattern XB_FOCUSED_FIELD_ID_IN_PROMPT = Pattern.compile(
+    '(?im)^XB focused field id:\\s*(\\S+)\\s*$'
+  )
+
+  private static final Pattern XB_FOCUSED_FIELD_LABEL_IN_PROMPT = Pattern.compile(
+    '(?im)^XB focused field label \\(Studio UI\\):\\s*(.+?)\\s*$'
+  )
+
+  /** Deictic copy edit while Field scope is active ("update this copy", "rewrite this text"). */
+  private static final Pattern XB_SCOPED_DEICTIC_COPY_EDIT = Pattern.compile(
+    '(?is)\\b(?:update|change|rewrite|re-?write|revise|rephrase|refresh|replace|make)\\b.{0,96}\\b(?:this|the|here)\\b.{0,48}\\b(?:copy|text|field|title|headline|subtitle|body)\\b|' +
+      '\\b(?:this|the)\\s+(?:copy|text|field|title|headline)\\b.{0,96}\\b(?:update|change|rewrite|re-?write|revise|rephrase|refresh|replace|make)\\b|' +
+      '\\bmake\\b.{0,48}\\b(?:this|the)\\s+(?:copy|text)\\b'
   )
 
   private static final Pattern CURRENT_REQUEST_SECTION = Pattern.compile(
@@ -1809,6 +1874,218 @@ This site has **never** been published to the delivery tier. For first go-live o
     return """${base}
 
 --- Working CMS site (metadata only — not the author's request) ---
+${lines.join('\n')}
+---"""
+  }
+
+  /** {@code project} | {@code page} | {@code component} | {@code field} from the AI Assistant scope control; default {@code page}. */
+  static String normalizeAuthoringScope(Object raw) {
+    def s = (raw ?: '').toString().trim().toLowerCase(Locale.ROOT)
+    if (s == 'project' || s == 'field' || s == 'component') {
+      return s
+    }
+    return 'page'
+  }
+
+  /** True when orchestration wire includes Experience Builder Field scope with field id + item path. */
+  static boolean authoringScopeFieldEditActive(String orchestrationWire) {
+    String w = (orchestrationWire ?: '').toString()
+    if (!w.contains('Scope: **selected Experience Builder field**')) {
+      return false
+    }
+    return extractXbFocusedFieldIdFromWire(w)?.trim() && extractXbFocusedContentPathFromWire(w)?.trim()
+  }
+
+  static String extractXbFocusedFieldIdFromWire(String orchestrationWire) {
+    def m = XB_FOCUSED_FIELD_ID_IN_PROMPT.matcher((orchestrationWire ?: '').toString())
+    return m.find() ? m.group(1).trim() : ''
+  }
+
+  static String extractXbFocusedFieldLabelFromWire(String orchestrationWire) {
+    def m = XB_FOCUSED_FIELD_LABEL_IN_PROMPT.matcher((orchestrationWire ?: '').toString())
+    return m.find() ? m.group(1).trim() : ''
+  }
+
+  static String extractXbFocusedContentPathFromWire(String orchestrationWire) {
+    def m = XB_FOCUSED_CONTENT_PATH_IN_PROMPT.matcher((orchestrationWire ?: '').toString())
+    return m.find() ? normalizeRepoPath(m.group(1)) : ''
+  }
+
+  /**
+   * Field scope + deictic copy edit ("update this copy") — route to {@code modify_page_content}, not chat-only.
+   */
+  static boolean authorVisibleSuggestsXbScopedFieldCopyEdit(String orchestrationWire, String authorVisibleText) {
+    if (!authoringScopeFieldEditActive(orchestrationWire)) {
+      return false
+    }
+    def v = stripStudioInjectedPromptBlocks((authorVisibleText ?: '').toString())?.trim()
+    if (!v) {
+      return false
+    }
+    if (authorVisibleSuggestsPresentationLayerWork(v)) {
+      return false
+    }
+    if (authorVisibleSuggestsOpenPageInquiryForAuthorText(orchestrationWire, v)) {
+      return false
+    }
+    if (XB_SCOPED_DEICTIC_COPY_EDIT.matcher(v).find()) {
+      return true
+    }
+    if (authorVisibleSuggestsAnchoredPageContentModificationForAuthorText(orchestrationWire, v)) {
+      return true
+    }
+    return anchoredSiteXmlFieldPlacementIntentForAuthorText(orchestrationWire, v)
+  }
+
+  /**
+   * Best-effort read of the focused field value for Field scope (so "update this copy" does not need a paste).
+   */
+  static String appendXbFocusedFieldCurrentValue(
+    String prompt,
+    String siteId,
+    Object anchorContentPathRaw,
+    Object xbFocusedContentPathRaw,
+    Object xbFocusedFieldIdRaw,
+    StudioToolOperations ops
+  ) {
+    String fieldId = (xbFocusedFieldIdRaw ?: '').toString().trim()
+    String itemPath = normalizeRepoPath((xbFocusedContentPathRaw ?: anchorContentPathRaw)?.toString())
+    if (!fieldId || !itemPath || ops == null) {
+      return (prompt ?: '').toString()
+    }
+    String site = (siteId ?: '').toString().trim()
+    if (!site) {
+      return (prompt ?: '').toString()
+    }
+    String xml = ''
+    try {
+      def optional = ops.contentServiceBean?.getContentByCommitId(site, itemPath, 'HEAD')
+      if (optional != null && optional.isPresent()) {
+        def stream = optional.get().getInputStream()
+        try {
+          xml = stream.getText('UTF-8')
+        } finally {
+          try {
+            stream?.close()
+          } catch (Throwable ignored) {
+          }
+        }
+      }
+    } catch (Throwable ignoredRead) {
+      return (prompt ?: '').toString()
+    }
+    if (!xml?.trim()) {
+      return (prompt ?: '').toString()
+    }
+    String plain = CmsContentVersionXml.extractFieldRoughPlainText(xml, fieldId)
+    if (!plain?.trim()) {
+      plain = CmsContentVersionXml.extractFieldRawText(xml, fieldId)?.trim()
+    }
+    if (!plain?.trim()) {
+      return (prompt ?: '').toString()
+    }
+    if (plain.length() > 4000) {
+      plain = plain.substring(0, 3997) + '…'
+    }
+    def base = (prompt ?: '').toString()
+    return """${base}
+
+--- XB focused field current value (repository — not the author's request) ---
+Field id: ${fieldId}
+Content item: ${itemPath}
+Current value (plain text):
+${plain}
+When the author says "this", "this copy", "this field", or similar without pasting text, they mean **this value**.
+---"""
+  }
+
+  /**
+   * Injects author-selected conversation scope (project / page / XB field). Metadata only — not the author's message.
+   */
+  static String appendAuthoringScopeContext(
+    String prompt,
+    String scope,
+    Object anchorContentPathRaw,
+    Object pageContentPathRaw,
+    Object xbFocusedContentPathRaw,
+    Object xbFocusedFieldIdRaw,
+    Object xbFocusedFieldIndexRaw,
+    Object xbFocusedFieldLabelRaw,
+    Object xbFocusedComponentLabelRaw = null
+  ) {
+    def normalized = normalizeAuthoringScope(scope)
+    def lines = []
+    switch (normalized) {
+      case 'project':
+        lines.add('Scope: **entire site / project** (author chose Project in the AI Assistant).')
+        lines.add(
+          'Do not assume a single preview page or Experience Builder field unless the author names a path or widens scope. ' +
+            'Use discovery tools (ListPages, search, ListContentByPath) when you need targets.'
+        )
+        break
+      case 'field':
+        def fieldId = (xbFocusedFieldIdRaw ?: '').toString().trim()
+        def fieldLabel = (xbFocusedFieldLabelRaw ?: '').toString().trim()
+        def itemPath = normalizeRepoPath((xbFocusedContentPathRaw ?: anchorContentPathRaw)?.toString())
+        def pagePath = normalizeRepoPath(pageContentPathRaw?.toString())
+        lines.add('Scope: **selected Experience Builder field** (author chose Field in the AI Assistant).')
+        if (fieldLabel) {
+          lines.add("XB focused field label (Studio UI): ${fieldLabel}")
+        }
+        if (fieldId) {
+          lines.add("XB focused field id: ${fieldId}")
+        }
+        def idxRaw = xbFocusedFieldIndexRaw
+        if (idxRaw != null && idxRaw.toString().trim()) {
+          lines.add("XB focused field index (repeat group / collection): ${idxRaw}")
+        }
+        if (itemPath) {
+          lines.add("XB focused content item path: ${itemPath}")
+        }
+        if (pagePath && pagePath != itemPath) {
+          lines.add("Preview page repository path (parent context): ${pagePath}")
+        }
+        lines.add(
+          'When the author says "this", "here", "the image", "this field", or similar without naming another target, ' +
+            'limit reads and writes to **XB focused field id** on **XB focused content item path**. ' +
+            'Use GetContentTypeFormDefinition for field types/constraints. Do not rewrite unrelated fields or items unless asked.'
+        )
+        break
+      case 'component':
+        def componentLabel = (xbFocusedComponentLabelRaw ?: '').toString().trim()
+        def itemPath = normalizeRepoPath((xbFocusedContentPathRaw ?: anchorContentPathRaw)?.toString())
+        def pagePath = normalizeRepoPath(pageContentPathRaw?.toString())
+        lines.add('Scope: **selected Experience Builder component** (author chose Component in the AI Assistant).')
+        if (componentLabel) {
+          lines.add("XB focused component label (Studio UI): ${componentLabel}")
+        }
+        if (itemPath) {
+          lines.add("XB focused component content item path: ${itemPath}")
+        }
+        if (pagePath && pagePath != itemPath) {
+          lines.add("Preview page repository path (parent context): ${pagePath}")
+        }
+        lines.add(
+          'When the author says "this", "this component", "here", or similar without naming another target, ' +
+            'limit reads and writes to **XB focused component content item path** (the whole component item). ' +
+            'Use GetContent and GetContentTypeFormDefinition for structure; do not rewrite unrelated page sections unless asked.'
+        )
+        break
+      default:
+        def pagePath = normalizeRepoPath((pageContentPathRaw ?: anchorContentPathRaw)?.toString())
+        lines.add('Scope: **current preview page** (author chose Page in the AI Assistant).')
+        if (pagePath) {
+          lines.add("Preview page repository path: ${pagePath}")
+        }
+        lines.add(
+          'When the author says "this page", "my page", or similar without naming another path, use the preview page repository path below as **contentPath** when present.'
+        )
+        break
+    }
+    def base = (prompt ?: '').toString()
+    return """${base}
+
+--- Author scope (Studio UI — not the author's request) ---
 ${lines.join('\n')}
 ---"""
   }

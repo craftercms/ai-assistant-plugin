@@ -121,6 +121,19 @@ final class AuthoringDeliverablePolicy {
 
     reconcileTurnGoalWithUnderstanding(out, authorVisible)
 
+    if (AuthoringPreviewContext.authorVisibleSuggestsXbScopedFieldCopyEdit(wirePrompt, authorVisible)) {
+      out.mode = 'recipe'
+      out.recipeId = 'modify_page_content'
+      out.deliverable = 'repo_write'
+      out.toolName = null
+      if (!(out.confidence instanceof Number) || ((Number) out.confidence).doubleValue() < 0.85d) {
+        out.confidence = 0.9d
+      }
+      if (!out.reason?.toString()?.trim()) {
+        out.reason = 'Author selected an Experience Builder field and asked to edit its copy; persist via modify_page_content.'
+      }
+    }
+
     if ('correction'.equals(out.turnRelation)) {
       applyCorrectionTurnPolicy(out, authorVisible, wirePrompt, priorSessionObjective)
     } else if ('approval_to_persist'.equals(out.turnRelation)) {
@@ -132,7 +145,9 @@ final class AuthoringDeliverablePolicy {
     }
 
     if (CHAT_DELIVERABLES.contains(out.deliverable?.toString())) {
-      forceChatOnly(out)
+      if (!AuthoringPreviewContext.authorVisibleSuggestsXbScopedFieldCopyEdit(wirePrompt, authorVisible)) {
+        forceChatOnly(out)
+      }
     }
 
     enforceRecipeDeliverableCompatibility(out)
@@ -147,22 +162,27 @@ final class AuthoringDeliverablePolicy {
   /**
    * Re-applies chat-deliverable and recipe compatibility invariants after server-side routing corrections.
    */
-  static Map finalizeAfterCorrections(Map decision, String authorVisible = null) {
+  static Map finalizeAfterCorrections(Map decision, String authorVisible = null, String wirePrompt = null) {
     if (!(decision instanceof Map)) {
       return decision ?: [:]
     }
     Map out = new LinkedHashMap(decision)
+    boolean xbFieldEdit = AuthoringPreviewContext.authorVisibleSuggestsXbScopedFieldCopyEdit(wirePrompt, authorVisible)
     if (!out.deliverable) {
       out.deliverable = inferDeliverableFromDecision(out)
     }
     if (authorVisibleLooksLikeChatProseBrief(authorVisible)) {
-      out.deliverable = 'chat_prose'
-      forceChatOnly(out)
-      clearRepoRepairRouterReason(out)
+      if (!xbFieldEdit) {
+        out.deliverable = 'chat_prose'
+        forceChatOnly(out)
+        clearRepoRepairRouterReason(out)
+      }
     }
     if (CHAT_DELIVERABLES.contains(out.deliverable?.toString())) {
-      forceChatOnly(out)
-      clearRepoRepairRouterReason(out)
+      if (!xbFieldEdit) {
+        forceChatOnly(out)
+        clearRepoRepairRouterReason(out)
+      }
     }
     enforceRecipeDeliverableCompatibility(out)
     return out
@@ -171,7 +191,10 @@ final class AuthoringDeliverablePolicy {
   /**
    * When deliverable is chat-only, server-side repo routing corrections must not run.
    */
-  static boolean shouldSuppressRepoRoutingCorrections(String authorVisible, Map decision) {
+  static boolean shouldSuppressRepoRoutingCorrections(String authorVisible, Map decision, String wirePrompt = null) {
+    if (AuthoringPreviewContext.authorVisibleSuggestsXbScopedFieldCopyEdit(wirePrompt, authorVisible)) {
+      return false
+    }
     if (decision instanceof Map && isChatDeliverable(decision.deliverable?.toString())) {
       return true
     }

@@ -134,11 +134,8 @@ final class CompatibleImageGenerator implements StudioAiImageGenerator {
     sb.append('"model":').append(JsonOutput.toJson(model)).append(',')
     sb.append('"prompt":').append(JsonOutput.toJson(prompt)).append(',')
     sb.append('"n":1')
-    // Default API response is usually a temporary https URL; b64_json is predictable for chat expansion.
-    // gpt-image / chatgpt-image families use output_format instead; some providers reject response_format.
-    if (!gptFamily) {
-      sb.append(',"response_format":').append(JsonOutput.toJson('b64_json'))
-    }
+    // Do not send response_format — rejected by gpt-image and many current /v1/images/generations hosts.
+    // Default response is a temporary https URL; b64_json is converted to a data URL when present.
     if (size) {
       sb.append(',"size":').append(JsonOutput.toJson(size))
     }
@@ -161,7 +158,7 @@ final class CompatibleImageGenerator implements StudioAiImageGenerator {
    * @return Map payload for tools or orchestration.
    */
   /** Bumped when image wire changes so studio.log confirms Groovy reloaded this class after deploy/restart. */
-  private static final String WIRE_REVISION = 'sandbox-http-v2'
+  private static final String WIRE_REVISION = 'sandbox-http-v3'
 
   static Map postImagesGenerations(String apiKey, String postUrl, String defaultImageModel, Map input) {
     def prompt = input?.prompt?.toString()?.trim()
@@ -225,8 +222,9 @@ final class CompatibleImageGenerator implements StudioAiImageGenerator {
         }
         if (errMsg?.contains('response_format')) {
           LOG.warn(
-            'CompatibleImageGenerator HTTP {} — provider mentioned response_format; JSON is built without that field. attemptElided={}',
+            'CompatibleImageGenerator HTTP {} — provider rejected response_format (wire revision {} omits that field). attemptElided={}',
             code,
+            WIRE_REVISION,
             AiHttpProxy.elideForLog(body, 700)
           )
         }

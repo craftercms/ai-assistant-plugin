@@ -87,7 +87,14 @@ def assembledPrompt = AuthoringPreviewContext.assembleOrchestrationPrompt(
   studioPreviewPageUrlForAssembly,
   pubOpsForPrompt,
   applicationContext,
-  params)
+  params,
+  body?.authoringScope,
+  body?.xbFocusedFieldId,
+  body?.xbFocusedFieldIndex,
+  body?.xbFocusedFieldLabel,
+  body?.xbFocusedContentPath,
+  body?.pageContentPath,
+  body?.xbFocusedComponentLabel)
 def promptForOrchestration = assembledPrompt.orchestrationPrompt
 def promptStepDeltas = assembledPrompt.stepDeltas
 def chatId = body.chatId?.toString()
@@ -110,6 +117,36 @@ if (ctIdBody) {
   try {
     request.setAttribute('aiassistant.contentTypeId', ctIdBody)
   } catch (Throwable ignoredCt) {}
+}
+def authoringScopeBody = body?.authoringScope?.toString()?.trim()
+if (authoringScopeBody) {
+  try {
+    request.setAttribute('aiassistant.authoringScope', authoringScopeBody)
+  } catch (Throwable ignoredAs) {}
+}
+def xbFieldIdBody = body?.xbFocusedFieldId?.toString()?.trim()
+if (xbFieldIdBody) {
+  try {
+    request.setAttribute('aiassistant.xbFocusedFieldId', xbFieldIdBody)
+  } catch (Throwable ignoredXf) {}
+}
+def xbFieldLabelBody = body?.xbFocusedFieldLabel?.toString()?.trim()
+if (xbFieldLabelBody) {
+  try {
+    request.setAttribute('aiassistant.xbFocusedFieldLabel', xbFieldLabelBody)
+  } catch (Throwable ignoredXl) {}
+}
+def xbComponentLabelBody = body?.xbFocusedComponentLabel?.toString()?.trim()
+if (xbComponentLabelBody) {
+  try {
+    request.setAttribute('aiassistant.xbFocusedComponentLabel', xbComponentLabelBody)
+  } catch (Throwable ignoredXc) {}
+}
+def xbContentPathBody = AuthoringPreviewContext.normalizeRepoPath(body?.xbFocusedContentPath?.toString())
+if (xbContentPathBody) {
+  try {
+    request.setAttribute('aiassistant.xbFocusedContentPath', xbContentPathBody)
+  } catch (Throwable ignoredXp) {}
 }
 def previewTokenBody = body?.previewToken?.toString()?.trim()
 if (previewTokenBody) {
@@ -190,6 +227,7 @@ try {
       clientWirePrompt     : prompt,
       orchestrationPrompt  : promptForOrchestration?.toString() ?: '',
       authoringSurface     : body?.authoringSurface,
+      authoringScope       : body?.authoringScope,
       contentPath          : body?.contentPath,
       displayTemplate      : body?.displayTemplate,
       stepDeltas           : promptStepDeltas,

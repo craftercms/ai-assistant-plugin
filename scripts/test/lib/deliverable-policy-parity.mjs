@@ -179,20 +179,47 @@ function enforceRecipeDeliverableCompatibility(out) {
   }
 }
 
+/** @param {string} wire */
+export function authoringScopeFieldEditActive(wire) {
+  const w = String(wire ?? '');
+  if (!w.includes('Scope: **selected Experience Builder field**')) {
+    return false;
+  }
+  return /\bXB focused field id:\s*\S+/m.test(w) && /\bXB focused content item path:\s*\S+/m.test(w);
+}
+
+const XB_SCOPED_DEICTIC_COPY_EDIT =
+  /\b(?:update|change|rewrite|re-?write|revise|rephrase|refresh|replace|make)\b.{0,96}\b(?:this|the|here)\b.{0,48}\b(?:copy|text|field|title|headline|subtitle|body)\b|\b(?:this|the)\s+(?:copy|text|field|title|headline)\b.{0,96}\b(?:update|change|rewrite|re-?write|revise|rephrase|refresh|replace|make)\b/is;
+
+/** @param {string} wire @param {string} authorVisible */
+export function authorVisibleSuggestsXbScopedFieldCopyEdit(wire, authorVisible) {
+  if (!authoringScopeFieldEditActive(wire)) {
+    return false;
+  }
+  const v = String(authorVisible ?? '').trim();
+  return v.length > 0 && XB_SCOPED_DEICTIC_COPY_EDIT.test(v);
+}
+
 /**
  * @param {Record<string, unknown>} decision
  * @param {string | null | undefined} [authorVisible]
+ * @param {string | null | undefined} [wirePrompt]
  */
-export function finalizeAfterCorrections(decision, authorVisible = null) {
+export function finalizeAfterCorrections(decision, authorVisible = null, wirePrompt = null) {
   const out = { ...decision };
+  const xbFieldEdit = authorVisibleSuggestsXbScopedFieldCopyEdit(wirePrompt, authorVisible);
   if (authorVisibleLooksLikeChatProseBrief(authorVisible)) {
-    out.deliverable = 'chat_prose';
-    forceChatOnly(out);
-    clearRepoRepairRouterReason(out);
+    if (!xbFieldEdit) {
+      out.deliverable = 'chat_prose';
+      forceChatOnly(out);
+      clearRepoRepairRouterReason(out);
+    }
   }
   if (CHAT_DELIVERABLES.has(String(out.deliverable ?? ''))) {
-    forceChatOnly(out);
-    clearRepoRepairRouterReason(out);
+    if (!xbFieldEdit) {
+      forceChatOnly(out);
+      clearRepoRepairRouterReason(out);
+    }
   }
   enforceRecipeDeliverableCompatibility(out);
   return out;

@@ -4,7 +4,12 @@
  * (parity with AuthoringIntentRecipeRouter.groovy).
  */
 import { extractJsonPayload, parseRouterJson } from '../lib/router-json-parity.mjs';
-import { finalizeAfterCorrections, authorVisibleLooksLikeChatProseBrief, authorVisibleReportsBrokenPreviewRepair } from '../lib/deliverable-policy-parity.mjs';
+import {
+  finalizeAfterCorrections,
+  authorVisibleLooksLikeChatProseBrief,
+  authorVisibleReportsBrokenPreviewRepair,
+  authorVisibleSuggestsXbScopedFieldCopyEdit,
+} from '../lib/deliverable-policy-parity.mjs';
 
 function assert(condition, message) {
   if (!condition) {
@@ -95,5 +100,28 @@ const repaired = finalizeAfterCorrections(
 );
 assert(repaired.mode === 'chat_only', 'finalizeAfterCorrections undoes modify_page_content for blog brief');
 assert(repaired.recipeId == null, 'recipe cleared after finalize for blog brief');
+
+const xbWire = `--- Author scope (Studio UI — not the author's request) ---
+Scope: **selected Experience Builder field** (author chose Field in the AI Assistant).
+XB focused field label (Studio UI): Title
+XB focused field id: title_html
+XB focused content item path: /site/components/en/heroes/home-hero.xml
+---`;
+
+const xbFieldDecision = finalizeAfterCorrections(
+  {
+    mode: 'recipe',
+    deliverable: 'repo_write',
+    recipeId: 'modify_page_content',
+  },
+  'update this copy to be more action based',
+  xbWire,
+);
+assert(
+  authorVisibleSuggestsXbScopedFieldCopyEdit(xbWire, 'update this copy to be more action based'),
+  'xb field scope copy edit detected',
+);
+assert(xbFieldDecision.mode === 'recipe', 'xb field scope keeps recipe mode after finalize');
+assert(xbFieldDecision.recipeId === 'modify_page_content', 'xb field scope keeps modify_page_content');
 
 console.log('router-json-offline: OK');

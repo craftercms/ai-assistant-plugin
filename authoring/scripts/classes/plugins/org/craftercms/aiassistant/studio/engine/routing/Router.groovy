@@ -416,6 +416,12 @@ final class Router {
     if (!authorFieldLabelEarly) {
       authorFieldLabelEarly = AiOrchestration.extractAuthorFieldLabelPhraseForRouting(routerVisible)
     }
+    if (!authorFieldLabelEarly) {
+      authorFieldLabelEarly = AuthoringPreviewContext.extractXbFocusedFieldLabelFromWire(cand)
+    }
+    if (!authorFieldLabelEarly) {
+      authorFieldLabelEarly = AuthoringPreviewContext.extractXbFocusedFieldIdFromWire(cand)
+    }
     Map routeCtx = [
       cand         : cand,
       routerVisible: routerVisible,
@@ -817,6 +823,23 @@ final class Router {
       sb.append('use **mode plan** (GetContent on the anchored item first, then GenerateImage). ')
       sb.append('Use **recipe generate_image** only when the author states a specific image subject in their own words.\n')
     }
+    if (AuthoringPreviewContext.authoringScopeFieldEditActive(orchestrationWireForSiteContext ?: '')) {
+      String fieldId = AuthoringPreviewContext.extractXbFocusedFieldIdFromWire(orchestrationWireForSiteContext ?: '')
+      String fieldLabel = AuthoringPreviewContext.extractXbFocusedFieldLabelFromWire(orchestrationWireForSiteContext ?: '')
+      String fieldPath = AuthoringPreviewContext.extractXbFocusedContentPathFromWire(orchestrationWireForSiteContext ?: '')
+      sb.append('\n\n## Experience Builder field scope (this turn)\n\n')
+      sb.append('The author selected **Field** scope in the AI Assistant. ')
+      if (fieldLabel) {
+        sb.append("Focused field label: ${fieldLabel}. ")
+      }
+      if (fieldId) {
+        sb.append("Focused field id: ${fieldId}. ")
+      }
+      if (fieldPath) {
+        sb.append("Focused content item: ${fieldPath}. ")
+      }
+      sb.append('When they say "this", "this copy", "this field", or "here" without pasting text, they mean **this focused field** — use **mode recipe** **`modify_page_content`** (GetContent → WriteContent on that item and field), **not** `chat_only`.\n')
+    }
     sb.append('\n\n## Author message (this turn)\n\n').append((currentTurnVisible ?: '').toString().trim())
     return sb.toString().trim()
   }
@@ -1177,7 +1200,7 @@ final class Router {
     if (!(decision instanceof Map)) {
       return decision ?: [:]
     }
-    if (AuthoringDeliverablePolicy.shouldSuppressRepoRoutingCorrections(authorVisible, decision)) {
+    if (AuthoringDeliverablePolicy.shouldSuppressRepoRoutingCorrections(authorVisible, decision, wirePrompt)) {
       return decision
     }
     String authorText = (authorVisible ?: '').toString().trim() ?
@@ -1238,6 +1261,58 @@ final class Router {
   }
 
   /**
+   * Experience Builder Field scope + deictic copy edit → {@code modify_page_content} (author should not paste field text).
+   */
+  private static Map applyXbFieldScopeFieldEditRoutingCorrection(
+    Map decision,
+    List recipes,
+    String authorVisible,
+    String wirePrompt,
+    double minC
+  ) {
+    if (!(decision instanceof Map)) {
+      return decision ?: [:]
+    }
+    if (!AuthoringPreviewContext.authorVisibleSuggestsXbScopedFieldCopyEdit(wirePrompt, authorVisible)) {
+      return decision
+    }
+    Map recipe = AuthoringIntentRecipeCatalog.findRecipeById(recipes ?: [], 'modify_page_content')
+    if (recipe == null) {
+      return decision
+    }
+    String rid = decision.recipeId?.toString()?.trim()
+    String mode = decision.mode?.toString()?.trim()?.toLowerCase() ?: ''
+    if ('modify_page_content'.equals(rid) && 'recipe'.equals(mode)) {
+      return decision
+    }
+    double conf = decision.confidence instanceof Number ? ((Number) decision.confidence).doubleValue() : 0.0d
+    double boosted = Math.max(conf, 0.92d)
+    if (boosted < minC) {
+      return decision
+    }
+    log.info(
+      'Intent recipe routing: XB field scope copy edit — using recipe modify_page_content (was mode={} recipeId={})',
+      mode,
+      rid ?: '(null)'
+    )
+    Map replacement = [
+      mode        : 'recipe',
+      recipeId    : 'modify_page_content',
+      toolName    : null,
+      confidence  : boosted,
+      deliverable : 'repo_write',
+      reason      : 'Author selected an Experience Builder field and asked to edit its copy; persist the focused field via WriteContent.'
+    ]
+    for (String key : ['sessionObjective', 'authorUnderstanding', 'turnGoal', 'turnRelation', 'successCriteria']) {
+      def val = decision[key]
+      if (val?.toString()?.trim()) {
+        replacement[key] = val
+      }
+    }
+    return replacement
+  }
+
+  /**
    * Broken preview / HTTP 500 repair — force tools on ({@code modify_page_content} or plan), never chat-only.
    */
   private static Map applyAuthorBrokenPreviewRepairRoutingCorrection(
@@ -1250,7 +1325,7 @@ final class Router {
     if (!(decision instanceof Map)) {
       return decision ?: [:]
     }
-    if (AuthoringDeliverablePolicy.shouldSuppressRepoRoutingCorrections(authorVisible, decision)) {
+    if (AuthoringDeliverablePolicy.shouldSuppressRepoRoutingCorrections(authorVisible, decision, wirePrompt)) {
       return decision
     }
     String authorText = (authorVisible ?: '').toString().trim() ?
@@ -1420,6 +1495,13 @@ final class Router {
       wireForMemory,
       minC
     )
+    decision = applyXbFieldScopeFieldEditRoutingCorrection(
+      decision,
+      recipes,
+      visible,
+      wireForMemory,
+      minC
+    )
     decision = applyAuthorBrokenPreviewRepairRoutingCorrection(
       decision,
       recipes,
@@ -1427,7 +1509,7 @@ final class Router {
       wireForMemory,
       minC
     )
-    decision = AuthoringDeliverablePolicy.finalizeAfterCorrections(decision, visible)
+    decision = AuthoringDeliverablePolicy.finalizeAfterCorrections(decision, visible, wireForMemory)
     if (toolsLoopSessionBundle instanceof Map && decision.sessionObjective?.toString()?.trim()) {
       toolsLoopSessionBundle.authorSessionObjective = decision.sessionObjective.toString().trim()
     }

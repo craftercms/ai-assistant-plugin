@@ -338,6 +338,10 @@ class StudioToolOperations {
     String siteId = resolveEffectiveSiteId(null)
     String contentPath = ''
     String contentTypeId = ''
+    String authoringScope = ''
+    String xbFocusedFieldId = ''
+    String xbFocusedFieldLabel = ''
+    String xbFocusedContentPath = ''
     try {
       contentPath = AuthoringPreviewContext.normalizeRepoPath(
         request?.getAttribute('aiassistant.contentPath')?.toString()
@@ -348,6 +352,12 @@ class StudioToolOperations {
         ) ?: ''
       }
       contentTypeId = request?.getAttribute('aiassistant.contentTypeId')?.toString()?.trim() ?: ''
+      authoringScope = request?.getAttribute('aiassistant.authoringScope')?.toString()?.trim() ?: ''
+      xbFocusedFieldId = request?.getAttribute('aiassistant.xbFocusedFieldId')?.toString()?.trim() ?: ''
+      xbFocusedFieldLabel = request?.getAttribute('aiassistant.xbFocusedFieldLabel')?.toString()?.trim() ?: ''
+      xbFocusedContentPath = AuthoringPreviewContext.normalizeRepoPath(
+        request?.getAttribute('aiassistant.xbFocusedContentPath')?.toString()
+      ) ?: ''
     } catch (Throwable ignored) {
     }
     String previewUrl = ''
@@ -356,10 +366,14 @@ class StudioToolOperations {
     } catch (Throwable ignoredPu) {
     }
     return Collections.unmodifiableMap([
-      siteId        : siteId ?: '',
-      contentPath   : contentPath ?: '',
-      contentTypeId : contentTypeId ?: '',
-      previewUrl    : previewUrl ?: ''
+      siteId                 : siteId ?: '',
+      contentPath            : contentPath ?: '',
+      contentTypeId          : contentTypeId ?: '',
+      previewUrl             : previewUrl ?: '',
+      authoringScope         : authoringScope ?: '',
+      xbFocusedFieldId       : xbFocusedFieldId ?: '',
+      xbFocusedFieldLabel    : xbFocusedFieldLabel ?: '',
+      xbFocusedContentPath   : xbFocusedContentPath ?: ''
     ] as Map)
   }
 

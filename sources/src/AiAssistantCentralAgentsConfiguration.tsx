@@ -73,6 +73,7 @@ import {
   STUDIO_AI_BUILTIN_TOOL_IDS,
   STUDIO_AI_CLAUDE_CHAT_MODELS,
   STUDIO_AI_DEFAULT_IMAGE_MODEL,
+  normalizeImageModelId,
   STUDIO_AI_LLM_VENDOR_IDS,
   STUDIO_AI_TOOLS_LOOP_CHAT_MODELS,
   llmVendorDisplayLabel
@@ -383,9 +384,9 @@ function normalizeCatalogForSave(f: CentralAgentsFile): CentralAgentsFile {
       delete outRec.prompts;
       const llmS = String(out.llm ?? '').toLowerCase();
       const scriptish = llmS === 'script' || llmS.startsWith('script:');
-      if (!scriptish && !String(out.imageModel ?? '').trim()) {
-        out.imageModel = STUDIO_AI_DEFAULT_IMAGE_MODEL;
-      }
+      const img = normalizeImageModelId(String(out.imageModel ?? '')) ?? '';
+      if (img) out.imageModel = img;
+      else if (!scriptish) out.imageModel = STUDIO_AI_DEFAULT_IMAGE_MODEL;
       if (out.enableTools === false) {
         delete outRec.enabledBuiltInTools;
         delete outRec.enabled_built_in_tools;
@@ -416,9 +417,9 @@ function normalizeCatalogForSave(f: CentralAgentsFile): CentralAgentsFile {
     }
     const llmChat = String(outChat.llm ?? '').toLowerCase();
     const chatScriptish = llmChat === 'script' || llmChat.startsWith('script:');
-    if (!chatScriptish && !String(outChat.imageModel ?? '').trim()) {
-      outChat.imageModel = STUDIO_AI_DEFAULT_IMAGE_MODEL;
-    }
+    const chatImg = normalizeImageModelId(String(outChat.imageModel ?? '')) ?? '';
+    if (chatImg) outChat.imageModel = chatImg;
+    else if (!chatScriptish) outChat.imageModel = STUDIO_AI_DEFAULT_IMAGE_MODEL;
     const opensPopup =
       recChat.openAsPopup === true ||
       String(recChat.openAsPopup ?? '').trim().toLowerCase() === 'true';
@@ -1410,7 +1411,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                     size="small"
                     helperText={
                       imgK === 'openai'
-                        ? 'Model id for built-in image generation (e.g. gpt-image-1). Set on the agent — no server default.'
+                        ? 'GPT Image model id (e.g. gpt-image-1). DALL·E ids are not supported — use gpt-image-1.'
                         : 'Ignored when image generator is None or a site script.'
                     }
                   />
