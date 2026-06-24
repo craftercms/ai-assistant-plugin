@@ -235,6 +235,17 @@ Use these when the author asks about "today", "now", freshness, or dated content
       int prev = cur.length()
       cur = appendFormEngineAuthoringNotice(cur)
       stepDeltas.formEngineNotice = cur.length() - prev
+      String formScope = normalizeFormEngineAuthoringScope(authoringScopeRaw)
+      prev = cur.length()
+      cur = appendFormEngineAuthoringScopeContext(
+        cur,
+        formScope,
+        contentPathRaw,
+        xbFocusedFieldIdRaw,
+        xbFocusedFieldIndexRaw,
+        xbFocusedFieldLabelRaw
+      )
+      stepDeltas.formEngineAuthoringScope = cur.length() - prev
       if (isTruthy(clientJsonApply)) {
         prev = cur.length()
         cur = appendFormEngineClientJsonApplyInstructions(cur)
@@ -340,13 +351,16 @@ Use these when the author asks about "today", "now", freshness, or dated content
     tel.hasEnginePreviewUrls = finalPrompt.contains('--- Engine preview URL')
     tel.hasAgentClock = finalPrompt.contains('--- Studio agent clock')
     tel.hasFormEngineNotice = finalPrompt.contains('--- Studio form-engine context')
+    tel.hasFormEngineAuthoringScope = finalPrompt.contains('--- Author scope (Studio form)')
     tel.hasFormEngineClientJsonApply = finalPrompt.contains('--- Studio form client-apply instructions')
     tel.hasPublishingStatus = finalPrompt.contains('--- Studio publishing status')
     tel.hasProjectContext = finalPrompt.contains('--- Studio project context')
     tel.hasWorkingCmsSite = finalPrompt.contains('--- Working CMS site')
     tel.hasAuthoringScope = finalPrompt.contains('--- Author scope (Studio UI')
     tel.hasXbFocusedField = finalPrompt.contains('XB focused field id:')
-    String scopeNorm = normalizeAuthoringScope(args?.authoringScope)
+    String scopeNorm = isFormEngineSurface(args?.authoringSurface)
+      ? normalizeFormEngineAuthoringScope(args?.authoringScope)
+      : normalizeAuthoringScope(args?.authoringScope)
     if (scopeNorm) {
       tel.authoringScope = scopeNorm
     }
@@ -1887,6 +1901,15 @@ ${lines.join('\n')}
     return 'page'
   }
 
+  /** {@code content} | {@code field} for the Studio content-type form assistant; default {@code content}. */
+  static String normalizeFormEngineAuthoringScope(Object raw) {
+    def s = (raw ?: '').toString().trim().toLowerCase(Locale.ROOT)
+    if (s == 'field') {
+      return 'field'
+    }
+    return 'content'
+  }
+
   /** True when orchestration wire includes Experience Builder Field scope with field id + item path. */
   static boolean authoringScopeFieldEditActive(String orchestrationWire) {
     String w = (orchestrationWire ?: '').toString()
@@ -2309,5 +2332,62 @@ At the **end** of your reply, include:
 ```
 Use **real field ids** from the form definition / XML in the prompt; values must be **strings** only. List every field you changed. For **pure Q&A** with no content change, omit the JSON block.
 ---'''
+  }
+
+  /**
+   * Injects author-selected form scope (content item vs single field). Metadata only — not the author's message.
+   */
+  static String appendFormEngineAuthoringScopeContext(
+    String prompt,
+    String scope,
+    Object contentPathRaw,
+    Object focusedFieldIdRaw,
+    Object focusedFieldIndexRaw,
+    Object focusedFieldLabelRaw
+  ) {
+    def normalized = normalizeFormEngineAuthoringScope(scope)
+    def itemPath = normalizeRepoPath((contentPathRaw ?: '').toString())
+    def lines = []
+    switch (normalized) {
+      case 'field':
+        def fieldId = (focusedFieldIdRaw ?: '').toString().trim()
+        def fieldLabel = (focusedFieldLabelRaw ?: '').toString().trim()
+        lines.add('Scope: **selected Studio form field** (author chose Field in the AI Assistant).')
+        if (fieldLabel) {
+          lines.add("Form focused field label (Studio UI): ${fieldLabel}")
+        }
+        if (fieldId) {
+          lines.add("Form focused field id: ${fieldId}")
+        }
+        def idxRaw = focusedFieldIndexRaw
+        if (idxRaw != null && idxRaw.toString().trim()) {
+          lines.add("Form focused field index (repeat group / collection): ${idxRaw}")
+        }
+        if (itemPath) {
+          lines.add("Open content item path: ${itemPath}")
+        }
+        lines.add(
+          'When the author says "this", "here", "this field", or similar without naming another target, ' +
+            'limit **aiassistantFormFieldUpdates** and field-level edits to **Form focused field id** on the open item. ' +
+            'Use GetContentTypeFormDefinition for field types/constraints. Do not rewrite unrelated fields unless asked.'
+        )
+        break
+      default:
+        lines.add('Scope: **entire open content item** (author chose Content in the AI Assistant).')
+        if (itemPath) {
+          lines.add("Open content item path: ${itemPath}")
+        }
+        lines.add(
+          'When the author asks to update the item without naming a single field, you may change any fields on the open content item. ' +
+            'Use field ids from the form definition / appendix for **aiassistantFormFieldUpdates**.'
+        )
+        break
+    }
+    def base = (prompt ?: '').toString()
+    return """${base}
+
+--- Author scope (Studio form) ---
+${lines.join('\n')}
+---"""
   }
 }

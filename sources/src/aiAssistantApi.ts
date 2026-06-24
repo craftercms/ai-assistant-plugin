@@ -65,9 +65,9 @@ export interface StreamChatArgs {
   authoringSurface?: 'preview' | 'formEngine';
   /**
    * Preview/XB only — author-selected scope from the AI Assistant UI: `project` | `page` | `component` | `field`.
-   * Omitted defaults to `page` on the server. Form-engine omits this (live form context applies).
+   * Form-engine: `content` | `field`. Omitted defaults to `page` (preview) or `content` (form) on the server.
    */
-  authoringScope?: 'project' | 'page' | 'component' | 'field';
+  authoringScope?: 'project' | 'page' | 'component' | 'field' | 'content';
   /** Preview page repository path (parent page) — sent with field scope when the focused item is a nested component. */
   pageContentPath?: string;
   /** Repository path of the XB-focused content item (component or page). */

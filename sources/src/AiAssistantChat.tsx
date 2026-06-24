@@ -53,6 +53,16 @@ import {
 import type { AgentSkillConfig, PromptConfig } from './agentConfig';
 import type { AuthoringFormContextSnapshot } from './aiAssistantFormAuthoringTypes';
 import {
+  type FormEngineAuthoringScope,
+  type FormEngineFieldFocus,
+  buildFormEngineFieldSelectionKey,
+  buildScopedFormEngineStreamContext,
+  formatFormEngineFieldScopeButtonLabel,
+  getFormEngineFieldFocus,
+  resolveFormFieldLabelFromDefinitionXml,
+  subscribeFormEngineFieldFocus
+} from './aiAssistantFormEngineScope';
+import {
   type AuthoringScope,
   type XbFieldFocus,
   type XbComponentFocus,
@@ -1719,6 +1729,9 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
   const user = useActiveUser();
   const formEngineChat = isFormEngineAuthoringChat(getAuthoringFormContext);
   const [authoringScope, setAuthoringScope] = useState<AuthoringScope>('page');
+  const [formEngineScope, setFormEngineScope] = useState<FormEngineAuthoringScope>('content');
+  const [latchedFormFieldFocus, setLatchedFormFieldFocus] = useState<FormEngineFieldFocus | undefined>();
+  const prevFormFieldSelectionKeyRef = useRef('');
   const [latchedFieldFocus, setLatchedFieldFocus] = useState<XbFieldFocus | undefined>();
   const [latchedComponentFocus, setLatchedComponentFocus] = useState<XbComponentFocus | undefined>();
   const prevXbSelectionKeyRef = useRef('');
@@ -1753,6 +1766,24 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     getXbSelectionPrecedence,
     () => null
   );
+
+  const formFieldFocusLive = useSyncExternalStore(
+    subscribeFormEngineFieldFocus,
+    getFormEngineFieldFocus,
+    () => null
+  );
+
+  const formFieldFocus = formEngineChat ? formFieldFocusLive ?? latchedFormFieldFocus : undefined;
+
+  const formFieldSelectionKey = useMemo(() => {
+    if (!formEngineChat) return '';
+    return buildFormEngineFieldSelectionKey(formFieldFocusLive);
+  }, [formEngineChat, formFieldFocusLive]);
+
+  const formFieldScopeButtonLabel = useMemo(() => {
+    if (!formFieldFocus?.fieldId) return '';
+    return formatFormEngineFieldScopeButtonLabel(formFieldFocus);
+  }, [formFieldFocus]);
 
   const xbFieldFocusLive = useMemo(() => {
     if (formEngineChat) return undefined;
@@ -1884,6 +1915,20 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     guestForScope,
     contentTypesById
   ]);
+
+  useEffect(() => {
+    if (!formEngineChat) return;
+    if (!formFieldSelectionKey) {
+      prevFormFieldSelectionKeyRef.current = '';
+      return;
+    }
+    if (!formFieldFocusLive?.fieldId) return;
+    if (formFieldSelectionKey !== prevFormFieldSelectionKeyRef.current) {
+      setLatchedFormFieldFocus(formFieldFocusLive);
+      setFormEngineScope('field');
+      prevFormFieldSelectionKeyRef.current = formFieldSelectionKey;
+    }
+  }, [formEngineChat, formFieldSelectionKey, formFieldFocusLive]);
 
   const resolvedContentTypeId =
     (previewItem as { contentTypeId?: string } | undefined)?.contentTypeId?.trim() ||
@@ -2099,6 +2144,15 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
       setAuthoringScope(value);
     },
     [xbFieldFocus?.fieldId, xbComponentFocus?.contentPath]
+  );
+
+  const handleFormEngineScopeChange = useCallback(
+    (_event: React.MouseEvent<HTMLElement>, value: FormEngineAuthoringScope | null) => {
+      if (!value) return;
+      if (value === 'field' && !formFieldFocus?.fieldId) return;
+      setFormEngineScope(value);
+    },
+    [formFieldFocus?.fieldId]
   );
 
   const speechCtor = useMemo(() => getSpeechRecognitionCtor(), []);
@@ -2369,6 +2423,25 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
 
     const wantClientJsonApply = formEngineChat && formEngineClientJsonApply !== false;
 
+    const enrichedFormFieldFocus =
+      formEngineChat && formEngineScope === 'field' && formFieldFocus?.fieldId
+        ? (() => {
+            const fromDef = resolveFormFieldLabelFromDefinitionXml(
+              authoringSnap?.definitionXml ?? '',
+              formFieldFocus.fieldId
+            );
+            return fromDef ? { ...formFieldFocus, fieldLabel: fromDef } : formFieldFocus;
+          })()
+        : undefined;
+
+    const scopedFormEngine = formEngineChat
+      ? buildScopedFormEngineStreamContext({
+          scope: formEngineScope,
+          contentPath: authoringSnap?.contentPath,
+          fieldFocus: enrichedFormFieldFocus
+        })
+      : null;
+
     expandedPrompt = await expandContentTypeMacros(
       expandedPrompt,
       macroCtx.siteId,
@@ -2467,7 +2540,8 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
             omitTools: omitToolsThisSend,
             enableTools: enableTools !== false,
             chatId: chatId ?? null,
-            authoringScope: scopedPreview?.authoringScope ?? null,
+            authoringScope:
+              scopedFormEngine?.authoringScope ?? scopedPreview?.authoringScope ?? null,
             contentPath:
               formEngineChat || crossSiteWorking
                 ? null
@@ -2481,16 +2555,19 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                 ? null
                 : scopedPreview?.displayTemplate?.trim() || macroValuesRef.current.displayTemplate?.trim() || null,
             pageContentPath: scopedPreview?.pageContentPath?.trim() || null,
-            xbFocusedFieldId: scopedPreview?.xbFocusedFieldId ?? null,
-            xbFocusedFieldLabel: scopedPreview?.xbFocusedFieldLabel ?? null,
+            xbFocusedFieldId:
+              scopedFormEngine?.xbFocusedFieldId ?? scopedPreview?.xbFocusedFieldId ?? null,
+            xbFocusedFieldLabel:
+              scopedFormEngine?.xbFocusedFieldLabel ?? scopedPreview?.xbFocusedFieldLabel ?? null,
             xbFocusedComponentLabel: scopedPreview?.xbFocusedComponentLabel ?? null,
             studioPreviewPageUrl: studioPreviewPageUrl ?? null,
             crossSiteWorking,
             formEngineClientJsonApply: wantClientJsonApply,
             formEngineItemPath:
-              formEngineChat && wantClientJsonApply && authoringSnap?.contentPath?.trim()
-                ? authoringSnap.contentPath.trim()
-                : null
+              (scopedFormEngine?.formEngineItemPath ??
+                (wantClientJsonApply && authoringSnap?.contentPath?.trim()
+                  ? authoringSnap.contentPath.trim()
+                  : null)) || null
           },
           displayText: userBubbleText,
           wirePrompt: wirePrompt,
@@ -2543,30 +2620,41 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
           : {}),
         ...(studioPreviewPageUrl ? { studioPreviewPageUrl } : {}),
         authoringSurface: formEngineChat ? 'formEngine' : undefined,
-        ...(scopedPreview?.authoringScope ? { authoringScope: scopedPreview.authoringScope } : {}),
+        ...(scopedFormEngine?.authoringScope
+          ? { authoringScope: scopedFormEngine.authoringScope }
+          : scopedPreview?.authoringScope
+            ? { authoringScope: scopedPreview.authoringScope }
+            : {}),
         ...(scopedPreview?.pageContentPath?.trim()
           ? { pageContentPath: scopedPreview.pageContentPath.trim() }
           : {}),
         ...(scopedPreview?.xbFocusedContentPath?.trim()
           ? { xbFocusedContentPath: scopedPreview.xbFocusedContentPath.trim() }
           : {}),
-        ...(scopedPreview?.xbFocusedFieldId?.trim()
-          ? { xbFocusedFieldId: scopedPreview.xbFocusedFieldId.trim() }
-          : {}),
-        ...(scopedPreview?.xbFocusedFieldIndex != null
-          ? { xbFocusedFieldIndex: scopedPreview.xbFocusedFieldIndex }
-          : {}),
-        ...(scopedPreview?.xbFocusedFieldLabel?.trim()
-          ? { xbFocusedFieldLabel: scopedPreview.xbFocusedFieldLabel.trim() }
-          : {}),
+        ...(scopedFormEngine?.xbFocusedFieldId?.trim()
+          ? { xbFocusedFieldId: scopedFormEngine.xbFocusedFieldId.trim() }
+          : scopedPreview?.xbFocusedFieldId?.trim()
+            ? { xbFocusedFieldId: scopedPreview.xbFocusedFieldId.trim() }
+            : {}),
+        ...(scopedFormEngine?.xbFocusedFieldIndex != null
+          ? { xbFocusedFieldIndex: scopedFormEngine.xbFocusedFieldIndex }
+          : scopedPreview?.xbFocusedFieldIndex != null
+            ? { xbFocusedFieldIndex: scopedPreview.xbFocusedFieldIndex }
+            : {}),
+        ...(scopedFormEngine?.xbFocusedFieldLabel?.trim()
+          ? { xbFocusedFieldLabel: scopedFormEngine.xbFocusedFieldLabel.trim() }
+          : scopedPreview?.xbFocusedFieldLabel?.trim()
+            ? { xbFocusedFieldLabel: scopedPreview.xbFocusedFieldLabel.trim() }
+            : {}),
         ...(scopedPreview?.xbFocusedComponentLabel?.trim()
           ? { xbFocusedComponentLabel: scopedPreview.xbFocusedComponentLabel.trim() }
           : {}),
         formEngineClientJsonApply: formEngineChat && wantClientJsonApply ? true : undefined,
         formEngineItemPath:
-          formEngineChat && wantClientJsonApply && authoringSnap?.contentPath?.trim()
+          scopedFormEngine?.formEngineItemPath?.trim() ||
+          (formEngineChat && wantClientJsonApply && authoringSnap?.contentPath?.trim()
             ? authoringSnap.contentPath.trim()
-            : undefined,
+            : undefined),
         llm,
         llmModel,
         imageModel: wireImageModel,
@@ -3681,7 +3769,47 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
               </ToggleButtonGroup>
             </Stack>
           </Box>
-        ) : null}
+        ) : (
+          <Box sx={{ mt: 1.25, px: 0.25, minWidth: 0, width: '100%' }}>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1}
+              alignItems={{ xs: 'stretch', sm: 'center' }}
+              sx={{ width: '100%', minWidth: 0 }}
+            >
+              <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0, pt: { sm: 0.5 } }}>
+                Scope
+              </Typography>
+              <ToggleButtonGroup
+                exclusive
+                size="small"
+                value={formEngineScope}
+                onChange={handleFormEngineScopeChange}
+                aria-label="Form authoring scope"
+                sx={{
+                  flexWrap: 'wrap',
+                  '& .MuiToggleButton-root': {
+                    textTransform: 'none',
+                    px: 1.25,
+                    py: 0.5
+                  }
+                }}
+              >
+                <ToggleButton value="content" aria-label="Content scope" disabled={sending}>
+                  Content
+                </ToggleButton>
+                <ToggleButton
+                  value="field"
+                  aria-label="Field scope"
+                  disabled={sending || !formFieldFocus?.fieldId}
+                  sx={{ maxWidth: { xs: '100%', sm: 'min(100%, 20rem)' } }}
+                >
+                  {formFieldScopeButtonLabel ? `Field: ${formFieldScopeButtonLabel}` : 'Field'}
+                </ToggleButton>
+              </ToggleButtonGroup>
+            </Stack>
+          </Box>
+        )}
         {voiceError && !voiceListening ? (
           <Typography variant="caption" color="error" sx={{ mt: 0.75, display: 'block', px: 0.5 }}>
             {voiceError}

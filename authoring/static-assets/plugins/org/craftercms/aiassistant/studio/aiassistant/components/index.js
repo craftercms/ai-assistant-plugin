@@ -1002,6 +1002,112 @@ function formatSessionLogForDebugCopy(lines) {
     ].join('\n');
 }
 
+const FORM_FIELD_FOCUS_EVENT = 'aiassistant-form-field-focus';
+/** Stable snapshot for `useSyncExternalStore` — must reuse reference when focus is unchanged. */
+let cachedFocusSnapshot = null;
+let cachedFocusSnapshotKey = '';
+function focusSnapshotKey(raw) {
+    if (!raw?.fieldId)
+        return '';
+    const id = String(raw.fieldId).trim();
+    if (!id)
+        return '';
+    const label = String(raw.fieldLabel ?? id).trim() || id;
+    const idx = raw.fieldIndex;
+    const idxPart = idx != null && String(idx).trim() !== '' ? `#${String(idx)}` : '';
+    return `${id}\x1e${label}${idxPart}`;
+}
+function normalizeWindowFocusRaw(raw) {
+    if (!raw || typeof raw !== 'object')
+        return null;
+    const fieldId = String(raw.fieldId ?? '').trim();
+    if (!fieldId)
+        return null;
+    const fieldLabel = String(raw.fieldLabel ?? fieldId).trim() || fieldId;
+    const out = { fieldId, fieldLabel };
+    const idx = raw.fieldIndex;
+    if (idx != null && String(idx).trim() !== '') {
+        out.fieldIndex = idx;
+    }
+    return out;
+}
+function syncCachedFocusSnapshot(next) {
+    const key = focusSnapshotKey(next);
+    if (key === cachedFocusSnapshotKey) {
+        return cachedFocusSnapshot;
+    }
+    cachedFocusSnapshotKey = key;
+    cachedFocusSnapshot = next;
+    return cachedFocusSnapshot;
+}
+function readWindowFocus() {
+    if (typeof window === 'undefined')
+        return null;
+    const w = window;
+    return syncCachedFocusSnapshot(normalizeWindowFocusRaw(w.__aiassistantFormEngineFieldFocus));
+}
+function getFormEngineFieldFocus() {
+    return readWindowFocus();
+}
+function subscribeFormEngineFieldFocus(listener) {
+    if (typeof window === 'undefined')
+        return () => undefined;
+    const handler = () => listener();
+    window.addEventListener(FORM_FIELD_FOCUS_EVENT, handler);
+    return () => window.removeEventListener(FORM_FIELD_FOCUS_EVENT, handler);
+}
+function buildFormEngineFieldSelectionKey(focus) {
+    if (!focus?.fieldId)
+        return '';
+    const idx = focus.fieldIndex;
+    return idx != null && String(idx).trim() !== ''
+        ? `${focus.fieldId}#${String(idx)}`
+        : focus.fieldId;
+}
+/** Resolve Studio form-definition field title for a top-level or dotted field id. */
+function resolveFormFieldLabelFromDefinitionXml(definitionXml, fieldId) {
+    const id = fieldId.trim();
+    if (!id || !definitionXml.trim())
+        return '';
+    const topId = id.split('.')[0]?.trim() || id;
+    const fieldRe = /<field\b[^>]*>([\s\S]*?)<\/field>/gi;
+    let m;
+    while ((m = fieldRe.exec(definitionXml)) !== null) {
+        const block = m[1];
+        const idm = /<id>([^<]+)<\/id>/i.exec(block);
+        if (!idm || idm[1].trim() !== topId)
+            continue;
+        const titlem = /<title>([^<]*)<\/title>/i.exec(block);
+        return titlem ? titlem[1].trim() : '';
+    }
+    return '';
+}
+function formatFormEngineFieldScopeButtonLabel(focus) {
+    if (!focus?.fieldId)
+        return '';
+    return focus.fieldLabel?.trim() || focus.fieldId;
+}
+/**
+ * Maps form-engine UI scope to stream POST fields (reuses xbFocused* wire names for field metadata).
+ */
+function buildScopedFormEngineStreamContext(args) {
+    const itemPath = (args.contentPath ?? '').trim();
+    if (args.scope === 'field' && args.fieldFocus?.fieldId) {
+        const f = args.fieldFocus;
+        return {
+            authoringScope: 'field',
+            ...(itemPath ? { formEngineItemPath: itemPath } : {}),
+            xbFocusedFieldId: f.fieldId,
+            xbFocusedFieldLabel: f.fieldLabel || f.fieldId,
+            ...(f.fieldIndex != null ? { xbFocusedFieldIndex: f.fieldIndex } : {})
+        };
+    }
+    return {
+        authoringScope: 'content',
+        ...(itemPath ? { formEngineItemPath: itemPath } : {})
+    };
+}
+
 function normalizeFieldIdParts(raw) {
     if (!raw)
         return [];
@@ -32798,6 +32904,9 @@ function AiAssistantChat(props) {
     const user = useActiveUser();
     const formEngineChat = isFormEngineAuthoringChat(getAuthoringFormContext);
     const [authoringScope, setAuthoringScope] = useState('page');
+    const [formEngineScope, setFormEngineScope] = useState('content');
+    const [latchedFormFieldFocus, setLatchedFormFieldFocus] = useState();
+    const prevFormFieldSelectionKeyRef = useRef('');
     const [latchedFieldFocus, setLatchedFieldFocus] = useState();
     const [latchedComponentFocus, setLatchedComponentFocus] = useState();
     const prevXbSelectionKeyRef = useRef('');
@@ -32812,6 +32921,18 @@ function AiAssistantChat(props) {
     const domIceSelection = useSyncExternalStore(subscribeXbDomIceSelection, getLastXbDomIceSelection, () => null);
     const domIceComponentSelection = useSyncExternalStore(subscribeXbDomComponentSelection, getLastXbDomComponentSelection, () => null);
     const xbSelectionPrecedence = useSyncExternalStore(subscribeXbSelectionPrecedence, getXbSelectionPrecedence, () => null);
+    const formFieldFocusLive = useSyncExternalStore(subscribeFormEngineFieldFocus, getFormEngineFieldFocus, () => null);
+    const formFieldFocus = formEngineChat ? formFieldFocusLive ?? latchedFormFieldFocus : undefined;
+    const formFieldSelectionKey = useMemo(() => {
+        if (!formEngineChat)
+            return '';
+        return buildFormEngineFieldSelectionKey(formFieldFocusLive);
+    }, [formEngineChat, formFieldFocusLive]);
+    const formFieldScopeButtonLabel = useMemo(() => {
+        if (!formFieldFocus?.fieldId)
+            return '';
+        return formatFormEngineFieldScopeButtonLabel(formFieldFocus);
+    }, [formFieldFocus]);
     const xbFieldFocusLive = useMemo(() => {
         if (formEngineChat)
             return undefined;
@@ -32932,6 +33053,21 @@ function AiAssistantChat(props) {
         guestForScope,
         contentTypesById
     ]);
+    useEffect(() => {
+        if (!formEngineChat)
+            return;
+        if (!formFieldSelectionKey) {
+            prevFormFieldSelectionKeyRef.current = '';
+            return;
+        }
+        if (!formFieldFocusLive?.fieldId)
+            return;
+        if (formFieldSelectionKey !== prevFormFieldSelectionKeyRef.current) {
+            setLatchedFormFieldFocus(formFieldFocusLive);
+            setFormEngineScope('field');
+            prevFormFieldSelectionKeyRef.current = formFieldSelectionKey;
+        }
+    }, [formEngineChat, formFieldSelectionKey, formFieldFocusLive]);
     const resolvedContentTypeId = previewItem?.contentTypeId?.trim() ||
         (guestMainModel?.craftercms?.contentTypeId && String(guestMainModel.craftercms.contentTypeId).trim()) ||
         '';
@@ -33128,6 +33264,13 @@ function AiAssistantChat(props) {
             return;
         setAuthoringScope(value);
     }, [xbFieldFocus?.fieldId, xbComponentFocus?.contentPath]);
+    const handleFormEngineScopeChange = useCallback((_event, value) => {
+        if (!value)
+            return;
+        if (value === 'field' && !formFieldFocus?.fieldId)
+            return;
+        setFormEngineScope(value);
+    }, [formFieldFocus?.fieldId]);
     const speechCtor = useMemo(() => getSpeechRecognitionCtor(), []);
     const recognitionRef = useRef(null);
     const voiceActiveRef = useRef(false);
@@ -33378,6 +33521,19 @@ function AiAssistantChat(props) {
                 }
             }
             const wantClientJsonApply = formEngineChat && formEngineClientJsonApply !== false;
+            const enrichedFormFieldFocus = formEngineChat && formEngineScope === 'field' && formFieldFocus?.fieldId
+                ? (() => {
+                    const fromDef = resolveFormFieldLabelFromDefinitionXml(authoringSnap?.definitionXml ?? '', formFieldFocus.fieldId);
+                    return fromDef ? { ...formFieldFocus, fieldLabel: fromDef } : formFieldFocus;
+                })()
+                : undefined;
+            const scopedFormEngine = formEngineChat
+                ? buildScopedFormEngineStreamContext({
+                    scope: formEngineScope,
+                    contentPath: authoringSnap?.contentPath,
+                    fieldFocus: enrichedFormFieldFocus
+                })
+                : null;
             expandedPrompt = await expandContentTypeMacros(expandedPrompt, macroCtx.siteId, scopedPreview?.contentTypeId || macroValuesRef.current.contentTypeId, { omitRepoFileBodies: !formEngineChat }).then((s) => s.trim());
             expandedPrompt = await expandContentMacros(expandedPrompt, macroCtx.siteId, macroContentPath, {
                 omitRepoFileBodies: !formEngineChat,
@@ -33450,7 +33606,7 @@ function AiAssistantChat(props) {
                         omitTools: omitToolsThisSend,
                         enableTools: enableTools !== false,
                         chatId: chatId ?? null,
-                        authoringScope: scopedPreview?.authoringScope ?? null,
+                        authoringScope: scopedFormEngine?.authoringScope ?? scopedPreview?.authoringScope ?? null,
                         contentPath: formEngineChat || crossSiteWorking
                             ? null
                             : scopedPreview?.contentPath?.trim() || macroValuesRef.current.contentPath?.trim() || null,
@@ -33461,15 +33617,16 @@ function AiAssistantChat(props) {
                             ? null
                             : scopedPreview?.displayTemplate?.trim() || macroValuesRef.current.displayTemplate?.trim() || null,
                         pageContentPath: scopedPreview?.pageContentPath?.trim() || null,
-                        xbFocusedFieldId: scopedPreview?.xbFocusedFieldId ?? null,
-                        xbFocusedFieldLabel: scopedPreview?.xbFocusedFieldLabel ?? null,
+                        xbFocusedFieldId: scopedFormEngine?.xbFocusedFieldId ?? scopedPreview?.xbFocusedFieldId ?? null,
+                        xbFocusedFieldLabel: scopedFormEngine?.xbFocusedFieldLabel ?? scopedPreview?.xbFocusedFieldLabel ?? null,
                         xbFocusedComponentLabel: scopedPreview?.xbFocusedComponentLabel ?? null,
                         studioPreviewPageUrl: studioPreviewPageUrl ?? null,
                         crossSiteWorking,
                         formEngineClientJsonApply: wantClientJsonApply,
-                        formEngineItemPath: formEngineChat && wantClientJsonApply && authoringSnap?.contentPath?.trim()
-                            ? authoringSnap.contentPath.trim()
-                            : null
+                        formEngineItemPath: (scopedFormEngine?.formEngineItemPath ??
+                            (wantClientJsonApply && authoringSnap?.contentPath?.trim()
+                                ? authoringSnap.contentPath.trim()
+                                : null)) || null
                     },
                     displayText: userBubbleText,
                     wirePrompt: wirePrompt,
@@ -33516,29 +33673,40 @@ function AiAssistantChat(props) {
                         : {}),
                     ...(studioPreviewPageUrl ? { studioPreviewPageUrl } : {}),
                     authoringSurface: formEngineChat ? 'formEngine' : undefined,
-                    ...(scopedPreview?.authoringScope ? { authoringScope: scopedPreview.authoringScope } : {}),
+                    ...(scopedFormEngine?.authoringScope
+                        ? { authoringScope: scopedFormEngine.authoringScope }
+                        : scopedPreview?.authoringScope
+                            ? { authoringScope: scopedPreview.authoringScope }
+                            : {}),
                     ...(scopedPreview?.pageContentPath?.trim()
                         ? { pageContentPath: scopedPreview.pageContentPath.trim() }
                         : {}),
                     ...(scopedPreview?.xbFocusedContentPath?.trim()
                         ? { xbFocusedContentPath: scopedPreview.xbFocusedContentPath.trim() }
                         : {}),
-                    ...(scopedPreview?.xbFocusedFieldId?.trim()
-                        ? { xbFocusedFieldId: scopedPreview.xbFocusedFieldId.trim() }
-                        : {}),
-                    ...(scopedPreview?.xbFocusedFieldIndex != null
-                        ? { xbFocusedFieldIndex: scopedPreview.xbFocusedFieldIndex }
-                        : {}),
-                    ...(scopedPreview?.xbFocusedFieldLabel?.trim()
-                        ? { xbFocusedFieldLabel: scopedPreview.xbFocusedFieldLabel.trim() }
-                        : {}),
+                    ...(scopedFormEngine?.xbFocusedFieldId?.trim()
+                        ? { xbFocusedFieldId: scopedFormEngine.xbFocusedFieldId.trim() }
+                        : scopedPreview?.xbFocusedFieldId?.trim()
+                            ? { xbFocusedFieldId: scopedPreview.xbFocusedFieldId.trim() }
+                            : {}),
+                    ...(scopedFormEngine?.xbFocusedFieldIndex != null
+                        ? { xbFocusedFieldIndex: scopedFormEngine.xbFocusedFieldIndex }
+                        : scopedPreview?.xbFocusedFieldIndex != null
+                            ? { xbFocusedFieldIndex: scopedPreview.xbFocusedFieldIndex }
+                            : {}),
+                    ...(scopedFormEngine?.xbFocusedFieldLabel?.trim()
+                        ? { xbFocusedFieldLabel: scopedFormEngine.xbFocusedFieldLabel.trim() }
+                        : scopedPreview?.xbFocusedFieldLabel?.trim()
+                            ? { xbFocusedFieldLabel: scopedPreview.xbFocusedFieldLabel.trim() }
+                            : {}),
                     ...(scopedPreview?.xbFocusedComponentLabel?.trim()
                         ? { xbFocusedComponentLabel: scopedPreview.xbFocusedComponentLabel.trim() }
                         : {}),
                     formEngineClientJsonApply: formEngineChat && wantClientJsonApply ? true : undefined,
-                    formEngineItemPath: formEngineChat && wantClientJsonApply && authoringSnap?.contentPath?.trim()
-                        ? authoringSnap.contentPath.trim()
-                        : undefined,
+                    formEngineItemPath: scopedFormEngine?.formEngineItemPath?.trim() ||
+                        (formEngineChat && wantClientJsonApply && authoringSnap?.contentPath?.trim()
+                            ? authoringSnap.contentPath.trim()
+                            : undefined),
                     llm,
                     llmModel,
                     imageModel: wireImageModel,
@@ -34168,7 +34336,14 @@ function AiAssistantChat(props) {
                                     }
                                 }, children: [jsx$1(ToggleButton, { value: "project", "aria-label": "Project scope", disabled: sending, children: "Project" }), jsx$1(ToggleButton, { value: "page", "aria-label": "Page scope", disabled: sending, children: "Page" }), jsx$1(ToggleButton, { value: "component", "aria-label": "Component scope", disabled: sending || !xbComponentFocus?.contentPath, sx: { maxWidth: { xs: '100%', sm: 'min(100%, 20rem)' } }, children: authoringScope === 'component' && xbComponentFocus?.label
                                             ? `Component: ${xbComponentFocus.label}`
-                                            : 'Component' }), jsx$1(ToggleButton, { value: "field", "aria-label": "Field scope", disabled: sending || !xbFieldFocus?.fieldId, sx: { maxWidth: { xs: '100%', sm: 'min(100%, 20rem)' } }, children: xbFieldScopeButtonLabel ? `Field: ${xbFieldScopeButtonLabel}` : 'Field' })] })] }) })) : null, voiceError && !voiceListening ? (jsx$1(Typography, { variant: "caption", color: "error", sx: { mt: 0.75, display: 'block', px: 0.5 }, children: voiceError })) : null, ttsAvailable || showSiteOverridePill ? (jsxs(Stack$1, { direction: "row", alignItems: "center", spacing: 1, sx: { mt: 0.75, width: '100%', minWidth: 0, flexWrap: 'wrap', rowGap: 0.5 }, children: [ttsAvailable ? (jsx$1(FormControlLabel, { sx: {
+                                            : 'Component' }), jsx$1(ToggleButton, { value: "field", "aria-label": "Field scope", disabled: sending || !xbFieldFocus?.fieldId, sx: { maxWidth: { xs: '100%', sm: 'min(100%, 20rem)' } }, children: xbFieldScopeButtonLabel ? `Field: ${xbFieldScopeButtonLabel}` : 'Field' })] })] }) })) : (jsx$1(Box, { sx: { mt: 1.25, px: 0.25, minWidth: 0, width: '100%' }, children: jsxs(Stack$1, { direction: { xs: 'column', sm: 'row' }, spacing: 1, alignItems: { xs: 'stretch', sm: 'center' }, sx: { width: '100%', minWidth: 0 }, children: [jsx$1(Typography, { variant: "caption", color: "text.secondary", sx: { flexShrink: 0, pt: { sm: 0.5 } }, children: "Scope" }), jsxs(ToggleButtonGroup, { exclusive: true, size: "small", value: formEngineScope, onChange: handleFormEngineScopeChange, "aria-label": "Form authoring scope", sx: {
+                                    flexWrap: 'wrap',
+                                    '& .MuiToggleButton-root': {
+                                        textTransform: 'none',
+                                        px: 1.25,
+                                        py: 0.5
+                                    }
+                                }, children: [jsx$1(ToggleButton, { value: "content", "aria-label": "Content scope", disabled: sending, children: "Content" }), jsx$1(ToggleButton, { value: "field", "aria-label": "Field scope", disabled: sending || !formFieldFocus?.fieldId, sx: { maxWidth: { xs: '100%', sm: 'min(100%, 20rem)' } }, children: formFieldScopeButtonLabel ? `Field: ${formFieldScopeButtonLabel}` : 'Field' })] })] }) })), voiceError && !voiceListening ? (jsx$1(Typography, { variant: "caption", color: "error", sx: { mt: 0.75, display: 'block', px: 0.5 }, children: voiceError })) : null, ttsAvailable || showSiteOverridePill ? (jsxs(Stack$1, { direction: "row", alignItems: "center", spacing: 1, sx: { mt: 0.75, width: '100%', minWidth: 0, flexWrap: 'wrap', rowGap: 0.5 }, children: [ttsAvailable ? (jsx$1(FormControlLabel, { sx: {
                                 mr: 0,
                                 ml: 0,
                                 flex: '1 1 auto',

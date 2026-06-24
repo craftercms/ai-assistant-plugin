@@ -606,6 +606,276 @@ function cqCollectFormFieldSnapshot(form) {
  * Returns fresh form definition XML + field snapshot for each chat send (React calls this from AiAssistantChat).
  * Definition is cached per content type while the control instance lives.
  */
+var AIASSISTANT_FORM_FIELD_FOCUS_EVENT = 'aiassistant-form-field-focus';
+
+function cqIsAiAssistantFormFieldControl(fieldCtrl) {
+  if (!fieldCtrl) return false;
+  try {
+    if (typeof fieldCtrl.getName === 'function' && fieldCtrl.getName() === 'ai-assistant') return true;
+  } catch (ignore) {}
+  try {
+    var fid = String(fieldCtrl.id || '').trim();
+    if (fid === 'cqAiAssistantStudio') return true;
+  } catch (ignore2) {}
+  return false;
+}
+
+function cqResolveFormFieldFocusFromControl(form, fieldCtrl) {
+  if (!fieldCtrl || !form || cqIsAiAssistantFormFieldControl(fieldCtrl)) return null;
+  var id = String(fieldCtrl.id || '').trim();
+  if (!id) return null;
+  var label = '';
+  try {
+    if (typeof fieldCtrl.getLabel === 'function') {
+      label = String(fieldCtrl.getLabel() || '').trim();
+    }
+  } catch (ignore) {}
+  if (!label) {
+    try {
+      label = String(fieldCtrl.title || fieldCtrl.label || '').trim();
+    } catch (ignore2) {}
+  }
+  if (!label) label = id;
+  var focus = { fieldId: id, fieldLabel: label };
+  try {
+    if (fieldCtrl.index != null && String(fieldCtrl.index).trim() !== '') {
+      focus.fieldIndex = fieldCtrl.index;
+    }
+  } catch (ignore3) {}
+  return focus;
+}
+
+function cqPublishFormEngineFieldFocus(focus) {
+  try {
+    window.__aiassistantFormEngineFieldFocus = focus || null;
+    window.dispatchEvent(new CustomEvent(AIASSISTANT_FORM_FIELD_FOCUS_EVENT, { detail: focus || null }));
+  } catch (ignore) {}
+}
+
+function cqWalkFormFieldControls(form, visitor) {
+  if (!form || typeof visitor !== 'function') return;
+  var sections = form.sections;
+  if (!sections || !sections.length) return;
+  var walkFields = function (fields) {
+    if (!fields || !fields.length) return;
+    for (var i = 0; i < fields.length; i++) {
+      var fld = fields[i];
+      if (!fld) continue;
+      visitor(fld);
+      if (fld.fields && fld.fields.length) walkFields(fld.fields);
+      if (fld.subFields && fld.subFields.length) walkFields(fld.subFields);
+    }
+  };
+  for (var s = 0; s < sections.length; s++) {
+    var sec = sections[s];
+    if (!sec || !sec.fields) continue;
+    walkFields(sec.fields);
+  }
+}
+
+function cqFindFormFieldControlForElement(form, el) {
+  if (!form || !el) return null;
+  var found = null;
+  cqWalkFormFieldControls(form, function (fld) {
+    if (found) return;
+    var container = null;
+    try {
+      container = fld.containerEl || fld.oContainer || null;
+      if (!container && typeof fld.getContainer === 'function') container = fld.getContainer();
+    } catch (ignore) {}
+    if (container && container.contains && container.contains(el)) {
+      found = fld;
+    }
+  });
+  return found;
+}
+
+function cqDetachFormFieldFocusBridge(control) {
+  var form = control && (control.form || (control.owner && control.owner.form));
+  if (!form || !form._cqAiFocusBridgeAttached) return;
+  try {
+    if (form._cqAiFocusInHandler && form._cqAiFocusRootEl) {
+      form._cqAiFocusRootEl.removeEventListener('focusin', form._cqAiFocusInHandler, true);
+    }
+  } catch (ignore) {}
+  form._cqAiFocusInHandler = null;
+  form._cqAiFocusRootEl = null;
+  form._cqAiFocusBridgeAttached = false;
+}
+
+function cqAttachFormFieldFocusBridge(control) {
+  var form = control.form || (control.owner && control.owner.form);
+  if (!form || form._cqAiFocusBridgeAttached) return;
+  var formRoot = form.containerEl;
+  try {
+    if (!formRoot || !formRoot.addEventListener) {
+      formRoot = document.getElementById('formContainer');
+    }
+  } catch (ignoreRoot) {
+    formRoot = null;
+  }
+  if (!formRoot) return;
+
+  form._cqAiFocusBridgeAttached = true;
+  form._cqAiFocusRootEl = formRoot;
+
+  var onFocusIn = function (ev) {
+    if (!ev || !ev.target) return;
+    try {
+      if (
+        ev.target.closest &&
+        (ev.target.closest('[data-aiassistant-form-panel="true"]') ||
+          ev.target.closest('[data-aiassistant-form-portal-root="true"]') ||
+          ev.target.closest('.cstudio-plugin-aiassistant-form-assistant'))
+      ) {
+        return;
+      }
+    } catch (ignore) {}
+    var fieldCtrl = cqFindFormFieldControlForElement(form, ev.target);
+    var focus = cqResolveFormFieldFocusFromControl(form, fieldCtrl);
+    if (focus) cqPublishFormEngineFieldFocus(focus);
+  };
+  formRoot.addEventListener('focusin', onFocusIn, true);
+  form._cqAiFocusInHandler = onFocusIn;
+}
+
+function cqGetFormAssistantUi(form) {
+  if (!form) return null;
+  if (!form.__cqAiAssistantUi) {
+    form.__cqAiAssistantUi = {
+      portalMountEl: null,
+      reactRoot: null,
+      activeControl: null,
+      mountGeneration: 0
+    };
+  }
+  return form.__cqAiAssistantUi;
+}
+
+function cqDestroyFormAssistantUi(control) {
+  var form = control && (control.form || (control.owner && control.owner.form));
+  var ui = cqGetFormAssistantUi(form);
+  if (!ui) return;
+  if (ui.activeControl && control && ui.activeControl !== control) return;
+  ui.mountGeneration += 1;
+  ui.activeControl = null;
+  if (ui.reactRoot) {
+    try {
+      ui.reactRoot.unmount();
+    } catch (ignore) {}
+    ui.reactRoot = null;
+  }
+  cqDetachFormFieldFocusBridge(control);
+  cqDetachFormContainerWiden(control);
+  if (ui.portalMountEl && ui.portalMountEl.parentNode) {
+    try {
+      ui.portalMountEl.parentNode.removeChild(ui.portalMountEl);
+    } catch (ignore2) {}
+    ui.portalMountEl = null;
+  }
+  if (control) {
+    control._reactRoot = null;
+    control._cqPortalMountEl = null;
+  }
+}
+
+function cqSyncControlAssistantUiRefs(control, ui) {
+  if (!control || !ui) return;
+  control._reactRoot = ui.reactRoot;
+  control._cqPortalMountEl = ui.portalMountEl;
+}
+
+function cqRenderFormAssistantReactTree(self, config, ui, root, visibleAgents) {
+  if (!ui || ui.reactRoot !== root || !ui.portalMountEl || ui.activeControl !== self) return;
+  cqAttachFormFieldFocusBridge(self);
+  var React = craftercms.libs.React;
+  var FormCtl = self._cqFormCtlWidget;
+  var CrafterRoot = self._cqCrafterRootWidget;
+  if (!React || !FormCtl || !CrafterRoot) return;
+  root.render(
+    React.createElement(CrafterRoot, null, React.createElement(FormCtl, {
+      agents: visibleAgents,
+      getAuthoringFormContext: cqMakeGetAuthoringFormContext(self)
+    }))
+  );
+}
+
+function cqScheduleFormAssistantRender(self, config, site, ui, root) {
+  cqWhenAgentsCatalogReady(site, function (agents) {
+    if (!ui || ui.reactRoot !== root || ui.activeControl !== self) return;
+    var fieldProps = cqFormFieldPropertiesFromRender(config, self);
+    var visibleAgents = cqVisibleAgentsFromProperties(fieldProps, agents);
+    cqRenderFormAssistantReactTree(self, config, ui, root, visibleAgents);
+  });
+}
+
+function cqMountFormAssistantUi(self, config, containerEl, site) {
+  var form = self.form || (self.owner && self.owner.form);
+  var ui = cqGetFormAssistantUi(form);
+  if (!ui) return;
+
+  ui.activeControl = self;
+  var generation = ui.mountGeneration;
+
+  if (!ui.portalMountEl) {
+    var portalMount = document.createElement('div');
+    portalMount.setAttribute('data-aiassistant-form-portal-root', 'true');
+    document.body.appendChild(portalMount);
+    ui.portalMountEl = portalMount;
+  }
+  cqSyncControlAssistantUiRefs(self, ui);
+
+  craftercms.services.plugin
+    .importPlugin(site, 'aiassistant', 'components', 'index.js', 'org.craftercms.aiassistant.studio')
+    .then(function (plugin) {
+      if (!ui || ui.mountGeneration !== generation || ui.activeControl !== self || !ui.portalMountEl) return;
+      var React = craftercms.libs.React;
+      var ReactDOMClient = craftercms.libs.ReactDOMClient;
+      if (!React || !ReactDOMClient || !plugin || !plugin.widgets) {
+        return;
+      }
+      var FormCtl = plugin.widgets[AI_ASSISTANT_FORM_CONTROL_WIDGET_ID];
+      var CrafterRoot = craftercms.utils.constants.components.get('craftercms.components.CrafterCMSNextBridge');
+      if (!FormCtl || !CrafterRoot) {
+        return;
+      }
+      self._cqFormCtlWidget = FormCtl;
+      self._cqCrafterRootWidget = CrafterRoot;
+      if (!ui.reactRoot) {
+        ui.reactRoot = ReactDOMClient.createRoot(ui.portalMountEl);
+      }
+      cqSyncControlAssistantUiRefs(self, ui);
+      cqWhenAgentsCatalogReady(site, function (agents) {
+        if (!ui || ui.mountGeneration !== generation || ui.activeControl !== self || !ui.reactRoot) return;
+        var fieldProps = cqFormFieldPropertiesFromRender(config, self);
+        var visibleAgents = cqVisibleAgentsFromProperties(fieldProps, agents);
+        cqAttachFormFieldFocusBridge(self);
+        cqRenderFormAssistantReactTree(self, config, ui, ui.reactRoot, visibleAgents);
+      });
+    })
+    .catch(function (err) {
+      if (!ui || ui.activeControl !== self) return;
+      console.error('[ai-assistant] Failed to mount form assistant UI:', err);
+    });
+}
+
+function cqRefreshFormAssistantUi(self, config, site) {
+  var form = self.form || (self.owner && self.owner.form);
+  var ui = cqGetFormAssistantUi(form);
+  if (!ui || !ui.portalMountEl || !document.body.contains(ui.portalMountEl)) {
+    cqMountFormAssistantUi(self, config, null, site);
+    return;
+  }
+  ui.activeControl = self;
+  cqSyncControlAssistantUiRefs(self, ui);
+  cqAttachFormFieldFocusBridge(self);
+  if (ui.reactRoot && self._cqFormCtlWidget && self._cqCrafterRootWidget) {
+    cqScheduleFormAssistantRender(self, config, site, ui, ui.reactRoot);
+    return;
+  }
+  cqMountFormAssistantUi(self, config, null, site);
+}
+
 function cqMakeGetAuthoringFormContext(control) {
   var defCache = { ct: '', xml: '' };
   return function () {
@@ -891,6 +1161,7 @@ CStudioForms.Controls.AiAssistant =
     this.value = '';
     this._reactRoot = null;
     this._cqWidenedFormContainer = null;
+    this._cqPortalMountEl = null;
     this._cqFormActionObserver = null;
     this._cqFormActionResizeHandler = null;
     this._cqFormActionRaf = 0;
@@ -937,62 +1208,43 @@ YAHOO.extend(CStudioForms.Controls.AiAssistant, CStudioForms.CStudioFormField, {
 
   render: function (config, containerEl) {
     var self = this;
-    if (this._reactRoot) {
-      try {
-        this._reactRoot.unmount();
-      } catch (ignore) {}
-      this._reactRoot = null;
-    }
-    cqDetachFormContainerWiden(self);
-    containerEl.innerHTML = '';
     if (cqIsReadOnlyFormControl(self)) {
+      cqDestroyFormAssistantUi(self);
+      containerEl.innerHTML = '';
       return;
     }
-    var mount = document.createElement('div');
-    mount.className = 'cstudio-plugin-aiassistant-form-assistant';
-    mount.setAttribute('data-aiassistant-form-mount', 'true');
-    containerEl.appendChild(mount);
+
+    var sentinel = null;
+    try {
+      sentinel = containerEl.querySelector('[data-aiassistant-form-mount="true"]');
+    } catch (ignoreQuery) {}
+    if (!sentinel) {
+      sentinel = document.createElement('div');
+      sentinel.className = 'cstudio-plugin-aiassistant-form-assistant';
+      sentinel.setAttribute('data-aiassistant-form-mount', 'true');
+      containerEl.appendChild(sentinel);
+    }
     cqWidenOutermostFormContainer(containerEl, self);
+
+    if (self._reactRoot && self._cqPortalMountEl && document.body.contains(self._cqPortalMountEl)) {
+      cqRefreshFormAssistantUi(self, config, site);
+      return;
+    }
+
+    var form = self.form || (self.owner && self.owner.form);
+    var ui = cqGetFormAssistantUi(form);
+    if (ui && ui.portalMountEl && document.body.contains(ui.portalMountEl) && ui.reactRoot) {
+      cqRefreshFormAssistantUi(self, config, site);
+      return;
+    }
 
     var site = CStudioAuthoringContext.site;
     if (!site || typeof craftercms === 'undefined' || !craftercms.services || !craftercms.services.plugin) {
-      mount.textContent = 'Assistant: Studio plugin API is not available in this context.';
+      sentinel.textContent = 'Assistant: Studio plugin API is not available in this context.';
       return;
     }
 
-    craftercms.services.plugin
-      .importPlugin(site, 'aiassistant', 'components', 'index.js', 'org.craftercms.aiassistant.studio')
-      .then(function (plugin) {
-        var React = craftercms.libs.React;
-        var ReactDOMClient = craftercms.libs.ReactDOMClient;
-        if (!React || !ReactDOMClient || !plugin || !plugin.widgets) {
-          mount.textContent = 'Assistant: Failed to load plugin UI.';
-          return;
-        }
-        var FormCtl = plugin.widgets[AI_ASSISTANT_FORM_CONTROL_WIDGET_ID];
-        var CrafterRoot = craftercms.utils.constants.components.get('craftercms.components.CrafterCMSNextBridge');
-        if (!FormCtl || !CrafterRoot) {
-          mount.textContent = 'Assistant: Form control widget is not registered in the plugin bundle.';
-          return;
-        }
-        var root = ReactDOMClient.createRoot(mount);
-        self._reactRoot = root;
-        // Wait for agents.json — cold reload often races; rendering immediately yields fallback-only agents.
-        cqWhenAgentsCatalogReady(site, function (agents) {
-          if (!self._reactRoot || self._reactRoot !== root) return;
-          var fieldProps = cqFormFieldPropertiesFromRender(config, self);
-          var visibleAgents = cqVisibleAgentsFromProperties(fieldProps, agents);
-          root.render(
-            React.createElement(CrafterRoot, null, React.createElement(FormCtl, {
-              agents: visibleAgents,
-              getAuthoringFormContext: cqMakeGetAuthoringFormContext(self)
-            }))
-          );
-        });
-      })
-      .catch(function (err) {
-        mount.textContent = 'Assistant: ' + ((err && err.message) || String(err));
-      });
+    cqMountFormAssistantUi(self, config, containerEl, site);
   }
 });
 
