@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useActiveSiteId from '@craftercms/studio-ui/hooks/useActiveSiteId';
 import { writeConfiguration } from '@craftercms/studio-ui/services/configuration';
 import { firstValueFrom } from 'rxjs';
@@ -11,6 +11,7 @@ import FullscreenRounded from '@mui/icons-material/FullscreenRounded';
 import RefreshRounded from '@mui/icons-material/RefreshRounded';
 import SaveRounded from '@mui/icons-material/SaveRounded';
 import FormatListBulletedRounded from '@mui/icons-material/FormatListBulletedRounded';
+import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
 import {
   Alert,
   Box,
@@ -23,23 +24,32 @@ import {
   DialogTitle,
   Divider,
   IconButton,
+  Paper,
   Stack,
+  Tooltip,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
+  Switch,
   TextField,
   Typography
 } from '@mui/material';
+import { isUserToolEnabled, setUserToolEnabled } from './aiAssistantToolsPolicyUi';
 import {
   AI_ASSISTANT_IMAGEGEN_GROOVY_STUB,
   AI_ASSISTANT_LLM_RUNTIME_GROOVY_STUB,
   AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB,
   AI_ASSISTANT_USER_TOOL_GROOVY_STUB,
+  AI_ASSISTANT_PROJECT_CONTEXT_GENERATION_PROMPT,
+  AI_ASSISTANT_PROJECT_CONTEXT_MARKDOWN_STUB,
+  AI_ASSISTANT_PROJECT_CONTEXT_STUDIO_PATH,
   aiAssistantToolPromptMarkdownStub
 } from './aiAssistantScriptStubs';
+import { copyTextToClipboard } from './aiAssistantIntentRecipesModel';
+import AiAssistantRagPolicyFields from './AiAssistantRagPolicyFields';
 import AiAssistantToolsMcpForm from './AiAssistantToolsMcpForm';
 import {
   defaultToolsPolicyFormState,
@@ -49,7 +59,15 @@ import {
   buildMcpToolsPreviewBody,
   type ToolsPolicyFormState
 } from './aiAssistantToolsMcpUiModel';
+import AiAssistantMarkdownEditor from './AiAssistantMarkdownEditor';
 import AiAssistantStudioCodeEditor, { inferStudioSandboxEditorLanguage } from './AiAssistantStudioCodeEditor';
+import {
+  appendRegistryTool,
+  hintsFromMultiline,
+  hintsMultiline,
+  updateRegistryTool,
+  type UserToolRegistryRow
+} from './aiAssistantUserToolsRegistry';
 import {
   fetchAiAssistantPromptDetail,
   fetchAiAssistantScriptsIndex,
@@ -61,6 +79,7 @@ import {
   TOOLS_JSON_SANDBOX_PATH,
   type AiAssistantScriptsIndexResponse,
   type AiAssistantScriptsIndexItem,
+  type AiAssistantScriptsProjectContextRow,
   type AiAssistantScriptsIndexTool,
   type AiAssistantScriptsToolPromptOverrideRow,
   type AiAssistantMcpPreviewServer
@@ -71,8 +90,17 @@ const REGISTRY_REL = 'scripts/aiassistant/user-tools/registry.json';
 const TOOLS_JSON_REL = 'scripts/aiassistant/config/tools.json';
 
 /** When embedded in Project Tools tabs, show only one vertical slice of this screen. */
-export type AiAssistantScriptsSandboxPanel = 'all' | 'prompts' | 'tools' | 'scripts';
+export type AiAssistantScriptsSandboxPanel =
+  | 'all'
+  | 'prompts'
+  | 'tools'
+  | 'mcp'
+  | 'llms'
+  | 'imagegen'
+  /** @deprecated Prefer {@link llms} and {@link imagegen} tabs. */
+  | 'scripts';
 
+/** Best-effort JSON parse for MCP preview payloads; returns null on failure. */
 function safeJsonParse(text: string): unknown | null {
   try {
     return JSON.parse(text);
@@ -86,6 +114,7 @@ export interface AiAssistantScriptsSandboxConfigurationProps {
   panel?: AiAssistantScriptsSandboxPanel;
 }
 
+/** True when at least one MCP preview server returned a non-empty tool list. */
 function mcpPreviewHasPickableTools(servers: AiAssistantMcpPreviewServer[]): boolean {
   return servers.some((s) => s.ok && s.tools.length > 0);
 }
@@ -93,10 +122,14 @@ function mcpPreviewHasPickableTools(servers: AiAssistantMcpPreviewServer[]): boo
 export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistantScriptsSandboxConfigurationProps) {
   const panel = props.panel ?? 'all';
   const showPrompts = panel === 'all' || panel === 'prompts';
-  const showTools = panel === 'all' || panel === 'tools';
-  const showScripts = panel === 'all' || panel === 'scripts';
-  /** Tools-only tab: hide the raw registry JSON editor; the table + Add tool + Open in editor are enough for most authors. */
-  const showRegistryJsonEditor = panel !== 'tools';
+  const showToolsBuiltIn = panel === 'all' || panel === 'tools';
+  const showToolsUser = panel === 'all' || panel === 'tools';
+  const showMcp = panel === 'all' || panel === 'mcp';
+  const showLlms = panel === 'all' || panel === 'llms' || panel === 'scripts';
+  const showImageGen = panel === 'all' || panel === 'imagegen' || panel === 'scripts';
+  const showToolsPolicy = showToolsBuiltIn || showMcp;
+  /** Tools tab: hide the raw registry JSON editor; the table + Add tool + Open in editor are enough for most authors. */
+  const showRegistryJsonEditor = panel === 'all';
 
   const siteId = useActiveSiteId() ?? '';
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -128,12 +161,33 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
   const [editorStudioPath, setEditorStudioPath] = useState('');
   const [editorBody, setEditorBody] = useState('');
   const [editorStub, setEditorStub] = useState('');
+  const [projectContextCopyHint, setProjectContextCopyHint] = useState<string | null>(null);
+  const projectContextCopyHintTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const [savingEditor, setSavingEditor] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (projectContextCopyHintTimerRef.current != null) {
+        window.clearTimeout(projectContextCopyHintTimerRef.current);
+      }
+    };
+  }, []);
 
   const [addOpen, setAddOpen] = useState<'imagegen' | 'llm' | 'tool' | null>(null);
   const [addId, setAddId] = useState('');
   const [addScript, setAddScript] = useState('');
   const [addDesc, setAddDesc] = useState('');
+  const [addMatchHints, setAddMatchHints] = useState('');
+  const [addDontMatchHints, setAddDontMatchHints] = useState('');
+  const [addPriority, setAddPriority] = useState('');
+
+  const [toolMetaOpen, setToolMetaOpen] = useState(false);
+  const [toolMetaId, setToolMetaId] = useState('');
+  const [toolMetaDesc, setToolMetaDesc] = useState('');
+  const [toolMetaMatchHints, setToolMetaMatchHints] = useState('');
+  const [toolMetaDontMatchHints, setToolMetaDontMatchHints] = useState('');
+  const [toolMetaPriority, setToolMetaPriority] = useState('');
+  const [savingToolMeta, setSavingToolMeta] = useState(false);
 
   const [promptReadOpen, setPromptReadOpen] = useState(false);
   const [promptReadKey, setPromptReadKey] = useState<string | null>(null);
@@ -173,7 +227,7 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
         const t = (data.registryText ?? '').trim();
         setRegistryDraft(t || AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB);
       }
-      if (!toolsPolicyDirtyRef.current && showTools) {
+      if (!toolsPolicyDirtyRef.current && showToolsPolicy) {
         try {
           const text = await fetchOptionalStudioSandboxUtf8(siteId, TOOLS_JSON_SANDBOX_PATH);
           const parsed = parseToolsPolicyFromJsonText(text.trim() ? text : '');
@@ -193,7 +247,7 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
     } finally {
       setLoading(false);
     }
-  }, [siteId, showTools]);
+  }, [siteId, showToolsPolicy]);
 
   useEffect(() => {
     void reload();
@@ -207,6 +261,10 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
   const tools = useMemo(() => (index?.tools ?? []) as AiAssistantScriptsIndexTool[], [index]);
   const imageGens = useMemo(() => (index?.imageGenerators ?? []) as AiAssistantScriptsIndexItem[], [index]);
   const llms = useMemo(() => (index?.llmScripts ?? []) as AiAssistantScriptsIndexItem[], [index]);
+  const projectContext = useMemo(
+    () => index?.projectContext as AiAssistantScriptsProjectContextRow | undefined,
+    [index]
+  );
   const toolPromptOverrides = useMemo(
     () => (index?.toolPromptOverrides ?? []) as AiAssistantScriptsToolPromptOverrideRow[],
     [index]
@@ -433,6 +491,29 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
     );
   };
 
+  const openProjectContextEditor = () => {
+    void loadFileForEditor('Project context', AI_ASSISTANT_PROJECT_CONTEXT_STUDIO_PATH, AI_ASSISTANT_PROJECT_CONTEXT_MARKDOWN_STUB);
+  };
+
+  const copyProjectContextGenerationPrompt = async () => {
+    const ok = await copyTextToClipboard(AI_ASSISTANT_PROJECT_CONTEXT_GENERATION_PROMPT);
+    setProjectContextCopyHint(ok ? 'Copied prompt to clipboard' : 'Could not copy — select the text below and copy manually');
+    if (projectContextCopyHintTimerRef.current != null) {
+      window.clearTimeout(projectContextCopyHintTimerRef.current);
+    }
+    projectContextCopyHintTimerRef.current = window.setTimeout(() => {
+      setProjectContextCopyHint(null);
+      projectContextCopyHintTimerRef.current = null;
+    }, 2500);
+  };
+
+  const removeProjectContext = () => {
+    void deleteRepoFile(
+      `/config/studio${AI_ASSISTANT_PROJECT_CONTEXT_STUDIO_PATH}`,
+      'Remove project context for this site? AI Assistant will stop injecting site-authoring facts until you add the file again.'
+    );
+  };
+
   const openToolPromptOverride = (key: string) => {
     const sp = `/scripts/aiassistant/prompts/${key}.md`;
     void loadFileForEditor(`Tool prompt: ${key}`, sp, aiAssistantToolPromptMarkdownStub(key));
@@ -496,6 +577,59 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
     }
   };
 
+  /** Opens the registry metadata dialog for routing hints and description (not Groovy source). */
+  const openToolMetadataEditor = (t: AiAssistantScriptsIndexTool) => {
+    setToolMetaId(t.id);
+    setToolMetaDesc(t.description ?? '');
+    setToolMetaMatchHints(hintsMultiline(t.matchHints));
+    setToolMetaDontMatchHints(hintsMultiline(t.dontMatchHints));
+    setToolMetaPriority(t.priority != null && t.priority > 0 ? String(t.priority) : '');
+    setToolMetaOpen(true);
+  };
+
+  /** Closes the registry metadata dialog without persisting. */
+  const closeToolMetadataEditor = () => {
+    setToolMetaOpen(false);
+    setToolMetaId('');
+  };
+
+  /** Persists registry description, matchHints, dontMatchHints, and priority for the open tool id. */
+  const saveToolMetadata = async () => {
+    if (!siteId || !toolMetaId) return;
+    setLoadError(null);
+    setSavingToolMeta(true);
+    try {
+      const raw = registryDraft.trim() || AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB;
+      let priority = 0;
+      const pr = toolMetaPriority.trim();
+      if (pr) {
+        const n = Number.parseInt(pr, 10);
+        if (!Number.isFinite(n)) {
+          setLoadError('Priority must be a whole number (0 = default).');
+          return;
+        }
+        priority = n;
+      }
+      const nextJson = updateRegistryTool(raw, toolMetaId, {
+        description: toolMetaDesc.trim(),
+        matchHints: hintsFromMultiline(toolMetaMatchHints),
+        dontMatchHints: hintsFromMultiline(toolMetaDontMatchHints),
+        priority
+      });
+      await firstValueFrom(writeConfiguration(siteId, REGISTRY_REL, 'studio', nextJson));
+      setRegistryDraft(nextJson);
+      setRegistryDirty(false);
+      await postAiAssistantScriptsMutate(siteId, { action: 'refreshSync' }).catch(() => {});
+      closeToolMetadataEditor();
+      await reload();
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingToolMeta(false);
+    }
+  };
+
+  /** Creates a new user-tool registry row and stub Groovy script, then refreshes the tools index. */
   const submitAddTool = async () => {
     if (!siteId || addOpen !== 'tool') return;
     const id = addId.trim();
@@ -511,19 +645,25 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
     setLoadError(null);
     try {
       const raw = registryDraft.trim() || AI_ASSISTANT_USER_TOOLS_REGISTRY_STUB;
-      const parsed = safeJsonParse(raw);
-      let nextJson: string;
-      if (Array.isArray(parsed)) {
-        nextJson = JSON.stringify([...parsed, { id, script, description: addDesc.trim() }], null, 2);
-      } else if (parsed && typeof parsed === 'object') {
-        const o = { ...(parsed as Record<string, unknown>) };
-        const toolsArr = Array.isArray(o.tools) ? [...(o.tools as unknown[])] : [];
-        toolsArr.push({ id, script, description: addDesc.trim() });
-        o.tools = toolsArr;
-        nextJson = JSON.stringify(o, null, 2);
-      } else {
-        nextJson = JSON.stringify({ tools: [{ id, script, description: addDesc.trim() }] }, null, 2);
+      let priority = 0;
+      const pr = addPriority.trim();
+      if (pr) {
+        const n = Number.parseInt(pr, 10);
+        if (!Number.isFinite(n)) {
+          setLoadError('Priority must be a whole number (0 = default).');
+          return;
+        }
+        priority = n;
       }
+      const row: UserToolRegistryRow = {
+        id,
+        script,
+        description: addDesc.trim(),
+        matchHints: hintsFromMultiline(addMatchHints),
+        dontMatchHints: hintsFromMultiline(addDontMatchHints),
+        priority
+      };
+      const nextJson = appendRegistryTool(raw, row);
       await firstValueFrom(writeConfiguration(siteId, REGISTRY_REL, 'studio', nextJson));
       setRegistryDraft(nextJson);
       setRegistryDirty(false);
@@ -535,6 +675,9 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
       setAddId('');
       setAddScript('');
       setAddDesc('');
+      setAddMatchHints('');
+      setAddDontMatchHints('');
+      setAddPriority('');
       await reload();
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e));
@@ -548,18 +691,38 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
 
   const pageTitle =
     panel === 'prompts'
-      ? 'Tool prompt overrides'
+      ? 'Context and prompts'
       : panel === 'tools'
-        ? 'Tools and MCP'
-        : panel === 'scripts'
-          ? 'Script backends'
-          : 'AI Assistant Scripts';
+        ? 'Tools'
+        : panel === 'mcp'
+          ? 'MCP'
+          : panel === 'llms'
+            ? 'LLMs'
+            : panel === 'imagegen'
+              ? 'Image generators'
+              : panel === 'scripts'
+                ? 'Script backends'
+                : 'AI Assistant Scripts';
 
   const pageIntro =
     panel === 'prompts' ? (
       <Typography variant="body2" color="text.secondary" paragraph>
-        Markdown under <code>scripts/aiassistant/prompts/&lt;KEY&gt;.md</code> overrides built-in tool prompt text (see
-        ToolPromptsLoader). Empty files open with a working stub.
+        <strong>Project context</strong> is appended to every chat turn when non-empty. Per-key markdown under{' '}
+        <code>scripts/aiassistant/prompts/&lt;KEY&gt;.md</code> overrides built-in tool prompt text (see ToolPromptsLoader).
+      </Typography>
+    ) : panel === 'llms' ? (
+      <Typography variant="body2" color="text.secondary" paragraph>
+        Site Groovy backends under <code>config/studio/scripts/aiassistant/llm/&lt;id&gt;/runtime.groovy</code> (or{' '}
+        <code>llm.groovy</code>). Reference agents with <code>&lt;llm&gt;script:&lt;id&gt;&lt;/llm&gt;</code> in{' '}
+        <strong>Agents</strong>. Use <strong>Add script LLM</strong> to create a folder and starter script in this site
+        sandbox.
+      </Typography>
+    ) : panel === 'imagegen' ? (
+      <Typography variant="body2" color="text.secondary" paragraph>
+        Site Groovy image backends under{' '}
+        <code>config/studio/scripts/aiassistant/imagegen/&lt;id&gt;/generate.groovy</code>. Reference agents with{' '}
+        <code>imageGenerator</code> set to <code>script:&lt;id&gt;</code>. Use <strong>Add generator</strong> to create a
+        folder and starter script in this site sandbox.
       </Typography>
     ) : null;
 
@@ -583,7 +746,7 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
             <Button
               size="small"
               variant="outlined"
-              startIcon={<RefreshRounded />}
+              startIcon={loading ? <CircularProgress size={16} /> : <RefreshRounded />}
               disabled={loading}
               onClick={() => {
                 setRegistryDirty(false);
@@ -593,19 +756,59 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
             >
               Reload
             </Button>
+            {loading ? (
+              <Typography variant="body2" color="text.secondary">
+                Loading script index…
+              </Typography>
+            ) : null}
           </Stack>
 
-          {showTools ? (
+          {showToolsBuiltIn ? (
             <>
           <Typography variant="subtitle1" gutterBottom>
-            Built-In Tools and MCP (<code>{TOOLS_JSON_REL}</code>):
+            Built-in tools (<code>{TOOLS_JSON_REL}</code>):
           </Typography>
           <Typography variant="body2" color="text.secondary" paragraph>
-            Use the form below to map built-in tools and optional MCP servers. The site file remains{' '}
-            <code>scripts/aiassistant/config/tools.json</code> (written on Save). MCP tools use wire names like{' '}
-            <code>mcp_&lt;serverId&gt;_&lt;toolName&gt;</code>.
+            Allowlists and intent-recipe routing for built-in tools. Saved with the same site file as MCP settings (
+            <code>scripts/aiassistant/config/tools.json</code>).
           </Typography>
           <AiAssistantToolsMcpForm
+            sections="builtIn"
+            showRag={panel !== 'tools'}
+            value={toolsPolicy}
+            onChange={(next) => {
+              setToolsPolicy(next);
+              setToolsPolicyDirty(true);
+            }}
+          />
+          {showToolsUser ? null : (
+            <Stack direction="row" spacing={1} sx={{ mt: 2 }} flexWrap="wrap" alignItems="center">
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={savingToolsPolicy ? <CircularProgress size={16} color="inherit" /> : <SaveRounded />}
+                disabled={savingToolsPolicy || !toolsPolicyDirty}
+                onClick={() => void saveToolsPolicy()}
+              >
+                Save tools policy
+              </Button>
+            </Stack>
+          )}
+            </>
+          ) : null}
+
+          {showMcp ? (
+            <>
+          <Typography variant="subtitle1" gutterBottom>
+            MCP (<code>{TOOLS_JSON_REL}</code>):
+          </Typography>
+          <Typography variant="body2" color="text.secondary" paragraph>
+            Optional Streamable HTTP MCP servers. Wire names look like{' '}
+            <code>mcp_&lt;serverId&gt;_&lt;toolName&gt;</code>. Written to{' '}
+            <code>scripts/aiassistant/config/tools.json</code> on Save.
+          </Typography>
+          <AiAssistantToolsMcpForm
+            sections="mcp"
             value={toolsPolicy}
             onChange={(next) => {
               setToolsPolicy(next);
@@ -620,7 +823,7 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
               disabled={savingToolsPolicy || !toolsPolicyDirty}
               onClick={() => void saveToolsPolicy()}
             >
-              Save tools &amp; MCP
+              Save MCP settings
             </Button>
             <Button
               size="small"
@@ -632,16 +835,21 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
               List MCP tools
             </Button>
           </Stack>
+            </>
+          ) : null}
 
-          <Divider sx={{ my: 4 }} />
+          {showToolsBuiltIn && showMcp ? <Divider sx={{ my: 4 }} /> : null}
 
+          {showToolsUser ? (
+            <>
           <Typography variant="subtitle1" gutterBottom>
             Registry (<code>{REGISTRY_REL}</code>):
           </Typography>
           {showRegistryJsonEditor ? null : (
             <Typography variant="body2" color="text.secondary" paragraph>
-              Use <strong>Add tool</strong> and the table below to change the registry. For a raw JSON view or hand edits,
-              use <strong>Open in editor</strong>.
+              Use <strong>Add tool</strong> and <strong>Registry</strong> on each row to edit description and intent-routing
+              hints (<code>matchHints</code> / <code>dontMatchHints</code>, same as recipes). <strong>Script</strong> opens the
+              Groovy file. For raw JSON, use <strong>Open in editor</strong>.
             </Typography>
           )}
           {showRegistryJsonEditor ? (
@@ -674,15 +882,198 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
           >
             Open in editor
           </Button>
+
+          <Divider sx={{ my: 3 }} />
+
+          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+            <Typography variant="subtitle1">User tools (Groovy):</Typography>
+            <Button size="small" startIcon={<AddRounded />} onClick={() => { setAddDialogFullscreen(false); setAddOpen('tool'); }}>
+              Add tool
+            </Button>
+          </Stack>
+          <Table size="small" sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
+            <TableHead>
+              <TableRow>
+                <TableCell>Id</TableCell>
+                <TableCell>Script</TableCell>
+                <TableCell>Description</TableCell>
+                <TableCell>Routing hints</TableCell>
+                <TableCell width={100} align="center">
+                  Enabled
+                </TableCell>
+                <TableCell align="right">Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {tools.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6}>
+                    <Typography variant="body2" color="text.secondary">
+                      No tools in registry (or registry missing).
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                tools.map((t) => (
+                  <TableRow key={t.id}>
+                    <TableCell>{t.id}</TableCell>
+                    <TableCell>
+                      <code>{t.script}</code>
+                    </TableCell>
+                    <TableCell sx={{ maxWidth: 280 }}>{t.description || '—'}</TableCell>
+                    <TableCell>
+                      {(t.matchHints?.length ?? 0) > 0 || (t.dontMatchHints?.length ?? 0) > 0 ? (
+                        <Typography variant="body2" component="span">
+                          {t.matchHints?.length ?? 0} match
+                          {(t.dontMatchHints?.length ?? 0) > 0 ? ` · ${t.dontMatchHints?.length} don’t` : ''}
+                        </Typography>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">
+                          —
+                        </Typography>
+                      )}
+                    </TableCell>
+                    <TableCell align="center">
+                      <Switch
+                        size="small"
+                        checked={isUserToolEnabled(toolsPolicy, t.id)}
+                        onChange={(_, checked) => {
+                          setToolsPolicy((prev) => setUserToolEnabled(prev, t.id, checked));
+                          setToolsPolicyDirty(true);
+                        }}
+                        inputProps={{ 'aria-label': `Enable user tool ${t.id}` }}
+                      />
+                    </TableCell>
+                    <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                      <Button size="small" onClick={() => openToolMetadataEditor(t)}>
+                        Registry
+                      </Button>
+                      <Button
+                        size="small"
+                        startIcon={<EditRounded />}
+                        onClick={() => void loadFileForEditor(`Tool ${t.id}`, t.studioPath, AI_ASSISTANT_USER_TOOL_GROOVY_STUB)}
+                      >
+                        Script
+                      </Button>
+                      <Button size="small" color="error" startIcon={<DeleteOutlineRounded />} onClick={() => void removeUserTool(t.id)}>
+                        Remove
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+
+          <Stack direction="row" spacing={1} sx={{ mt: 2 }} flexWrap="wrap" alignItems="center">
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={savingToolsPolicy ? <CircularProgress size={16} color="inherit" /> : <SaveRounded />}
+              disabled={savingToolsPolicy || !toolsPolicyDirty}
+              onClick={() => void saveToolsPolicy()}
+            >
+              Save tools policy
+            </Button>
+          </Stack>
             </>
           ) : null}
 
-          {showTools && showPrompts ? <Divider sx={{ my: 4 }} /> : null}
+          {panel === 'tools' && showToolsBuiltIn ? (
+            <>
+              <Divider sx={{ my: 4 }} />
+              <AiAssistantRagPolicyFields
+                pluginRag={toolsPolicy.pluginRag}
+                agentSkillsRag={toolsPolicy.agentSkillsRag}
+                onPluginRagChange={(pluginRag) => {
+                  setToolsPolicy((prev) => ({ ...prev, pluginRag }));
+                  setToolsPolicyDirty(true);
+                }}
+                onAgentSkillsRagChange={(agentSkillsRag) => {
+                  setToolsPolicy((prev) => ({ ...prev, agentSkillsRag }));
+                  setToolsPolicyDirty(true);
+                }}
+              />
+            </>
+          ) : null}
+
+          {(showToolsBuiltIn || showToolsUser) && showPrompts ? <Divider sx={{ my: 4 }} /> : null}
 
           {showPrompts ? (
             <>
           <Typography variant="subtitle1" gutterBottom>
-            Tool Prompt Overrides (<code>scripts/aiassistant/prompts/</code>):
+            Project context
+          </Typography>
+          <Typography variant="body2" color="text.secondary" paragraph>
+            Improve your agents&apos; ability to understand this site with project-specific details. Non-empty markdown
+            at <code>scripts/aiassistant/context/site-authoring.md</code> is injected on every orchestration turn
+            (labeled Studio project context).
+          </Typography>
+          <Stack direction="row" spacing={1} sx={{ mb: 2 }} flexWrap="wrap" alignItems="center">
+            <Typography variant="body2" color="text.secondary">
+              {projectContext?.hasContent
+                ? `Configured (${projectContext.byteLength} bytes)`
+                : 'Not configured — built-in tool prompts only'}
+            </Typography>
+            <Button size="small" startIcon={<EditRounded />} onClick={() => openProjectContextEditor()}>
+              Edit
+            </Button>
+            <Button
+              size="small"
+              color="error"
+              startIcon={<DeleteOutlineRounded />}
+              disabled={!projectContext?.hasContent}
+              onClick={() => removeProjectContext()}
+            >
+              Remove
+            </Button>
+          </Stack>
+          <Typography variant="body2" color="text.secondary" paragraph>
+            Use the prompt below (or similar) in an agent to analyze this site and draft context for the editor.
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75, fontWeight: 600 }}>
+            Example prompt
+          </Typography>
+          <Paper
+            elevation={0}
+            sx={(theme) => ({
+              position: 'relative',
+              mb: projectContextCopyHint ? 0.5 : 3,
+              px: 1.5,
+              py: 1.25,
+              pr: 4.5,
+              borderRadius: 1.5,
+              border: 1,
+              borderColor: 'divider',
+              bgcolor: theme.palette.mode === 'dark' ? theme.palette.grey[900] : theme.palette.grey[50]
+            })}
+          >
+            <Tooltip title="Copy prompt">
+              <IconButton
+                size="small"
+                aria-label="Copy example prompt"
+                onClick={() => void copyProjectContextGenerationPrompt()}
+                sx={{ position: 'absolute', top: 4, right: 4 }}
+              >
+                <ContentCopyRounded fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Typography
+              variant="body2"
+              component="div"
+              sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.55, fontSize: '0.8125rem' }}
+            >
+              {AI_ASSISTANT_PROJECT_CONTEXT_GENERATION_PROMPT}
+            </Typography>
+          </Paper>
+          {projectContextCopyHint ? (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 3 }}>
+              {projectContextCopyHint}
+            </Typography>
+          ) : null}
+
+          <Typography variant="subtitle1" gutterBottom>
+            Tool prompt overrides (<code>scripts/aiassistant/prompts/</code>):
           </Typography>
           <Typography variant="body2" color="text.secondary" paragraph>
             Non-empty markdown for a key replaces the plugin default (see ToolPromptsLoader). Remove the file to use the
@@ -754,64 +1145,14 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
             </>
           ) : null}
 
-          {showPrompts && showTools ? <Divider sx={{ my: 4 }} /> : null}
+          {showPrompts && (showToolsBuiltIn || showToolsUser) ? <Divider sx={{ my: 4 }} /> : null}
 
-          {showTools ? (
+          {(showToolsBuiltIn || showToolsUser) && (showLlms || showImageGen) ? <Divider sx={{ my: 4 }} /> : null}
+
+          {showImageGen ? (
             <>
           <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
-            <Typography variant="subtitle1">User Tools (Registry + Groovy):</Typography>
-            <Button size="small" startIcon={<AddRounded />} onClick={() => { setAddDialogFullscreen(false); setAddOpen('tool'); }}>
-              Add tool
-            </Button>
-          </Stack>
-          <Table size="small" sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
-            <TableHead>
-              <TableRow>
-                <TableCell>Id</TableCell>
-                <TableCell>Script</TableCell>
-                <TableCell>Description</TableCell>
-                <TableCell align="right">Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {tools.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={4}>
-                    <Typography variant="body2" color="text.secondary">
-                      No tools in registry (or registry missing).
-                    </Typography>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                tools.map((t) => (
-                  <TableRow key={t.id}>
-                    <TableCell>{t.id}</TableCell>
-                    <TableCell>
-                      <code>{t.script}</code>
-                    </TableCell>
-                    <TableCell>{t.description}</TableCell>
-                    <TableCell align="right">
-                      <Button size="small" startIcon={<EditRounded />} onClick={() => void loadFileForEditor(`Tool ${t.id}`, t.studioPath, AI_ASSISTANT_USER_TOOL_GROOVY_STUB)}>
-                        Edit
-                      </Button>
-                      <Button size="small" color="error" startIcon={<DeleteOutlineRounded />} onClick={() => void removeUserTool(t.id)}>
-                        Remove
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-            </>
-          ) : null}
-
-          {showTools && showScripts ? <Divider sx={{ my: 4 }} /> : null}
-
-          {showScripts ? (
-            <>
-          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
-            <Typography variant="subtitle1">Script Image Generators:</Typography>
+            <Typography variant="subtitle1">Script image generators:</Typography>
             <Button size="small" startIcon={<AddRounded />} onClick={() => { setAddDialogFullscreen(false); setAddOpen('imagegen'); }}>
               Add generator
             </Button>
@@ -869,9 +1210,13 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
               )}
             </TableBody>
           </Table>
+            </>
+          ) : null}
 
-          <Divider sx={{ my: 4 }} />
+          {showLlms && showImageGen ? <Divider sx={{ my: 4 }} /> : null}
 
+          {showLlms ? (
+            <>
           <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
             <Typography variant="subtitle1">Script LLMs:</Typography>
             <Button size="small" startIcon={<AddRounded />} onClick={() => { setAddDialogFullscreen(false); setAddOpen('llm'); }}>
@@ -1007,14 +1352,24 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
                 <code>{editorStudioPath}</code>
               </Typography>
               <Box sx={{ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', mb: 1 }}>
-                <AiAssistantStudioCodeEditor
-                  key={editorStudioPath}
-                  language={inferStudioSandboxEditorLanguage(editorStudioPath)}
-                  value={editorBody}
-                  onChange={(v) => setEditorBody(v)}
-                  flexFill
-                  minHeightPx={400}
-                />
+                {inferStudioSandboxEditorLanguage(editorStudioPath) === 'markdown' ? (
+                  <AiAssistantMarkdownEditor
+                    key={editorStudioPath}
+                    value={editorBody}
+                    onChange={(v) => setEditorBody(v)}
+                    flexFill
+                    minHeightPx={400}
+                  />
+                ) : (
+                  <AiAssistantStudioCodeEditor
+                    key={editorStudioPath}
+                    language={inferStudioSandboxEditorLanguage(editorStudioPath)}
+                    value={editorBody}
+                    onChange={(v) => setEditorBody(v)}
+                    flexFill
+                    minHeightPx={400}
+                  />
+                )}
               </Box>
               <Button size="small" sx={{ mt: 0, flexShrink: 0, alignSelf: 'flex-start' }} onClick={() => setEditorBody(editorStub)}>
                 Reset to stub
@@ -1119,8 +1474,7 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
                     {promptReadDefaultTrunc ? ' Truncated in this response for size.' : ''}
                   </Typography>
                   <Box sx={{ mb: 2 }}>
-                    <AiAssistantStudioCodeEditor
-                      language="markdown"
+                    <AiAssistantMarkdownEditor
                       readOnly
                       value={promptReadDefault}
                       minHeightPx={promptReadFullscreen ? 360 : 280}
@@ -1131,8 +1485,7 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
                     site. {promptReadSiteEffective ? 'Override is active.' : 'Empty or whitespace only — default applies.'}{' '}
                     {promptReadSiteTrunc ? 'Truncated in this response for size.' : ''}
                   </Typography>
-                  <AiAssistantStudioCodeEditor
-                    language="markdown"
+                  <AiAssistantMarkdownEditor
                     readOnly
                     value={promptReadSite}
                     minHeightPx={promptReadFullscreen ? 300 : 240}
@@ -1250,6 +1603,38 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
                     fullWidth
                     size="small"
                     margin="normal"
+                    helperText="Shown to the model when choosing InvokeSiteUserTool."
+                  />
+                  <TextField
+                    label="Match hints"
+                    value={addMatchHints}
+                    onChange={(ev) => setAddMatchHints(ev.target.value)}
+                    fullWidth
+                    size="small"
+                    margin="normal"
+                    multiline
+                    minRows={3}
+                    helperText="One phrase per line. Author-visible text containing any phrase can match this tool in intent routing."
+                  />
+                  <TextField
+                    label="Don’t match hints"
+                    value={addDontMatchHints}
+                    onChange={(ev) => setAddDontMatchHints(ev.target.value)}
+                    fullWidth
+                    size="small"
+                    margin="normal"
+                    multiline
+                    minRows={2}
+                    helperText="One phrase per line. Excludes this tool when any phrase appears in the author message."
+                  />
+                  <TextField
+                    label="Priority (optional)"
+                    value={addPriority}
+                    onChange={(ev) => setAddPriority(ev.target.value)}
+                    fullWidth
+                    size="small"
+                    margin="normal"
+                    helperText="Higher wins when several tools match (0 = default)."
                   />
                 </>
               ) : null}
@@ -1265,6 +1650,68 @@ export default function AiAssistantScriptsSandboxConfiguration(props: AiAssistan
               </Button>
               <Button variant="contained" onClick={() => void runAddSubmit()}>
                 Create
+              </Button>
+            </DialogActions>
+          </Dialog>
+
+          <Dialog open={toolMetaOpen} onClose={() => !savingToolMeta && closeToolMetadataEditor()} maxWidth="sm" fullWidth>
+            <DialogTitle>User tool registry — {toolMetaId}</DialogTitle>
+            <DialogContent dividers>
+              <Typography variant="body2" color="text.secondary" paragraph>
+                Updates <code>registry.json</code> only (not the Groovy script). Hint matching uses the same rules as intent
+                recipe <code>matchHints</code> / <code>dontMatchHints</code>.
+              </Typography>
+              <TextField
+                label="Description"
+                value={toolMetaDesc}
+                onChange={(ev) => setToolMetaDesc(ev.target.value)}
+                fullWidth
+                size="small"
+                margin="normal"
+              />
+              <TextField
+                label="Match hints"
+                value={toolMetaMatchHints}
+                onChange={(ev) => setToolMetaMatchHints(ev.target.value)}
+                fullWidth
+                size="small"
+                margin="normal"
+                multiline
+                minRows={4}
+                helperText="One phrase per line."
+              />
+              <TextField
+                label="Don’t match hints"
+                value={toolMetaDontMatchHints}
+                onChange={(ev) => setToolMetaDontMatchHints(ev.target.value)}
+                fullWidth
+                size="small"
+                margin="normal"
+                multiline
+                minRows={3}
+                helperText="One phrase per line."
+              />
+              <TextField
+                label="Priority (optional)"
+                value={toolMetaPriority}
+                onChange={(ev) => setToolMetaPriority(ev.target.value)}
+                fullWidth
+                size="small"
+                margin="normal"
+                helperText="Higher wins when several tools match (0 = default)."
+              />
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={closeToolMetadataEditor} disabled={savingToolMeta}>
+                Cancel
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={savingToolMeta ? <CircularProgress size={16} color="inherit" /> : <SaveRounded />}
+                disabled={savingToolMeta}
+                onClick={() => void saveToolMetadata()}
+              >
+                Save registry
               </Button>
             </DialogActions>
           </Dialog>

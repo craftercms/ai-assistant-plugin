@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import AiAssistantChat from './AiAssistantChat';
-import { agentStableKey, type AgentConfig } from './agentConfig';
+import { agentSkillsForRequest, agentStableKey, type AgentConfig } from './agentConfig';
 import { getAgentIcon } from './agentIcon';
 import type { AuthoringFormContextSnapshot } from './aiAssistantFormAuthoringTypes';
 
@@ -45,7 +45,7 @@ function writeLastOpenAgentKey(key: string): void {
  * do not expose Accordion on craftercms.libs.MaterialUI, which previously broke the panel entirely.
  *
  * Contract: one row per enabled agent; exactly one expanded; AiAssistantChat only inside the expanded section.
- * Legacy passes visibleAgents only (see control/ai-assistant/main.js).
+ * Form control may pass **visibleAgents** only (pre-filtered list; see `control/ai-assistant/main.js`).
  *
  * Do not remove or redesign this pattern without explicit written approval from the project maintainer.
  */
@@ -207,22 +207,16 @@ export default function AiAssistantFormControlPanel(props: AiAssistantFormContro
                     llmModel={agent.llmModel}
                     imageModel={agent.imageModel}
                     imageGenerator={agent.imageGenerator}
-                    openAiApiKey={agent.openAiApiKey}
+                    llmApiKey={agent.llmApiKey}
                     enableTools={agent.enableTools}
                     enabledBuiltInTools={agent.enabledBuiltInTools}
-                    expertSkills={agent.expertSkills}
+                    skills={agentSkillsForRequest(agent)}
                     configPrompts={agent.prompts}
                     embedTarget="default"
                     getAuthoringFormContext={getAuthoringFormContext}
                     formEngineClientJsonApply
                     {...(agent.translateBatchConcurrency != null
                       ? { translateBatchConcurrency: agent.translateBatchConcurrency }
-                      : {})}
-                    {...(agent.crafterQBearerTokenEnv?.trim()
-                      ? { crafterQBearerTokenEnv: agent.crafterQBearerTokenEnv.trim() }
-                      : {})}
-                    {...(agent.crafterQBearerToken?.trim()
-                      ? { crafterQBearerToken: agent.crafterQBearerToken.trim() }
                       : {})}
                   />
                 </Box>

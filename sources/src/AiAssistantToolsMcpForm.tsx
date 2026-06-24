@@ -1,13 +1,19 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import useActiveSiteId from '@craftercms/studio-ui/hooks/useActiveSiteId';
 import AddRounded from '@mui/icons-material/AddRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import {
   Autocomplete,
   Button,
   Chip,
+  FormControl,
   FormControlLabel,
   IconButton,
+  InputLabel,
   Link,
+  MenuItem,
   Paper,
+  Select,
   Stack,
   Switch,
   Table,
@@ -18,20 +24,52 @@ import {
   TextField,
   Typography
 } from '@mui/material';
+import { fetchAiAssistantSecretsIndex } from './aiAssistantSecretsApi';
+import { customSecretKeysFromSecretsIndex } from './aiAssistantSecretsModel';
+import { effectiveStudioSiteId } from './aiAssistantStudioUiConfig';
 import type { McpServerFormRow, ToolsPolicyFormState } from './aiAssistantToolsMcpUiModel';
-import { BUILTIN_TOOL_NAME_OPTIONS } from './aiAssistantToolsMcpUiModel';
+import AiAssistantSiteOrchestrationToolsForm from './AiAssistantSiteOrchestrationToolsForm';
 
 function emptyMcpServerRow(): McpServerFormRow {
-  return { id: '', url: '', readTimeoutMs: '', headerPairs: [{ key: '', value: '' }] };
+  return { id: '', url: '', readTimeoutMs: '', authSecretKey: '', headerPairs: [{ key: '', value: '' }] };
 }
+
+export type AiAssistantToolsMcpFormSections = 'builtIn' | 'mcp' | 'both';
 
 export interface AiAssistantToolsMcpFormProps {
   value: ToolsPolicyFormState;
   onChange: (next: ToolsPolicyFormState) => void;
+  /** When split across Project Tools tabs, show built-in orchestration only, MCP only, or both. */
+  sections?: AiAssistantToolsMcpFormSections;
+  /** Passed through to built-in orchestration form; default true. */
+  showRag?: boolean;
 }
 
 export default function AiAssistantToolsMcpForm(props: AiAssistantToolsMcpFormProps) {
-  const { value, onChange } = props;
+  const { value, onChange, sections = 'both', showRag = true } = props;
+  const activeSite = useActiveSiteId();
+  const siteId = useMemo(() => effectiveStudioSiteId(activeSite), [activeSite]);
+  const [customSecretKeyOptions, setCustomSecretKeyOptions] = useState<string[]>([]);
+  const showBuiltIn = sections === 'builtIn' || sections === 'both';
+  const showMcp = sections === 'mcp' || sections === 'both';
+
+  const loadCustomSecretKeys = useCallback(async () => {
+    if (!siteId) {
+      setCustomSecretKeyOptions([]);
+      return;
+    }
+    try {
+      const idx = await fetchAiAssistantSecretsIndex(siteId);
+      setCustomSecretKeyOptions(customSecretKeysFromSecretsIndex(idx.customSecrets));
+    } catch {
+      setCustomSecretKeyOptions([]);
+    }
+  }, [siteId]);
+
+  useEffect(() => {
+    if (!showMcp) return;
+    void loadCustomSecretKeys();
+  }, [showMcp, loadCustomSecretKeys]);
 
   const setMcpEnabled = (mcpEnabled: boolean) => {
     onChange({ ...value, mcpEnabled });
@@ -52,54 +90,11 @@ export default function AiAssistantToolsMcpForm(props: AiAssistantToolsMcpFormPr
 
   return (
     <Stack spacing={4}>
-      <Paper variant="outlined" sx={{ p: 2.5 }}>
-        <Typography variant="subtitle2" gutterBottom>
-          Built-In CMS Tools:
-        </Typography>
-        <Typography variant="body2" color="text.secondary" paragraph>
-          Optional lists use exact wire names (see product docs). If <strong>Whitelist</strong> is non-empty, only those
-          built-ins stay; <code>InvokeSiteUserTool</code> and dynamic <code>mcp_*</code> tools still register unless you
-          disable them below or in <strong>Hide MCP tools</strong>.
-        </Typography>
-        <Stack spacing={2}>
-          <Autocomplete
-            multiple
-            freeSolo
-            options={[...BUILTIN_TOOL_NAME_OPTIONS]}
-            value={value.disabledBuiltInTools}
-            onChange={(_, v) => onChange({ ...value, disabledBuiltInTools: v.map(String) })}
-            renderTags={(tagValue, getTagProps) =>
-              tagValue.map((option, index) => (
-                <Chip variant="outlined" label={option} size="small" {...getTagProps({ index })} key={`${option}-${index}`} />
-              ))
-            }
-            renderInput={(params) => (
-              <TextField {...params} label="Hide built-in tools" placeholder="e.g. GenerateImage" size="small" />
-            )}
-          />
-          <Autocomplete
-            multiple
-            freeSolo
-            options={[...BUILTIN_TOOL_NAME_OPTIONS]}
-            value={value.enabledBuiltInTools}
-            onChange={(_, v) => onChange({ ...value, enabledBuiltInTools: v.map(String) })}
-            renderTags={(tagValue, getTagProps) =>
-              tagValue.map((option, index) => (
-                <Chip variant="outlined" label={option} size="small" {...getTagProps({ index })} key={`${option}-${index}`} />
-              ))
-            }
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Whitelist built-in tools (optional)"
-                placeholder="Leave empty for no whitelist"
-                size="small"
-              />
-            )}
-          />
-        </Stack>
-      </Paper>
+      {showBuiltIn ? (
+        <AiAssistantSiteOrchestrationToolsForm value={value} onChange={onChange} showRag={showRag} />
+      ) : null}
 
+      {showMcp ? (
       <Paper variant="outlined" sx={{ p: 2.5 }}>
         <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
           <Typography variant="subtitle2">MCP (Streamable HTTP):</Typography>
@@ -167,6 +162,34 @@ export default function AiAssistantToolsMcpForm(props: AiAssistantToolsMcpFormPr
                           onChange={(e) => updateServer(si, { ...row, url: e.target.value })}
                           placeholder="https://host/…/mcp"
                         />
+                        <FormControl fullWidth size="small" sx={{ mt: 1 }}>
+                          <InputLabel id={`cq-mcp-auth-secret-${si}`}>Auth secret (custom)</InputLabel>
+                          <Select
+                            labelId={`cq-mcp-auth-secret-${si}`}
+                            label="Auth secret (custom)"
+                            value={row.authSecretKey}
+                            onChange={(e) =>
+                              updateServer(si, { ...row, authSecretKey: String(e.target.value) })
+                            }
+                          >
+                            <MenuItem value="">
+                              <em>None</em>
+                            </MenuItem>
+                            {row.authSecretKey &&
+                            !customSecretKeyOptions.includes(row.authSecretKey) ? (
+                              <MenuItem value={row.authSecretKey}>{row.authSecretKey}</MenuItem>
+                            ) : null}
+                            {customSecretKeyOptions.map((key) => (
+                              <MenuItem key={key} value={key}>
+                                {key}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                        <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                          Sets <code>Authorization: Bearer {'${secret:…}'}</code> from a custom secret in Project
+                          Tools → Secrets. LLM provider keys are not listed here.
+                        </Typography>
                         <Stack spacing={0.5} sx={{ mt: 1 }}>
                           <Typography variant="caption" color="text.secondary">
                             Optional headers
@@ -264,6 +287,7 @@ export default function AiAssistantToolsMcpForm(props: AiAssistantToolsMcpFormPr
           </>
         ) : null}
       </Paper>
+      ) : null}
     </Stack>
   );
 }

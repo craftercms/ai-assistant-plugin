@@ -1,0 +1,727 @@
+package plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.integrations
+
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
+import plugins.org.craftercms.aiassistant.studio.engine.prompt.ToolPrompts
+import plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.http.OutboundHttpPolicy
+import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiSandboxHttp
+import plugins.org.craftercms.aiassistant.studio.spi.tool.AbstractStudioAiTool
+import plugins.org.craftercms.aiassistant.studio.spi.tool.StudioAiToolContext
+import plugins.org.craftercms.aiassistant.studio.spi.tool.StudioAiToolMaintainerObservability
+import plugins.org.craftercms.aiassistant.studio.spi.tool.StudioAiToolSchemas
+
+import java.net.URI
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
+
+/**
+ * Google search via SerpAPI for open-web research. API key comes from site {@code secrets.json}
+ * ({@link SerpApiWebSearchProjectSettings#SECRET_KEY}) only — not from a process-env bypass.
+ * Site defaults and per-call overrides live in {@code tools.json} → {@code builtInToolSettings.SerpApiWebSearch}.
+ */
+class SerpApiWebSearchTool extends AbstractStudioAiTool {
+
+  private static final Logger log = LoggerFactory.getLogger(SerpApiWebSearchTool)
+  /** Per-thread Serp fetch diagnostics for maintainer session log (cleared after terminal tool-progress). */
+  private static final ThreadLocal<Map> LAST_SERP_FETCH_DIAG = new ThreadLocal<>()
+  private static final int DEFAULT_MAX_RESULTS = 10
+  /** Full SerpAPI JSON body cap (parse path); do not truncate before {@link #parseJson}. */
+  private static final int MAX_SERP_RESPONSE_CHARS = 512_000
+  /** Maintainer log / HTTP-error snippets only. */
+  private static final int MAINTAINER_RESPONSE_SNIPPET_CHARS = 400
+  private static final String USER_AGENT =
+    'Mozilla/5.0 (compatible; CrafterCMS-AI-Assistant/1.0; +https://craftercms.org)'
+
+  private static final List<String> DIAGNOSTIC_KEYS = Collections.unmodifiableList([
+    'queryOriginal', 'querySent', 'queryExpanded', 'queryRecencyOptimized', 'serpParams',
+    'httpStatus', 'fetchError', 'ssrfBlocked', 'parseError', 'serpApiError',
+    'organicResultsState', 'organicResultsRaw', 'newsResultsRaw', 'topStoriesRaw',
+    'organicResultsReturned', 'responseTruncated', 'responseSnippet', 'resultKinds'
+  ] as List)
+
+  @Override
+  String wireName() { SerpApiWebSearchProjectSettings.WIRE }
+
+  @Override
+  String description() { ToolPrompts.getDESC_SERP_API_WEB_SEARCH() }
+
+  @Override
+  String inputSchemaJson() { StudioAiToolSchemas.SERP_API_WEB_SEARCH }
+
+  @Override
+  Map maintainerObservability(String phase, Map input, Object toolResult, Throwable err) {
+    if (!StudioAiToolMaintainerObservability.enabled()) {
+      return [:]
+    }
+    Map out = new LinkedHashMap()
+    String q = input?.query?.toString()?.trim() ?: input?.q?.toString()?.trim() ?: ''
+    if (q) {
+      out.query = q
+    }
+    Map diag = LAST_SERP_FETCH_DIAG.get()
+    if (diag instanceof Map && !diag.isEmpty()) {
+      out.putAll(diag)
+    }
+    if (toolResult instanceof Map) {
+      Map tr = (Map) toolResult
+      if (tr.containsKey('ok')) {
+        out.ok = tr.ok
+      }
+      if (tr.resultCount != null) {
+        out.resultCount = tr.resultCount
+      }
+      if (tr.querySent) {
+        out.querySent = tr.querySent
+      }
+      for (String k : DIAGNOSTIC_KEYS) {
+        if (tr.containsKey(k) && tr.get(k) != null) {
+          out.put(k, tr.get(k))
+        }
+      }
+      String msg = tr.message?.toString()?.trim()
+      if (msg) {
+        out.toolMessage = msg.length() > 300 ? msg.substring(0, 297) + '…' : msg
+      }
+    }
+    if (err != null) {
+      String em = err.message ?: err.toString()
+      out.error = em.length() > 300 ? em.substring(0, 297) + '…' : em
+    }
+    if (!'start'.equals(phase)) {
+      LAST_SERP_FETCH_DIAG.set(null)
+    }
+    return out.isEmpty() ? [:] : Collections.unmodifiableMap(out)
+  }
+
+  @Override
+  Map execute(Map input, StudioAiToolContext ctx) {
+    String query = parseQuery(input)
+    Integer maxResults = parseMaxResults(input)
+    Map cfg = ctx?.aiProjectToolCfg instanceof Map ? (Map) ctx.aiProjectToolCfg : [:]
+    Map defaults = SerpApiWebSearchProjectSettings.resolveDefaults(cfg)
+    Map overrides = paramOverridesFromToolInput(input, defaults)
+    return runSearch(query, maxResults, defaults, overrides, cfg, ctx)
+  }
+
+  /**
+   * Elide query for author message.
+   * @param query Caller-supplied input.
+   * @return Text result, or empty or null when unavailable.
+   */
+  private static String elideQueryForAuthorMessage(String query) {
+    String q = (query ?: '').trim()
+    if (q.length() <= 160) {
+      return q
+    }
+    return q.substring(0, 157) + '…'
+  }
+
+  private static String elideText(String text, int max) {
+    String s = (text ?: '').trim()
+    if (!s) {
+      return ''
+    }
+    return s.length() > max ? s.substring(0, max - 1) + '…' : s
+  }
+
+  /**
+   * Parse query.
+   * @param input Caller-supplied input.
+   * @return Text result, or empty or null when unavailable.
+   */
+  private static String parseQuery(Map input) {
+    String query = input?.query?.toString()?.trim()
+    if (!query) {
+      query = input?.q?.toString()?.trim()
+    }
+    if (!query) {
+      throw new IllegalArgumentException('Missing required field: query')
+    }
+    return query
+  }
+
+  /**
+   * Parse max results.
+   * @param input Caller-supplied input.
+   * @return Integer result.
+   */
+  private static Integer parseMaxResults(Map input) {
+    if (input?.maxResults == null) {
+      return null
+    }
+    try {
+      return (input.maxResults instanceof Number) ?
+        ((Number) input.maxResults).intValue() :
+        Integer.parseInt(input.maxResults.toString().trim())
+    } catch (Throwable ignored) {
+      return null
+    }
+  }
+
+  /**
+   * Runs run search using Studio services and returns the tool payload.
+   * @return Map payload for tools or orchestration.
+   */
+  private Map runSearch(
+    String query,
+    Integer maxResultsOpt,
+    Map siteDefaults,
+    Map paramOverrides,
+    Map cfg,
+    StudioAiToolContext ctx
+  ) {
+    try {
+      return runSearchBody(query, maxResultsOpt, siteDefaults, paramOverrides, cfg, ctx)
+    } finally {
+      LAST_SERP_FETCH_DIAG.set(null)
+    }
+  }
+
+  /** SerpAPI fetch implementation; {@link #runSearch} clears {@link #LAST_SERP_FETCH_DIAG} in a finally block. */
+  private Map runSearchBody(
+    String query,
+    Integer maxResultsOpt,
+    Map siteDefaults,
+    Map paramOverrides,
+    Map cfg,
+    StudioAiToolContext ctx
+  ) {
+    Map queryDisambig = OpenWebSearchQueryDisambiguation.disambiguate(query)
+    String queryOriginal = queryDisambig.queryOriginal?.toString()?.trim() ?: query
+    String querySent = queryDisambig.querySent?.toString()?.trim() ?: query
+    boolean queryExpanded = Boolean.TRUE.equals(queryDisambig.queryExpanded)
+
+    Map paramsPreview = new LinkedHashMap<>(siteDefaults instanceof Map ? siteDefaults : [:])
+    if (paramOverrides instanceof Map) {
+      paramsPreview.putAll(paramOverrides)
+    }
+    Map recencyOpt = OpenWebSearchQueryDisambiguation.optimizeForTbsRecency(querySent, paramsPreview)
+    boolean queryRecencyOptimized = Boolean.TRUE.equals(recencyOpt.queryRecencyOptimized)
+    if (queryRecencyOptimized) {
+      querySent = recencyOpt.querySent?.toString()?.trim() ?: querySent
+      log.info(
+        'SerpApiWebSearch: stripped redundant month/year from query (tbs recency) original={} sent={}',
+        queryOriginal,
+        querySent
+      )
+    }
+
+    String apiKey = resolveApiKey(cfg, ctx)
+    if (!apiKey?.trim()) {
+      return [
+        ok         : false,
+        tool       : wireName(),
+        query      : queryOriginal,
+        querySent  : querySent,
+        message    : SerpApiWebSearchProjectSettings.missingApiKeyMessage(ctx),
+        resultCount: 0,
+        results    : []
+      ]
+    }
+    Map params = new LinkedHashMap<>(siteDefaults instanceof Map ? siteDefaults : [:])
+    if (paramOverrides instanceof Map) {
+      for (Map.Entry e : paramOverrides.entrySet()) {
+        if (e.value != null && e.value.toString().trim()) {
+          params.put(e.key.toString(), e.value)
+        }
+      }
+    }
+    int maxResults = maxResults(maxResultsOpt, params)
+    params.put('num', maxResults)
+    params.put('q', querySent)
+    params.put('api_key', apiKey.trim())
+    Map fetchDiagSeed = LAST_SERP_FETCH_DIAG.get() instanceof Map ? new LinkedHashMap((Map) LAST_SERP_FETCH_DIAG.get()) : new LinkedHashMap()
+    fetchDiagSeed.queryOriginal = queryOriginal
+    fetchDiagSeed.querySent = querySent
+    fetchDiagSeed.queryExpanded = queryExpanded
+    fetchDiagSeed.queryRecencyOptimized = queryRecencyOptimized
+    LAST_SERP_FETCH_DIAG.set(Collections.unmodifiableMap(fetchDiagSeed))
+    List<Map> results = fetchResults(params)
+    Map diag = LAST_SERP_FETCH_DIAG.get() instanceof Map ? new LinkedHashMap((Map) LAST_SERP_FETCH_DIAG.get()) : [:]
+    if (queryExpanded && results) {
+      results = results.findAll { Map row ->
+        !WebSearchResultTextUtil.skipHealthcareCmsResult(
+          row?.url?.toString(),
+          row?.title?.toString(),
+          row?.snippet?.toString()
+        )
+      }
+    }
+    if (results.isEmpty()) {
+      String displayQuery = elideQueryForAuthorMessage(queryOriginal ?: querySent)
+      String msg = formatFailureMessage(diag, displayQuery)
+      log.warn(
+        'SerpApiWebSearch no parsed results q={} sent={} serpApiError={} httpStatus={} organicRaw={} newsRaw={} topStoriesRaw={} state={} tbs={}',
+        queryOriginal,
+        querySent,
+        diag.serpApiError ?: '(none)',
+        diag.httpStatus,
+        diag.organicResultsRaw,
+        diag.newsResultsRaw,
+        diag.topStoriesRaw,
+        diag.organicResultsState ?: '(none)',
+        (diag.serpParams?.tbs ?: '')
+      )
+      return attachDiagnostics([
+        ok         : false,
+        tool       : wireName(),
+        query      : queryOriginal,
+        querySent  : querySent,
+        message    : msg,
+        serpApiError: diag.serpApiError ?: null,
+        resultCount: 0,
+        results    : []
+      ], diag)
+    }
+    LinkedHashSet<String> kinds = new LinkedHashSet<>()
+    for (Map row : results) {
+      String kind = row?.resultKind?.toString()?.trim()
+      if (kind) {
+        kinds.add(kind)
+      }
+    }
+    if (!kinds.isEmpty()) {
+      diag.resultKinds = new ArrayList<>(kinds)
+    }
+    diag.organicResultsReturned = results.size()
+    List<Map> wireResults = []
+    for (Map row : results) {
+      wireResults.add([
+        position: row.position,
+        title   : row.title,
+        url     : row.url,
+        snippet : row.snippet
+      ])
+    }
+    return attachDiagnostics([
+      ok         : true,
+      tool       : wireName(),
+      query      : queryOriginal,
+      querySent  : querySent,
+      resultCount: wireResults.size(),
+      results    : wireResults
+    ], diag)
+  }
+
+  private static Map attachDiagnostics(Map payload, Map diag) {
+    if (!(payload instanceof Map) || !(diag instanceof Map)) {
+      return payload
+    }
+    Map copy = new LinkedHashMap(payload)
+    for (String k : DIAGNOSTIC_KEYS) {
+      if (diag.containsKey(k) && diag.get(k) != null) {
+        copy.put(k, diag.get(k))
+      }
+    }
+    return copy
+  }
+
+  private static String formatFailureMessage(Map diag, String displayQuery) {
+    Map d = diag instanceof Map ? diag : [:]
+    String parseErr = d.parseError?.toString()?.trim() ?: ''
+    if (parseErr) {
+      return 'SerpAPI response could not be parsed as JSON: ' + elideText(parseErr, 120)
+    }
+    String fetchErr = d.fetchError?.toString()?.trim() ?: ''
+    if (fetchErr) {
+      return 'SerpAPI request failed (network/I/O): ' + elideText(fetchErr, 120)
+    }
+    String ssrf = d.ssrfBlocked?.toString()?.trim() ?: ''
+    if (ssrf) {
+      return 'SerpAPI blocked by outbound URL policy: ' + elideText(ssrf, 100)
+    }
+    Object httpStatus = d.httpStatus
+    if (httpStatus instanceof Number) {
+      int code = ((Number) httpStatus).intValue()
+      if (code < 200 || code >= 300) {
+        return 'SerpAPI returned HTTP ' + code + ' (not an empty Google results page).'
+      }
+    }
+    String serpErr = d.serpApiError?.toString()?.trim() ?: ''
+    if (serpErr) {
+      return 'SerpAPI error: ' + elideText(serpErr, 160)
+    }
+    String state = d.organicResultsState?.toString()?.trim() ?: ''
+    int organic = (d.organicResultsRaw instanceof Number) ? ((Number) d.organicResultsRaw).intValue() : 0
+    int news = (d.newsResultsRaw instanceof Number) ? ((Number) d.newsResultsRaw).intValue() : 0
+    int top = (d.topStoriesRaw instanceof Number) ? ((Number) d.topStoriesRaw).intValue() : 0
+    String tbs = ''
+    if (d.serpParams instanceof Map) {
+      tbs = ((Map) d.serpParams).tbs?.toString()?.trim() ?: ''
+    }
+    StringBuilder sb = new StringBuilder('No web results parsed from SerpAPI')
+    if (state) {
+      sb.append(' (organic_results_state=').append(state).append(')')
+    }
+    sb.append(' — organic=').append(organic).append(', news=').append(news).append(', top_stories=').append(top)
+    if (tbs) {
+      sb.append('; tbs=').append(tbs)
+    }
+    sb.append('. Query: ').append(displayQuery ?: '(empty query)')
+    return sb.toString()
+  }
+
+  /**
+   * Resolves api key from request and plugin context.
+   * @param cfg Caller-supplied input.
+   * @param ctx Caller-supplied input.
+   * @return Text result, or empty or null when unavailable.
+   */
+  private static String resolveApiKey(Map cfg, StudioAiToolContext ctx) {
+    if (ctx?.ops == null) {
+      return ''
+    }
+    String resolved = plugins.org.craftercms.aiassistant.studio.secrets.StudioAiAssistantSecretsService
+      .resolveSecretKey(ctx.ops, SerpApiWebSearchProjectSettings.secretKeyId(cfg))
+    String trimmed = (resolved ?: '').trim()
+    if (trimmed && !trimmed.contains('${')) {
+      return trimmed
+    }
+    return ''
+  }
+
+  /**
+   * Param overrides from tool input.
+   * @param input Caller-supplied input.
+   * @param defaults Caller-supplied input.
+   * @return Map payload for tools or orchestration.
+   */
+  private static Map paramOverridesFromToolInput(Map input, Map defaults) {
+    Map out = new LinkedHashMap<>()
+    if (!(input instanceof Map)) {
+      return out
+    }
+    Map<String, String> aliases = [
+      google_domain: 'googleDomain',
+      googleDomain : 'googleDomain'
+    ]
+    Set<String> reserved = ['query', 'q', 'maxResults', 'siteId', 'path', 'contentPath'] as Set
+    for (Map.Entry e : input.entrySet()) {
+      String key = e.key?.toString()?.trim()
+      if (!key || reserved.contains(key)) {
+        continue
+      }
+      String serpKey = aliases.get(key) ?: key
+      if (defaults.containsKey(serpKey) || knownOptionalParam(serpKey)) {
+        Object v = e.value
+        if (v != null && v.toString().trim()) {
+          out.put(serpKey, v)
+        }
+      }
+    }
+    return out
+  }
+
+  /**
+   * Known optional param.
+   * @param key Caller-supplied input.
+   * @return True when the check succeeds.
+   */
+  private static boolean knownOptionalParam(String key) {
+    return [
+      'engine', 'googleDomain', 'gl', 'hl', 'location', 'num', 'start', 'device', 'safe',
+      'tbm', 'tbs', 'nfpr', 'filter', 'lr', 'cr', 'uule'
+    ].contains(key)
+  }
+
+  /**
+   * Max results.
+   * @param toolRequested Caller-supplied input.
+   * @param params Studio or repository context for this call.
+   * @return int result.
+   */
+  private static int maxResults(Integer toolRequested, Map params) {
+    int fromTool = (toolRequested != null) ? toolRequested.intValue() : 0
+    int fromCfg = 0
+    Object n = params?.get('num')
+    if (n instanceof Number) {
+      fromCfg = ((Number) n).intValue()
+    } else if (n != null) {
+      try {
+        fromCfg = Integer.parseInt(n.toString().trim())
+      } catch (Throwable ignored) {
+        fromCfg = 0
+      }
+    }
+    int r = fromTool > 0 ? fromTool : (fromCfg > 0 ? fromCfg : DEFAULT_MAX_RESULTS)
+    return Math.min(20, Math.max(1, r))
+  }
+
+  /**
+   * Fetches results for tool use.
+   * @param params Studio or repository context for this call.
+   * @return List<Map> result.
+   */
+  private List<Map> fetchResults(Map params) {
+    Map diag = LAST_SERP_FETCH_DIAG.get() instanceof Map ?
+      new LinkedHashMap((Map) LAST_SERP_FETCH_DIAG.get()) :
+      new LinkedHashMap()
+    diag.serpParams = redactSerpParamsForMaintainer(params)
+    LAST_SERP_FETCH_DIAG.set(Collections.unmodifiableMap(diag))
+
+    int maxResults = maxResults(null, params)
+    StringBuilder qs = new StringBuilder('https://serpapi.com/search.json?')
+    boolean first = true
+    for (Map.Entry<String, String> e : queryParams(params).entrySet()) {
+      if (!first) {
+        qs.append('&')
+      }
+      first = false
+      qs.append(URLEncoder.encode(e.key, StandardCharsets.UTF_8.name()))
+        .append('=')
+        .append(URLEncoder.encode(e.value, StandardCharsets.UTF_8.name()))
+    }
+    URI uri = new URI(qs.toString())
+    String hopErr = OutboundHttpPolicy.validateUrl(uri.toString())
+    if (hopErr) {
+      diag.ssrfBlocked = hopErr
+      LAST_SERP_FETCH_DIAG.set(Collections.unmodifiableMap(diag))
+      log.warn('SerpApiWebSearch blocked by SSRF policy: {}', hopErr)
+      return []
+    }
+    try {
+      def ex = StudioAiSandboxHttp.getText(uri, [
+        userAgent       : USER_AGENT,
+        accept          : 'application/json',
+        connectTimeoutMs: 15_000,
+        readTimeoutMs   : 60_000,
+        maxRedirects    : 5,
+        maxBodyChars    : MAX_SERP_RESPONSE_CHARS,
+        ssrfCheck       : false
+      ])
+      if (ex.errorMessage) {
+        diag.fetchError = ex.errorMessage
+        LAST_SERP_FETCH_DIAG.set(Collections.unmodifiableMap(diag))
+        log.warn('SerpApiWebSearch I/O failed q={}: {}', params.q, ex.errorMessage)
+        return []
+      }
+      int status = ex.statusCode
+      diag.httpStatus = status
+      if (status < 200 || status >= 300) {
+        if (ex.bodyText) {
+          diag.responseSnippet = maintainerSnippet(ex.bodyText)
+        }
+        LAST_SERP_FETCH_DIAG.set(Collections.unmodifiableMap(diag))
+        log.warn('SerpApiWebSearch HTTP {} q={}', status, params.q)
+        return []
+      }
+      String body = ex.bodyText ?: ''
+      if (body.length() >= MAX_SERP_RESPONSE_CHARS || ex.truncated) {
+        diag.responseTruncated = true
+      }
+      Map parseMeta = [:]
+      List<Map> hits = parseJson(body, maxResults, parseMeta)
+      mergeParseMetaIntoDiag(diag, parseMeta)
+      diag.organicResultsReturned = hits.size()
+      LAST_SERP_FETCH_DIAG.set(Collections.unmodifiableMap(diag))
+      return hits
+    } catch (Throwable t) {
+      diag.fetchError = (t.message ?: t.toString())
+      LAST_SERP_FETCH_DIAG.set(Collections.unmodifiableMap(diag))
+      log.warn('SerpApiWebSearch failed: {}', t.message)
+      return []
+    }
+  }
+
+  private static void mergeParseMetaIntoDiag(Map diag, Map parseMeta) {
+    if (!(diag instanceof Map) || !(parseMeta instanceof Map)) {
+      return
+    }
+    if (parseMeta.serpApiError) {
+      diag.serpApiError = parseMeta.serpApiError
+    }
+    if (parseMeta.parseError) {
+      diag.parseError = parseMeta.parseError
+    }
+    if (parseMeta.organicResultsRaw != null) {
+      diag.organicResultsRaw = parseMeta.organicResultsRaw
+    }
+    if (parseMeta.newsResultsRaw != null) {
+      diag.newsResultsRaw = parseMeta.newsResultsRaw
+    }
+    if (parseMeta.topStoriesRaw != null) {
+      diag.topStoriesRaw = parseMeta.topStoriesRaw
+    }
+    if (parseMeta.organicResultsState) {
+      diag.organicResultsState = parseMeta.organicResultsState
+    }
+  }
+
+  /**
+   * Maintainer snippet.
+   * @param body Caller-supplied input.
+   * @return Text result, or empty or null when unavailable.
+   */
+  private static String maintainerSnippet(String body) {
+    if (!body?.trim()) {
+      return ''
+    }
+    String s = body.trim()
+    return s.length() > MAINTAINER_RESPONSE_SNIPPET_CHARS
+      ? s.substring(0, MAINTAINER_RESPONSE_SNIPPET_CHARS - 1) + '…'
+      : s
+  }
+
+  /**
+   * Redact serp params for maintainer.
+   * @param params Studio or repository context for this call.
+   * @return Map payload for tools or orchestration.
+   */
+  private static Map redactSerpParamsForMaintainer(Map params) {
+    Map out = new LinkedHashMap()
+    if (!(params instanceof Map)) {
+      return out
+    }
+    for (Map.Entry e : params.entrySet()) {
+      String k = e.key?.toString()?.trim()
+      if (!k) {
+        continue
+      }
+      if ('api_key'.equalsIgnoreCase(k)) {
+        out.put(k, '***')
+        continue
+      }
+      Object v = e.value
+      if (v != null && v.toString().trim()) {
+        out.put(k, v.toString().trim())
+      }
+    }
+    return out
+  }
+
+  private static Map<String, String> queryParams(Map params) {
+    Map<String, String> out = new LinkedHashMap<>()
+    Map<String, String> keyMap = [
+      googleDomain: 'google_domain',
+      api_key     : 'api_key',
+      q           : 'q',
+      engine      : 'engine',
+      gl          : 'gl',
+      hl          : 'hl',
+      location    : 'location',
+      num         : 'num',
+      device      : 'device',
+      safe        : 'safe',
+      start       : 'start',
+      tbm         : 'tbm',
+      tbs         : 'tbs',
+      nfpr        : 'nfpr',
+      filter      : 'filter',
+      lr          : 'lr',
+      cr          : 'cr',
+      uule        : 'uule'
+    ]
+    for (Map.Entry e : params.entrySet()) {
+      String k = e.key?.toString()?.trim()
+      if (!k) {
+        continue
+      }
+      String serp = keyMap.get(k) ?: k
+      Object v = e.value
+      if (v == null) {
+        continue
+      }
+      String s = v.toString().trim()
+      if (s) {
+        out.put(serp, s)
+      }
+    }
+    return out
+  }
+
+  /**
+   * Parse SerpAPI JSON — merges {@code organic_results}, {@code top_stories}, and {@code news_results}.
+   * @param json Caller-supplied input.
+   * @param maxResults Caller-supplied input.
+   * @param metaOut Caller-supplied input.
+   * @return List<Map> result.
+   */
+  private static List<Map> parseJson(String json, int maxResults, Map metaOut) {
+    List<Map> results = []
+    if (!json?.trim() || maxResults < 1) {
+      return results
+    }
+    try {
+      Object parsed = new groovy.json.JsonSlurper().parseText(json)
+      if (!(parsed instanceof Map)) {
+        return results
+      }
+      Map root = (Map) parsed
+      Object err = root.get('error')
+      if (err != null && err.toString().trim()) {
+        metaOut.serpApiError = err.toString().trim()
+      }
+      Object searchInfo = root.get('search_information')
+      if (searchInfo instanceof Map) {
+        String state = ((Map) searchInfo).organic_results_state?.toString()?.trim() ?: ''
+        if (state) {
+          metaOut.organicResultsState = state
+        }
+      }
+      Object organic = root.get('organic_results')
+      metaOut.organicResultsRaw = (organic instanceof List) ? ((List) organic).size() : 0
+      Object topStories = root.get('top_stories')
+      metaOut.topStoriesRaw = (topStories instanceof List) ? ((List) topStories).size() : 0
+      Object newsResults = root.get('news_results')
+      metaOut.newsResultsRaw = (newsResults instanceof List) ? ((List) newsResults).size() : 0
+
+      Set<String> seenUrls = new LinkedHashSet<>()
+      appendFromSerpList(results, seenUrls, organic, maxResults, 'organic')
+      appendFromSerpList(results, seenUrls, topStories, maxResults, 'top_stories')
+      appendFromSerpList(results, seenUrls, newsResults, maxResults, 'news_results')
+    } catch (Throwable t) {
+      metaOut.parseError = t.message ?: t.toString()
+      log.warn('SerpApiWebSearch JSON parse failed: {}', t.message)
+    }
+    return results
+  }
+
+  private static void appendFromSerpList(
+    List<Map> results,
+    Set<String> seenUrls,
+    Object listObj,
+    int maxResults,
+    String resultKind
+  ) {
+    if (!(listObj instanceof List) || results.size() >= maxResults) {
+      return
+    }
+    for (Object row : (List) listObj) {
+      if (!(row instanceof Map) || results.size() >= maxResults) {
+        break
+      }
+      Map hit = (Map) row
+      String url = hit.link?.toString()?.trim() ?: hit.url?.toString()?.trim() ?: ''
+      if (!url || WebSearchResultTextUtil.skipResultUrl(url)) {
+        continue
+      }
+      String urlKey = url.toLowerCase(Locale.ROOT)
+      if (seenUrls.contains(urlKey)) {
+        continue
+      }
+      seenUrls.add(urlKey)
+      String snippet = WebSearchResultTextUtil.stripHtml(
+        hit.snippet?.toString() ?: hit.description?.toString() ?: ''
+      )
+      if (!snippet?.trim()) {
+        String src = hit.source?.toString()?.trim() ?: ''
+        String date = hit.date?.toString()?.trim() ?: hit.published_at?.toString()?.trim() ?: ''
+        List<String> parts = []
+        if (src) {
+          parts.add(src)
+        }
+        if (date) {
+          parts.add(date)
+        }
+        snippet = parts.join(' · ')
+      }
+      results.add([
+        position   : results.size() + 1,
+        title      : WebSearchResultTextUtil.stripHtml(hit.title?.toString() ?: ''),
+        url        : url,
+        snippet    : snippet,
+        resultKind : resultKind
+      ])
+    }
+  }
+}

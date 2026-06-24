@@ -1,0 +1,968 @@
+{
+  "version": 1,
+  "chatDefaults": {
+    "prefixEmoji": "\ud83e\udd57",
+    "fallbackEmoji": "\ud83d\udccb",
+    "lineSuffix": "workflow"
+  },
+  "routingEngineSteps": [
+    {
+      "routingPass": "initial",
+      "when": "anchoredSiteXml",
+      "as": "pageItem",
+      "tool": "GetContent",
+      "args": {
+        "siteId": "$siteId",
+        "path": "$contentPath"
+      }
+    },
+    {
+      "routingPass": "initial",
+      "when": "anchoredSiteXml",
+      "as": "pageForm",
+      "tool": "GetContentTypeFormDefinition",
+      "args": {
+        "siteId": "$siteId",
+        "contentPath": "$contentPath"
+      }
+    },
+    {
+      "routingPass": "after_refine",
+      "when": "anchoredSiteXml",
+      "as": "pageItem",
+      "tool": "GetContent",
+      "args": {
+        "siteId": "$siteId",
+        "path": "$contentPath"
+      }
+    }
+  ],
+  "routingRecipeFamilies": {
+    "researchWeb": [
+      "web_research"
+    ],
+    "researchSite": [
+      "site_content_research"
+    ],
+    "researchLlm": [
+      "llm_research"
+    ],
+    "researchAny": [
+      "web_research",
+      "site_content_research",
+      "llm_research"
+    ]
+  },
+  "multiGoalDefer": {
+    "minDistinctGroups": 2,
+    "groups": {
+      "generalKnowledge": [
+        "llm_research"
+      ],
+      "webResearch": [
+        "web_research"
+      ],
+      "siteContentResearch": [
+        "site_content_research"
+      ],
+      "cmsAuthoring": [
+        "new_content_item",
+        "modify_page_content",
+        "restore_fields_from_version",
+        "translate_content_item",
+        "revert_content_version",
+        "generate_image",
+        "build_page_feature",
+        "stylesheet_change",
+        "template_display_change",
+        "publish_site",
+        "publish_item",
+        "open_page_inquiry",
+        "new_content_item_from_chat_draft"
+      ]
+    }
+  },
+  "recipeOrder": [
+    "web_research",
+    "site_content_research",
+    "llm_research",
+    "open_page_inquiry",
+      "modify_page_content",
+      "restore_fields_from_version",
+      "revert_content_version",
+    "generate_image",
+    "build_page_feature",
+    "stylesheet_change",
+    "template_display_change",
+    "publish_site",
+    "publish_item",
+    "new_content_item_from_chat_draft",
+    "new_content_item",
+    "translate_content_item"
+  ],
+  "recipes": [
+    {
+      "id": "web_research",
+      "title": "Web search (news & current events)",
+      "chatEmoji": "\ud83d\udd0e",
+      "toolsLoopForceTool": "WebSearch",
+      "description": "Author wants fresh information from the public web: latest news, headlines, what happened today, or current facts that need citations. Not CMS repository work.",
+      "matchHints": [
+        "latest news",
+        "recent news",
+        "draft a blog",
+        "draft blog",
+        "blog about",
+        "news on",
+        "news about",
+        "headlines",
+        "breaking news",
+        "current events",
+        "search the web",
+        "web search",
+        "look up the latest",
+        "what happened today",
+        "what's new with"
+      ],
+      "dontMatchHints": [
+        "generate image",
+        "draw",
+        "WriteContent",
+        "update",
+        "rewrite",
+        "translate",
+        "publish",
+        "this page",
+        "summarize this page"
+      ],
+      "toolsLoopAllowlist": [
+        "WebSearch"
+      ],
+      "phases": {
+        "context": [
+          "Call WebSearch in the first tool round with a focused query built from the author's exact words.",
+          "If the author pasted a specific http(s) URL, you may use FetchHttpUrl for that URL only \u2014 not instead of WebSearch for open-ended news."
+        ],
+        "action": [
+          "Summarize findings in clear prose with source titles and URLs from the tool result. Do not invent links."
+        ],
+        "confirmation": [
+          "Note knowledge cutoff vs search date when relevant. Offer to help apply insights to CMS content only if the author asks."
+        ]
+      }
+    },
+    {
+      "id": "site_content_research",
+      "title": "Site content search",
+      "chatEmoji": "\ud83d\udcda",
+      "toolsLoopForceTool": "ResearchSiteContent",
+      "description": "Author wants to find or summarize existing pages and components in the Crafter CMS site named by Working CMS site metadata or the current Studio site (indexed authoring search + content lookup), including when there is no open-preview repository anchor on this turn. Not the open web and not a write.",
+      "matchHints": [
+        "search the site",
+        "site search",
+        "find pages",
+        "find content",
+        "pages about",
+        "content about",
+        "what pages",
+        "what content",
+        "where in the site",
+        "in our site",
+        "in the repository"
+      ],
+      "dontMatchHints": [
+        "latest news",
+        "headlines",
+        "breaking",
+        "search the web",
+        "web search",
+        "look up the latest",
+        "generate image",
+        "WriteContent",
+        "update",
+        "rewrite",
+        "translate",
+        "publish",
+        "summarize this page",
+        "what is this page",
+        "this page about",
+        "page is about"
+      ],
+      "toolsLoopAllowlist": [
+        "ResearchSiteContent"
+      ],
+      "phases": {
+        "context": [
+          "Call ResearchSiteContent in the first tool round with siteId and a focused query from the author's words."
+        ],
+        "action": [
+          "Answer from hits: cite repository paths and titles; use contentExcerpt and indexSnippet \u2014 do not invent paths."
+        ],
+        "confirmation": [
+          "Offer GetContent on specific paths if the author wants to edit; do not WriteContent unless they ask to change content."
+        ]
+      }
+    },
+    {
+      "id": "llm_research",
+      "title": "General knowledge (LLM)",
+      "chatEmoji": "\ud83d\udca1",
+      "description": "Author wants explanation, comparison, research, or background from model knowledge \u2014 not live web headlines and not editing the repository.",
+      "matchHints": [
+        "explain",
+        "what is",
+        "what are",
+        "tell me about",
+        "research",
+        "compare",
+        "versus",
+        " vs ",
+        "difference between",
+        "pros and cons",
+        "how does"
+      ],
+      "dontMatchHints": [
+        "latest news",
+        "headlines",
+        "breaking",
+        "search the web",
+        "search the site",
+        "research the site",
+        "research our site",
+        "find pages",
+        "look up the latest",
+        "generate image",
+        "WriteContent",
+        "update",
+        "new page",
+        "new article",
+        "create a new",
+        "translate",
+        "publish",
+        "summarize this page",
+        "this page"
+      ],
+      "toolsLoopDisable": true,
+      "phases": {
+        "action": [
+          "Answer from general knowledge in clear prose (bullets ok). Do not call CMS repository tools on this turn.",
+          "When they ask to **draft** or **write** a post/article **in chat** (no create/new page/new item in the repo), compose that draft as markdown prose in the same reply after any research or comparison \u2014 **not** ListStudioContentTypes / WriteContent.",
+          "If the question needs live/current data, say so and suggest the author ask for a web search instead."
+        ],
+        "confirmation": [
+          "Keep the reply self-contained; mention training cutoff when dates matter."
+        ]
+      }
+    },
+    {
+      "id": "open_page_inquiry",
+      "title": "Describe this page (read-only)",
+      "chatEmoji": "\ud83d\udcd6",
+      "toolsLoopForceTool": "GetContent",
+      "description": "Author wants a summary or explanation of the page or component currently open in Studio (anchored /site/.../*.xml). Read repository XML and answer in prose. Not a write, not site-wide search, not open web.",
+      "matchHints": [
+        "tell me about this page",
+        "what is this page",
+        "what would you say",
+        "how would you describe",
+        "describe this page",
+        "summarize this page",
+        "summarize",
+        "summary of this page",
+        "page is about",
+        "explain this page",
+        "what do you think"
+      ],
+      "dontMatchHints": [
+        "update",
+        "change",
+        "rewrite",
+        "WriteContent",
+        "translate",
+        "publish",
+        "generate image",
+        "search the site",
+        "search the web",
+        "latest news"
+      ],
+      "toolsLoopAllowlist": [
+        "GetContent",
+        "GetPreviewHtml"
+      ],
+      "matchedUserPrelude": "[Studio \u2014 read-only page inquiry] Summarize what this anchored page is about using prefetch or GetContent XML. Answer in clear prose only. Do not WriteContent, update_template, or chase CSS/FTL paths unless the author asks to change something.",
+      "phases": {
+        "context": {
+          "hints": [
+            "Prefetch loads pageItem (XML) for the anchored path when available.",
+            "If prefetch already includes full contentXml for the anchored path, do not call GetContent again on that path."
+          ],
+          "engineSteps": [
+            {
+              "as": "pageItem",
+              "tool": "GetContent",
+              "args": {
+                "siteId": "$siteId",
+                "path": "$contentPath"
+              }
+            }
+          ]
+        },
+        "action": [
+          "Answer what the page is about from the item XML and any referenced components the prefetch or tools returned. Plain prose for the author."
+        ],
+        "confirmation": [
+          "Do not call WriteContent. Optional GetPreviewHtml only if it helps describe what visitors see."
+        ]
+      }
+    },
+    {
+      "id": "modify_page_content",
+      "title": "Modify page or component content",
+      "chatEmoji": "\u270f\ufe0f",
+      "description": "Change author-visible copy, tone, grammar, or CMS field values stored in page/component XML (title_t, body_html, navLabel, SEO fields, component text fields, etc.). Use when the deliverable is different words or field values in content items — not visual styling, CSS, stylesheets, or FreeMarker/layout code. An open page anchor alone does not imply this recipe; infer whether the author means copy in XML vs presentation in CSS/FTL.",
+      "matchHints": [
+        "rewrite copy",
+        "proofread",
+        "grammar",
+        "tone",
+        "rephrase",
+        "title",
+        "headline",
+        "body text",
+        "field value"
+      ],
+      "dontMatchHints": [
+        "summarize",
+        "summary",
+        "summarize this page",
+        "css",
+        "stylesheet",
+        "styling",
+        "add a section",
+        "embed a",
+        "new widget",
+        "chatbot",
+        "interactive feature",
+        "build a feature",
+        "latest news",
+        "headlines",
+        "breaking news",
+        "search the web",
+        "look up the latest",
+        "didn't ask you to change",
+        "did not ask you to change",
+        "revert the copy",
+        "previous copy",
+        "put back the image",
+        "wrong photo",
+        "re-insert",
+        "don't want a new image"
+      ],
+      "phases": {
+        "context": {
+          "hints": [
+            "Prefetch binds pageItem (item XML) and pageForm (form definition) for this turn.",
+            "If the author gives a page URL, title, or internal name, resolve the correct repository path before GetContent \u2014 they may not mean the item currently open in Studio.",
+            "Load the target item with GetContent (and GetContentTypeFormDefinition with contentPath when the form model matters)."
+          ],
+          "engineSteps": [
+            {
+              "as": "pageItem",
+              "tool": "GetContent",
+              "args": {
+                "siteId": "$siteId",
+                "path": "$contentPath"
+              }
+            },
+            {
+              "as": "pageForm",
+              "tool": "GetContentTypeFormDefinition",
+              "args": {
+                "siteId": "$siteId",
+                "contentPath": "$contentPath"
+              }
+            }
+          ]
+        },
+        "action": [
+          "Use update_content or GetContent \u2192 revise XML \u2192 WriteContent; preserve <page>/<component> structure and node-selector shapes. After a write, prefer {{current.pageItem}} over {{initial.pageItem}} for the edited XML snapshot."
+        ],
+        "confirmation": [
+          "When an Engine preview URL exists, use GetPreviewHtml after substantive writes affecting rendered output."
+        ]
+      },
+      "toolsLoopRequireSuccessfulTools": [
+        "WriteContent"
+      ]
+    },
+    {
+      "id": "restore_fields_from_version",
+      "title": "Restore fields from version history",
+      "chatEmoji": "\ud83d\udd70\ufe0f",
+      "description": "Author wants specific fields (copy, hero image) restored from a prior Studio version without rolling back the entire item. Use FindContentVersion or GetContentVersionHistory, CompareContentVersions optional, GetContent at versionNumber, merge fields into HEAD, WriteContent.",
+      "matchHints": [
+        "restore copy",
+        "previous copy",
+        "put back the copy",
+        "put back the image",
+        "put the image back",
+        "look up previous",
+        "from version history",
+        "revert the copy",
+        "revert copy",
+        "wrong photo",
+        "wrong image",
+        "previous image",
+        "re-insert",
+        "reinsert",
+        "didn't ask you to change"
+      ],
+      "dontMatchHints": [
+        "revert the page",
+        "revert this page",
+        "revert the item",
+        "undo the page",
+        "roll back the page",
+        "summarize",
+        "summary",
+        "latest news",
+        "headlines",
+        "breaking news",
+        "search the web",
+        "look up the latest"
+      ],
+      "toolsLoopExcludeTools": [
+        "revert_change",
+        "GenerateImage"
+      ],
+      "phases": {
+        "context": [
+          "Confirm siteId and anchored repository path. Call FindContentVersion (contentContains, imagePathContains, or field criteria) or GetContentVersionHistory to pick versionNumber. Optionally CompareContentVersions (HEAD vs version) to show what changed."
+        ],
+        "action": [
+          "GetContent with commitRef set to the target versionNumber to read historical XML. GetContent on HEAD for current XML. Merge only the requested fields (e.g. hero_title_html, hero_text_html, title_t, hero_image_s) from history into current. WriteContent the merged full item. Do NOT call revert_change. When restoring a prior image, reuse hero_image_s from history or a known repositoryPath from earlier GenerateImage — do NOT call GenerateImage."
+        ],
+        "confirmation": [
+          "GetPreviewHtml after WriteContent when a preview URL exists. Do not claim success on HTTP 500."
+        ]
+      },
+      "toolsLoopRequireSuccessfulTools": [
+        "WriteContent"
+      ]
+    },
+    {
+      "id": "revert_content_version",
+      "title": "Revert entire item to previous version",
+      "chatEmoji": "\u21a9\ufe0f",
+      "description": "Author wants the **entire** content item rolled back via revert_change. Not for restoring only copy or an image field — use restore_fields_from_version instead.",
+      "matchHints": [
+        "revert the page",
+        "revert this page",
+        "revert the item",
+        "undo the page",
+        "roll back the page",
+        "rollback the page",
+        "restore the whole page",
+        "revert everything"
+      ],
+      "dontMatchHints": [
+        "revert the copy",
+        "revert copy",
+        "previous copy",
+        "put back the copy",
+        "put back the image",
+        "wrong photo",
+        "wrong image",
+        "re-insert",
+        "don't revert the page",
+        "do not revert the page",
+        "just look up",
+        "didn't ask you to change",
+        "summarize",
+        "summary",
+        "describe",
+        "explain",
+        "draft",
+        "blog",
+        "news"
+      ],
+      "phases": {
+        "context": [
+          "Confirm siteId and anchored repository path. Call GetContentVersionHistory."
+        ],
+        "action": [
+          "Use revert_change only for a full-item rollback. For copy-only or image-only restore, use GetContentVersionHistory → GetContent(version) → merge → WriteContent instead."
+        ],
+        "confirmation": [
+          "GetPreviewHtml after revert when a preview URL exists. Do not claim success on HTTP 500."
+        ]
+      }
+    },
+    {
+      "id": "generate_image",
+      "title": "Generate image (bitmap)",
+      "chatEmoji": "\ud83d\uddbc\ufe0f",
+      "toolsLoopExcludeTools": [
+        "GenerateTextNoTools"
+      ],
+      "description": "Author wants a new AI-generated image with a **specific subject they named** (e.g. “image of a red fox”, “draw a blue circle”). Not when the subject must come from an anchored page (“generate an image for this page”) — use plan mode and GetContent first.",
+      "matchHints": [
+        "generate an image of",
+        "generate a picture of",
+        "create an illustration of",
+        "draw a picture of",
+        "draw an image of",
+        "image of a",
+        "picture of a",
+        "illustration of",
+        "sketch a",
+        "paint a",
+        "logo for",
+        "banner showing",
+        "hero image of"
+      ],
+      "dontMatchHints": [
+        "this page",
+        "for this page",
+        "latest news",
+        "headlines",
+        "breaking news",
+        "search the web",
+        "look up the latest",
+        "news on",
+        "current events"
+      ],
+      "toolsLoopAllowlist": [
+        "GenerateImage"
+      ],
+      "toolsLoopAllowlistBypassIfAuthorMentions": [],
+      "phases": {
+        "context": [
+          "Use the author's explicit image subject in the GenerateImage prompt. This recipe is for subjects the author named — not anchored-page art (that case uses plan mode and GetContent first)."
+        ],
+        "action": [
+          "Call GenerateImage with a concrete prompt from the author's words; optional size/quality only when the author specified them."
+        ],
+        "confirmation": [
+          "Wrap up in short prose only \u2014 the bitmap appears in the Studio chat image strip, not markdown image syntax."
+        ]
+      }
+    },
+    {
+      "id": "stylesheet_change",
+      "title": "Stylesheet / CSS change",
+      "chatEmoji": "\ud83c\udfa8",
+      "description": "Author wants visual presentation changed in stylesheets: layout, typography, spacing, themes, branding, CSS variables, selectors, or other values under /static-assets/ or linked CSS discovered from the page template — not CMS copy or field values in page/component XML. Success means stylesheet files were edited and preview reflects the change.",
+      "matchHints": [
+        "visual styling",
+        "look and feel",
+        "stylesheet files",
+        "css files",
+        "static assets styling"
+      ],
+      "dontMatchHints": [
+        "rewrite copy",
+        "proofread",
+        "translate",
+        "summarize",
+        "add a section",
+        "embed",
+        "widget",
+        "chatbot",
+        "new feature on the page",
+        "interactive feature"
+      ],
+      "phases": {
+        "context": [
+          "GetContent on anchored page/component XML only to read display-template and discover linked CSS under /static-assets/ (from FTL, head fragments, or GetPreviewHtml). Page XML is context — not the stylesheet write target."
+        ],
+        "action": [
+          "GetContent on each stylesheet path you will edit. Change only what the author asked for — preserve selectors, class names, and file structure unless they requested otherwise. WriteContent on .css/.scss paths only; do not WriteContent page/component XML when the deliverable is stylesheet changes."
+        ],
+        "confirmation": [
+          "GetPreviewHtml when preview URL is available to verify the visual change."
+        ]
+      },
+      "toolsLoopRequireSuccessfulTools": [
+        "WriteContent"
+      ],
+      "matchedUserPrelude": "[Studio — stylesheet / CSS change]\n\n**Goal:** Update linked stylesheet file(s) under `/static-assets/` (or paths discovered from FTL/head fragments). The anchored page XML is **context only** — **do not WriteContent** `/site/.../*.xml` unless the author explicitly asked for copy changes.\n\n**Surgical edit workflow (mandatory):**\n1. **Discover** — **GetContent** on page/template/head only to find exact `.css` / `.scss` paths linked from this page.\n2. **Read baseline** — **GetContent** on **each** stylesheet path you will edit. Treat `contentXml` as the **raw CSS file body** (not XML).\n3. **Edit in place** — Start from that **full** GetContent body. Change **only** what the author asked for (color values, CSS variables, etc.). **Do not** rename selectors, remove rules, reorder blocks, or rewrite layout/spacing/typography unless requested.\n4. **Write full file** — **WriteContent** with the **entire** edited CSS string in `contentXml`. **Never** send placeholders (`/*placeholder*/`), XML declarations (`<?xml …?>`), stubs, or partial snippets. The server rejects truncated or restructured files.\n5. **Verify** — **GetPreviewHtml** when a preview URL exists.\n\n**Plan lines** must name stylesheet paths and value-level edits — not “save page XML”."
+    },
+    {
+      "id": "template_display_change",
+      "title": "Template / display (FTL) change",
+      "chatEmoji": "\ud83e\udde9",
+      "description": "Author wants how the page renders in code changed: FreeMarker templates, layout markup, listing shells, display-template structure, or component template wiring — not CMS field copy and not stylesheet work (use stylesheet_change for the latter).",
+      "matchHints": [
+        "freemarker",
+        "display template markup",
+        "layout structure",
+        "listing template",
+        "render markup",
+        "component template"
+      ],
+      "dontMatchHints": [
+        "rewrite copy",
+        "title field",
+        "proofread",
+        "add a section",
+        "embed",
+        "widget",
+        "chatbot",
+        "full page feature"
+      ],
+      "phases": {
+        "context": [
+          "GetContent on page/component XML; read display-template; follow node-selector and component references from the page XML to component templates when the shell is not the listing."
+        ],
+        "action": [
+          "Read templates with GetContent or analyze_template (read-only) before update_template; persist with WriteContent on .ftl paths."
+        ],
+        "confirmation": [
+          "GetPreviewHtml when preview URL is available."
+        ]
+      }
+    },
+    {
+      "id": "build_page_feature",
+      "title": "Build page feature (section / widget)",
+      "chatEmoji": "\ud83e\uddf1",
+      "description": "Author wants a new on-page feature or section (chatbot, form, search box, carousel, embed, widget, etc.) that usually spans the Crafter stack: content type and component item when needed, wire into the page sections_o, FreeMarker display template, CSS under /static-assets/, and Groovy REST/controller under /scripts/ when the feature needs server logic. Not copy-only field edits (modify_page_content), not stylesheet-only work (stylesheet_change), not template-only markup without new content (template_display_change), and not a brand-new top-level page URL with no feature on an existing page (new_content_item).",
+      "matchHints": [
+        "add a section",
+        "new section",
+        "embed",
+        "widget",
+        "interactive",
+        "chatbot",
+        "on this page",
+        "page feature",
+        "build a component"
+      ],
+      "dontMatchHints": [
+        "rewrite copy",
+        "proofread",
+        "translate",
+        "summarize",
+        "stylesheet only",
+        "new page url",
+        "create a new page"
+      ],
+      "toolsLoopRequireSuccessfulTools": [
+        "WriteContent"
+      ],
+      "matchedUserPrelude": "[Studio \u2014 build page feature (multi-surface)]\n\n**Goal:** Deliver a working feature on the anchored page across every layer the author needs \u2014 typically **content model + items**, **FTL**, **CSS**, and **Groovy backend** when server logic is required.\n\n**Plan first:** Stream **## Plan** with **\ud83d\udccb** lines in execution order \u2014 one verifiable outcome per layer (model, content items, template, styles, backend, preview). Then **tool_calls** in the same message.\n\n**Layers (include only what the feature needs; do not skip required layers):**\n1. **Content model** \u2014 **ListStudioContentTypes** / **GetContentTypeFormDefinition**; create or extend component type + form definition via **update_content_type** then **WriteContent** when no suitable type exists.\n2. **Content items** \u2014 component item under `/site/components/...`; add reference to page **sections_o** (or correct collection) via **GetContent** \u2192 **WriteContent** on page + component paths.\n3. **Template** \u2014 **analyze_template** / **update_template** or **GetContent** on `.ftl`; **WriteContent** on display templates with `@crafter` / XB markup.\n4. **CSS** \u2014 discover linked styles from FTL or `/static-assets/`; **WriteContent** on stylesheet paths.\n5. **Groovy backend** \u2014 when the feature needs API/controller logic: **GetContent** on existing `/scripts/rest/` or `/scripts/controllers/` patterns; **WriteContent** on new `.groovy` scripts.\n6. **Verify** \u2014 **GetPreviewHtml** when preview URL exists.\n\nUse **GetCrafterizingPlaybook** when you need the full crafterization checklist. **Project authoring context** wins on site-specific XML shape.",
+      "phases": {
+        "context": {
+          "hints": [
+            "Prefetch loads anchored page XML and form definition when Studio anchors /site/.../*.xml.",
+            "Read sections_o allowed content types and display-template paths before creating new component types or items.",
+            "Call GetCrafterizingPlaybook when unsure about content-type vs component vs template order for this site."
+          ],
+          "engineSteps": [
+            {
+              "as": "pageItem",
+              "tool": "GetContent",
+              "args": {
+                "siteId": "$siteId",
+                "path": "$contentPath"
+              }
+            },
+            {
+              "as": "pageForm",
+              "tool": "GetContentTypeFormDefinition",
+              "args": {
+                "siteId": "$siteId",
+                "contentPath": "$contentPath"
+              }
+            },
+            {
+              "tool": "ListStudioContentTypes",
+              "args": {
+                "siteId": "$siteId",
+                "searchable": false
+              }
+            }
+          ]
+        },
+        "action": [
+          "Emit ## Plan with ordered outcomes for content model, items, FTL, CSS, Groovy (as needed), then execute with tool_calls.",
+          "Content model: ListStudioContentTypes and GetContentTypeFormDefinition; update_content_type + WriteContent on form-definition when creating a new component type.",
+          "Content items: WriteContent on new component XML and update page sections_o (or parent collection) on the anchored page.",
+          "Template: analyze_template or GetContent on .ftl paths from display-template; update_template then WriteContent for markup changes.",
+          "CSS: GetContent on linked /static-assets/ stylesheets; WriteContent with preserved selectors/class names.",
+          "Groovy: when the feature needs server endpoints, WriteContent under /scripts/rest/ or /scripts/controllers/ following existing site patterns from GetContent reads.",
+          "Do not treat a feature build as modify_page_content copy-only — implement every layer the feature requires."
+        ],
+        "confirmation": [
+          "GetPreviewHtml when Engine preview URL is available.",
+          "Summarize repository paths touched at each layer (content type, component item, page reference, FTL, CSS, Groovy)."
+        ]
+      }
+    },
+    {
+      "id": "publish_site",
+      "title": "Publish entire site / first go-live",
+      "chatEmoji": "\ud83c\udf10",
+      "description": "Author wants to publish the whole site, everything, or first-time go-live \u2014 not a read-only page summary and not a single item unless they narrowed scope after first publish.",
+      "matchHints": [
+        "publish entire site",
+        "publish everything",
+        "publish all",
+        "whole site",
+        "first publish",
+        "never published",
+        "go live on the site"
+      ],
+      "dontMatchHints": [
+        "what is this page",
+        "describe this page",
+        "summarize this page",
+        "translate",
+        "update",
+        "WriteContent"
+      ],
+      "phases": {
+        "context": [
+          "Confirm siteId and publishingTarget (default live). If Studio metadata says the site has never been published, publishScope=all is required."
+        ],
+        "action": [
+          "Call publish_content with publishScope=all (PublishService.publishAll) for entire site / first publish. Use publishScope=bulk and bulkRootPath=/site only when publish all is unavailable and bulk go-live is appropriate. Do not pass only the open preview contentPath for entire-site requests."
+        ],
+        "confirmation": [
+          "Report publishScope, initialPublish flag, and path counts from the tool result \u2014 never claim entire site published if publishScope was item or only one path was deployed."
+        ]
+      }
+    },
+    {
+      "id": "publish_item",
+      "title": "Publish or go live",
+      "chatEmoji": "\ud83d\ude80",
+      "description": "Author wants to publish one item, a list of paths, or go live without sitewide / first-publish scope.",
+      "matchHints": [
+        "publish",
+        "go live",
+        "deploy",
+        "push to live",
+        "release"
+      ],
+      "phases": {
+        "context": [
+          "Confirm siteId, publishingTarget, and scope: single path, paths array, or bulk subtree \u2014 not entire site unless author asked."
+        ],
+        "action": [
+          "publish_content: publishScope=item with path/contentPath for one item; publishScope=paths with paths/contentPaths array for a list (one deploy); publishScope=bulk with bulkRootPath for subtree. Avoid discovery reads when context already has paths."
+        ],
+        "confirmation": [
+          "Summarize publishScope, path(s), and tool outcome \u2014 do not claim entire site if only one path or a short list was published."
+        ]
+      }
+    },
+    {
+      "id": "new_content_item_from_chat_draft",
+      "title": "Create item from prior chat draft",
+      "chatEmoji": "\ud83d\udcdd",
+      "description": "Turn 2 after prior assistant prose in chat: persist **[Prior conversation]** as a **new** repository item. Author may say \u201cmake a post\u201d, \u201csave this\u201d, \u201cthanks \u2014 publish it\u201d, etc. \u2014 the word **draft** is not required. **Not** generic \u201cnew page\u201d with no prior assistant article; **not** research-only chat.",
+      "dontMatchHints": [
+        "research",
+        "versus",
+        " vs ",
+        "compare",
+        "comparison",
+        "difference between",
+        "pros and cons"
+      ],
+      "matchHints": [
+        "prior conversation",
+        "save this",
+        "make a post",
+        "persist chat"
+      ],
+      "toolsLoopExcludeTools": [
+        "GenerateImage",
+        "GenerateTextNoTools",
+        "GetCrafterzingPlaybook",
+        "SerpApiWebSearch",
+        "WebSearch",
+        "publish_content",
+        "update_content",
+        "TranslateContentItem",
+        "TranslateContentBatch",
+        "SlackPostMessage"
+      ],
+      "toolsLoopAllowlist": [
+        "ListStudioContentTypes",
+        "GetContentTypeFormDefinition",
+        "ResearchSiteContent",
+        "ContentExists",
+        "WriteContent"
+      ],
+      "toolsLoopRequireSuccessfulTools": [
+        "WriteContent"
+      ],
+      "toolsLoopPrefetchSupplement": "createFromChatDraft",
+      "toolsLoopWriteVerification": "createFromChatDraft",
+      "writeVerification": {
+        "repairRootObjectIds": true,
+        "requireRootDates": true,
+        "repairRootDates": true,
+        "dateFieldIds": [
+          "createdDate",
+          "createdDate_dt",
+          "lastModifiedDate",
+          "lastModifiedDate_dt"
+        ]
+      },
+      "matchedUserPrelude": "[Studio \u2014 create **new** repository item from prior chat draft]\n\n**Goal:** One successful **WriteContent** with a **full** `<component>` or `<page>` XML document. Required envelope: `<content-type>`, `<file-name>`, `<merge-strategy>`, `<objectId>`, `<objectGroupId>`, `<internal-name>`. **Not** a fragment or markdown-only body.\n\n**Generate XML \u2014 do not copy siblings:** **GetContentTypeFormDefinition** for the resolved type and every nested type on the form. Follow **Project authoring context** when it defines element order and nested-component XML for this site. **Do not** **GetContent** an existing item to copy structure, field values, or body text.\n\n**Copy (from [Prior conversation] only \u2014 verbatim):** Read the last **Assistant** reply for title, body, and slug. Do not summarize or rephrase. Map into form fields using **GetContentTypeFormDefinition** \u2014 the server does not extract title/body for you. New UUIDs for **objectId** / **objectGroupId**.\n\n**Path:** **ListStudioContentTypes** \u2192 match type. **quickCreatePath** from form definition. Choose **file-name** / slug from the title you read; **ContentExists** on that **new** path \u2014 expect **false**. **ResearchSiteContent** only for reference targets (bios, taxonomy keys).\n\n**Nested fields:** Per form defs and **Project authoring context** (inline components, RTE `*_html`, node-selectors).\n\nIf **[Prior conversation]** has no saveable article in the last assistant reply, stop and ask the author to regenerate the draft.\n\n**Images:** Omit or leave empty required image-picker fields \u2014 **WriteContent** fills placeholders. **GenerateImage** only when the author asked for art.\n",
+      "phases": {
+        "context": {
+          "hints": [
+            "Turn 2: persist prior-turn draft as a **new** file. The Studio preview anchor is context only \u2014 not the write target.",
+            "Draft prose is the last **Assistant** reply in **[Prior conversation]** (any headings/labels the author used). Copy verbatim \u2014 do not summarize, rephrase, or invent body or title text."
+          ],
+          "engineSteps": [
+            {
+              "tool": "ListStudioContentTypes",
+              "args": {
+                "siteId": "$siteId",
+                "searchable": false
+              }
+            }
+          ]
+        },
+        "action": [
+          "If **[Prior conversation]** has no full article in the last **Assistant** reply, tell the author to regenerate the draft in chat before **WriteContent**.",
+          "**GetContentTypeFormDefinition** for the resolved type and every nested type referenced on the parent form.",
+          "**ContentExists** on the planned new path (expect **false**). **ResearchSiteContent** only when you need a reference path or allowed taxonomy keys \u2014 not to load another item\u2019s XML as a template.",
+          "Build **contentXml** from form definitions + **Project authoring context**: complete root envelope, new UUIDs, nested inline/referenced components per field types. Put the **full verbatim** prior draft in the correct RTE `*_html` field(s) \u2014 every paragraph, no edits. Do not copy another item\u2019s field values or rewrite the draft.",
+          "**Images:** Omit or leave empty every required **image-picker** field in **WriteContent** \u2014 the server applies the sample placeholder on write. **GenerateImage** only when the author asked for art.",
+          "**WriteContent** once to the **new** path under **quickCreatePath**. Server **write verification** rejects incomplete **contentXml** \u2014 fix tool errors and retry; do not finish until **WriteContent** returns ok."
+        ],
+        "confirmation": [
+          "Report repository path, slug, and that body came from the prior chat draft (not a cloned sibling)."
+        ]
+      }
+    },
+    {
+      "id": "new_content_item",
+      "title": "Create new page or component",
+      "chatEmoji": "\ud83d\udcc4",
+      "description": "Author asks to **create** a new repository item (new URL or new component in Studio) **without** copying a prior assistant reply. **Not** \u201clooks great \u2014 make a post\u201d after chat prose \u2014 use **new_content_item_from_chat_draft**. **Not** chat-only research prose \u2014 **llm_research** (tools off).",
+      "dontMatchHints": [
+        "research",
+        "versus",
+        " vs ",
+        "compare",
+        "comparison",
+        "difference between",
+        "pros and cons",
+        "from this draft",
+        "from the draft",
+        "make a post from",
+        "create a post from",
+        "create a blog from"
+      ],
+      "matchHints": [
+        "create",
+        "new page",
+        "new article",
+        "new post",
+        "add a page",
+        "write a new"
+      ],
+      "toolsLoopPrefetchSupplement": "newContentItem",
+      "toolsLoopRequireSuccessfulTools": [
+        "WriteContent"
+      ],
+      "prefetchSupplements": {
+        "newContentItem": {
+          "toolsLoopFastPath": true
+        }
+      },
+      "matchedUserPrelude": "[Studio \u2014 create new repository item] Server prefetch resolves **contentTypeId**, form definition, **writeContentMaterials**, taxonomy keys, and suggested path. **Fast path:** emit **native tool_calls** with **one WriteContent** — **full** contentXml inline (skip ## Plan JSON placeholders). Populate every **requiredFieldIds** entry and minSize collections with **original** author copy (multiple paragraphs in repeat RTE fields). **WriteContent** is rejected when contentXml is incomplete or non-compliant.",
+      "phases": {
+        "context": {
+          "hints": [
+            "ListStudioContentTypes (siteId only) then exact catalog match; GetContentTypeFormDefinition for resolved contentTypeId and nested types; Project authoring context for site-specific XML shape."
+          ],
+          "engineSteps": [
+            {
+              "tool": "ListStudioContentTypes",
+              "args": {
+                "siteId": "$siteId",
+                "searchable": false
+              }
+            }
+          ]
+        },
+        "action": [
+          "Resolve **contentTypeId** via **ListStudioContentTypes** (exact catalog match). **GetContentTypeFormDefinition** for **quickCreatePath**, required fields, and each nested/inline type.",
+          "Build **contentXml** from form definitions + **Project authoring context** (not from an arbitrary existing item of the same type). **GetContent** only for verified taxonomy/shared paths the project names.",
+          "Required image-picker without art instructions: **GeneratePlaceholderImage** \u2192 **`dataUrl`** in **WriteContent** (or omit for default placeholder). **GenerateImage** only when the author explicitly asked for specific generated art.",
+          "**WriteContent** at a new path under **quickCreatePath**; optional **GetPreviewHtml** in confirmation."
+        ],
+        "confirmation": [
+          "Tell the author how to preview the new route; optional GetPreviewHtml."
+        ]
+      }
+    },
+    {
+      "id": "translate_content_item",
+      "title": "Translate or localize content",
+      "chatEmoji": "\ud83c\udf10",
+      "description": "Author explicitly asks to translate or localize page/component copy into another language. Use TranslateContentItem or TranslateContentBatch (with ListContentTranslationScope for full-page scope) \u2014 not update_content or same-language rewrite via GetContent\u2192WriteContent.",
+      "matchHints": [
+        "translate",
+        "translation",
+        "localize",
+        "localise",
+        "localization",
+        "localisation",
+        "language",
+        "Spanish",
+        "French",
+        "German",
+        "Italian",
+        "Portuguese",
+        "Japanese",
+        "Chinese",
+        "Korean",
+        "Arabic",
+        "Dutch",
+        "Polish",
+        "Russian"
+      ],
+      "phases": {
+        "context": {
+          "hints": [
+            "When the author means full page / everything visible / this page copy: ListContentTranslationScope once on the anchored contentPath, then TranslateContentBatch (same target language for every path) or TranslateContentItem per path \u2014 never call ListContentTranslationScope twice in one turn without a write in between.",
+            "When scope is only the open repository item: TranslateContentItem on that contentPath is enough; skip ListContentTranslationScope unless they expand scope mid-task.",
+            "GetContentTypeFormDefinition only when you need unknown field ids."
+          ],
+          "engineSteps": [
+            {
+              "tool": "GetContent",
+              "args": {
+                "siteId": "$siteId",
+                "path": "$contentPath"
+              }
+            },
+            {
+              "tool": "GetContentTypeFormDefinition",
+              "args": {
+                "siteId": "$siteId",
+                "contentPath": "$contentPath"
+              }
+            }
+          ]
+        },
+        "action": [
+          "TranslateContentItem or TranslateContentBatch with explicit target language/locale from the author message; reuse the first ListContentTranslationScope result for batch paths."
+        ],
+        "confirmation": [
+          "Optional GetPreviewHtml when preview URL exists after substantive translation writes."
+        ]
+      }
+    }
+  ]
+}

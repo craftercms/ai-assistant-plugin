@@ -29,6 +29,20 @@ The **`plugin` id must be the full descriptor id** `org.craftercms.aiassistant.s
 
 Deeper wiring: [spec.md](../internals/spec.md), paths: [studio-plugins-guide.md](studio-plugins-guide.md). For **optional** Tools Panel + **Autonomous** + preview-toolbar fragments, see [examples/studio-ui-aiassistant-fragments.xml](../examples/studio-ui-aiassistant-fragments.xml).
 
+## Authoring Assistant in preview
+
+When the Helper is on the **preview toolbar** or ICE panel, authors open chat beside the page. Intent recipes drive tool rounds (for example **Describe this page** / summarize anchored content):
+
+![Authoring Assistant on preview — summarize this page](../images/ai-assistant-studio/authoring-assistant-summarize-page.png)
+
+## Authoring Assistant on content forms
+
+The **form-engine** control (`ai-assistant` on a content type) shows the same chat agents in an accordion beside the form. Tool rounds can load related repository items while the author edits unsaved field values:
+
+![Studio AI assistant on a content form — Content assistant](../images/ai-assistant-studio/authoring-assistant-form-engine.png)
+
+Form control setup: [configuration guide §5](configuration-guide.md#cg-5). More screenshots: [configuration guide — Screenshots](configuration-guide.md#cg-screenshots).
+
 ## Hiding the Preview Toolbar Icon Without Editing `ui.xml`
 
 When the Helper stays merged under **`PreviewToolbar`** with **`configuration ui="IconButton"`**, admins can set **`showAiAssistantsInTopNavigation`** to **`false`** in **`config/studio/scripts/aiassistant/config/studio-ui.json`** (see [configuration guide §1e](configuration-guide.md#cg-1e) and [spec.md — Studio UI flags](../internals/spec.md#studio-ui-flags-studio-uijson)). That hides **only** the toolbar **icon**; a **Tools Panel** Helper row added manually in **`ui.xml`** is unchanged. Reload Studio if the icon still appears until configuration cache refreshes.

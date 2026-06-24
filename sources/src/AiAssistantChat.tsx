@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   Box,
   Button,
@@ -11,6 +11,8 @@ import {
   Stack,
   Switch,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   Typography,
   useTheme
@@ -27,7 +29,9 @@ import AssignmentRounded from '@mui/icons-material/AssignmentRounded';
 import useActiveSiteId from '@craftercms/studio-ui/hooks/useActiveSiteId';
 import useActiveUser from '@craftercms/studio-ui/hooks/useActiveUser';
 import useCurrentPreviewItem from '@craftercms/studio-ui/hooks/useCurrentPreviewItem';
+import useContentTypes from '@craftercms/studio-ui/hooks/useContentTypes';
 import usePreviewGuest from '@craftercms/studio-ui/hooks/usePreviewGuest';
+import { useSelector } from 'react-redux';
 import { fetchContentXML } from '@craftercms/studio-ui/services/content';
 import { fetchConfigurationXML } from '@craftercms/studio-ui/services/configuration';
 import { fetchGuestModel, reloadRequest } from '@craftercms/studio-ui/state/actions/preview';
@@ -39,10 +43,78 @@ import {
   readCrafterPreviewTokenFromCookie,
   streamChat
 } from './aiAssistantApi';
-import type { ExpertSkillConfig, PromptConfig } from './agentConfig';
+import { formatSessionLogForDebugCopy } from './aiAssistantSessionDebugLog';
+import {
+  extractTerminalPipelineTiming,
+  isTerminalMetadata,
+  mergePipelineTimingFields,
+  parseNonNegativeNumber
+} from './pipelineTiming';
+import type { AgentSkillConfig, PromptConfig } from './agentConfig';
 import type { AuthoringFormContextSnapshot } from './aiAssistantFormAuthoringTypes';
-import MarkdownMessage, { normalizeOpenAiLiteralEscapes } from './MarkdownMessage';
+import {
+  type FormEngineAuthoringScope,
+  type FormEngineFieldFocus,
+  buildFormEngineFieldSelectionKey,
+  buildScopedFormEngineStreamContext,
+  formatFormEngineFieldScopeButtonLabel,
+  getFormEngineFieldFocus,
+  resolveFormFieldLabelFromDefinitionXml,
+  subscribeFormEngineFieldFocus
+} from './aiAssistantFormEngineScope';
+import {
+  type AuthoringScope,
+  type XbFieldFocus,
+  type XbComponentFocus,
+  buildDomIceComponentSelectionKey,
+  buildDomIceSelectionKey,
+  buildScopedPreviewStreamContext,
+  buildXbComponentSelectionKey,
+  buildXbSelectionKey,
+  formatXbFieldScopeButtonLabel,
+  resolveXbComponentFocus,
+  resolveXbComponentFocusFromDom,
+  resolveXbComponentModelId,
+  resolveXbFieldFocus,
+  resolveXbFieldFocusFromDom,
+  xbComponentFocusFromField
+} from './aiAssistantAuthoringScope';
+import {
+  getLastXbDomComponentSelection,
+  getLastXbDomIceSelection,
+  getXbSelectionPrecedence,
+  subscribeXbDomComponentSelection,
+  subscribeXbDomIceSelection,
+  subscribeXbSelectionPrecedence
+} from './aiAssistantXbIceSelectionBridge';
+import MarkdownMessage, { normalizeLlmLiteralEscapes } from './MarkdownMessage';
+import GenerateImageBlurredPlaceholder from './GenerateImageBlurredPlaceholder';
+import GenerateImagePromptCaption from './GenerateImagePromptCaption';
+import AssistantChatGeneratedImages from './AssistantChatGeneratedImages';
+import {
+  combineGeneratedImageSources,
+  stripDisplayedGeneratedImages,
+  stripStudioAiInlineImageMarkdownFromText
+} from './assistantGeneratedImageChat';
 import { getSpeechRecognitionCtor } from './browserSpeechRecognition';
+import IntentCardMessage from './IntentCardMessage';
+import {
+  intentRoutingDisplayMarkdown,
+  parseIntentCardFromTelemetry,
+  type IntentCardModel
+} from './intentRecipeChatDisplay';
+import { replaceSlackColonEmojisInText } from './slackColonEmoji';
+import { STUDIO_AI_DEFAULT_IMAGE_MODEL, normalizeImageModelId } from './studioAiOrchestrationToolIds';
+/** When llm is openAI: send default image model when agent/panel snapshot omitted it (server applies the same default). */
+function resolveWireImageModel(llm: string | undefined, imageModel: string | undefined): string | undefined {
+  const trimmed = normalizeImageModelId(imageModel);
+  if (trimmed) return trimmed;
+  const l = (llm ?? '').trim();
+  if (!l) return undefined;
+  const low = l.toLowerCase().replace(/-/g, '');
+  if (low === 'openai') return STUDIO_AI_DEFAULT_IMAGE_MODEL;
+  return undefined;
+}
 
 /**
  * Form-engine assistant passes {@link AiAssistantChatProps.getAuthoringFormContext}; XB / ICE does not.
@@ -50,6 +122,16 @@ import { getSpeechRecognitionCtor } from './browserSpeechRecognition';
  */
 function isFormEngineAuthoringChat(getAuthoringFormContext: unknown): boolean {
   return typeof getAuthoringFormContext === 'function';
+}
+
+const MAX_SESSION_STREAM_LOG_LINES = 4000;
+
+function pushStreamLog(logRef: React.MutableRefObject<string[]>, line: string) {
+  const arr = logRef.current;
+  arr.push(line);
+  if (arr.length > MAX_SESSION_STREAM_LOG_LINES) {
+    arr.splice(0, arr.length - MAX_SESSION_STREAM_LOG_LINES);
+  }
 }
 
 /** Nearest ancestor that scrolls (e.g. ICE `ResizeableDrawer` drawerBody uses overflow-y: auto). */
@@ -62,6 +144,18 @@ function getScrollParent(node: HTMLElement | null): HTMLElement | null {
     el = el.parentElement;
   }
   return null;
+}
+
+/** Display template from Studio content-type catalog (no repository read). */
+function resolvePreviewDisplayTemplate(
+  contentTypeId: string | undefined,
+  contentTypes: Record<string, { displayTemplate?: string }> | undefined
+): string | undefined {
+  const ct = (contentTypeId || '').trim();
+  if (!ct || !contentTypes) return undefined;
+  const row = contentTypes[ct] ?? contentTypes[ct.startsWith('/') ? ct.slice(1) : `/${ct}`];
+  const tpl = row?.displayTemplate?.trim();
+  return tpl || undefined;
 }
 
 /** Best-effort: Studio preview item → human-readable content-type label (shape varies by Studio version). */
@@ -163,7 +257,14 @@ function dedupeAssistantPostToolsMarkdown(preTools: string | undefined, tail: st
   if (!/^##\s*plan\b/im.test(pre)) return t0;
 
   const nlExec = /\n##\s*Plan Execution\b/im.exec(t0);
-  if (nlExec) return t0.slice(nlExec.index + 1).trimStart();
+  if (nlExec) {
+    const prefix = t0.slice(0, nlExec.index);
+    // Do not drop intro / markdown images that appear before "## Plan Execution" (dedupe is plan-shape only).
+    if (/!\[[^\]]*\]\([^)]+\)|studio-ai-inline-image:|data:image\//i.test(prefix)) {
+      return t0;
+    }
+    return t0.slice(nlExec.index + 1).trimStart();
+  }
   if (/^##\s*Plan Execution\b/im.test(t0)) return t0.trimStart();
 
   const nlPlan = /\n##\s*Plan\b/im.exec(t0);
@@ -196,17 +297,23 @@ function stripForbiddenLazyPlanLines(raw: string): string {
   const lineForbidden = (trimmed: string): boolean => {
     const n = normLine(trimmed);
     if (!n) return false;
-    if (n.includes('execute the user request using the cms tools described in the studio authoring system message')) {
+    if (n.includes('execute the user request using the tools described in the studio authoring system message')) {
       return true;
     }
-    if (n.includes('execute the user request using the cms tools described')) return true;
-    if (n.includes('execute the user request using the cms tool described')) return true;
-    if (n.includes('using the cms tools described in the studio authoring system message')) return true;
-    if (n.includes('using the cms tool described in the studio authoring system message')) return true;
-    if (n.includes('execute the user request') && n.includes('cms tool') && n.includes('system message')) {
+    if (n.includes('execute the user request using the tools described')) return true;
+    if (n.includes('execute the user request using the tool described')) return true;
+    if (n.includes('using the tools described in the studio authoring system message')) return true;
+    if (n.includes('using the tool described in the studio authoring system message')) return true;
+    if (n.includes('execute the user request') && n.includes('tools') && n.includes('system message')) {
+      return true;
+    }
+    if (n.includes('execute the user request') && n.includes('tool') && n.includes('system message')) {
       return true;
     }
     if (n.includes('execute the user request') && n.includes('studio authoring') && n.includes('message')) {
+      return true;
+    }
+    if (n === 'applying your request with the appropriate tools.' || n === 'applying your request with the appropriate tools') {
       return true;
     }
     return false;
@@ -256,149 +363,6 @@ function assistantVisibleTextLen(m: {
     (m.text || '').length +
     (m.reasoningStreamText || '').length
   );
-}
-
-/** Collapse whitespace and case for deduping 📋 chips (pre-tools ## Plan vs post-tools ## Plan Execution often repeat the same steps). */
-function verificationPromptDedupeKey(step: string): string {
-  return step
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .replace(/[…]+$/u, '')
-    .replace(/\.+$/u, '')
-    .trim();
-}
-
-/**
- * Pulls 📋 lines from ## Plan / ## Plan Execution so authors can one-click re-run a verification step as a new prompt.
- * At most **three** chips — combined markdown often contains the same checklist twice (plan + execution).
- */
-function extractVerificationPrompts(markdown: string): string[] {
-  const raw = (markdown || '').trim();
-  if (!raw) return [];
-  const lines = raw.split('\n');
-  const out: string[] = [];
-  const seen = new Set<string>();
-  let inPlanSection = false;
-  const max = 3;
-  for (const line of lines) {
-    if (out.length >= max) break;
-    const t = line.trim();
-    if (/^##\s+plan\b/i.test(t) || /^##\s+plan\s+execution\b/i.test(t)) {
-      inPlanSection = true;
-      continue;
-    }
-    if (/^##\s+/i.test(t)) {
-      inPlanSection = false;
-      continue;
-    }
-    if (!inPlanSection) continue;
-    const m = t.match(/^📋\s*(.+)$/);
-    if (!m) continue;
-    const step = m[1]
-      .replace(/✅\s*$/u, '')
-      .replace(/❌\s*$/u, '')
-      .replace(/⚠️\s*$/u, '')
-      .replace(/⬜\s*$/u, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (step.length < 8) continue;
-    const key = verificationPromptDedupeKey(step);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    out.push(step);
-  }
-  return out;
-}
-
-/** Strip common markdown bold from a line for trigger matching. */
-function stripMarkdownBold(s: string): string {
-  return (s || '').replace(/\*\*/g, '').trim();
-}
-
-/**
- * True when the line introduces optional follow-up actions (not a checklist 📋 step).
- */
-function isFollowUpTriggerLine(trimmed: string): boolean {
-  const n = stripMarkdownBold(trimmed);
-  if (!n) return false;
-  if (/^would you like (?:me )?to\b/i.test(n)) return true;
-  if (/^open items\b/i.test(n)) return true;
-  if (/^next steps\b/i.test(n)) return true;
-  if (/^what would you like\b/i.test(n)) return true;
-  if (/^optional\b/i.test(n) && /:/.test(n)) return true;
-  return false;
-}
-
-/**
- * Plain-line follow-up after "Would you like…" — avoid capturing section labels or preview URLs.
- */
-function looksLikeFollowUpPromptClause(t: string): boolean {
-  const s = t.trim();
-  if (s.length < 10) return false;
-  if (/^https?:\/\//i.test(s)) return false;
-  if (/^[-*]\s*📋/.test(s)) return false;
-  if (/^(review|preview|open)\b/i.test(s) && /:?\s*$/i.test(s) && s.length < 55) return false;
-  if (/[?]$/.test(s)) return true;
-  return /^(mark|generate|add|publish|set|update|create|remove|delete|move|rename|link|unlink|feature|include|exclude|attach|detach|schedule|unschedule|localize|translate|revert|undo)\b/i.test(
-    s
-  );
-}
-
-/**
- * Pulls suggested follow-up lines after "Would you like me to:" / "Open items…" / etc.
- * so authors can one-click send them like 📋 verification chips.
- */
-function extractFollowUpActionPrompts(markdown: string): string[] {
-  const raw = normalizeOpenAiLiteralEscapes((markdown || '').trim());
-  if (!raw) return [];
-  const lines = raw.split(/\r?\n/);
-  const out: string[] = [];
-  const seen = new Set<string>();
-  let mode: 'scan' | 'collect' = 'scan';
-  let blankRun = 0;
-  const max = 8;
-
-  for (const rawLine of lines) {
-    const t = rawLine.trim();
-    if (!t) {
-      if (mode === 'collect') {
-        blankRun++;
-        if (blankRun >= 2) break;
-      }
-      continue;
-    }
-    blankRun = 0;
-
-    if (t.startsWith('<!--') || /^##\s+/.test(t) || /^🛠️/.test(t)) {
-      if (mode === 'collect') break;
-      continue;
-    }
-
-    if (mode === 'scan') {
-      if (isFollowUpTriggerLine(t)) {
-        mode = 'collect';
-      }
-      continue;
-    }
-
-    // collect
-    let item = '';
-    const listHyphen = t.match(/^\s*[-*]\s+(.+)$/);
-    const listNum = t.match(/^\s*\d+[.)]\s+(.+)$/);
-    if (listHyphen) item = listHyphen[1].trim();
-    else if (listNum) item = listNum[1].trim();
-    else if (looksLikeFollowUpPromptClause(t)) item = t;
-    else continue;
-
-    if (item.length < 8) continue;
-    if (/^https?:\/\//i.test(item)) continue;
-    const key = verificationPromptDedupeKey(item);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    out.push(item);
-    if (out.length >= max) break;
-  }
-  return out;
 }
 
 type PromptMacrosContext = {
@@ -461,24 +425,33 @@ const CONTENT_TYPE_MACRO_PATTERN = /CONTENT_TYPE:([a-zA-Z0-9/_.-]+)/g;
  * CURRENT_CONTENT_TYPE uses the current preview item's content type.
  * CONTENT_TYPE:page/home (etc.) loads the form for that content type path.
  */
+const PREVIEW_MACRO_OMIT_BODY_HINT =
+  '[Studio preview — **form definition / repository bodies omitted from prompt**. Use **GetContent** or **GetContentTypeFormDefinition** when needed.]';
+
 async function expandContentTypeMacros(
   prompt: string,
   siteId: string,
-  currentContentTypeId: string | undefined
+  currentContentTypeId: string | undefined,
+  options?: { omitRepoFileBodies?: boolean }
 ): Promise<string> {
   if (!prompt || (!prompt.includes('CURRENT_CONTENT_TYPE') && !prompt.includes('CONTENT_TYPE:')))
     return prompt;
 
+  const omitBodies = options?.omitRepoFileBodies === true;
   let out = prompt;
 
   if (out.includes('CURRENT_CONTENT_TYPE')) {
-    const ct = (currentContentTypeId || '').trim() ? normalizeContentTypeId(currentContentTypeId!) : '';
-    try {
-      const xml = ct ? await fetchFormDefinitionXml(siteId, ct) : '';
-      out = out.split('CURRENT_CONTENT_TYPE').join(xml || '[No form definition for current item]');
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      out = out.split('CURRENT_CONTENT_TYPE').join(`[Form definition unavailable: ${msg}]`);
+    if (omitBodies) {
+      out = out.split('CURRENT_CONTENT_TYPE').join(PREVIEW_MACRO_OMIT_BODY_HINT);
+    } else {
+      const ct = (currentContentTypeId || '').trim() ? normalizeContentTypeId(currentContentTypeId!) : '';
+      try {
+        const xml = ct ? await fetchFormDefinitionXml(siteId, ct) : '';
+        out = out.split('CURRENT_CONTENT_TYPE').join(xml || '[No form definition for current item]');
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        out = out.split('CURRENT_CONTENT_TYPE').join(`[Form definition unavailable: ${msg}]`);
+      }
     }
   }
 
@@ -486,6 +459,10 @@ async function expandContentTypeMacros(
   for (const m of namedMatches) {
     const full = m[0];
     const contentTypeId = m[1];
+    if (omitBodies) {
+      out = out.replace(full, PREVIEW_MACRO_OMIT_BODY_HINT);
+      continue;
+    }
     try {
       const xml = await fetchFormDefinitionXml(siteId, contentTypeId);
       out = out.replace(full, xml || `[No form definition for ${contentTypeId}]`);
@@ -549,6 +526,14 @@ type LiveAuthoringMacroSource = {
   serializedContentXml?: string;
 };
 
+function buildPreviewContentMacroSubstitution(contentPath: string | undefined): string {
+  const path = (contentPath || '').trim();
+  return (
+    '[Studio preview — **repository XML omitted from prompt**. Use **GetContent** (or intent recipe prefetch) for file bodies.]\n' +
+    (path ? `Item path: ${path}` : '')
+  );
+}
+
 function buildLiveContentMacroSubstitution(live: LiveAuthoringMacroSource | undefined): string | undefined {
   const path = (live?.contentItemPath || '').trim();
   const hasXml = Boolean((live?.serializedContentXml || '').trim());
@@ -557,7 +542,7 @@ function buildLiveContentMacroSubstitution(live: LiveAuthoringMacroSource | unde
   if (!path && !hasXml && !hasJson) return undefined;
   return (
     '[Studio form — **full XML/JSON omitted from prompt** for size. Use **GetContent** for saved repo bodies; the **Current Studio content form** appendix lists **field ids** and **linked paths** only. ' +
-    'Unsaved edits are not inlined — **GetContent** is git until the author Saves (or apply via `crafterqFormFieldUpdates` using ids from the appendix / form definition).]\n' +
+    'Unsaved edits are not inlined — **GetContent** is git until the author Saves (or apply via `aiassistantFormFieldUpdates` using ids from the appendix / form definition).]\n' +
     (path ? `Open item path: ${path}` : '')
   );
 }
@@ -627,7 +612,7 @@ const FORM_ENGINE_APPLY_INSTRUCTIONS = `
 **Client-side form apply:** When you change field content (including **translate** to another language), end with fenced JSON (field ids from the form definition / XML; string values only). **Do not** reply with generic CrafterCMS docs ("Translation Configuration", "open the content item", "add a language") instead of the translated text in JSON.
 
 \`\`\`json
-{ "crafterqFormFieldUpdates": { "title_t": "…", "body_html": "<p>…</p>" } }
+{ "aiassistantFormFieldUpdates": { "title_t": "…", "body_html": "<p>…</p>" } }
 \`\`\`
 List every field you changed; omit the block for pure Q&A. Repeat groups: ids like "sections_o|0|section_html".`;
 
@@ -688,10 +673,10 @@ function buildAuthoringFormAppendix(
 }
 
 /**
- * Parse assistant reply for `crafterqFormFieldUpdates` inside a ```json fenced block.
+ * Parse assistant reply for **`aiassistantFormFieldUpdates`** inside a ```json fenced block.
  */
-function tryExtractCrafterqFormFieldUpdates(assistantText: string): Record<string, string> | null {
-  const marker = 'crafterqFormFieldUpdates';
+function tryExtractAiassistantFormFieldUpdates(assistantText: string): Record<string, string> | null {
+  const marker = 'aiassistantFormFieldUpdates';
   if (!assistantText.includes(marker)) return null;
   const re = /```(?:json)?\s*([\s\S]*?)```/gi;
   let m: RegExpExecArray | null;
@@ -699,7 +684,7 @@ function tryExtractCrafterqFormFieldUpdates(assistantText: string): Record<strin
     try {
       const obj = JSON.parse(m[1].trim()) as unknown;
       if (!obj || typeof obj !== 'object' || Array.isArray(obj)) continue;
-      const raw = (obj as { crafterqFormFieldUpdates?: unknown }).crafterqFormFieldUpdates;
+      const raw = (obj as { aiassistantFormFieldUpdates?: unknown }).aiassistantFormFieldUpdates;
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
       const out: Record<string, string> = {};
       for (const [k, v] of Object.entries(raw)) {
@@ -726,12 +711,15 @@ async function expandContentMacros(
   prompt: string,
   siteId: string,
   currentContentPath: string | undefined,
-  liveAuthoring?: LiveAuthoringMacroSource | null
+  options?: { liveAuthoring?: LiveAuthoringMacroSource | null; omitRepoFileBodies?: boolean }
 ): Promise<string> {
   if (!prompt || (!prompt.includes('CURRENT_CONTENT') && !prompt.includes('CONTENT:/')))
     return prompt;
 
+  const liveAuthoring = options?.liveAuthoring;
+  const omitBodies = options?.omitRepoFileBodies === true;
   const liveBody = buildLiveContentMacroSubstitution(liveAuthoring);
+  const previewBody = omitBodies ? buildPreviewContentMacroSubstitution(currentContentPath) : '';
   const editingPathNorm = cqNormalizeStudioContentPath(liveAuthoring?.contentItemPath);
 
   let out = prompt;
@@ -739,6 +727,8 @@ async function expandContentMacros(
   if (out.includes('CURRENT_CONTENT')) {
     if (liveBody) {
       out = out.split('CURRENT_CONTENT').join(liveBody);
+    } else if (omitBodies) {
+      out = out.split('CURRENT_CONTENT').join(previewBody);
     } else {
       const path = (currentContentPath || '').trim();
       try {
@@ -758,6 +748,14 @@ async function expandContentMacros(
     const itemNorm = cqNormalizeStudioContentPath(itemPath);
     if (liveBody && editingPathNorm && itemNorm === editingPathNorm) {
       out = out.replace(full, liveBody);
+      continue;
+    }
+    if (omitBodies) {
+      const hint =
+        itemNorm === cqNormalizeStudioContentPath(currentContentPath)
+          ? previewBody
+          : buildPreviewContentMacroSubstitution(itemPath);
+      out = out.replace(full, hint);
       continue;
     }
     try {
@@ -823,19 +821,19 @@ function navigateStudioPreviewToRepoPath(repoPath: string): void {
  * {@code WriteContent} covers templates (.ftl), scripts (.groovy), Studio config XML, content-type form
  * definitions, and content items; for a written {@code /site/website/.../index.xml} path, preview also runs
  * {@link fetchGuestModel} so the frame tracks the new page.
+ * {@code GenerateImage} is intentionally omitted — it returns inline/data URLs for chat only unless a future
+ * tool result includes {@code metadata.repoPath} from an actual repository write.
  */
 const PREVIEW_RELOAD_TOOL_NAMES_ON_DONE = new Set<string>([
   'WriteContent',
   'revert_change',
-  'GenerateImage',
   'publish_content',
   'update_content',
   'update_template',
   'update_content_type',
   'TranslateContentItem',
   'TranslateContentBatch',
-  'TransformContentSubgraph',
-  'GetContentSubgraph'
+  'TransformContentSubgraph'
 ]);
 
 const toolProgressScrollBoxSx = {
@@ -856,17 +854,29 @@ const cqPipelineHeartbeatBarPulse = keyframes({
   '50%': { opacity: 0.88, filter: 'brightness(1.06)' }
 });
 
-/** Shifting gradient while {@code GenerateImage} is running (server tool-progress uses an ellipsis row until “finished”). */
-const cqGenerateImageAuraShift = keyframes({
-  '0%': { backgroundPosition: '0% 40%' },
-  '100%': { backgroundPosition: '100% 60%' }
-});
+/**
+ * True once the server emitted a terminal {@code GenerateImage} tool-progress row (✅ finished, ❌, or ⚠️).
+ * Scans all lines so a later debug/flatten block mentioning GenerateImage cannot keep the shimmer stuck on.
+ */
+function generateImageToolSettledInToolProgress(toolProgressText: string | undefined): boolean {
+  if (!toolProgressText?.trim()) return false;
+  for (const raw of toolProgressText.split('\n')) {
+    const L = raw.trim();
+    if (!L.includes('🛠️') || !L.includes('GenerateImage') || !/\*\*GenerateImage\*\*/.test(L)) continue;
+    if (/\bfinished\b/i.test(L)) return true;
+    if (/❌\s*\*\*GenerateImage\*\*/.test(L)) return true;
+    if (/⚠️\s*\*\*GenerateImage\*\*/.test(L)) return true;
+    if (/✅\s*\*\*GenerateImage\*\*/.test(L)) return true;
+  }
+  return false;
+}
 
 /**
  * True when the latest server-injected {@code GenerateImage} line is the running “…” row, not {@code finished} /
  * warning / error.
  */
 function isGenerateImageRunRowActive(toolProgressText: string | undefined): boolean {
+  if (generateImageToolSettledInToolProgress(toolProgressText)) return false;
   const s = toolProgressText?.trim();
   if (!s?.includes('GenerateImage')) return false;
   const lines = s.split(/\n/).map((l) => l.trim());
@@ -875,10 +885,62 @@ function isGenerateImageRunRowActive(toolProgressText: string | undefined): bool
     if (!L.includes('GenerateImage')) continue;
     if (/\bfinished\b/i.test(L)) return false;
     if (L.includes('\u26A0\uFE0F') || L.includes('\u274C')) return false;
-    if (/\*\*GenerateImage\*\*/.test(L) && (/…/.test(L) || /\.{3}/.test(L))) return true;
+    // Server uses Unicode ellipsis U+2026 in " …\n"; `/…/` in JS is three wildcards — must match U+2026 or ASCII "..."
+    if (/\*\*GenerateImage\*\*/.test(L) && (/\u2026/.test(L) || /\.{3}/.test(L))) return true;
     return false;
   }
   return false;
+}
+
+/**
+ * True when every {@code studio-ai-inline-image://id} in markdown has a corresponding URL from server tool-progress metadata.
+ */
+function studioAiInlineImageRefsResolvedInMap(
+  tailMarkdown: string,
+  urls: Record<string, string> | undefined
+): boolean {
+  if (!urls || typeof urls !== 'object') return false;
+  const re = /studio-ai-inline-image:\/\/([^)\s<>]+)/gi;
+  const ids: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(tailMarkdown)) !== null) {
+    ids.push(m[1]);
+  }
+  if (!ids.length) return false;
+  return ids.every((id) => typeof urls[id] === 'string' && urls[id].length > 12);
+}
+
+/**
+ * Merge {@code studioAiInlineImageUrls} objects from SSE metadata (one map per terminal GenerateImage tool row).
+ */
+function mergeStudioAiInlineImageUrlMetadata(
+  prior: Record<string, string> | undefined,
+  incoming: unknown
+): Record<string, string> | undefined {
+  if (incoming == null || typeof incoming !== 'object' || Array.isArray(incoming)) return prior;
+  const next: Record<string, string> = { ...(prior || {}) };
+  let added = false;
+  for (const [k, v] of Object.entries(incoming as Record<string, unknown>)) {
+    if (typeof v === 'string' && v.length > 0) {
+      next[k] = v;
+      added = true;
+    }
+  }
+  if (!added) return prior;
+  return next;
+}
+
+function hasStudioAiInlineImageUrlPayload(v: unknown): boolean {
+  return !!(v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v as Record<string, unknown>).length > 0);
+}
+
+function studioAiInlineUrlsPatch(
+  m: { studioAiInlineImageUrls?: Record<string, string> },
+  incoming: unknown
+): Partial<{ studioAiInlineImageUrls: Record<string, string> }> {
+  const merged = mergeStudioAiInlineImageUrlMetadata(m.studioAiInlineImageUrls, incoming);
+  if (merged === undefined) return {};
+  return { studioAiInlineImageUrls: merged };
 }
 
 /**
@@ -886,82 +948,48 @@ function isGenerateImageRunRowActive(toolProgressText: string | undefined): bool
  */
 function hasCompleteMarkdownInlineImage(markdown: string | undefined): boolean {
   if (!markdown?.trim()) return false;
-  const re = /!\[[^\]]*\]\(([^)]+)\)/g;
+  const re = /!\[[^\]]*\]\(\s*(?:<([^>]+)>|([^)]+))\s*\)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(markdown)) !== null) {
-    const url = m[1].trim();
+    const url = (m[1] || m[2] || '').trim();
     if (/^data:image\//i.test(url) && url.length > 120) return true;
     if (/^https?:\/\//i.test(url) && url.length > 12) return true;
+    if (/^studio-ai-blob-ref:\/\//i.test(url)) return true;
   }
+  if (/data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]{120,}/i.test(markdown)) return true;
   return false;
 }
 
 /**
- * Blurred shifting gradient stand-in for the incoming chat image; similar footprint to the draggable chat image card.
+ * Keep the shimmer until the strip has sources or markdown already shows a loadable image.
  */
-function GenerateImageBlurredPlaceholder() {
-  const theme = useTheme();
-  const dark = theme.palette.mode === 'dark';
-  const a = dark ? '#5e35b1' : '#e1bee7';
-  const b = dark ? '#1565c0' : '#bbdefb';
-  const c = dark ? '#00695c' : '#b2dfdb';
-  const d = dark ? '#4527a0' : '#d1c4e9';
-  return (
-    <Box
-      role="status"
-      aria-label="Generating image preview"
-      sx={{
-        my: 1,
-        display: 'block',
-        maxWidth: '100%',
-        position: 'relative',
-        borderRadius: 1,
-        border: `1px solid ${theme.palette.mode === 'dark' ? theme.palette.grey[700] : theme.palette.grey[300]}`,
-        overflow: 'hidden',
-        bgcolor: theme.palette.mode === 'dark' ? theme.palette.grey[900] : theme.palette.grey[50],
-        aspectRatio: '3 / 2',
-        maxHeight: 320,
-        minHeight: 168
-      }}
-    >
-      <Box
-        aria-hidden
-        sx={{
-          position: 'absolute',
-          inset: -48,
-          background: `linear-gradient(118deg, ${a}, ${b}, ${c}, ${d}, ${a})`,
-          backgroundSize: '280% 280%',
-          filter: 'blur(36px)',
-          opacity: dark ? 0.92 : 0.88,
-          animation: `${cqGenerateImageAuraShift} 3.2s ease-in-out infinite`,
-          '@media (prefers-reduced-motion: reduce)': {
-            animation: 'none',
-            backgroundPosition: '50% 50%'
-          }
-        }}
-      />
-      <Box
-        sx={{
-          position: 'relative',
-          zIndex: 1,
-          minHeight: 168,
-          maxHeight: 320,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          px: 2,
-          py: 2,
-          background:
-            theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.28)',
-          backdropFilter: 'blur(2px)'
-        }}
-      >
-        <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'center', lineHeight: 1.45, opacity: 0.9 }}>
-          Generating image…
-        </Typography>
-      </Box>
-    </Box>
-  );
+function shouldShowGenerateImagePlaceholder(
+  toolProgressText: string | undefined,
+  tailMarkdown: string,
+  studioAiInlineImageUrls?: Record<string, string>
+): boolean {
+  if (combineGeneratedImageSources(studioAiInlineImageUrls, tailMarkdown).length > 0) return false;
+  if (hasCompleteMarkdownInlineImage(tailMarkdown)) return false;
+  if (studioAiInlineImageRefsResolvedInMap(tailMarkdown, studioAiInlineImageUrls)) return false;
+  if (!toolProgressText?.includes('GenerateImage')) return false;
+  return isGenerateImageRunRowActive(toolProgressText);
+}
+
+/** Drop consecutive duplicate 🛠️ lines (hotpath + tool listener used to emit the same row twice). */
+function appendToolProgressText(prior: string, chunk: string): string {
+  if (!chunk) return prior;
+  if (!prior) return chunk;
+  const join = prior.endsWith('\n\n') ? (chunk.startsWith('\n') ? '' : '\n') : '\n\n';
+  const combined = prior + join + chunk;
+  const lines = combined.split('\n');
+  const out: string[] = [];
+  for (const line of lines) {
+    const norm = line.trimEnd();
+    const prev = out.length ? out[out.length - 1].trimEnd() : '';
+    if (norm && norm === prev) continue;
+    out.push(line);
+  }
+  return out.join('\n');
 }
 
 /** Keeps the tool-progress list pinned to the latest line as SSE chunks append. */
@@ -1029,8 +1057,19 @@ function formatCqPipelineWallMs(ms: number): string {
   return `${(rounded / 1000).toFixed(1)}s`;
 }
 
-function AssistantPipelineTimingLine(props: Readonly<{ wallMs?: number }>) {
-  if (props.wallMs == null || props.wallMs < 0) return null;
+function AssistantPipelineTimingLine(
+  props: Readonly<{ wallMs?: number; totalSec?: number; taskSec?: number }>
+) {
+  const parts: string[] = [];
+  if (props.taskSec != null && Number.isFinite(props.taskSec) && props.taskSec >= 0) {
+    parts.push(`tools ${props.taskSec.toFixed(1)}s`);
+  }
+  if (props.totalSec != null && Number.isFinite(props.totalSec) && props.totalSec >= 0) {
+    parts.push(`total ${props.totalSec.toFixed(1)}s`);
+  } else if (props.wallMs != null && props.wallMs >= 0) {
+    parts.push(formatCqPipelineWallMs(props.wallMs));
+  }
+  if (!parts.length) return null;
   return (
     <Typography
       variant="caption"
@@ -1044,7 +1083,7 @@ function AssistantPipelineTimingLine(props: Readonly<{ wallMs?: number }>) {
         letterSpacing: '0.01em'
       }}
     >
-      Completed in {formatCqPipelineWallMs(props.wallMs)}
+      Completed in {parts.join(' · ')}
     </Typography>
   );
 }
@@ -1091,6 +1130,12 @@ type UiMessage = {
   assistantPreToolsText?: string;
   /** Server SSE tool-progress lines (🛠️ …); shown in a short scroll area between plan and answer when {@link assistantPreToolsText} is set. */
   toolProgressText?: string;
+  /** Emoji + recipe title when intent routing matched (SSE {@code intent-recipe-routing}). */
+  intentRecipeLine?: string;
+  /** Structured intent card (elaboration, success bars, collapsible guardrails). */
+  intentCard?: IntentCardModel;
+  /** Author-visible cards when the server feeds context between tool rounds (SSE {@code step-bridge-card}). */
+  stepBridgeCards?: string[];
   /**
    * Raw assistant text before the first tool-progress chunk — shown in muted “live” styling, then cleared once tools run
    * or folded into {@link text} when the stream completes without tools.
@@ -1098,12 +1143,34 @@ type UiMessage = {
   reasoningStreamText?: string;
   /** Wall clock from server pipeline start through plan + tools (metadata.toolPipelineWallMs on completed). */
   toolPipelineWallMs?: number;
+  /** Server {@code toolPipelineTotalSec} on completed (preferred caption when present). */
+  toolPipelineTotalSec?: number;
+  /** Server {@code toolPipelineTaskCompletionSec} (plan + tools through last write/image). */
+  toolPipelineTaskCompletionSec?: number;
   /** Transient: server signaled final narrative is starting (cleared when summary text arrives). */
   summarizingResults?: boolean;
-  /** In-place wait indicator while the OpenAI+tools worker is busy (SSE `pipeline-heartbeat`; not tool-log lines). */
+  /** In-place wait indicator while the LLM worker is busy (SSE `pipeline-heartbeat`; not tool-log lines). */
   pipelineHeartbeat?: { elapsedSec: number; nextInSec: number; hint: string };
+  /** URLs for {@code studio-ai-inline-image://toolCallId} from server SSE (see {@code writeToolProgressSse} GenerateImage rows). */
+  studioAiInlineImageUrls?: Record<string, string>;
+  /** {@code GenerateImage} tool input prompt while the blurred placeholder is shown (SSE {@code generateImagePrompt} on tool start). */
+  generateImagePrompt?: string;
   isStreaming?: boolean;
 };
+
+function pickGenerateImagePromptPatch(
+  toolName: string,
+  toolPhase: string,
+  metaPrompt: unknown,
+  priorPrompt?: string
+): Pick<UiMessage, 'generateImagePrompt'> | Record<string, never> {
+  if (toolName !== 'GenerateImage') return {};
+  const phase = (toolPhase || '').trim().toLowerCase();
+  if (phase !== 'start' && phase !== 'done' && phase !== 'warn') return {};
+  const p = typeof metaPrompt === 'string' ? metaPrompt.trim() : '';
+  if (p) return { generateImagePrompt: p };
+  return priorPrompt?.trim() ? { generateImagePrompt: priorPrompt.trim() } : {};
+}
 
 function combinedAssistantMarkdownForVerification(m: UiMessage): string {
   const tail = dedupeAssistantPostToolsMarkdown(m.assistantPreToolsText, m.text);
@@ -1124,13 +1191,182 @@ function foldAssistantReasoningIntoMainText(m: Pick<UiMessage, 'text' | 'reasoni
 type StoredConversation = {
   version: 1;
   chatId?: string;
+  assumedSiteId?: string;
   messages: UiMessage[];
 };
+
+type ParsedSiteDirective = {
+  stickySiteId?: string;
+  requestSiteId?: string;
+};
+
+function sanitizeCandidateSiteId(raw: string): string | undefined {
+  const t = (raw || '').trim().replace(/^['"`]+|['"`]+$/g, '');
+  if (!t) return undefined;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(t)) return undefined;
+  return t;
+}
+
+/**
+ * Whole-message "set site to X" (or `siteId=X`). Used for client hot path and sticky parsing.
+ */
+function matchStickySetSiteCommand(prompt: string): string | undefined {
+  const text = (prompt || '').trim();
+  if (!text) return undefined;
+  const sticky =
+    text.match(/^\s*(?:set|use)\s+(?:the\s+)?site(?:\s+id)?\s+(?:to|as|=)\s+([A-Za-z0-9._-]+)\s*$/i) ??
+    text.match(/^\s*site(?:\s+id)?\s*(?:=|:)\s*([A-Za-z0-9._-]+)\s*$/i);
+  return sticky?.[1] ? sanitizeCandidateSiteId(sticky[1]) : undefined;
+}
+
+function buildWorkingSiteContextAppendix(workingSiteId: string, studioSiteId: string): string {
+  const work = (workingSiteId || '').trim();
+  if (!work) return '';
+  const session = (studioSiteId || '').trim();
+  const crossSite = Boolean(session && session !== work);
+  const lines = [
+    `Working CMS site id: "${work}"`,
+    `Use siteId="${work}" on all CMS tools that accept siteId unless the author names another site.`
+  ];
+  if (crossSite) {
+    lines.push(
+      `Studio session site: "${session}". Open-preview paths from "${session}" are not sent on this turn — ` +
+        `read site "${work}" with CMS tools before answering; do not reuse prior-chat prose as repository truth for "${work}".`
+    );
+  }
+  return `--- Working CMS site (chat context) ---\n${lines.join('\n')}\n---\n\n`;
+}
+
+function buildSetSiteHotPathReply(targetSiteId: string, activeStudioSiteId: string): string {
+  const active = (activeStudioSiteId || '').trim();
+  if (active && targetSiteId !== active) {
+    return (
+      `Working site set to **${targetSiteId}** (Studio session site is **${active}**). ` +
+      `CMS tools will use **${targetSiteId}** until you change it or start a new chat.`
+    );
+  }
+  return (
+    `Working site set to **${targetSiteId}**. ` +
+    'CMS tools will use this site until you change it or start a new chat.'
+  );
+}
+
+/**
+ * Extracts optional per-turn or sticky site directives from author text.
+ * - "Set site to X" updates sticky chat site for this and future turns.
+ * - "... in site X" / "... for site X" applies only to this request.
+ */
+function parseSiteDirective(prompt: string): ParsedSiteDirective {
+  const text = (prompt || '').trim();
+  if (!text) return {};
+
+  const stickyId = matchStickySetSiteCommand(text);
+  if (stickyId) {
+    return { stickySiteId: stickyId, requestSiteId: stickyId };
+  }
+
+  const requestOnly = text.match(/\b(?:in|for)\s+site\s+([A-Za-z0-9._-]+)\b/i);
+  if (requestOnly?.[1]) {
+    const siteId = sanitizeCandidateSiteId(requestOnly[1]);
+    return siteId ? { requestSiteId: siteId } : {};
+  }
+
+  return {};
+}
 
 function getConversationStorageKey(siteId: string, agentId: string): string {
   const site = (siteId || 'default').replace(/[^a-zA-Z0-9-_]/g, '_');
   const agent = (agentId || 'default').replace(/[^a-zA-Z0-9-_]/g, '_');
-  return `crafterq-conversation-${site}-${agent}`;
+  return `aiassistant-conversation-${site}-${agent}`;
+}
+
+function optionalTrimmedString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const t = value.trim();
+  return t || undefined;
+}
+
+function optionalStringRecord(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof k !== 'string' || typeof v !== 'string') continue;
+    const t = v.trim();
+    if (t) out[k] = t;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+function optionalStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out = value
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter(Boolean);
+  return out.length ? out : undefined;
+}
+
+function parseStoredIntentCard(value: unknown): IntentCardModel | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const o = value as Record<string, unknown>;
+  const elaboration = typeof o.elaboration === 'string' ? o.elaboration.trim() : '';
+  if (!elaboration) return undefined;
+  const anchorPath = typeof o.anchorPath === 'string' ? o.anchorPath.trim() || undefined : undefined;
+  const successBars = optionalStringArray(o.successBars) ?? [];
+  const willNot = optionalStringArray(o.willNot) ?? [];
+  const recipeWorkflowLine =
+    typeof o.recipeWorkflowLine === 'string' ? o.recipeWorkflowLine.trim() || undefined : undefined;
+  return {
+    elaboration,
+    anchorPath,
+    successBars,
+    willNot,
+    ...(recipeWorkflowLine ? { recipeWorkflowLine } : {})
+  };
+}
+
+/** Rehydrate a persisted bubble with every author-visible card field (intent, step-bridge, images, tools). */
+function restoreUiMessageFromStorage(raw: unknown): UiMessage | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const m = raw as Record<string, unknown>;
+  if (typeof m.id !== 'string' || typeof m.text !== 'string' || typeof m.role !== 'string') {
+    return null;
+  }
+  const role: UiMessage['role'] =
+    m.role === 'assistant' || m.role === 'system' ? m.role : 'user';
+  let text = m.text;
+  let reasoningStreamText = optionalTrimmedString(m.reasoningStreamText);
+  if (reasoningStreamText) {
+    const folded = foldAssistantReasoningIntoMainText({ text, reasoningStreamText });
+    text = folded.text;
+    reasoningStreamText = folded.reasoningStreamText.trim() || undefined;
+  }
+  const assistantPreToolsText = optionalTrimmedString(m.assistantPreToolsText);
+  const toolProgressText = optionalTrimmedString(m.toolProgressText);
+  const intentRecipeLine = optionalTrimmedString(m.intentRecipeLine);
+  const intentCard = parseStoredIntentCard(m.intentCard);
+  const stepBridgeCards = optionalStringArray(m.stepBridgeCards);
+  const studioAiInlineImageUrls = optionalStringRecord(m.studioAiInlineImageUrls);
+  const generateImagePrompt = optionalTrimmedString(m.generateImagePrompt);
+  const wallMs = parseNonNegativeNumber(m.toolPipelineWallMs);
+  const totalSec = parseNonNegativeNumber(m.toolPipelineTotalSec);
+  const taskSec = parseNonNegativeNumber(m.toolPipelineTaskCompletionSec);
+  return {
+    id: m.id,
+    role,
+    text,
+    isStreaming: false,
+    ...(assistantPreToolsText ? { assistantPreToolsText } : {}),
+    ...(toolProgressText ? { toolProgressText } : {}),
+    ...(intentRecipeLine ? { intentRecipeLine } : {}),
+    ...(intentCard ? { intentCard } : {}),
+    ...(stepBridgeCards ? { stepBridgeCards } : {}),
+    ...(reasoningStreamText ? { reasoningStreamText } : {}),
+    ...(studioAiInlineImageUrls ? { studioAiInlineImageUrls } : {}),
+    ...(generateImagePrompt ? { generateImagePrompt } : {}),
+    ...(wallMs != null ? { toolPipelineWallMs: Math.round(wallMs) } : {}),
+    ...(totalSec != null ? { toolPipelineTotalSec: totalSec } : {}),
+    ...(taskSec != null ? { toolPipelineTaskCompletionSec: taskSec } : {})
+  };
 }
 
 function loadConversation(siteId: string, agentId: string): StoredConversation | null {
@@ -1140,33 +1376,15 @@ function loadConversation(siteId: string, agentId: string): StoredConversation |
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<StoredConversation>;
     if (parsed?.version !== 1 || !Array.isArray(parsed.messages)) return null;
+    const messages = parsed.messages
+      .map((m) => restoreUiMessageFromStorage(m))
+      .filter((m): m is UiMessage => m != null);
     return {
       version: 1,
       chatId: typeof parsed.chatId === 'string' ? parsed.chatId : undefined,
-      messages: parsed.messages
-        .filter((m) => m && typeof m.id === 'string' && typeof m.text === 'string' && typeof m.role === 'string')
-        .map((m) => {
-          const toolProgressText =
-            typeof (m as { toolProgressText?: unknown }).toolProgressText === 'string'
-              ? (m as { toolProgressText: string }).toolProgressText
-              : undefined;
-          const assistantPreToolsText =
-            typeof (m as { assistantPreToolsText?: unknown }).assistantPreToolsText === 'string'
-              ? (m as { assistantPreToolsText: string }).assistantPreToolsText
-              : undefined;
-          const rawWall = (m as { toolPipelineWallMs?: unknown }).toolPipelineWallMs;
-          const toolPipelineWallMs =
-            typeof rawWall === 'number' && Number.isFinite(rawWall) && rawWall >= 0 ? Math.round(rawWall) : undefined;
-          return {
-            id: m.id,
-            role: m.role === 'assistant' || m.role === 'system' ? m.role : 'user',
-            text: m.text,
-            ...(assistantPreToolsText !== undefined ? { assistantPreToolsText } : {}),
-            ...(toolProgressText !== undefined && toolProgressText !== '' ? { toolProgressText } : {}),
-            ...(toolPipelineWallMs !== undefined ? { toolPipelineWallMs } : {}),
-            isStreaming: false
-          };
-        })
+      assumedSiteId:
+        typeof parsed.assumedSiteId === 'string' ? sanitizeCandidateSiteId(parsed.assumedSiteId) : undefined,
+      messages
     };
   } catch {
     return null;
@@ -1204,44 +1422,218 @@ function clipContextChunk(s: string, max: number): string {
   return `${t.slice(0, max)}…`;
 }
 
+/** Prior-turn wire budget defaults (chars). */
+const PRIOR_TURNS_TOTAL_MAX_DEFAULT = 8000;
+/** Persist chat draft to CMS — full *Draft blog:* must survive abbreviation. */
+const PRIOR_TURNS_TOTAL_MAX_REPO_MATERIALIZE = 72000;
+const PRIOR_TURNS_USER_MAX = 2800;
+const PRIOR_TURNS_ASSISTANT_MAX = 1800;
+const PRIOR_TURNS_ASSISTANT_DRAFT_MAX = 68000;
+const PRIOR_TURNS_H2_SECTION_MAX = 5000;
+
+const DRAFT_H2_HEADINGS = ['Draft body', 'draft'];
+
+/** End of an `##` section: next heading or true EOF ($ alone matches line endings under /m). */
+const MARKDOWN_H2_SECTION_END = '(?=^##\\s|(?![\\s\\S]))';
+
+function assistantMarkdownContainsDraftMarkers(text: string): boolean {
+  const t = (text || '').trim();
+  if (!t) return false;
+  if (/\*Draft blog:\*/i.test(t) || /\*Draft title:\*/i.test(t)) {
+    return true;
+  }
+  for (const h of DRAFT_H2_HEADINGS) {
+    const re = new RegExp(`^##\\s+${h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'im');
+    if (re.test(t)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * When a Slack/assistant turn includes *Draft blog:*, return only the draft block (title + outline + body)
+ * so we do not concatenate ## root / pitch / sources and then clip the tail (which removed draft paragraphs).
+ */
+function extractPersistableDraftBlock(body: string): string {
+  const t = stripOrchestrationDebugComment(body).trim();
+  if (!t) return '';
+
+  for (const heading of DRAFT_H2_HEADINGS) {
+    const re = new RegExp(
+      `^##\\s+${heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\r?\\n([\\s\\S]*?)${MARKDOWN_H2_SECTION_END}`,
+      'im'
+    );
+    const m = re.exec(t);
+    if (m?.[1]?.trim()) {
+      return `## ${heading}\n\n${m[1].trim()}`;
+    }
+  }
+
+  const titleIdx = t.search(/\*Draft title:\*/i);
+  const blogIdx = t.search(/\*Draft blog:\*/i);
+  if (blogIdx >= 0) {
+    const start = titleIdx >= 0 && titleIdx < blogIdx ? titleIdx : blogIdx;
+    return t.slice(start).trim();
+  }
+  if (titleIdx >= 0) {
+    return t.slice(titleIdx).trim();
+  }
+  return '';
+}
+
+function combinedAssistantBodyForPriorTurn(m: UiMessage): string {
+  return combinedAssistantMarkdownForVerification(m).trim();
+}
+
+/** After streaming, fold plan/tools prose into `text` so the next turn's prior block is complete (no phrase gates). */
+function consolidateAssistantMessageTextForNextTurn(m: UiMessage): string {
+  const main = (m.text || '').trim();
+  const combined = combinedAssistantBodyForPriorTurn(m);
+  if (!combined || combined.length <= main.length + 80) {
+    return main;
+  }
+  return combined;
+}
+
 /**
  * Prior turns: assistant replies often repeat **## Plan** then **## Plan Execution** — keep execution/recap only to
  * shrink the wire prompt and reduce redundant reasoning.
  */
-function abbreviateAssistantTurnForPriorContext(body: string): string {
+/** Orchestration headings — not author draft prose; excluded from prior-turn draft retention. */
+const ORCHESTRATION_H2_HEADINGS = new Set(['plan', 'plan execution']);
+
+function isOrchestrationH2Heading(heading: string): boolean {
+  return ORCHESTRATION_H2_HEADINGS.has(heading.trim().toLowerCase());
+}
+
+/**
+ * Substantial `##` sections in assistant markdown (site-agnostic).
+ * Mirrors server PriorConversationDraftExtract.priorConversationContainsSubstantialMarkdownSection.
+ */
+function substantialMarkdownH2Sections(markdown: string, minBodyChars = 120): Array<{ heading: string; body: string }> {
+  const re = new RegExp(`^##\\s+([^\\n]+)\\r?\\n([\\s\\S]*?)${MARKDOWN_H2_SECTION_END}`, 'gim');
+  const out: Array<{ heading: string; body: string }> = [];
+  let m: RegExpExecArray | null;
+  const text = markdown.trim();
+  while ((m = re.exec(text))) {
+    const heading = (m[1] ?? '').trim();
+    const body = (m[2] ?? '').trim();
+    if (!heading || isOrchestrationH2Heading(heading) || body.length < minBodyChars) {
+      continue;
+    }
+    out.push({ heading, body });
+  }
+  return out;
+}
+
+function assistantTurnCarriesSubstantialDraftContext(prepared: string): boolean {
+  if (substantialMarkdownH2Sections(prepared).length > 0) {
+    return true;
+  }
+  return prepared.trim().length >= 200;
+}
+
+/** Deictic reference to prior chat (not the anchored Studio page). Mirrors server CONVERSATION_DEICTIC_REFERENCE. */
+function currentRequestRefersToPriorConversation(text: string): boolean {
+  const t = text.trim();
+  if (!t || /\b(?:this|the)\s+page\b/i.test(t)) {
+    return false;
+  }
+  return (
+    /\b(?:this|that|it|these|those)\b/i.test(t) ||
+    /\b(?:the|your)\s+(?:above|last|previous|prior|earlier|last\s+reply|last\s+message)\b/i.test(t) ||
+    /\bwhat\s+you\s+(?:wrote|said|generated|proposed|suggested)\b/i.test(t) ||
+    /\b(?:from|using|with)\s+(?:this|that|it|the\s+above)\b/i.test(t)
+  );
+}
+
+function currentRequestSuggestsRepoMaterializeFromConversation(text: string): boolean {
+  const t = text.trim();
+  if (!t) {
+    return false;
+  }
+  if (
+    /\b(?:shorter|longer|condense|trim it|expand it|rewrite it)\b/i.test(t) &&
+    !/\b(?:create|save|add|write|put|store|publish|make\s+it\s+into|turn|convert)\b/i.test(t)
+  ) {
+    return false;
+  }
+  return (
+    /\b(?:create|save|add|write|put|store|publish)\b[\s\S]{0,56}\b(?:this|that|it|these|those|above|conversation|chat|reply)\b/i.test(
+      t
+    ) ||
+    /\b(?:make|turn|convert)\s+(?:this|it|that)(?:\s+\w+){0,6}?\s+into\b/i.test(t) ||
+    /\b(?:from|using)\s+(?:this|that|the)\s+(?:draft|conversation|chat|reply|above)\b/i.test(t)
+  );
+}
+
+function abbreviateAssistantTurnForPriorContext(body: string, opts?: { useFullAssistantBody?: boolean }): string {
   let t = stripOrchestrationDebugComment(body).trim();
   if (!t) return '';
+
+  if (opts?.useFullAssistantBody) {
+    const planExec = /^##\s+Plan Execution\b/im;
+    const match = planExec.exec(t);
+    const fromExec = match?.index != null ? t.slice(match.index).trim() : t;
+    return clipContextChunk(fromExec, PRIOR_TURNS_ASSISTANT_DRAFT_MAX);
+  }
+
+  const draftBlock = extractPersistableDraftBlock(t);
+  if (draftBlock && assistantMarkdownContainsDraftMarkers(t)) {
+    return draftBlock;
+  }
+
+  const substantial = substantialMarkdownH2Sections(t);
+  if (substantial.length > 0) {
+    return substantial
+      .map(({ heading, body: sectionBody }) => `## ${heading}\n\n${clipContextChunk(sectionBody, PRIOR_TURNS_H2_SECTION_MAX)}`)
+      .join('\n\n');
+  }
   const planExec = /^##\s+Plan Execution\b/im;
   const match = planExec.exec(t);
   if (match?.index != null) {
-    t = t.slice(match.index).trim();
+    return t.slice(match.index).trim();
+  }
+  if (t.length >= 200) {
+    return clipContextChunk(t, PRIOR_TURNS_H2_SECTION_MAX);
   }
   return t;
 }
 
 /**
- * Abbreviated prior user/assistant turns so OpenAI single-turn requests retain conversational continuity
+ * Abbreviated prior user/assistant turns so LLM single-turn requests retain conversational continuity
  * without multi-message API history. Used for **every** AI panel embed (XB/ICE preview sidebar, floating dialog,
  * content-type form assistant) — not form-engine-specific.
  */
-function buildPriorTurnsContextBlock(prior: UiMessage[]): string {
+function buildPriorTurnsContextBlock(prior: UiMessage[], pendingUserText = ''): string {
   const relevant = prior.filter((m) => m.role === 'user' || m.role === 'assistant');
   if (relevant.length === 0) return '';
-  const totalMax = 8000;
   const slice = relevant.length > 8 ? relevant.slice(-8) : relevant;
+  const pending = pendingUserText.trim();
+  /** Multi-turn chat: send full stored assistant prose on the wire — routing uses the recipe LLM, not client phrase rules. */
+  const useExpandedPriorWire = !!pending && slice.some((m) => m.role === 'assistant');
+  const totalMax = useExpandedPriorWire ? PRIOR_TURNS_TOTAL_MAX_REPO_MATERIALIZE : PRIOR_TURNS_TOTAL_MAX_DEFAULT;
   const lines: string[] = [];
   let used = 0;
   for (const m of slice) {
     const label = m.role === 'user' ? 'User' : 'Assistant';
-    let body = (m.text || '').trim();
-    if (m.role === 'assistant' && !body && m.assistantPreToolsText) {
-      body = m.assistantPreToolsText.trim();
-    }
+    let body = m.role === 'assistant' ? combinedAssistantBodyForPriorTurn(m) : (m.text || '').trim();
     if (!body) continue;
     const prepared =
-      m.role === 'assistant' ? abbreviateAssistantTurnForPriorContext(body) : stripOrchestrationDebugComment(body).trim();
+      m.role === 'assistant'
+        ? abbreviateAssistantTurnForPriorContext(body, { useFullAssistantBody: useExpandedPriorWire })
+        : stripOrchestrationDebugComment(body).trim();
     if (!prepared.trim()) continue;
-    const perMsgMax = m.role === 'assistant' ? 1800 : 2800;
+    const assistantCarriesDraft =
+      m.role === 'assistant' &&
+      (assistantMarkdownContainsDraftMarkers(prepared) || assistantTurnCarriesSubstantialDraftContext(prepared));
+    const perMsgMax =
+      m.role === 'user'
+        ? PRIOR_TURNS_USER_MAX
+        : useExpandedPriorWire || assistantCarriesDraft
+          ? PRIOR_TURNS_ASSISTANT_DRAFT_MAX
+          : PRIOR_TURNS_ASSISTANT_MAX;
     const piece = clipContextChunk(prepared, perMsgMax);
     const line = `${label}: ${piece}`;
     if (used + line.length + 2 > totalMax) break;
@@ -1257,17 +1649,17 @@ function buildPriorTurnsContextBlock(prior: UiMessage[]): string {
 
 export interface AiAssistantChatProps {
   agentId: string;
-  /** Widget agent `<llm>` when set in ui.xml. Omitted from POST if unset—server then normalizes to hosted CrafterQ; set explicitly for predictable routing. */
+  /** Agent `llm` from agents.json (or ICE inline props). Server merges from catalog when omitted on POST. */
   llm?: string;
   llmModel?: string;
-  /** OpenAI Images API model for GenerateImage; from agent ui.xml **imageModel** or request body only (no default). */
+  /** Image model for GenerateImage; from agents.json **imageModel** or request body only (no server default). */
   imageModel?: string;
-  /** GenerateImage backend: ui.xml **imageGenerator** / stream POST (blank / openAiWire / none / script:{id}). */
+  /** GenerateImage backend from agents.json **imageGenerator** or stream POST. */
   imageGenerator?: string;
-  /** From ui.xml; server uses only if env/JVM OpenAI key unset. Testing only — not recommended. */
-  openAiApiKey?: string;
+  /** From agent config; server uses only if env/JVM provider key unset. Testing only — not recommended. */
+  llmApiKey?: string;
   initialMessages?: Array<{ role: string; content: string }>;
-  /** Prompts from ui.xml agent config; shown above chat. When set, overrides API quick messages. */
+  /** Quick-prompt chips from agents.json; shown above chat. When set, overrides API quick messages. */
   configPrompts?: PromptConfig[];
   /**
    * `icePanel` — Studio ICE tools drawer scrolls the whole page (`drawerBody { overflowY: auto }`).
@@ -1285,25 +1677,18 @@ export interface AiAssistantChatProps {
    */
   formEngineClientJsonApply?: boolean;
   /**
-   * When false, POST omits OpenAI function tools (agent ui.xml `enableTools`).
+   * When false, POST omits native function tools for the LLM request (agents.json `enableTools`).
    * Applies on **all** surfaces (XB/ICE, dialog, form engine). Focused no-tools turns also use quick-prompt **`omitTools`** (see {@link PromptConfig.omitTools} / POST **`omitTools`**).
    */
   enableTools?: boolean;
   /**
-   * Optional subset of CMS tool wire names (POST **enabledBuiltInTools**). Include **`mcp:*`** for all MCP tools.
+   * Optional subset of built-in tool wire names (POST **enabledBuiltInTools**). Include **`mcp:*`** for all MCP tools.
    */
   enabledBuiltInTools?: string[];
-  /** Optional per-agent markdown RAG URLs (OpenAI); sent as `expertSkills` on stream POST. */
-  expertSkills?: ExpertSkillConfig[];
-  /** 1–64; sent on stream POST for TranslateContentBatch default parallelism (ui.xml translateBatchConcurrency). */
+  /** Enabled per-agent markdown skills sent on stream POST. */
+  skills?: AgentSkillConfig[];
+  /** 1–64; sent on stream POST for TranslateContentBatch default parallelism (agents.json translateBatchConcurrency). */
   translateBatchConcurrency?: number;
-  /**
-   * CrafterQ JWT for server-proxied **api.crafterq.ai** calls (`Authorization: Bearer …`). From ui.xml **`<crafterQBearerToken>`**.
-   * Prefer **{@link crafterQBearerTokenEnv}** + host environment for secrets.
-   */
-  crafterQBearerToken?: string;
-  /** Host env var **name** for the CrafterQ JWT. ui.xml **`<crafterQBearerTokenEnv>`**; overrides {@link crafterQBearerToken} when set and non-empty on the server. */
-  crafterQBearerTokenEnv?: string;
 }
 
 export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
@@ -1314,7 +1699,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     llmModel,
     imageModel,
     imageGenerator,
-    openAiApiKey,
+    llmApiKey,
     initialMessages,
     configPrompts,
     embedTarget = 'default',
@@ -1322,47 +1707,251 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     formEngineClientJsonApply,
     enableTools,
     enabledBuiltInTools,
-    expertSkills,
-    translateBatchConcurrency,
-    crafterQBearerToken,
-    crafterQBearerTokenEnv
+    skills,
+    translateBatchConcurrency
   } = props;
-  /** Empty when config omits **crafterQAgentId** — server must omit ConsultCrafterQExpert; do not substitute a default UUID. */
+  /** Widget **`agentId`** from agent configuration (UUID when applicable). */
   const agentId = agentIdProp?.trim() ?? '';
+  const wireImageModel = resolveWireImageModel(llm, imageModel);
 
   const siteId = useActiveSiteId() ?? 'default';
   const previewItem = useCurrentPreviewItem();
+  const contentTypesById = useContentTypes();
   const guest = usePreviewGuest();
+  const guestSelected = useSelector(
+    (state: { preview?: { guest?: { selected?: unknown } } }) => state.preview?.guest?.selected
+  );
+  const guestForScope = useMemo(() => {
+    if (!guest) return guest;
+    if (guestSelected === guest.selected) return guest;
+    return { ...guest, selected: guestSelected as typeof guest.selected };
+  }, [guest, guestSelected]);
   const user = useActiveUser();
+  const formEngineChat = isFormEngineAuthoringChat(getAuthoringFormContext);
+  const [authoringScope, setAuthoringScope] = useState<AuthoringScope>('page');
+  const [formEngineScope, setFormEngineScope] = useState<FormEngineAuthoringScope>('content');
+  const [latchedFormFieldFocus, setLatchedFormFieldFocus] = useState<FormEngineFieldFocus | undefined>();
+  const prevFormFieldSelectionKeyRef = useRef('');
+  const [latchedFieldFocus, setLatchedFieldFocus] = useState<XbFieldFocus | undefined>();
+  const [latchedComponentFocus, setLatchedComponentFocus] = useState<XbComponentFocus | undefined>();
+  const prevXbSelectionKeyRef = useRef('');
+  const prevXbComponentSelectionKeyRef = useRef('');
 
   /** Guest model (XB) — may exist when itemsByPath has not loaded DetailedItem yet. */
   const guestMainModel =
     guest?.modelId && guest?.models ? (guest.models as Record<string, { craftercms?: { path?: string; contentTypeId?: string } }>)[guest.modelId] : undefined;
 
-  const resolvedContentPath =
+  const pageContentPath =
     (previewItem as { path?: string } | undefined)?.path?.trim() ||
     (typeof guest?.path === 'string' ? guest.path.trim() : '') ||
     (guestMainModel?.craftercms?.path && String(guestMainModel.craftercms.path).trim()) ||
     '';
+
+  const resolvedContentPath = pageContentPath;
+
+  const domIceSelection = useSyncExternalStore(
+    subscribeXbDomIceSelection,
+    getLastXbDomIceSelection,
+    () => null
+  );
+
+  const domIceComponentSelection = useSyncExternalStore(
+    subscribeXbDomComponentSelection,
+    getLastXbDomComponentSelection,
+    () => null
+  );
+
+  const xbSelectionPrecedence = useSyncExternalStore(
+    subscribeXbSelectionPrecedence,
+    getXbSelectionPrecedence,
+    () => null
+  );
+
+  const formFieldFocusLive = useSyncExternalStore(
+    subscribeFormEngineFieldFocus,
+    getFormEngineFieldFocus,
+    () => null
+  );
+
+  const formFieldFocus = formEngineChat ? formFieldFocusLive ?? latchedFormFieldFocus : undefined;
+
+  const formFieldSelectionKey = useMemo(() => {
+    if (!formEngineChat) return '';
+    return buildFormEngineFieldSelectionKey(formFieldFocusLive);
+  }, [formEngineChat, formFieldFocusLive]);
+
+  const formFieldScopeButtonLabel = useMemo(() => {
+    if (!formFieldFocus?.fieldId) return '';
+    return formatFormEngineFieldScopeButtonLabel(formFieldFocus);
+  }, [formFieldFocus]);
+
+  const xbFieldFocusLive = useMemo(() => {
+    if (formEngineChat) return undefined;
+    const fromGuest = resolveXbFieldFocus(guestForScope, contentTypesById);
+    if (fromGuest?.fieldId) return fromGuest;
+    if (xbSelectionPrecedence === 'component') return undefined;
+    return (
+      fromGuest ??
+      resolveXbFieldFocusFromDom(domIceSelection, guestForScope, contentTypesById)
+    );
+  }, [formEngineChat, guestForScope, contentTypesById, domIceSelection, xbSelectionPrecedence]);
+
+  /** Keeps the last XB field selection when focus moves to the assistant (XB clears selection on outside click). */
+  const xbFieldFocus = xbFieldFocusLive ?? (xbSelectionPrecedence === 'component' ? undefined : latchedFieldFocus);
+
+  const xbComponentFocusLive = useMemo(() => {
+    if (formEngineChat) return undefined;
+    const fromGuest = resolveXbComponentFocus(guestForScope, contentTypesById);
+    if (fromGuest?.contentPath) return fromGuest;
+    if (xbSelectionPrecedence === 'field' && resolveXbFieldFocus(guestForScope, contentTypesById)?.fieldId) {
+      return undefined;
+    }
+    return (
+      fromGuest ??
+      resolveXbComponentFocusFromDom(domIceComponentSelection, guestForScope)
+    );
+  }, [formEngineChat, guestForScope, domIceComponentSelection, xbSelectionPrecedence, contentTypesById]);
+
+  const xbComponentFocusDerived = useMemo(
+    () => xbComponentFocusFromField(xbFieldFocus, guestForScope),
+    [xbFieldFocus, guestForScope]
+  );
+
+  const xbComponentFocus =
+    xbComponentFocusLive ??
+    (xbSelectionPrecedence === 'component' ? latchedComponentFocus : undefined) ??
+    xbComponentFocusDerived;
+
+  const xbSelectionKey = useMemo(() => {
+    if (formEngineChat) return '';
+    return buildXbSelectionKey(guestForScope) || buildDomIceSelectionKey(domIceSelection);
+  }, [formEngineChat, guestForScope, domIceSelection]);
+
+  const xbFieldScopeButtonLabel = useMemo(() => {
+    if (!xbFieldFocus?.fieldId) return '';
+    return formatXbFieldScopeButtonLabel(xbFieldFocus, guestForScope, contentTypesById);
+  }, [xbFieldFocus, guestForScope, contentTypesById]);
+
+  const xbComponentSelectionKey = useMemo(() => {
+    if (formEngineChat) return '';
+    return (
+      buildXbComponentSelectionKey(guestForScope, contentTypesById) ||
+      buildDomIceComponentSelectionKey(domIceComponentSelection)
+    );
+  }, [formEngineChat, guestForScope, contentTypesById, domIceComponentSelection]);
+
+  useEffect(() => {
+    if (formEngineChat || xbSelectionPrecedence !== 'field' || !xbSelectionKey || !xbFieldFocusLive?.fieldId) {
+      return;
+    }
+    if (resolveXbComponentModelId(guestForScope, contentTypesById)) return;
+    if (xbSelectionKey !== prevXbSelectionKeyRef.current) {
+      setLatchedFieldFocus(xbFieldFocusLive);
+      setLatchedComponentFocus(undefined);
+      setAuthoringScope('field');
+      prevXbSelectionKeyRef.current = xbSelectionKey;
+      prevXbComponentSelectionKeyRef.current = '';
+    }
+  }, [formEngineChat, xbSelectionPrecedence, xbSelectionKey, xbFieldFocusLive, guestForScope, contentTypesById]);
+
+  useEffect(() => {
+    if (formEngineChat || !domIceSelection?.fieldId) return;
+    if (resolveXbComponentModelId(guestForScope, contentTypesById)) return;
+
+    const focus = resolveXbFieldFocusFromDom(domIceSelection, guestForScope, contentTypesById);
+    if (!focus?.fieldId) return;
+
+    const key = buildDomIceSelectionKey(domIceSelection);
+    if (!key) return;
+    if (key === prevXbSelectionKeyRef.current) return;
+
+    setLatchedFieldFocus(focus);
+    setLatchedComponentFocus(undefined);
+    setAuthoringScope('field');
+    prevXbSelectionKeyRef.current = key;
+    prevXbComponentSelectionKeyRef.current = '';
+  }, [formEngineChat, domIceSelection, guestForScope, contentTypesById]);
+
+  useEffect(() => {
+    if (formEngineChat) return;
+    const guestComponentKey = buildXbComponentSelectionKey(guestForScope, contentTypesById);
+    if (!guestComponentKey) return;
+
+    const focus =
+      resolveXbComponentFocus(guestForScope, contentTypesById) ??
+      resolveXbComponentFocusFromDom(domIceComponentSelection, guestForScope);
+    if (!focus?.contentPath) return;
+    if (guestComponentKey === prevXbComponentSelectionKeyRef.current) return;
+
+    setLatchedComponentFocus(focus);
+    setLatchedFieldFocus(undefined);
+    setAuthoringScope('component');
+    prevXbComponentSelectionKeyRef.current = guestComponentKey;
+    prevXbSelectionKeyRef.current = '';
+  }, [formEngineChat, guestForScope, contentTypesById, domIceComponentSelection]);
+
+  useEffect(() => {
+    if (
+      formEngineChat ||
+      xbSelectionPrecedence !== 'component' ||
+      !xbComponentSelectionKey ||
+      !xbComponentFocusLive
+    ) {
+      return;
+    }
+    if (resolveXbFieldFocus(guestForScope, contentTypesById)?.fieldId) return;
+    if (xbComponentSelectionKey !== prevXbComponentSelectionKeyRef.current) {
+      setLatchedComponentFocus(xbComponentFocusLive);
+      setLatchedFieldFocus(undefined);
+      setAuthoringScope('component');
+      prevXbComponentSelectionKeyRef.current = xbComponentSelectionKey;
+      prevXbSelectionKeyRef.current = '';
+    }
+  }, [
+    formEngineChat,
+    xbSelectionPrecedence,
+    xbComponentSelectionKey,
+    xbComponentFocusLive,
+    guestForScope,
+    contentTypesById
+  ]);
+
+  useEffect(() => {
+    if (!formEngineChat) return;
+    if (!formFieldSelectionKey) {
+      prevFormFieldSelectionKeyRef.current = '';
+      return;
+    }
+    if (!formFieldFocusLive?.fieldId) return;
+    if (formFieldSelectionKey !== prevFormFieldSelectionKeyRef.current) {
+      setLatchedFormFieldFocus(formFieldFocusLive);
+      setFormEngineScope('field');
+      prevFormFieldSelectionKeyRef.current = formFieldSelectionKey;
+    }
+  }, [formEngineChat, formFieldSelectionKey, formFieldFocusLive]);
 
   const resolvedContentTypeId =
     (previewItem as { contentTypeId?: string } | undefined)?.contentTypeId?.trim() ||
     (guestMainModel?.craftercms?.contentTypeId && String(guestMainModel.craftercms.contentTypeId).trim()) ||
     '';
 
+  const resolvedDisplayTemplate = resolvePreviewDisplayTemplate(resolvedContentTypeId, contentTypesById);
+
   const macroValuesRef = useRef({
     siteId,
     currentPage: '',
     currentUsername: 'unknown',
     contentTypeId: '',
-    contentPath: ''
+    contentPath: '',
+    displayTemplate: ''
   });
   macroValuesRef.current = {
     siteId,
     currentPage: (previewItem as { previewUrl?: string } | undefined)?.previewUrl ?? (typeof window !== 'undefined' ? window.location.href : '') ?? '',
     currentUsername: (user as { username?: string } | undefined)?.username ?? 'unknown',
     contentTypeId: resolvedContentTypeId,
-    contentPath: resolvedContentPath
+    contentPath: resolvedContentPath,
+    displayTemplate: resolvedDisplayTemplate ?? ''
   };
 
   const [loading, setLoading] = useState(false);
@@ -1374,6 +1963,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
   const welcomeMessage: string | null = null;
 
   const [chatId, setChatId] = useState<string | undefined>(undefined);
+  const [assumedSiteId, setAssumedSiteId] = useState<string | undefined>(undefined);
   const [messages, setMessages] = useState<UiMessage[]>(() => {
     const base: UiMessage[] = [];
     (initialMessages ?? []).forEach((m, idx) => {
@@ -1387,17 +1977,32 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
   });
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
+  const chatIdRef = useRef(chatId);
+  chatIdRef.current = chatId;
+  const assumedSiteIdRef = useRef(assumedSiteId);
+  assumedSiteIdRef.current = assumedSiteId;
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [readResponsesAloud, setReadResponsesAloud] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
+  /** Prevents double-send while macro expansion / stream prep runs (before `setSending` used to flip late). */
+  const sendInFlightRef = useRef(false);
   /** True when the user clicked Stop (vs timeout / navigation) — shapes catch handling. */
   const userStopRequestedRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const saveDebounceRef = useRef<number | null>(null);
+  /** Snapshot for the debounced localStorage write; teardown flush uses this so agent switches do not save the wrong row. */
+  const pendingPersistRef = useRef<{
+    siteId: string;
+    agentId: string;
+    chatId: string | undefined;
+    assumedSiteId: string | undefined;
+    messages: UiMessage[];
+  } | null>(null);
   const iceRootRef = useRef<HTMLDivElement | null>(null);
   const lastSpokenAssistantIdRef = useRef<string | null>(null);
-  /** Raw SSE JSON lines + client send markers — full transcript for support / debugging (see Copy log). */
+  /** Raw SSE JSON lines + structured client markers — formatted by formatSessionLogForDebugCopy when copying. */
   const sessionStreamLogRef = useRef<string[]>([]);
 
   // Restore per-agent conversation across reloads / reopens.
@@ -1405,6 +2010,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     const stored = loadConversation(siteId, agentId);
     if (stored) {
       setChatId(stored.chatId);
+      setAssumedSiteId(stored.assumedSiteId);
       setMessages(stored.messages);
       return;
     }
@@ -1418,17 +2024,58 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
       });
     });
     setChatId(undefined);
+    setAssumedSiteId(undefined);
     setMessages(base);
   }, [siteId, agentId, initialMessages]);
 
-  // Persist per-agent conversation state.
+  // Persist per-agent conversation: avoid writing on every SSE chunk (localStorage jank + quota).
   useEffect(() => {
-    saveConversation(siteId, agentId, {
-      version: 1,
-      chatId,
-      messages: messages.map((m) => ({ ...m, isStreaming: false }))
-    });
-  }, [siteId, agentId, chatId, messages]);
+    const hasStreaming = messages.some((m) => m.isStreaming);
+    if (hasStreaming) {
+      return;
+    }
+    pendingPersistRef.current = { siteId, agentId, chatId, assumedSiteId, messages };
+    if (saveDebounceRef.current) {
+      window.clearTimeout(saveDebounceRef.current);
+    }
+    saveDebounceRef.current = window.setTimeout(() => {
+      const p = pendingPersistRef.current;
+      if (p && typeof localStorage !== 'undefined') {
+        saveConversation(p.siteId, p.agentId, {
+          version: 1,
+          chatId: p.chatId,
+          assumedSiteId: p.assumedSiteId,
+          messages: p.messages.map((m) => ({ ...m, isStreaming: false }))
+        });
+      }
+      saveDebounceRef.current = null;
+    }, 600);
+    return () => {
+      if (saveDebounceRef.current) {
+        window.clearTimeout(saveDebounceRef.current);
+        saveDebounceRef.current = null;
+      }
+    };
+  }, [siteId, agentId, chatId, assumedSiteId, messages]);
+
+  useEffect(() => {
+    return () => {
+      if (saveDebounceRef.current) {
+        window.clearTimeout(saveDebounceRef.current);
+        saveDebounceRef.current = null;
+      }
+      const msgs = messagesRef.current;
+      if (typeof localStorage === 'undefined' || msgs.some((m) => m.isStreaming)) {
+        return;
+      }
+      saveConversation(siteId, agentId, {
+        version: 1,
+        chatId: chatIdRef.current,
+        assumedSiteId: assumedSiteIdRef.current,
+        messages: msgs.map((m) => ({ ...m, isStreaming: false }))
+      });
+    };
+  }, [siteId, agentId]);
 
   const quickMessagesToShow = useMemo(() => {
     if (configPrompts && configPrompts.length > 0) {
@@ -1487,23 +2134,26 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
   }, []);
 
   // Allow sending even if a previous request is stuck; startSend aborts in-flight first.
-  const canSend = useMemo(() => draft.trim().length > 0, [draft]);
+  const canSend = useMemo(() => draft.trim().length > 0 && !sending, [draft, sending]);
 
-  /** 📋 plan lines from the latest finished assistant message — click runs as a new prompt. */
-  const verificationPrompts = useMemo(() => {
-    const last = [...messages].reverse().find((m) => m.role === 'assistant' && !m.isStreaming);
-    if (!last) return [];
-    return extractVerificationPrompts(combinedAssistantMarkdownForVerification(last));
-  }, [messages]);
+  const handleAuthoringScopeChange = useCallback(
+    (_event: React.MouseEvent<HTMLElement>, value: AuthoringScope | null) => {
+      if (!value) return;
+      if (value === 'field' && !xbFieldFocus?.fieldId) return;
+      if (value === 'component' && !xbComponentFocus?.contentPath) return;
+      setAuthoringScope(value);
+    },
+    [xbFieldFocus?.fieldId, xbComponentFocus?.contentPath]
+  );
 
-  /** "Would you like me to:" / list follow-ups — click sends as next prompt (deduped vs 📋 chips). */
-  const followUpActionPrompts = useMemo(() => {
-    const last = [...messages].reverse().find((m) => m.role === 'assistant' && !m.isStreaming);
-    if (!last) return [];
-    const combined = combinedAssistantMarkdownForVerification(last);
-    const verifyKeys = new Set(verificationPrompts.map((v) => verificationPromptDedupeKey(v)));
-    return extractFollowUpActionPrompts(combined).filter((p) => !verifyKeys.has(verificationPromptDedupeKey(p)));
-  }, [messages, verificationPrompts]);
+  const handleFormEngineScopeChange = useCallback(
+    (_event: React.MouseEvent<HTMLElement>, value: FormEngineAuthoringScope | null) => {
+      if (!value) return;
+      if (value === 'field' && !formFieldFocus?.fieldId) return;
+      setFormEngineScope(value);
+    },
+    [formFieldFocus?.fieldId]
+  );
 
   const speechCtor = useMemo(() => getSpeechRecognitionCtor(), []);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
@@ -1513,6 +2163,11 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
   const [voiceListening, setVoiceListening] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [promptFocused, setPromptFocused] = useState(false);
+  const showSiteOverridePill = useMemo(() => {
+    const assumed = (assumedSiteId || '').trim();
+    const active = (siteId || '').trim();
+    return Boolean(assumed && active && assumed !== active);
+  }, [assumedSiteId, siteId]);
 
   const stopVoiceInput = useCallback(() => {
     voiceActiveRef.current = false;
@@ -1524,6 +2179,13 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
       // ignore
     }
     setVoiceListening(false);
+  }, []);
+
+  /** Clears the prompt field and voice scratch buffers (avoids late recognition events repopulating after send/stop). */
+  const clearChatPromptInput = useCallback(() => {
+    setDraft('');
+    draftAtVoiceStartRef.current = '';
+    voiceFinalsRef.current = '';
   }, []);
 
   const startVoiceInput = useCallback(() => {
@@ -1539,6 +2201,9 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     rec.continuous = true;
     rec.interimResults = true;
     rec.onresult = (event: SpeechRecognitionEvent) => {
+      if (!voiceActiveRef.current) {
+        return;
+      }
       let interim = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
@@ -1600,8 +2265,24 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
 
   const stopStreaming = useCallback(() => {
     userStopRequestedRef.current = true;
+    stopVoiceInput();
+    clearChatPromptInput();
+    setSending(false);
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.isStreaming
+          ? {
+              ...m,
+              isStreaming: false,
+              pipelineHeartbeat: undefined,
+              summarizingResults: false
+            }
+          : m
+      )
+    );
     abortRef.current?.abort();
-  }, []);
+    abortRef.current = null;
+  }, [clearChatPromptInput, stopVoiceInput]);
 
   /** Remove one bubble from history (demos / retakes). Aborts stream if removing the in-flight assistant or its paired user message. */
   const removeBubble = useCallback(
@@ -1630,10 +2311,24 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     lastSpokenAssistantIdRef.current = null;
     abortRef.current?.abort();
     setSending(false);
-    setDraft('');
+    clearChatPromptInput();
     setChatId(undefined);
+    setAssumedSiteId(undefined);
     setMessages([]);
     sessionStreamLogRef.current = [];
+    try {
+      pushStreamLog(
+        sessionStreamLogRef,
+        JSON.stringify({
+          kind: 'client.sessionReset',
+          ts: new Date().toISOString(),
+          siteId,
+          agentId
+        })
+      );
+    } catch {
+      /* ignore log serialization errors */
+    }
     clearConversation(siteId, agentId);
   };
 
@@ -1641,25 +2336,81 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     const trimmed = prompt.trim();
     if (!trimmed) return;
 
+    const setSiteOnly = matchStickySetSiteCommand(trimmed);
+    if (setSiteOnly) {
+      stopVoiceInput();
+      clearChatPromptInput();
+      setAssumedSiteId(setSiteOnly);
+      const userBubble = (displayInChat ?? trimmed).trim() || trimmed;
+      const userId = `user-${Date.now()}`;
+      const assistantId = `assistant-${Date.now()}`;
+      setMessages((prev) => [
+        ...prev,
+        { id: userId, role: 'user', text: userBubble },
+        {
+          id: assistantId,
+          role: 'assistant',
+          text: buildSetSiteHotPathReply(setSiteOnly, siteId)
+        }
+      ]);
+      try {
+        pushStreamLog(
+          sessionStreamLogRef,
+          JSON.stringify({
+            kind: 'client.setSiteHotPath',
+            ts: new Date().toISOString(),
+            siteId,
+            targetSiteId: setSiteOnly
+          })
+        );
+      } catch {
+        /* ignore log serialization errors */
+      }
+      return;
+    }
+
+    const siteDirective = parseSiteDirective(trimmed);
+    /** CMS tools site (POST body); Studio session site stays in `siteId` for URL + localStorage. */
+    const effectiveSiteId = siteDirective.requestSiteId || assumedSiteId || siteId;
+    /** When true, omit preview anchor fields on stream/chat so session preview is not repo truth. */
+    const crossSiteWorking = effectiveSiteId !== siteId;
+
     stopVoiceInput();
 
+    if (sendInFlightRef.current) {
+      return;
+    }
+    sendInFlightRef.current = true;
+    setSending(true);
+
+    try {
     const now = new Date();
     const pad2 = (n: number) => String(n).padStart(2, '0');
+    const macroContentPathBase = crossSiteWorking ? undefined : macroValuesRef.current.contentPath;
+    const scopedPreview =
+      !formEngineChat && !crossSiteWorking
+        ? buildScopedPreviewStreamContext({
+            scope: authoringScope,
+            pageContentPath: macroValuesRef.current.contentPath,
+            pageContentTypeId: macroValuesRef.current.contentTypeId,
+            displayTemplate: macroValuesRef.current.displayTemplate,
+            fieldFocus: xbFieldFocus,
+            componentFocus: xbComponentFocus
+          })
+        : null;
+    const macroContentPath = crossSiteWorking
+      ? undefined
+      : scopedPreview?.contentPath?.trim() || macroContentPathBase;
     const macroCtx: PromptMacrosContext = {
       dateToday: `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`,
       timeNow: `${pad2(now.getHours())}:${pad2(now.getMinutes())}`,
       currentPage: macroValuesRef.current.currentPage,
-      currentContentPath: macroValuesRef.current.contentPath,
+      currentContentPath: macroContentPath,
       currentUsername: macroValuesRef.current.currentUsername,
-      siteId: macroValuesRef.current.siteId
+      siteId: effectiveSiteId
     };
     let expandedPrompt = expandPromptMacros(trimmed, macroCtx).trim();
     const expandedDisplaySync = expandPromptMacros((displayInChat ?? trimmed).trim(), macroCtx).trim();
-    expandedPrompt = await expandContentTypeMacros(
-      expandedPrompt,
-      macroCtx.siteId,
-      macroValuesRef.current.contentTypeId
-    ).then((s) => s.trim());
 
     let authoringSnap: AuthoringFormContextSnapshot | undefined;
     if (typeof getAuthoringFormContext === 'function') {
@@ -1670,21 +2421,45 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
       }
     }
 
-    const formEngine = isFormEngineAuthoringChat(getAuthoringFormContext);
-    const wantClientJsonApply = formEngine && formEngineClientJsonApply !== false;
+    const wantClientJsonApply = formEngineChat && formEngineClientJsonApply !== false;
 
-    expandedPrompt = await expandContentMacros(
+    const enrichedFormFieldFocus =
+      formEngineChat && formEngineScope === 'field' && formFieldFocus?.fieldId
+        ? (() => {
+            const fromDef = resolveFormFieldLabelFromDefinitionXml(
+              authoringSnap?.definitionXml ?? '',
+              formFieldFocus.fieldId
+            );
+            return fromDef ? { ...formFieldFocus, fieldLabel: fromDef } : formFieldFocus;
+          })()
+        : undefined;
+
+    const scopedFormEngine = formEngineChat
+      ? buildScopedFormEngineStreamContext({
+          scope: formEngineScope,
+          contentPath: authoringSnap?.contentPath,
+          fieldFocus: enrichedFormFieldFocus
+        })
+      : null;
+
+    expandedPrompt = await expandContentTypeMacros(
       expandedPrompt,
       macroCtx.siteId,
-      macroValuesRef.current.contentPath,
-      authoringSnap
-        ? {
-            contentItemPath: authoringSnap.contentPath,
-            fieldValuesJson: authoringSnap.fieldValuesJson,
-            serializedContentXml: authoringSnap.serializedContentXml
-          }
-        : undefined
+      scopedPreview?.contentTypeId || macroValuesRef.current.contentTypeId,
+      { omitRepoFileBodies: !formEngineChat }
     ).then((s) => s.trim());
+
+    expandedPrompt = await expandContentMacros(expandedPrompt, macroCtx.siteId, macroContentPath, {
+      omitRepoFileBodies: !formEngineChat,
+      liveAuthoring:
+        !crossSiteWorking && authoringSnap
+          ? {
+              contentItemPath: authoringSnap.contentPath,
+              fieldValuesJson: authoringSnap.fieldValuesJson,
+              serializedContentXml: authoringSnap.serializedContentXml
+            }
+          : undefined
+    }).then((s) => s.trim());
     let expandedDisplay = expandContentTypeMacrosForDisplay(
       expandedDisplaySync,
       macroValuesRef.current.contentTypeId
@@ -1693,30 +2468,38 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
       expandedDisplay,
       macroValuesRef.current.contentPath
     ).trim();
-    if (!expandedPrompt) return;
+    if (!expandedPrompt) {
+      return;
+    }
 
     const omitToolsThisSend = sendOptions?.omitTools === true;
+    const expandedAfterMacrosLen = expandedPrompt.length;
+    let formAppendixLen = 0;
 
     if (authoringSnap) {
       try {
         const appendix = buildAuthoringFormAppendix(authoringSnap, {
           includeClientJsonApplyInstructions: wantClientJsonApply
         });
-        if (appendix) expandedPrompt = expandedPrompt + appendix;
+        if (appendix) {
+          formAppendixLen = appendix.length;
+          expandedPrompt = expandedPrompt + appendix;
+        }
       } catch {
         /* ignore snapshot appendix errors — still send the user prompt */
       }
     }
 
-    const priorBlock = buildPriorTurnsContextBlock(messages);
-    const previewPath = macroValuesRef.current.contentPath?.trim();
-    const previewCt = macroValuesRef.current.contentTypeId?.trim();
-    const requestAnchor =
-      !formEngine && (previewPath || previewCt)
-        ? `[Request anchor — default target when the user says "this page", "this article", or similar without another path]\n${previewPath ? `Repository path: ${previewPath}` : ''}${previewPath && previewCt ? '\n' : ''}${previewCt ? `Content-type id: ${previewCt.startsWith('/') ? previewCt : `/${previewCt}`}` : ''}\n\n`
-        : '';
-    const currentRequestBody = requestAnchor ? `${requestAnchor}${expandedPrompt}` : expandedPrompt;
-    const wirePrompt = priorBlock ? `${priorBlock}Current request:\n${currentRequestBody}` : currentRequestBody;
+    const priorBlock = buildPriorTurnsContextBlock(messages, expandedPrompt);
+    const priorTurnsBlockLen = priorBlock.length;
+    const workingSiteForContext =
+      (assumedSiteId || '').trim() || (effectiveSiteId !== siteId ? effectiveSiteId : '');
+    const workingSiteAppendix = workingSiteForContext
+      ? buildWorkingSiteContextAppendix(workingSiteForContext, siteId)
+      : '';
+    const wirePrompt = `${priorBlock || ''}${workingSiteAppendix}${
+      priorBlock || workingSiteAppendix ? 'Current request:\n' : ''
+    }${expandedPrompt}`;
 
     abortRef.current?.abort();
     userStopRequestedRef.current = false;
@@ -1727,102 +2510,205 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
     const assistantId = `assistant-${Date.now()}`;
     const userBubbleText = expandedDisplay || expandedPrompt;
 
+    /** `crafterPreview` cookie when present — forwarded for server preview tools (GetPreviewHtml, etc.). */
+    const previewTokenForStream = readCrafterPreviewTokenFromCookie();
+    const previewContentTypeLabel =
+      formEngineChat || crossSiteWorking ? undefined : resolvePreviewContentTypeLabel(previewItem);
+    const studioPreviewPageUrl =
+      formEngineChat || crossSiteWorking ? undefined : pickStudioPreviewPageUrlForServer(previewItem);
+
     setMessages((prev) => [
       ...prev,
       { id: userId, role: 'user', text: userBubbleText },
       { id: assistantId, role: 'assistant', text: '', isStreaming: true }
     ]);
     try {
-      sessionStreamLogRef.current.push(
+      pushStreamLog(
+        sessionStreamLogRef,
         JSON.stringify({
           kind: 'client.userSend',
           ts: new Date().toISOString(),
+          context: {
+            siteId,
+            effectiveSiteId,
+            agentId,
+            llm: llm ?? null,
+            llmModel: llmModel ?? null,
+            imageModel: wireImageModel ?? null,
+            imageGenerator: imageGenerator != null ? String(imageGenerator).trim() || null : null,
+            authoringSurface: formEngineChat ? 'formEngine' : 'preview',
+            omitTools: omitToolsThisSend,
+            enableTools: enableTools !== false,
+            chatId: chatId ?? null,
+            authoringScope:
+              scopedFormEngine?.authoringScope ?? scopedPreview?.authoringScope ?? null,
+            contentPath:
+              formEngineChat || crossSiteWorking
+                ? null
+                : scopedPreview?.contentPath?.trim() || macroValuesRef.current.contentPath?.trim() || null,
+            contentTypeId:
+              formEngineChat || crossSiteWorking
+                ? null
+                : scopedPreview?.contentTypeId?.trim() || macroValuesRef.current.contentTypeId?.trim() || null,
+            displayTemplate:
+              formEngineChat || crossSiteWorking
+                ? null
+                : scopedPreview?.displayTemplate?.trim() || macroValuesRef.current.displayTemplate?.trim() || null,
+            pageContentPath: scopedPreview?.pageContentPath?.trim() || null,
+            xbFocusedFieldId:
+              scopedFormEngine?.xbFocusedFieldId ?? scopedPreview?.xbFocusedFieldId ?? null,
+            xbFocusedFieldLabel:
+              scopedFormEngine?.xbFocusedFieldLabel ?? scopedPreview?.xbFocusedFieldLabel ?? null,
+            xbFocusedComponentLabel: scopedPreview?.xbFocusedComponentLabel ?? null,
+            studioPreviewPageUrl: studioPreviewPageUrl ?? null,
+            crossSiteWorking,
+            formEngineClientJsonApply: wantClientJsonApply,
+            formEngineItemPath:
+              (scopedFormEngine?.formEngineItemPath ??
+                (wantClientJsonApply && authoringSnap?.contentPath?.trim()
+                  ? authoringSnap.contentPath.trim()
+                  : null)) || null
+          },
           displayText: userBubbleText,
-          wirePrompt: wirePrompt
+          wirePrompt: wirePrompt,
+          promptAssembly: {
+            expandedAfterMacrosLen,
+            formAppendixLen,
+            priorTurnsBlockLen,
+            wirePromptLen: wirePrompt.length,
+            omitRepoFileBodies: !formEngineChat
+          }
         })
       );
     } catch {
       /* ignore log serialization errors */
     }
-    setDraft('');
-    setSending(true);
+    clearChatPromptInput();
 
     let streamingMessageId: string | undefined;
     let assistantTextAccum = '';
+    /** After server recipe confirmation, final SSE replaces (not appends) prior draft prose. */
+    let replaceAssistantBodyActive = false;
     let formUpdatesApplied = false;
     let shouldRefreshPreview = false;
     /** Set when the client stream wait hits the hard cap (try/catch are separate scopes — must be outside `try`). */
     let streamHitTimeout = false;
-    /** Studio `crafterPreview` cookie — send whenever readable so server tools (e.g. GetPreviewHtml) work in XB/form chat too. */
-    const previewTokenForStream = readCrafterPreviewTokenFromCookie();
-    const previewContentTypeLabel = formEngine ? undefined : resolvePreviewContentTypeLabel(previewItem);
-    const studioPreviewPageUrl = formEngine ? undefined : pickStudioPreviewPageUrlForServer(previewItem);
 
     try {
+      let terminalStreamHadError = false;
       const streamPromise = streamChat({
         agentId,
         chatId,
         prompt: wirePrompt,
         // Form engine: do not send preview path — server would treat it as repo truth for tools; unsaved edits are only in the prompt appendix.
-        contentPath: formEngine ? undefined : macroValuesRef.current.contentPath?.trim() || undefined,
-        contentTypeId: formEngine ? undefined : macroValuesRef.current.contentTypeId?.trim() || undefined,
+        contentPath:
+          formEngineChat || crossSiteWorking
+            ? undefined
+            : scopedPreview?.contentPath?.trim() || macroValuesRef.current.contentPath?.trim() || undefined,
+        contentTypeId:
+          formEngineChat || crossSiteWorking
+            ? undefined
+            : scopedPreview?.contentTypeId?.trim() || macroValuesRef.current.contentTypeId?.trim() || undefined,
         ...(previewContentTypeLabel ? { contentTypeLabel: previewContentTypeLabel } : {}),
+        ...(!crossSiteWorking &&
+        (scopedPreview?.displayTemplate?.trim() || macroValuesRef.current.displayTemplate?.trim())
+          ? {
+              displayTemplate: (
+                scopedPreview?.displayTemplate || macroValuesRef.current.displayTemplate
+              ).trim()
+            }
+          : {}),
         ...(studioPreviewPageUrl ? { studioPreviewPageUrl } : {}),
-        authoringSurface: formEngine ? 'formEngine' : undefined,
-        formEngineClientJsonApply: formEngine && wantClientJsonApply ? true : undefined,
+        authoringSurface: formEngineChat ? 'formEngine' : undefined,
+        ...(scopedFormEngine?.authoringScope
+          ? { authoringScope: scopedFormEngine.authoringScope }
+          : scopedPreview?.authoringScope
+            ? { authoringScope: scopedPreview.authoringScope }
+            : {}),
+        ...(scopedPreview?.pageContentPath?.trim()
+          ? { pageContentPath: scopedPreview.pageContentPath.trim() }
+          : {}),
+        ...(scopedPreview?.xbFocusedContentPath?.trim()
+          ? { xbFocusedContentPath: scopedPreview.xbFocusedContentPath.trim() }
+          : {}),
+        ...(scopedFormEngine?.xbFocusedFieldId?.trim()
+          ? { xbFocusedFieldId: scopedFormEngine.xbFocusedFieldId.trim() }
+          : scopedPreview?.xbFocusedFieldId?.trim()
+            ? { xbFocusedFieldId: scopedPreview.xbFocusedFieldId.trim() }
+            : {}),
+        ...(scopedFormEngine?.xbFocusedFieldIndex != null
+          ? { xbFocusedFieldIndex: scopedFormEngine.xbFocusedFieldIndex }
+          : scopedPreview?.xbFocusedFieldIndex != null
+            ? { xbFocusedFieldIndex: scopedPreview.xbFocusedFieldIndex }
+            : {}),
+        ...(scopedFormEngine?.xbFocusedFieldLabel?.trim()
+          ? { xbFocusedFieldLabel: scopedFormEngine.xbFocusedFieldLabel.trim() }
+          : scopedPreview?.xbFocusedFieldLabel?.trim()
+            ? { xbFocusedFieldLabel: scopedPreview.xbFocusedFieldLabel.trim() }
+            : {}),
+        ...(scopedPreview?.xbFocusedComponentLabel?.trim()
+          ? { xbFocusedComponentLabel: scopedPreview.xbFocusedComponentLabel.trim() }
+          : {}),
+        formEngineClientJsonApply: formEngineChat && wantClientJsonApply ? true : undefined,
         formEngineItemPath:
-          formEngine && wantClientJsonApply && authoringSnap?.contentPath?.trim()
+          scopedFormEngine?.formEngineItemPath?.trim() ||
+          (formEngineChat && wantClientJsonApply && authoringSnap?.contentPath?.trim()
             ? authoringSnap.contentPath.trim()
-            : undefined,
+            : undefined),
         llm,
         llmModel,
-        imageModel,
+        imageModel: wireImageModel,
         ...(imageGenerator != null && String(imageGenerator).trim() !== ''
           ? { imageGenerator: String(imageGenerator).trim() }
           : {}),
-        openAiApiKey,
-        siteId,
+        llmApiKey,
+        siteId: effectiveSiteId,
+        pluginRequestSiteId: siteId,
         ...(previewTokenForStream ? { previewToken: previewTokenForStream } : {}),
         ...(omitToolsThisSend ? { omitTools: true } : {}),
         ...(enableTools === false ? { enableTools: false } : {}),
         ...(Array.isArray(enabledBuiltInTools) && enabledBuiltInTools.length > 0 ? { enabledBuiltInTools } : {}),
-        ...(Array.isArray(expertSkills) && expertSkills.length > 0 ? { expertSkills } : {}),
+        ...(Array.isArray(skills) && skills.length > 0 ? { skills } : {}),
         ...(translateBatchConcurrency != null &&
         Number.isFinite(translateBatchConcurrency) &&
         translateBatchConcurrency >= 1 &&
         translateBatchConcurrency <= 64
           ? { translateBatchConcurrency: Math.floor(translateBatchConcurrency) }
           : {}),
-        ...(crafterQBearerTokenEnv?.trim() ? { crafterQBearerTokenEnv: crafterQBearerTokenEnv.trim() } : {}),
-        ...(crafterQBearerToken?.trim() ? { crafterQBearerToken: crafterQBearerToken.trim() } : {}),
         signal: ac.signal,
         onRawSseDataLine: (jsonLine) => {
-          sessionStreamLogRef.current.push(`${new Date().toISOString()}\t${jsonLine}`);
+          pushStreamLog(sessionStreamLogRef, `${new Date().toISOString()}\t${jsonLine}`);
         },
         onMessage: (evt) => {
+          if (userStopRequestedRef.current) {
+            return;
+          }
           const evtChatId = evt.metadata?.chatId;
           if (evtChatId && !chatId) setChatId(evtChatId);
 
           const evtMsgId = evt.metadata?.messageId;
           if (evtMsgId && !streamingMessageId) streamingMessageId = evtMsgId;
 
-          const isCompleted = Boolean(evt.metadata?.completed);
-          const streamErr = Boolean(evt.metadata?.error);
-          const streamErrMsg = evt.metadata?.message;
-          const planGateFailure = Boolean(evt.metadata?.planGateFailure === true);
-          const toolStatus = String(evt.metadata?.status || '');
-          const toolPhase = String(evt.metadata?.phase || '');
-          const toolName = String(evt.metadata?.tool || '');
+          const md =
+            evt.metadata && typeof evt.metadata === 'object'
+              ? (evt.metadata as Record<string, unknown>)
+              : undefined;
+          const isTerminal = isTerminalMetadata(md);
+          const isCompleted = md?.completed === true;
+          const streamErr = md?.error === true;
+          const streamErrMsg = md?.message;
+          const planGateFailure = md?.planGateFailure === true;
+          const toolStatus = String(md?.status || '');
+          const toolPhase = String(md?.phase || '');
+          const toolName = String(md?.tool || '');
           /** Tool rows and the initial workflow hint share the 🛠️ strip (server uses `tool-progress` vs `tool-workflow-hint`). */
           const isToolProgressChunk =
             toolStatus === 'tool-progress' || toolStatus === 'tool-workflow-hint';
           const rawTextChunk = evt.text ?? '';
           const textChunk = isToolProgressChunk ? rawTextChunk : stripForbiddenLazyPlanLines(rawTextChunk);
           const summarizingResultsHint =
-            evt.metadata?.status === 'crafterq-chat-phase' &&
-            String(evt.metadata?.phase || '') === 'summarizing-results';
-
-          const md = evt.metadata && typeof evt.metadata === 'object' ? (evt.metadata as Record<string, unknown>) : undefined;
+            md?.status === 'aiassistant-chat-phase' && String(md?.phase || '') === 'summarizing-results';
+          const incomingStudioAiInlineImgUrls = md?.studioAiInlineImageUrls;
           const mdStatus = md && md.status != null ? String(md.status).trim() : '';
           if (mdStatus === 'pipeline-heartbeat') {
             const rawEl = md.elapsedSec;
@@ -1837,7 +2723,8 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                 m.id === assistantId
                   ? {
                       ...m,
-                      pipelineHeartbeat: { elapsedSec, nextInSec, hint }
+                      // Ignore/clear stale heartbeat rows that arrive after terminal completion.
+                      pipelineHeartbeat: m.isStreaming ? { elapsedSec, nextInSec, hint } : undefined
                     }
                   : m
               )
@@ -1845,12 +2732,45 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
             return;
           }
 
+          if (mdStatus === 'intent-recipe-routing') {
+            const tel = md.intentRecipeRouting;
+            const intentCard = parseIntentCardFromTelemetry(tel);
+            if (intentCard) {
+              setMessages((prev) =>
+                prev.map((m) => (m.id === assistantId ? { ...m, intentCard, intentRecipeLine: undefined } : m))
+              );
+            } else {
+              const line = intentRoutingDisplayMarkdown(tel, rawTextChunk) || '';
+              if (line.trim()) {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId ? { ...m, intentRecipeLine: line.trimEnd() + '\n' } : m
+                  )
+                );
+              }
+            }
+            return;
+          }
+
+          if (mdStatus === 'step-bridge-card') {
+            const bridge =
+              md.stepBridge && typeof md.stepBridge === 'object'
+                ? (md.stepBridge as Record<string, unknown>)
+                : null;
+            const card = String(bridge?.markdown ?? rawTextChunk ?? '').trim();
+            if (card) {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId
+                    ? { ...m, stepBridgeCards: [...(m.stepBridgeCards ?? []), card] }
+                    : m
+                )
+              );
+            }
+            return;
+          }
+
           if (planGateFailure && streamErr && textChunk.trim()) {
-            const rawPipePg = evt.metadata?.toolPipelineWallMs;
-            const toolPipelineWallMsPg =
-              typeof rawPipePg === 'number' && Number.isFinite(rawPipePg) && rawPipePg >= 0
-                ? Math.round(rawPipePg)
-                : undefined;
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId
@@ -1863,7 +2783,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                       pipelineHeartbeat: undefined,
                       isStreaming: false,
                       summarizingResults: false,
-                      ...(toolPipelineWallMsPg !== undefined ? { toolPipelineWallMs: toolPipelineWallMsPg } : {})
+                      ...mergePipelineTimingFields(m, extractTerminalPipelineTiming(md))
                     }
                   : m
               )
@@ -1877,8 +2797,16 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
             );
           }
 
+          if (hasStudioAiInlineImageUrlPayload(incomingStudioAiInlineImgUrls)) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId ? { ...m, ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls) } : m
+              )
+            );
+          }
+
           if (
-            !formEngine &&
+            !formEngineChat &&
             !streamErr &&
             toolStatus === 'tool-progress' &&
             toolPhase === 'done' &&
@@ -1895,11 +2823,36 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
             triggerStudioPreviewReload();
           }
 
-          if (textChunk) {
+          if (textChunk && (md?.replaceAssistantBody === true || replaceAssistantBodyActive)) {
+            if (md?.replaceAssistantBody === true) {
+              replaceAssistantBodyActive = true;
+              assistantTextAccum = textChunk;
+            } else {
+              assistantTextAccum += textChunk;
+            }
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id !== assistantId) return m;
+                return {
+                  ...m,
+                  text: assistantTextAccum,
+                  reasoningStreamText: '',
+                  summarizingResults: false,
+                  ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls)
+                };
+              })
+            );
+          } else if (textChunk) {
             if (isToolProgressChunk) {
               setMessages((prev) =>
                 prev.map((m) => {
                   if (m.id !== assistantId) return m;
+                  const genImgPromptPatch = pickGenerateImagePromptPatch(
+                    toolName,
+                    toolPhase,
+                    md?.generateImagePrompt,
+                    m.generateImagePrompt
+                  );
                   const hadNoToolLinesYet = !(m.toolProgressText || '').length;
                   const priorMain = (m.text || '').trim();
                   const reasoningHead = (m.reasoningStreamText || '').trim();
@@ -1910,18 +2863,17 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                       assistantPreToolsText: planPrefix || undefined,
                       reasoningStreamText: '',
                       text: '',
-                      toolProgressText: textChunk
+                      toolProgressText: textChunk,
+                      ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls),
+                      ...genImgPromptPatch
                     };
                   }
-                  const prior = m.toolProgressText || '';
-                  // ReactMarkdown collapses single newlines into spaces; separate SSE chunks with a blank line
-                  // so each 🛠️ tool line stays readable when pasted or viewed in the tool strip.
-                  const join = prior.endsWith('\n\n')
-                    ? textChunk.startsWith('\n')
-                      ? ''
-                      : '\n'
-                    : '\n\n';
-                  return { ...m, toolProgressText: prior + join + textChunk };
+                  return {
+                    ...m,
+                    toolProgressText: appendToolProgressText(m.toolProgressText || '', textChunk),
+                    ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls),
+                    ...genImgPromptPatch
+                  };
                 })
               );
             } else {
@@ -1935,7 +2887,8 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                     return {
                       ...m,
                       reasoningStreamText: (m.reasoningStreamText || '') + textChunk,
-                      ...(textChunk.trim() !== '' ? { summarizingResults: false } : {})
+                      ...(textChunk.trim() !== '' ? { summarizingResults: false } : {}),
+                      ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls)
                     };
                   }
                   if (noPlanAboveToolsYet && textChunk.trim()) {
@@ -1948,14 +2901,16 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                       return {
                         ...m,
                         assistantPreToolsText: (m.assistantPreToolsText || '') + textChunk,
-                        ...(textChunk.trim() !== '' ? { summarizingResults: false } : {})
+                        ...(textChunk.trim() !== '' ? { summarizingResults: false } : {}),
+                        ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls)
                       };
                     }
                   }
                   return {
                     ...m,
                     text: (m.text || '') + textChunk,
-                    ...(textChunk.trim() !== '' ? { summarizingResults: false } : {})
+                    ...(textChunk.trim() !== '' ? { summarizingResults: false } : {}),
+                    ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls)
                   };
                 })
               );
@@ -1963,6 +2918,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
           }
 
           if (streamErr && streamErrMsg) {
+            terminalStreamHadError = true;
             const errLine = '\n\n**Stream error:** ' + sanitizeErrorForAuthor(String(streamErrMsg));
             setMessages((prev) =>
               prev.map((m) => {
@@ -1973,18 +2929,15 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                   text: nextText,
                   isStreaming: false,
                   summarizingResults: false,
-                  pipelineHeartbeat: undefined
+                  pipelineHeartbeat: undefined,
+                  ...(isTerminal ? mergePipelineTimingFields(m, extractTerminalPipelineTiming(md)) : {})
                 };
               })
             );
           }
 
-          if (isCompleted) {
-            const rawPipe = evt.metadata?.toolPipelineWallMs;
-            const toolPipelineWallMs =
-              typeof rawPipe === 'number' && Number.isFinite(rawPipe) && rawPipe >= 0
-                ? Math.round(rawPipe)
-                : undefined;
+          if (isTerminal) {
+            clearChatPromptInput();
             setMessages((prev) =>
               prev.map((m) => {
                 if (m.id !== assistantId) return m;
@@ -1992,19 +2945,24 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                 const reasoningRest = (m.reasoningStreamText || '').trim();
                 const mainRest = (m.text || '').trim();
                 const foldReasoning = noTools && reasoningRest && !mainRest;
+                const persistedText = consolidateAssistantMessageTextForNextTurn(m);
                 return {
                   ...m,
                   isStreaming: false,
                   summarizingResults: false,
                   pipelineHeartbeat: undefined,
-                  ...(foldReasoning ? { text: reasoningRest, reasoningStreamText: '' } : {}),
-                  ...(toolPipelineWallMs !== undefined ? { toolPipelineWallMs } : {})
+                  text: foldReasoning ? reasoningRest : persistedText,
+                  ...(foldReasoning ? { reasoningStreamText: '' } : {}),
+                  ...studioAiInlineUrlsPatch(m, incomingStudioAiInlineImgUrls),
+                  ...mergePipelineTimingFields(m, extractTerminalPipelineTiming(md))
                 };
               })
             );
 
             if (
-              formEngine &&
+              isCompleted &&
+              !streamErr &&
+              formEngineChat &&
               wantClientJsonApply &&
               !formUpdatesApplied &&
               typeof getAuthoringFormContext === 'function' &&
@@ -2013,7 +2971,7 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
               formUpdatesApplied = true;
               try {
                 const snap = getAuthoringFormContext();
-                const updates = tryExtractCrafterqFormFieldUpdates(assistantTextAccum);
+                const updates = tryExtractAiassistantFormFieldUpdates(assistantTextAccum);
                 if (updates && typeof snap.applyAssistantFieldUpdates === 'function') {
                   const result = snap.applyAssistantFieldUpdates(updates);
                   const parts: string[] = [];
@@ -2043,9 +3001,9 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
         }
       });
 
-      // OpenAI + multi-step tools can exceed several minutes; cap aligns with server crafterq.chatFluxAwaitMs default.
+      // LLM tools-loop + multi-step tools can exceed several minutes; cap aligns with the plugin orchestration stream await default.
       const CHAT_STREAM_TIMEOUT_MS = 600000;
-      let streamTimeoutId: ReturnType<typeof setTimeout> | undefined;
+      let streamTimeoutId: number | undefined;
       const timeoutPromise = new Promise<never>((_, reject) => {
         streamTimeoutId = window.setTimeout(() => {
           streamHitTimeout = true;
@@ -2059,7 +3017,20 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
         if (streamTimeoutId !== undefined) window.clearTimeout(streamTimeoutId);
       }
 
-      if (!formEngine && shouldRefreshPreview) {
+      try {
+        pushStreamLog(
+          sessionStreamLogRef,
+          JSON.stringify({
+            kind: 'client.streamOutcome',
+            ts: new Date().toISOString(),
+            outcome: terminalStreamHadError ? 'stream_finished_with_error' : 'stream_finished_ok'
+          })
+        );
+      } catch {
+        /* ignore log serialization errors */
+      }
+
+      if (!formEngineChat && shouldRefreshPreview) {
         triggerStudioPreviewReload();
       }
     } catch (e) {
@@ -2069,6 +3040,25 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
         streamHitTimeout ||
         errText.includes('Timed out waiting for chat response');
       const abortWithoutExplicitStop = isFetchAbortError(e) && !userStopped && !timedOut;
+      let streamOutcome = 'request_error';
+      if (userStopped) streamOutcome = 'user_stop';
+      else if (timedOut) streamOutcome = 'timeout';
+      else if (e instanceof AiAssistantIncompleteStreamError) streamOutcome = 'incomplete_stream';
+      else if (abortWithoutExplicitStop) streamOutcome = 'aborted_or_network';
+      try {
+        pushStreamLog(
+          sessionStreamLogRef,
+          JSON.stringify({
+            kind: 'client.streamOutcome',
+            ts: new Date().toISOString(),
+            outcome: streamOutcome,
+            errorType: e instanceof Error ? e.name : typeof e,
+            message: errText.slice(0, 4000)
+          })
+        );
+      } catch {
+        /* ignore log serialization errors */
+      }
       setMessages((prev) =>
         prev.map((m) => {
           if (m.id !== assistantId) return m;
@@ -2128,7 +3118,9 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
           };
         })
       );
+    }
     } finally {
+      sendInFlightRef.current = false;
       setSending(false);
     }
   };
@@ -2227,13 +3219,100 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                   hint={m.pipelineHeartbeat.hint}
                 />
               ) : null}
+              {m.intentCard ? (
+                <Box
+                  sx={{
+                    mb: 1,
+                    py: 0.5,
+                    px: 1,
+                    borderRadius: 1,
+                    bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.50',
+                    border: `1px solid ${theme.palette.divider}`,
+                    fontSize: '0.875rem',
+                    lineHeight: 1.45
+                  }}
+                >
+                  <IntentCardMessage card={m.intentCard} />
+                </Box>
+              ) : m.intentRecipeLine?.trim() ? (
+                <Box
+                  sx={{
+                    mb: 1,
+                    py: 0.5,
+                    px: 1,
+                    borderRadius: 1,
+                    bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.50',
+                    border: `1px solid ${theme.palette.divider}`,
+                    fontSize: '0.875rem',
+                    lineHeight: 1.45
+                  }}
+                >
+                  <MarkdownMessage text={m.intentRecipeLine} />
+                </Box>
+              ) : null}
+              {m.stepBridgeCards?.map((card, bridgeIdx) =>
+                card.trim() ? (
+                  <Box
+                    key={`step-bridge-${m.id}-${bridgeIdx}`}
+                    sx={{
+                      mb: 1,
+                      py: 0.5,
+                      px: 1,
+                      borderRadius: 1,
+                      bgcolor: theme.palette.mode === 'dark' ? 'grey.900' : 'grey.50',
+                      border: `1px solid ${theme.palette.divider}`,
+                      borderLeft: `3px solid ${theme.palette.primary.main}`,
+                      fontSize: '0.875rem',
+                      lineHeight: 1.45
+                    }}
+                  >
+                    <MarkdownMessage text={card} />
+                  </Box>
+                ) : null
+              )}
               {m.toolProgressText?.trim() && m.assistantPreToolsText !== undefined ? (
                 <>
                   {m.assistantPreToolsText.trim() ? (
                     <Box sx={{ mb: 1 }}>
-                      <MarkdownMessage text={m.assistantPreToolsText} />
+                      <MarkdownMessage
+                        text={stripDisplayedGeneratedImages(
+                          stripStudioAiInlineImageMarkdownFromText(m.assistantPreToolsText, m.studioAiInlineImageUrls),
+                          combineGeneratedImageSources(m.studioAiInlineImageUrls, m.assistantPreToolsText, siteId)
+                        )}
+                        studioAiInlineImageUrls={
+                          combineGeneratedImageSources(m.studioAiInlineImageUrls, m.assistantPreToolsText, siteId).length
+                            ? undefined
+                            : m.studioAiInlineImageUrls
+                        }
+                      />
                     </Box>
                   ) : null}
+                  {(() => {
+                    const tailRawEarly = dedupeAssistantPostToolsMarkdown(m.assistantPreToolsText, m.text);
+                    const imageStripSourcesEarly = combineGeneratedImageSources(
+                      m.studioAiInlineImageUrls,
+                      tailRawEarly,
+                      siteId
+                    );
+                    const showGenImgPlaceholderEarly = shouldShowGenerateImagePlaceholder(
+                      m.toolProgressText,
+                      tailRawEarly,
+                      m.studioAiInlineImageUrls
+                    );
+                    return (
+                      <>
+                        {imageStripSourcesEarly.length ? (
+                          <AssistantChatGeneratedImages sources={imageStripSourcesEarly} />
+                        ) : null}
+                        {imageStripSourcesEarly.length ? (
+                          <GenerateImagePromptCaption prompt={m.generateImagePrompt} />
+                        ) : null}
+                        {!imageStripSourcesEarly.length && showGenImgPlaceholderEarly ? (
+                          <GenerateImageBlurredPlaceholder prompt={m.generateImagePrompt} />
+                        ) : null}
+                      </>
+                    );
+                  })()}
                   <ToolProgressScrollArea text={m.toolProgressText} />
                   {m.summarizingResults ? (
                     <Typography
@@ -2251,20 +3330,49 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                     </Typography>
                   ) : null}
                   {(() => {
-                    const tail = dedupeAssistantPostToolsMarkdown(m.assistantPreToolsText, m.text);
-                    const showGenImgPlaceholder =
-                      isGenerateImageRunRowActive(m.toolProgressText) && !hasCompleteMarkdownInlineImage(tail);
-                    return (
-                      <>
-                        {showGenImgPlaceholder ? <GenerateImageBlurredPlaceholder /> : null}
-                        <MarkdownMessage text={tail} />
-                      </>
+                    const tailRaw = dedupeAssistantPostToolsMarkdown(m.assistantPreToolsText, m.text);
+                    const imageStripSources = combineGeneratedImageSources(m.studioAiInlineImageUrls, tailRaw);
+                    const tailDisplay = stripDisplayedGeneratedImages(
+                      stripStudioAiInlineImageMarkdownFromText(tailRaw, m.studioAiInlineImageUrls),
+                      imageStripSources
                     );
+                    const mdUrls = imageStripSources.length ? undefined : m.studioAiInlineImageUrls;
+                    return <MarkdownMessage text={tailDisplay} studioAiInlineImageUrls={mdUrls} />;
                   })()}
-                  <AssistantPipelineTimingLine wallMs={m.toolPipelineWallMs} />
+                  <AssistantPipelineTimingLine
+                    wallMs={m.toolPipelineWallMs}
+                    totalSec={m.toolPipelineTotalSec}
+                    taskSec={m.toolPipelineTaskCompletionSec}
+                  />
                 </>
               ) : (
                 <>
+                  {(() => {
+                    const tailRawEarly = dedupeAssistantPostToolsMarkdown(m.assistantPreToolsText, m.text);
+                    const imageStripSourcesEarly = combineGeneratedImageSources(
+                      m.studioAiInlineImageUrls,
+                      tailRawEarly,
+                      siteId
+                    );
+                    const showGenImgPlaceholderEarly = shouldShowGenerateImagePlaceholder(
+                      m.toolProgressText,
+                      tailRawEarly,
+                      m.studioAiInlineImageUrls
+                    );
+                    return (
+                      <>
+                        {imageStripSourcesEarly.length ? (
+                          <AssistantChatGeneratedImages sources={imageStripSourcesEarly} />
+                        ) : null}
+                        {imageStripSourcesEarly.length ? (
+                          <GenerateImagePromptCaption prompt={m.generateImagePrompt} />
+                        ) : null}
+                        {!imageStripSourcesEarly.length && showGenImgPlaceholderEarly ? (
+                          <GenerateImageBlurredPlaceholder prompt={m.generateImagePrompt} />
+                        ) : null}
+                      </>
+                    );
+                  })()}
                   {m.toolProgressText?.trim() ? (
                     <ToolProgressScrollArea text={m.toolProgressText} />
                   ) : null}
@@ -2284,17 +3392,20 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                     </Typography>
                   ) : null}
                   {(() => {
-                    const tail = dedupeAssistantPostToolsMarkdown(m.assistantPreToolsText, m.text);
-                    const showGenImgPlaceholder =
-                      isGenerateImageRunRowActive(m.toolProgressText) && !hasCompleteMarkdownInlineImage(tail);
-                    return (
-                      <>
-                        {showGenImgPlaceholder ? <GenerateImageBlurredPlaceholder /> : null}
-                        <MarkdownMessage text={tail} />
-                      </>
+                    const tailRaw = dedupeAssistantPostToolsMarkdown(m.assistantPreToolsText, m.text);
+                    const imageStripSources = combineGeneratedImageSources(m.studioAiInlineImageUrls, tailRaw);
+                    const tailDisplay = stripDisplayedGeneratedImages(
+                      stripStudioAiInlineImageMarkdownFromText(tailRaw, m.studioAiInlineImageUrls),
+                      imageStripSources
                     );
+                    const mdUrls = imageStripSources.length ? undefined : m.studioAiInlineImageUrls;
+                    return <MarkdownMessage text={tailDisplay} studioAiInlineImageUrls={mdUrls} />;
                   })()}
-                  <AssistantPipelineTimingLine wallMs={m.toolPipelineWallMs} />
+                  <AssistantPipelineTimingLine
+                    wallMs={m.toolPipelineWallMs}
+                    totalSec={m.toolPipelineTotalSec}
+                    taskSec={m.toolPipelineTaskCompletionSec}
+                  />
                 </>
               )}
             </Box>
@@ -2508,14 +3619,14 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
                 </IconButton>
               </span>
             </Tooltip>
-            <Tooltip title="Copy full session log (raw SSE lines and prompts — includes content hidden from the chat view)">
+            <Tooltip title="Copy debug session log (parsed timeline + verbatim redacted SSE — for improving assistant behavior)">
               <span>
                 <IconButton
-                  aria-label="Copy full session stream log"
+                  aria-label="Copy assistant debug session log"
                   onClick={() =>
                     void copyToClipboard(
                       sessionStreamLogRef.current.length
-                        ? sessionStreamLogRef.current.join('\n')
+                        ? formatSessionLogForDebugCopy(sessionStreamLogRef.current)
                         : '(Session log is empty — send a message first.)'
                     )
                   }
@@ -2532,7 +3643,9 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
               fullWidth
               multiline
               minRows={1}
-              maxRows={promptFocused || voiceListening ? 8 : 1}
+              maxRows={
+                voiceListening || promptFocused || draft.includes('\n') || draft.length > 100 ? 8 : 1
+              }
               size="small"
               placeholder={voiceListening ? 'Listening… speak your prompt' : promptPlaceholder}
               value={draft}
@@ -2589,6 +3702,10 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
               <span>
                 <IconButton
                   color="primary"
+                  onMouseDown={(e) => {
+                    // Keep focus on the prompt through click so layout does not collapse before send fires.
+                    e.preventDefault();
+                  }}
                   onClick={() => startSend(draft)}
                   disabled={!canSend || sending}
                   aria-label="Send"
@@ -2599,123 +3716,175 @@ export default function AiAssistantChat(props: Readonly<AiAssistantChatProps>) {
             </Tooltip>
           </Stack>
         </Stack>
-        {verificationPrompts.length > 0 && !sending ? (
+        {!formEngineChat ? (
           <Box sx={{ mt: 1.25, px: 0.25, minWidth: 0, width: '100%' }}>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
-              Optional checks — click to send as the next prompt
-            </Typography>
-            <Stack spacing={0.75} sx={{ width: '100%', minWidth: 0 }}>
-              {verificationPrompts.map((vp, idx) => (
-                <Chip
-                  key={`cq-verify-${idx}-${vp.slice(0, 48)}`}
-                  label={vp.length > 96 ? `${vp.slice(0, 93)}…` : vp}
-                  size="small"
-                  variant="outlined"
-                  clickable
-                  disabled={sending}
-                  onClick={() => startSend(vp, vp)}
-                  sx={{
-                    width: '100%',
-                    maxWidth: '100%',
-                    height: 'auto',
-                    minHeight: 32,
-                    justifyContent: 'flex-start',
-                    '& .MuiChip-label': {
-                      whiteSpace: 'normal',
-                      textAlign: 'left',
-                      display: 'block',
-                      py: 0.75,
-                      overflowWrap: 'anywhere',
-                      wordBreak: 'break-word'
-                    }
-                  }}
-                />
-              ))}
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1}
+              alignItems={{ xs: 'stretch', sm: 'center' }}
+              sx={{ width: '100%', minWidth: 0 }}
+            >
+              <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0, pt: { sm: 0.5 } }}>
+                Scope
+              </Typography>
+              <ToggleButtonGroup
+                exclusive
+                size="small"
+                value={authoringScope}
+                onChange={handleAuthoringScopeChange}
+                aria-label="Authoring scope"
+                sx={{
+                  flexWrap: 'wrap',
+                  '& .MuiToggleButton-root': {
+                    textTransform: 'none',
+                    px: 1.25,
+                    py: 0.5
+                  }
+                }}
+              >
+                <ToggleButton value="project" aria-label="Project scope" disabled={sending}>
+                  Project
+                </ToggleButton>
+                <ToggleButton value="page" aria-label="Page scope" disabled={sending}>
+                  Page
+                </ToggleButton>
+                <ToggleButton
+                  value="component"
+                  aria-label="Component scope"
+                  disabled={sending || !xbComponentFocus?.contentPath}
+                  sx={{ maxWidth: { xs: '100%', sm: 'min(100%, 20rem)' } }}
+                >
+                  {authoringScope === 'component' && xbComponentFocus?.label
+                    ? `Component: ${xbComponentFocus.label}`
+                    : 'Component'}
+                </ToggleButton>
+                <ToggleButton
+                  value="field"
+                  aria-label="Field scope"
+                  disabled={sending || !xbFieldFocus?.fieldId}
+                  sx={{ maxWidth: { xs: '100%', sm: 'min(100%, 20rem)' } }}
+                >
+                  {xbFieldScopeButtonLabel ? `Field: ${xbFieldScopeButtonLabel}` : 'Field'}
+                </ToggleButton>
+              </ToggleButtonGroup>
             </Stack>
           </Box>
-        ) : null}
-        {followUpActionPrompts.length > 0 && !sending ? (
-          <Box sx={{ mt: verificationPrompts.length > 0 ? 1 : 1.25, px: 0.25, minWidth: 0, width: '100%' }}>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
-              Suggested follow-ups — click to send as the next prompt
-            </Typography>
-            <Stack spacing={0.75} sx={{ width: '100%', minWidth: 0 }}>
-              {followUpActionPrompts.map((fp, idx) => (
-                <Chip
-                  key={`cq-follow-${idx}-${fp.slice(0, 48)}`}
-                  label={fp.length > 96 ? `${fp.slice(0, 93)}…` : fp}
-                  size="small"
-                  variant="outlined"
-                  color="primary"
-                  clickable
-                  disabled={sending}
-                  onClick={() => startSend(fp, fp)}
-                  sx={{
-                    width: '100%',
-                    maxWidth: '100%',
-                    height: 'auto',
-                    minHeight: 32,
-                    justifyContent: 'flex-start',
-                    '& .MuiChip-label': {
-                      whiteSpace: 'normal',
-                      textAlign: 'left',
-                      display: 'block',
-                      py: 0.75,
-                      overflowWrap: 'anywhere',
-                      wordBreak: 'break-word'
-                    }
-                  }}
-                />
-              ))}
+        ) : (
+          <Box sx={{ mt: 1.25, px: 0.25, minWidth: 0, width: '100%' }}>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1}
+              alignItems={{ xs: 'stretch', sm: 'center' }}
+              sx={{ width: '100%', minWidth: 0 }}
+            >
+              <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0, pt: { sm: 0.5 } }}>
+                Scope
+              </Typography>
+              <ToggleButtonGroup
+                exclusive
+                size="small"
+                value={formEngineScope}
+                onChange={handleFormEngineScopeChange}
+                aria-label="Form authoring scope"
+                sx={{
+                  flexWrap: 'wrap',
+                  '& .MuiToggleButton-root': {
+                    textTransform: 'none',
+                    px: 1.25,
+                    py: 0.5
+                  }
+                }}
+              >
+                <ToggleButton value="content" aria-label="Content scope" disabled={sending}>
+                  Content
+                </ToggleButton>
+                <ToggleButton
+                  value="field"
+                  aria-label="Field scope"
+                  disabled={sending || !formFieldFocus?.fieldId}
+                  sx={{ maxWidth: { xs: '100%', sm: 'min(100%, 20rem)' } }}
+                >
+                  {formFieldScopeButtonLabel ? `Field: ${formFieldScopeButtonLabel}` : 'Field'}
+                </ToggleButton>
+              </ToggleButtonGroup>
             </Stack>
           </Box>
-        ) : null}
+        )}
         {voiceError && !voiceListening ? (
           <Typography variant="caption" color="error" sx={{ mt: 0.75, display: 'block', px: 0.5 }}>
             {voiceError}
           </Typography>
         ) : null}
-        {ttsAvailable ? (
-          <FormControlLabel
-            sx={{
-              mt: 0.75,
-              mr: 0,
-              ml: 0,
-              width: '100%',
-              minWidth: 0,
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: 0.75
-            }}
-            control={
-              <Switch
-                size="small"
-                checked={readResponsesAloud}
-                onChange={(_, checked) => {
-                  setReadResponsesAloud(checked);
-                  if (checked) {
-                    const assistants = messages.filter((m) => m.role === 'assistant' || m.role === 'system');
-                    const last = assistants[assistants.length - 1];
-                    lastSpokenAssistantIdRef.current = last?.id ?? null;
-                  } else {
-                    window.speechSynthesis?.cancel();
-                    lastSpokenAssistantIdRef.current = null;
-                  }
+        {ttsAvailable || showSiteOverridePill ? (
+          <Stack
+            direction="row"
+            alignItems="center"
+            spacing={1}
+            sx={{ mt: 0.75, width: '100%', minWidth: 0, flexWrap: 'wrap', rowGap: 0.5 }}
+          >
+            {ttsAvailable ? (
+              <FormControlLabel
+                sx={{
+                  mr: 0,
+                  ml: 0,
+                  flex: '1 1 auto',
+                  minWidth: 0,
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 0.75
                 }}
-                inputProps={{ 'aria-label': 'Read assistant responses aloud' }}
-                sx={{ mt: 0.25, flexShrink: 0 }}
+                control={
+                  <Switch
+                    size="small"
+                    checked={readResponsesAloud}
+                    onChange={(_, checked) => {
+                      setReadResponsesAloud(checked);
+                      if (checked) {
+                        const assistants = messages.filter((m) => m.role === 'assistant' || m.role === 'system');
+                        const last = assistants[assistants.length - 1];
+                        lastSpokenAssistantIdRef.current = last?.id ?? null;
+                      } else {
+                        window.speechSynthesis?.cancel();
+                        lastSpokenAssistantIdRef.current = null;
+                      }
+                    }}
+                    inputProps={{ 'aria-label': 'Read assistant responses aloud' }}
+                    sx={{ mt: 0.25, flexShrink: 0 }}
+                  />
+                }
+                label={
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ userSelect: 'none', whiteSpace: 'normal', overflowWrap: 'anywhere' }}
+                  >
+                    Read responses aloud
+                  </Typography>
+                }
               />
-            }
-            label={
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ userSelect: 'none', whiteSpace: 'normal', overflowWrap: 'anywhere' }}
-              >
-                Read responses aloud
-              </Typography>
-            }
-          />
+            ) : null}
+            {showSiteOverridePill ? (
+              <Tooltip title={`Using site ${assumedSiteId} (active Studio site is ${siteId})`}>
+                <Chip
+                  size="small"
+                  color="warning"
+                  variant="outlined"
+                  label={`Site: ${assumedSiteId}`}
+                  sx={{
+                    height: 28,
+                    maxWidth: 140,
+                    flexShrink: 0,
+                    ml: ttsAvailable ? 'auto' : 0,
+                    '& .MuiChip-label': {
+                      px: 0.75,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis'
+                    }
+                  }}
+                />
+              </Tooltip>
+            ) : null}
+          </Stack>
         ) : null}
       </Box>
     </Box>

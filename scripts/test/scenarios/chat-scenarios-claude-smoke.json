@@ -1,0 +1,45 @@
+{
+  "description": "Claude Tier-1 smoke (Sonnet ~30k input TPM). Small prompts only — no full tool registry. Used automatically when CHAT_LLM=claude unless CHAT_SCENARIOS_FILE or CHAT_CLAUDE_FULL_MATRIX=1.",
+  "defaults": {
+    "siteId": "aiat-2",
+    "agentId": "019c7237-478b-7f98-9a5c-87144c3fb010",
+    "authoringSurface": "formEngine",
+    "formEngineClientJsonApply": true,
+    "formEngineItemPath": "/site/website/index.xml",
+    "contentTypeId": "/page/home",
+    "contentTypeLabel": "Home"
+  },
+  "turns": [
+    {
+      "id": "hello",
+      "group": "sandbox-smoke",
+      "summary": "Warm-up: tools off, stream + latency.",
+      "prompt": "Say hello in one short sentence.",
+      "request": { "omitTools": true }
+    },
+    {
+      "id": "field-edit",
+      "group": "sandbox-smoke",
+      "summary": "Form assistant without tool registry (client JSON apply path).",
+      "prompt": "Update the page title field (title_t) to the exact string: Chat harness QA title. Reply with what you changed or the JSON snippet you would apply.",
+      "request": { "omitTools": true }
+    },
+    {
+      "id": "get-content-one-tool",
+      "group": "sandbox-smoke",
+      "summary": "Single built-in tool only (fits Anthropic Tier-1 TPM).",
+      "prompt": "Use GetContent on /site/website/index.xml and reply with the title_t value only.",
+      "request": {
+        "enableTools": true,
+        "enabledBuiltInTools": ["GetContent"],
+        "authoringSurface": "preview",
+        "contentPath": "/site/website/index.xml",
+        "contentTypeId": "/page/home",
+        "contentTypeLabel": "Home"
+      },
+      "expect": {
+        "toolsAny": ["GetContent"]
+      }
+    }
+  ]
+}

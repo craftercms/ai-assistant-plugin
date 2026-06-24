@@ -6,7 +6,7 @@ This file is the **in-project index** of everything under **`.cursor/`** that gu
 
 | File | `alwaysApply` | Summary |
 |------|-----------------|---------|
-| `crafterq-form-panel-contract.mdc` | yes | Form Engine control: agent list visibility (`config.properties`), accordion-style panel (`AiAssistantFormControlPanel.tsx`), `sources/control/ai-assistant/main.js` sync, `yarn package`, form context / appendix wiring. |
+| `ai-assistant-form-panel-contract.mdc` | yes | Form Engine control: agent list visibility (`config.properties`), accordion-style panel (`AiAssistantFormControlPanel.tsx`), `sources/control/ai-assistant/main.js` sync, `yarn package`, form context / appendix wiring. |
 | `no-unauthorized-ui-changes.mdc` | yes | No UI/UX or interaction changes unless explicitly requested; feature work is functional by default. |
 
 Rules are the **strictest** layer: follow them even if generic advice conflicts.
@@ -15,14 +15,15 @@ Rules are the **strictest** layer: follow them even if generic advice conflicts.
 
 | Directory | Purpose |
 |-----------|---------|
-| `crafterq-studio-plugin/` | `SKILL.md` — AI Assistant plugin workflows, pointers to rules + docs, mechanical checklist (`ai-assistant/main.js` sync, `yarn package`). |
+| `ai-assistant-studio-plugin/` | `SKILL.md` — AI Assistant plugin workflows, pointers to rules + docs, mechanical checklist (`ai-assistant/main.js` sync, `yarn package`). |
+| `building-intent-recipes/` | `SKILL.md` + `examples.md` — Author site `intent-recipes.json` (match, tools loop, JSON refine, passthrough, threaded Slack). |
 
-**Skill discovery:** Ensure the **crafterq-studio-plugin** skill (folder name is legacy) is enabled for this project in Cursor if you rely on it for agent behavior (project skills are optional per workspace settings).
+**Skill discovery:** Enable **ai-assistant-studio-plugin** for plugin repo work and **building-intent-recipes** when editing custom intent recipes (project skills are optional per workspace settings).
 
 ## Related Documentation (Keep Aligned With Policy)
 
-- **`docs/using-and-extending/studio-plugins-guide.md`** — Includes the locked **form assistant panel** paragraph; keep it consistent with `crafterq-form-panel-contract.mdc`. See **§ AI Assistant plugin repo: canonical sources vs generated files** for which paths under `authoring/static-assets/` are overwritten by `yarn package`.
-- **`docs/internals/spec.md`** — As-is behavior specification; update when author-facing behavior, macros, or configuration contracts change (includes **Helper** `agents` and **autonomous** widget `autonomousAgents` / REST / human tasks). **Terminology:** Studio AI assistant (product); CrafterQ = `crafterQ` tool path.
+- **`docs/using-and-extending/studio-plugins-guide.md`** — Includes the locked **form assistant panel** paragraph; keep it consistent with `ai-assistant-form-panel-contract.mdc`. See **§ AI Assistant plugin repo: canonical sources vs generated files** for which paths under `authoring/static-assets/` are overwritten by `yarn package`.
+- **`docs/internals/spec.md`** — As-is behavior specification; update when author-facing behavior, macros, or configuration contracts change (includes **Helper** `agents` and **autonomous** widget `autonomousAgents` / REST / human tasks). **Terminology:** Studio AI assistant (product).
 
 Full doc layout: **`docs/README.md`** (using & extending vs internals).
 

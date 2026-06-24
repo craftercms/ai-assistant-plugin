@@ -1,25 +1,39 @@
-# Plugin Internals
+# Plugin internals (developers)
 
-Documentation here is aimed at **maintainers**, **integrators**, and anyone debugging **server-side behavior**, contracts, and orchestration—not at day-to-day site configuration (see **[`docs/using-and-extending/`](../using-and-extending/README.md)** for that).
+**Audience:** Maintainers and integrators debugging **server-side** behavior, contracts, and orchestration.
+
+**Site install and configuration (most users):** **[Admins & authors documentation](../admins-and-authors/README.md)** — not this folder.
+
+**Developer entry hub:** **[developers/README.md](../developers/README.md)**
+
+**Diagrams:** [architecture-diagrams.md](../architecture-diagrams.md) — system context, logical layers, stream path, build pipeline.
 
 ## Documents
 
-| Document | What It Covers |
+| Document | What it covers |
 |----------|----------------|
-| [**spec.md**](spec.md) | **Official requirements & mechanics specification** — product surfaces, `ui.xml` / agent contracts, form engine, macros, autonomous widget, REST contracts, **`studio-ui.json`** runtime flags (**[#studio-ui-flags-studio-uijson](spec.md#studio-ui-flags-studio-uijson)**); must stay aligned with code. **Product requirements:** [**product-requirements.md**](../using-and-extending/product-requirements.md) |
-| [**stream-endpoint-design.md**](stream-endpoint-design.md) | SSE stream (and related) contract, CrafterQ vs tool-capable LLMs on the wire, classpath notes |
-| [**chat-and-tools-runtime.md**](chat-and-tools-runtime.md) | CMS tool wiring, CrafterQ bearer/auth, API tools, expert skills, SSE/stream behavior, REST body fields, troubleshooting, **MCP Streamable HTTP client** |
-| [**studio-aiassistant-jvm-parameters.md**](../using-and-extending/studio-aiassistant-jvm-parameters.md) | JVM **`-D`** / `System.getProperty` tuning (timeouts, HTTP/MCP caps, optional key/model defaults) |
-| [**reference-spring-ai-completions-with-tools.md**](reference-spring-ai-completions-with-tools.md) | Archived Spring AI pattern reference (may diverge from current wiring) |
+| [**spec.md**](spec.md) | **Official requirements & mechanics** — surfaces, `ui.xml`, form engine, stream, autonomous REST, **`studio-ui.json`** |
+| [**stream-endpoint-design.md**](stream-endpoint-design.md) | SSE stream (`/ai/stream`) contract |
+| [**chat-and-tools-runtime.md**](chat-and-tools-runtime.md) | Tools, MCP, RAG, SSE, REST fields, troubleshooting |
+| [**intent-recipe-routing.md**](intent-recipe-routing.md) | Pre-tools recipe routing; admin UI: [configuration-guide §9.0](../using-and-extending/configuration-guide.md#cg-9-0) |
+| [**package-architecture.md**](package-architecture.md) | Groovy `spi` / `engine` / `contrib` / `studio` layout |
+| [**groovy-documentation-standard.md**](groovy-documentation-standard.md) | Required `/** … */` on Groovy under `authoring/scripts/` |
+| [**maintainer-review-checklist.md**](maintainer-review-checklist.md) | Review anti-patterns (React/TS, Groovy, SSE) |
+| [**content-field-plan.md**](content-field-plan.md) | **Dynamic content model** — form-definition-driven copy roles; no hardcoded field ids |
+| [**reference-spring-ai-completions-with-tools.md**](reference-spring-ai-completions-with-tools.md) | Archived Spring AI reference |
 
-## Debug Logging
-
-Logger categories for Studio when troubleshooting server-side behavior. **JVM-only flags** (for example Spring AI HTTP trace) are documented in **[studio-aiassistant-jvm-parameters.md](../using-and-extending/studio-aiassistant-jvm-parameters.md)**.
+## Debug logging
 
 | What | How |
 |------|-----|
 | Plugin orchestration / payload previews | Logger **DEBUG** on `plugins.org.craftercms.aiassistant.*` |
 
-## User-facing Configuration
+**JVM flags:** [studio-aiassistant-platform-settings.md](../using-and-extending/studio-aiassistant-platform-settings.md)
 
-**Admins:** **[`docs/using-and-extending/installation.md`](../using-and-extending/installation.md)** (install the plugin), then **[`docs/using-and-extending/configuration-guide.md`](../using-and-extending/configuration-guide.md)** (configure the site). **`<llm>` ids, env + XML (tools-loop chat / Claude first):** **[`llm-configuration.md`](../using-and-extending/llm-configuration.md)**. **JVM-only tuning:** **[`studio-aiassistant-jvm-parameters.md`](../using-and-extending/studio-aiassistant-jvm-parameters.md)**. **CMS tools, SSE, optional hosted SaaS auth, troubleshooting:** **[`chat-and-tools-runtime.md`](chat-and-tools-runtime.md)**.
+## Admin configuration (cross-links)
+
+| Need | Document |
+|------|----------|
+| Install | [installation.md](../using-and-extending/installation.md) |
+| Configure site | [configuration-guide.md](../using-and-extending/configuration-guide.md) |
+| LLM keys | [llm-configuration.md](../using-and-extending/llm-configuration.md) |

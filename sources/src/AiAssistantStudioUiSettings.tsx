@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import useActiveSiteId from '@craftercms/studio-ui/hooks/useActiveSiteId';
 import { writeConfiguration } from '@craftercms/studio-ui/services/configuration';
 import { firstValueFrom } from 'rxjs';
+import ExploreOutlined from '@mui/icons-material/ExploreOutlined';
 import SaveRounded from '@mui/icons-material/SaveRounded';
 import Autocomplete from '@mui/material/Autocomplete';
 import {
@@ -41,7 +42,13 @@ function rowToOption(row: AiAssistantContentTypeRow): CtOption | null {
   return { id: id.startsWith('/') ? id : `/${id}`, label: label ? `${label} (${id})` : id };
 }
 
-export default function AiAssistantStudioUiSettings() {
+export interface AiAssistantStudioUiSettingsProps {
+  onReplayConfigurationJoyride?: () => void;
+  configurationJoyrideActive?: boolean;
+}
+
+export default function AiAssistantStudioUiSettings(props: AiAssistantStudioUiSettingsProps) {
+  const { onReplayConfigurationJoyride, configurationJoyrideActive = false } = props;
   const activeSite = useActiveSiteId();
   const siteId = useMemo(() => effectiveStudioSiteId(activeSite), [activeSite]);
   const [draft, setDraft] = useState<AiAssistantStudioUiConfig>(() => ({ ...DEFAULT_AI_ASSISTANT_STUDIO_UI_CONFIG }));
@@ -158,6 +165,15 @@ export default function AiAssistantStudioUiSettings() {
         `Unchanged: ${stats.unchanged}`
       ];
       if (stats.errors.length) parts.push(`Errors: ${stats.errors.join('; ')}`);
+      if (stats.ok > 0) {
+        parts.push(
+          'Open a content item in Form Engine (not only the Content Types builder) to use the AI Assistant panel. Commit or publish form-definition changes if your site requires it.'
+        );
+      } else if (stats.missing > 0 && stats.ok === 0 && stats.errors.length === 0) {
+        parts.push(
+          'No form-definition.xml was loaded for the selected types. Confirm the plugin bundle is rebuilt and reinstalled, then try again.'
+        );
+      }
       setBulkMsg(parts.join('. '));
     } catch (e) {
       setBulkMsg(e instanceof Error ? e.message : String(e));
@@ -176,9 +192,22 @@ export default function AiAssistantStudioUiSettings() {
 
   return (
     <Box sx={{ p: 2, maxWidth: 960 }}>
-      <Typography variant="h6" gutterBottom>
-        UI Configuration:
-      </Typography>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" gap={2} flexWrap="wrap">
+        <Typography variant="h6" sx={{ mb: 0 }}>
+          UI Configuration:
+        </Typography>
+        {onReplayConfigurationJoyride ? (
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<ExploreOutlined />}
+            onClick={onReplayConfigurationJoyride}
+            disabled={configurationJoyrideActive}
+          >
+            Show setup tour
+          </Button>
+        ) : null}
+      </Stack>
 
       {loadError ? <Alert severity="warning">{loadError}</Alert> : null}
       {!loaded ? <Alert severity="info">Loading…</Alert> : null}
@@ -257,7 +286,19 @@ export default function AiAssistantStudioUiSettings() {
           type. Review in Git before publishing. Backup recommended.
         </Typography>
         {catalogError ? <Alert severity="warning">{catalogError}</Alert> : null}
-        {bulkMsg ? <Alert severity="info">{bulkMsg}</Alert> : null}
+        {bulkMsg ? (
+          <Alert
+            severity={
+              bulkMsg.startsWith('Updated: 0') && bulkMsg.includes('Errors:')
+                ? 'error'
+                : bulkMsg.startsWith('Updated: 0')
+                  ? 'warning'
+                  : 'info'
+            }
+          >
+            {bulkMsg}
+          </Alert>
+        ) : null}
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} flexWrap="wrap" useFlexGap>
           <Button

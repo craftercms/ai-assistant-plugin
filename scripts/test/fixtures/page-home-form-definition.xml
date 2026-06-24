@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<form>
+  <title>Home</title>
+  <objectType>page</objectType>
+  <content-type>/page/home</content-type>
+  <sections>
+    <section>
+      <title>Page Properties</title>
+      <fields>
+        <field>
+          <type>input</type>
+          <id>title_t</id>
+          <title>Title</title>
+          <description>Main page headline shown in browser title and listings.</description>
+          <constraints>
+            <constraint><name>required</name><value><![CDATA[true]]></value></constraint>
+          </constraints>
+        </field>
+        <field>
+          <type>input</type>
+          <id>navLabel</id>
+          <title>Nav Label</title>
+          <description>Short navigation menu label for this page.</description>
+        </field>
+      </fields>
+    </section>
+    <section>
+      <title>Hero Section</title>
+      <fields>
+        <field>
+          <type>rte</type>
+          <id>hero_title_html</id>
+          <title>Hero Title</title>
+          <description>Primary hero headline (H1). The main news line for the page.</description>
+          <constraints>
+            <constraint><name>required</name><value><![CDATA[true]]></value></constraint>
+          </constraints>
+        </field>
+        <field>
+          <type>rte</type>
+          <id>hero_text_html</id>
+          <title>Hero Text</title>
+          <description>Supporting hero copy — one or two sentences expanding on the headline.</description>
+          <help>Do not repeat the hero headline verbatim.</help>
+        </field>
+        <field>
+          <type>image-picker</type>
+          <id>hero_image_s</id>
+          <title>Hero Image</title>
+          <description>Hero banner image asset.</description>
+        </field>
+      </fields>
+    </section>
+    <section>
+      <title>Features</title>
+      <fields>
+        <field>
+          <type>input</type>
+          <id>features_title_t</id>
+          <title>Features Title</title>
+          <description>Short section label above the features grid — not the article headline.</description>
+        </field>
+        <field>
+          <type>node-selector</type>
+          <id>sections_o</id>
+          <title>Sections</title>
+        </field>
+      </fields>
+    </section>
+  </sections>
+</form>

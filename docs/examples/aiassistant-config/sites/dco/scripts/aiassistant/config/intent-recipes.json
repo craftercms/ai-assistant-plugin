@@ -1,0 +1,532 @@
+{
+  "version": 1,
+  "recipes": [
+    {
+      "id": "draft_content_from_source",
+      "title": "Draft from author URL (disabled on dco)",
+      "description": "Site uses recipe_1779227205002 for DCO blog drafts. This stub disables the bundled generic recipe so routing does not get ambiguous_multi_defer_plan.",
+      "toolsLoopAuthorUrlExclusive": false,
+      "matchHints": []
+    },
+    {
+      "id": "recipe_1779227205002",
+      "title": "Draft blog from author URL (Turn 1 — chat only)",
+      "chatEmoji": "💡",
+      "description": "Turn 1: author pasted http(s) URL and wants a chat draft or summary (named topics). FetchHttpUrl on that URL only; final markdown must include ## Draft body with *Draft title:*, *Outline:*, and full *Draft blog:*. No WriteContent, no form defs, no CMS save. Also covers devContentOps.io Slack pitch (Russ/Mike/Sara byline; studio ideation when no URL).",
+      "matchHints": [
+        "draft dco blog",
+        "draft a dco blog",
+        "propose dco blog",
+        "dco blog idea",
+        "draft a blog",
+        "draft an blog",
+        "draft an article",
+        "draft article",
+        "write a blog",
+        "blog that summar",
+        "summarize these topics",
+        "summarizing these topics",
+        "summarizing these",
+        "summarizing topics",
+        "from this:",
+        "from this url",
+        "blog idea slack",
+        "editorial idea slack",
+        "my blog idea",
+        "here is my idea",
+        "here's my idea"
+      ],
+      "dontMatchHints": [
+        "save to cms",
+        "write to repository",
+        "publish",
+        "create a page",
+        "create a post",
+        "create post",
+        "make a post from this draft",
+        "post from this draft",
+        "from this draft",
+        "three full drafts",
+        "compare three"
+      ],
+      "toolsLoopAuthorUrlExclusive": true,
+      "toolsLoopAllowlist": [
+        "FetchHttpUrl",
+        "SerpApiWebSearch"
+      ],
+      "toolsLoopExcludeTools": [
+        "WriteContent",
+        "update_content",
+        "GetCrafterzingPlaybook",
+        "publish_content",
+        "TranslateContentItem",
+        "TranslateContentBatch",
+        "WebSearch",
+        "SlackPostMessage",
+        "ResearchSiteContent",
+        "ListStudioContentTypes",
+        "GetContentTypeFormDefinition",
+        "GeneratePlaceholderImage"
+      ],
+      "toolsLoopFetchHttpUrlWireMaxChars": 8000,
+      "toolsLoopMaxFetchHttpUrlCalls": 1,
+      "deterministicMatch": [
+        {
+          "priority": 92,
+          "routerReason": "deterministic_draft_dco_blog",
+          "respectDontMatchHints": true,
+          "when": {
+            "allOf": [
+              {
+                "authorMatchesRegex": "(?i)https?://[^\\s<>\"\\)\\]\\u00a0]+"
+              },
+              {
+                "anyOf": [
+                  {
+                    "authorMatchesRegex": "(?i)\\bdraft\\b[^\\n]{0,120}\\b(?:blog|article|post)\\b"
+                  },
+                  {
+                    "authorMatchesRegex": "(?i)\\b(?:blog|article|post)\\b[^\\n]{0,80}\\bdraft\\b"
+                  },
+                  {
+                    "authorMatchesRegex": "(?i)\\bsummariz(?:e|ing)\\b[^\\n]{0,120}\\b(?:blog|article|post|topics)\\b"
+                  },
+                  {
+                    "authorMatchesRegex": "(?i)\\bfrom\\s+this\\s*:\\s*https?://"
+                  }
+                ]
+              },
+              {
+                "authorContainsNone": [
+                  "create a new",
+                  "save to repository",
+                  "make a post",
+                  "create a post",
+                  "save the draft",
+                  "WriteContent",
+                  "make a post from this draft",
+                  "post from this draft"
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "phases": {
+        "context": [
+          "Today: **{{studio.today}}**. The pitch must feel **worth publishing this week** — not evergreen advice that could have run in 2023.",
+          "**Author idea vs studio ideation (Current request only):** **Author-supplied** = the author gave a concrete topic, thesis, outline, or substantive paste (not just “draft a DCO blog”) — all SerpApi / site research / draft prose must **develop that seed**; do **not** swap in a different recipe topic. **Studio ideation** = no concrete seed — pick **one** timely angle from the **baseline thesis pool** in the next bullets.",
+          "**Baseline thesis pool (studio ideation only):** AI agents in content ops; GEO/AEO; MCP/tooling for authors; content velocity metrics; governance for gen-AI in CMS; CI/CD for structured content; composable + content-ops + AI-assisted ops; author-once / govern centrally / deploy everywhere; structured content over page-only; DevEx (Git, preview, CI/CD) as CMS requirement.",
+          "**CMS means content management system** (headless CMS, WCM, DXP) — **not** Medicare/Medicaid. Reject healthcare-CMS hits.",
+          "Recency: **News** since **{{studio.today-7D}}** only for *Why now* hooks. Reject undated explainers, “ultimate guide” SEO pages, and tutorial series with no dated news peg.",
+          "**Reject stale / boring pitches (studio ideation — mandatory):** “Benefits of headless CMS,” “integrating CMS into DevOps,” “introduction to content management in developer operations,” “case studies of successful implementations,” “future trends in content management” without a **named 2026 news peg**. If research only supports generic primers, **search again** with sharper queries from the **baseline thesis pool**. **Author-supplied:** reject only if the author’s angle is off-topic for DevContentOps — do not replace their topic with a baseline angle.",
+          "**devContentOps.io bar:** Strong **opinion** + **operational detail** + **developer delivery** angle (governance, review queues, publish lead time, Git/preview/CI/CD, structured content APIs) — not “digital experience transformation.”",
+          "**Prefer thesis shapes:** Composable was step one — **content operations + AI-assisted ops** is what’s next; **author once → govern centrally → deploy everywhere**; structured content over page-only; DevEx (Git, preview, CI/CD) as CMS requirement.",
+          "**Sources bar:** Only URLs you actually fetched. Every source MUST be `[title](https://…)` with a real **https** URL — never placeholder or title-only links.",
+          "**Third rail:** No vendor product/agency **launch** as the pitch spine.",
+          "**CrafterCMS in publishable copy (mandatory):** Do **not** name **CrafterCMS**, **Crafter**, or frame the article as Crafter product marketing in editorial fields (**root**, **draft**, **pitch**, **sources**). Use vendor-neutral practitioner language. **Exception:** only if the **author’s message in this turn** explicitly requests a **CrafterCMS**- or **Crafter**-focused blog. **`craftercmsAlignment`** is editor-only internal thread copy.",
+          "Avoid comparison roundups and devcontentops.io URLs in **sources**. When the author pasted an http(s) URL in **Current request**, **FetchHttpUrl** **only** that page (author-URL-only — **no Serp**, no fetching other URLs). When there is **no** author URL, **SerpApiWebSearch** for open web (site **tbs=past week** — never put **recent** or calendar dates in the query string) then optional **FetchHttpUrl** on Serp citations. **ResearchSiteContent** for this site’s published posts.",
+          "**SerpApi query discipline:** One narrow topic per search (not “CMS and digital experience” in one string). **Author-supplied:** derive 3–7 terms from the author’s thesis (names, mechanisms, standards they named). **Studio ideation:** one hook from the **baseline thesis pool**. After **no results**, rephrase — do not repeat the same query.",
+          "**Existing posts:** devContentOps.io articles live under repository prefix **`/site/components/post/`** (indexed as `/component/post`). Search there before finalizing a pitch.",
+          "**Author roster (pick exactly one byline voice per pitch):**",
+          "**Russ** — Technical, trend-forward, enthusiastic about where capabilities are heading and how teams get there; comfortable with adoption curves and maturity models but prefers **bleeding-edge** and **what’s next** framing (platform engineering, AI in delivery, new standards, developer experience).",
+          "**Mike** — Tech-aware **business and strategy** voice (EE + MBA): precise, **results-oriented**, ROI, operating model, risk, and executive-readable takeaways — less hype, more **decision-ready** insight.",
+          "**Sara** — **News and events** lens: what happened, who announced what, why it matters **this week** for ContentOps / developer delivery / CMS practitioners — ties the peg to our topics clearly.",
+          "**Author selection:** Match **topic + audience + Why now** — e.g. breaking news peg → **Sara**; platform/AI/engineering trajectory → **Russ**; governance, ROI, operating model, buyer/stakeholder angle → **Mike**."
+        ],
+        "action": [
+          "**Mode (decide first):** **Author-supplied idea** if **Current request** has a concrete topic/thesis/outline/paste beyond the trigger phrase; else **studio ideation** (pick one angle from Context **baseline thesis pool**). State which mode in the first line of **## Work notes**.",
+          "**Author source URL (when present):** If **Current request** includes http(s) link(s), **FetchHttpUrl** **only** those author URL(s) — **do not** run **SerpApiWebSearch** or fetch any other URL. The draft must summarize **that** page plus the author’s topics; cite **only** the author URL(s) in **sources** (plus **ResearchSiteContent** paths in work notes, not as https sources unless fetched).",
+          "**Open web (SerpApi — when no author URL):** **At most two** SerpApiWebSearch calls per turn. Each query: **3–7 terms**, one angle, no filler (**no** “recent”, **no** “news on X and Y”, **no** month/year — **tbs** already limits to past week). Spell out **content management system** or use **structured content** / **headless CMS** / **content operations** — never bare **CMS**. **Author-supplied:** queries must reflect the **author’s** thesis (not a random baseline topic). **Studio ideation:** one narrow hook from the baseline pool (e.g. `MCP content authoring tools`, `gen-AI governance headless CMS`). If **no results**, change keywords — do not retry the same string.",
+          "Disqualify launch PR and generic primer hits; you need at least one **concrete, dated** hook from the last 7 days before finishing (from a successful Serp hit + optional fetch).",
+          "**Site overlap:** When **Current request** includes an author http(s) URL, **skip** site search tools — note any known overlap from context in **## Work notes** only. When there is **no** author URL, after Serp research note overlap vs existing `/site/components/post/` posts in **## Work notes** (paths/titles only) — do not duplicate an existing post thesis.",
+          "After tools are finished, your **final** message **must** include: **## Work notes**; **## Author idea** (author-supplied mode only — 2–6 lines quoting/summarizing the author’s seed); **## Draft body**. **No ## Plan**, no fenced JSON, **no tool_calls**. Confirmation **fails** without **## Draft body**.",
+          "**Thesis:** **Author-supplied** — develop the author’s seed with research-backed **Why now**. **Studio ideation** — pick **one** sharp thesis from the baseline pool a practitioner would debate **this month**; must add **new value** vs **ResearchSiteContent** hits when relevant.",
+          "**Work notes:** mode (author-supplied vs studio ideation), queries run, ideas **rejected** (stale primer, launch PR, Medicare CMS), overlap vs **ResearchSiteContent** (paths/titles only) — no URLs required here.",
+          "**Draft body (required):** Under heading **## Draft body** — start `✏️ Draft · voice: **Russ|**Mike|**Sara**` (one name, bold). Then `*Draft title:*`, `*Outline:*` (one bullet per topic the author named when author-supplied; else specific 2026 operational bullets), then `*Draft blog:*` followed by **8–12 paragraphs** (~900–1400 words) in that voice. **Author URL turns:** ground every section in the fetched page + author topics — no generic workflow-efficiency filler. Vendor-neutral unless the author asked for a Crafter-focused blog. Studio posts this section **verbatim** on its own Slack thread reply (do not shorten). A follow-up **create post from this draft** reads `*Draft blog:*` from prior chat — do not end with only `## draft` and no article body.",
+          "**Pitch fields** (hook, audience, angle, why now) are formatted in confirmation **llmRefine** — keep them out of **Draft body** except what belongs in the article prose.",
+          "Do **not** ask follow-up questions."
+        ],
+        "confirmation": {
+          "hints": [
+            "Studio copies **## Draft body** from chat into **draft** (passthrough only — **draft** is not in **llmRefine** **outputKeys**). **llmRefine** JSON fills root, craftercmsAlignment, pitch, sources. **ConsultCrafterQ** reviews **$slackOutbound.draft**. A second **llmRefine** may revise **draft** only when CrafterQ required substantive fixes (passthrough + fallback). Six **SlackPostMessage** steps use **$slackOutbound.*** and CrafterQ feedback. **Do not** call in **tool_calls**."
+          ],
+          "engineSteps": [
+            {
+              "llmRefine": "dcoSlackOutbound",
+              "as": "slackOutbound",
+              "outputFormat": "json",
+              "outputKeys": [
+                "root",
+                "craftercmsAlignment",
+                "pitch",
+                "sources"
+              ],
+              "passthroughFromSource": {
+                "draft": [
+                  "Draft body",
+                  "Draft blog",
+                  "draft",
+                  "Pitch draft"
+                ]
+              },
+              "passthroughFallbackMaxOutTokens": {
+                "draft": 8192
+              },
+              "passthroughFallbackHints": {
+                "draft": [
+                  "**draft** (own Slack thread reply): Start `✏️ Draft · voice: **Russ|**Mike|**Sara**` (one name, bold). Then `*Draft title:*`, `*Outline:*` (one bullet per topic the author named in their request when author-supplied; else specific 2026 operational bullets). Then `*Draft blog:*` followed by **8–12 full paragraphs** (~900–1400 words) in that voice — complete prose grounded in the author URL fetch when present, not a summary. Vendor-neutral unless the author asked for a Crafter-focused blog.",
+                  "Use only facts and thesis supported by SOURCE (research + work notes + **## Author idea** when present). Do not invent URLs. No CrafterCMS/Crafter in draft unless the author explicitly asked for a Crafter-focused blog. **Forbidden:** generic headless-CMS workflow-efficiency filler unrelated to the author’s named topics."
+                ]
+              },
+              "userPreamble": "From the assistant turn below, produce **four** Slack mrkdwn message bodies: **root**, **craftercmsAlignment**, **pitch**, **sources** only. (**draft** is copied from **## Draft body** / *Draft blog:* in SOURCE — not generated here.) If **## Author idea** is present, treat it as the editorial seed — **root** / **pitch** must frame **that** idea (not a substituted baseline topic). Today is **{{studio.today}}**.\n\n",
+              "hints": [
+                "**root** (channel root post, compact): Line 1 `💡 New Blog Pitch: <title>`. Line 2 `✍️ Author voice: **Russ|**Mike|**Sara**` (one name, bold) + 3–8 word tone tag. If author-supplied mode, note `📌 Author idea` in one line. Then `📋 Summary:` **why this week** for **this** thesis. No CrafterCMS/Crafter unless author asked. No draft paragraphs.",
+                "**craftercmsAlignment** (thread reply, editor-only): Start `🔝 CrafterCMS alignment`. Then `*✅ Aligns with CrafterCMS:*` 2–4 honest bullets and `*⚠️ Not aligned / neutral:*` 1–3 bullets. Only section that may name CrafterCMS/Crafter (unless author asked for Crafter blog everywhere).",
+                "**pitch** (thread reply): One label per line — ✍️ Author voice (why this voice fits). 🪝 Hook, 🎯 Audience, 📐 Angle (author seed or studio-chosen thesis; overlap vs site posts if any), ⏱️ Why now (dated peg). No CrafterCMS in pitch unless author asked.",
+                "**sources** (thread reply): `🔗 Sources` then 1–3 lines each `[title](https://…)` from research — https required; no devcontentops.io URLs.",
+                "Reject stale 2023–2024 headless-CMS-101 pitches; sharpen for **2026** operations thesis. Reject launch-announcement framing.",
+                "Use a few professional Unicode emojis per message (3–6 max), not spammy."
+              ]
+            },
+            {
+              "tool": "ConsultCrafterQ",
+              "as": "devContentOpsConsult",
+              "args": {
+                "agentId": "0198ee2d-9005-7bbb-a59f-5477f240c693",
+                "prompt": "You are the DevContentOps.io editorial advisor. The author wants to know: **Would you post this blog to DevContentOps.io, or would you revise it?** If the action turn included **## Author idea**, judge fidelity to **that** seed (do not ask them to pivot to a different topic unless off-message). If studio ideation, judge the chosen baseline angle. Focus on DevContentOps fit (ContentOps + developer delivery) and duplication vs existing posts. Recommend **publish**, **revise** (specific fixes), or **replace the angle** (studio ideation only). Do not rewrite the full draft — actionable guidance only.",
+                "draft": "$slackOutbound.draft"
+              }
+            },
+            {
+              "llmRefine": "dcoSlackAfterConsult",
+              "as": "slackOutbound",
+              "outputFormat": "json",
+              "outputKeys": [
+                "root",
+                "craftercmsAlignment",
+                "draft",
+                "pitch",
+                "sources"
+              ],
+              "passthroughFromSource": {
+                "draft": [
+                  "Draft body",
+                  "Draft blog",
+                  "draft",
+                  "Pitch draft"
+                ]
+              },
+              "passthroughFallbackMaxOutTokens": {
+                "draft": 8192
+              },
+              "passthroughFallbackHints": {
+                "draft": [
+                  "**draft** (own Slack thread reply): Start `✏️ Draft · voice: **Russ|**Mike|**Sara**` (one name, bold). Then `*Draft title:*`, `*Outline:*` (specific 2026 operational bullets). Then `*Draft blog:*` followed by **8–12 full paragraphs** incorporating the editorial review when revision was required.",
+                  "Use only facts and thesis supported by SOURCE, **## Author idea** when present, and the review. Do not invent URLs."
+                ]
+              },
+              "userPreamble": "From the assistant turn and the CrafterQ DevContentOps review below, produce **four** Slack mrkdwn bodies: **root**, **craftercmsAlignment**, **pitch**, **sources** only. (**draft** is copied from **## Draft body** in SOURCE unless the review required substantive revision — then output a full updated **draft** in the binding.) Honor **## Author idea** when present. Today is **{{studio.today}}**.\n\n---\n**DevContentOps agent review:**\n\n$devContentOpsConsult.answer\n\n",
+              "hints": [
+                "If the review says **revise** or lists material fixes, **draft** must reflect those fixes (full 8–12 paragraphs). If the review says **publish** with only minor nits, keep **draft** aligned with the SOURCE ## Draft body.",
+                "**Author-supplied:** do not change the core topic unless the review says it is off-message; apply fixes in place.",
+                "**root** / **pitch** / **sources**: adjust only if the review implies title, peg, or source framing must change.",
+                "Reject stale generic primers; no CrafterCMS in publishable fields unless the author asked."
+              ]
+            },
+            {
+              "tool": "SlackPostMessage",
+              "as": "slackRoot",
+              "args": {
+                "text": "$slackOutbound.root",
+                "iconEmoji": ":bulb:"
+              }
+            },
+            {
+              "tool": "SlackPostMessage",
+              "args": {
+                "threadTs": "$slackRoot.ts",
+                "text": "$devContentOpsConsult.feedbackSlack",
+                "iconEmoji": ":thought_balloon:"
+              }
+            },
+            {
+              "tool": "SlackPostMessage",
+              "args": {
+                "threadTs": "$slackRoot.ts",
+                "text": "$slackOutbound.craftercmsAlignment",
+                "iconEmoji": ":arrow_up:"
+              }
+            },
+            {
+              "tool": "SlackPostMessage",
+              "args": {
+                "threadTs": "$slackRoot.ts",
+                "text": "$slackOutbound.draft",
+                "iconEmoji": ":memo:"
+              }
+            },
+            {
+              "tool": "SlackPostMessage",
+              "args": {
+                "threadTs": "$slackRoot.ts",
+                "text": "$slackOutbound.pitch",
+                "iconEmoji": ":dart:"
+              }
+            },
+            {
+              "tool": "SlackPostMessage",
+              "args": {
+                "threadTs": "$slackRoot.ts",
+                "text": "$slackOutbound.sources",
+                "iconEmoji": ":link:"
+              }
+            }
+          ]
+        }
+      },
+      "matchedUserPreludePath": "scripts/aiassistant/recipes/preludes/recipe_1779227205002-matched-user-prelude.md"
+    },
+    {
+      "id": "new_content_item_from_chat_draft",
+      "title": "Create DCO post from prior chat",
+      "chatEmoji": "📝",
+      "description": "Turn 2: save the prior assistant article from chat as a new `/component/post` (e.g. “make a post”, “save this” — no “draft” wording required). See **Project authoring context** for XML shape.",
+      "toolsLoopAllowlist": [
+        "ContentExists",
+        "WriteContent"
+      ],
+      "toolsLoopExcludeTools": [
+        "GenerateImage",
+        "GetCrafterzingPlaybook",
+        "SerpApiWebSearch",
+        "WebSearch",
+        "publish_content",
+        "update_content",
+        "TranslateContentItem",
+        "TranslateContentBatch",
+        "SlackPostMessage",
+        "FetchHttpUrl"
+      ],
+      "toolsLoopRequireSuccessfulTools": [
+        "ContentExists",
+        "WriteContent"
+      ],
+      "toolsLoopWriteVerification": "createFromChatDraft",
+      "writeVerification": {
+        "repairRootObjectIds": true,
+        "repairInlineObjectIds": true,
+        "inlineComponent": {
+          "collectionFieldId": "content_o"
+        },
+        "requireDistinctInlineObjectIds": true,
+        "repairRootDates": true,
+        "requireRootDates": true,
+        "dateFieldIds": [
+          "createdDate",
+          "createdDate_dt",
+          "lastModifiedDate",
+          "lastModifiedDate_dt"
+        ],
+        "minBodyTextChars": 200,
+        "bodyTextFieldId": "content_html",
+        "requiredRootFields": [
+          "pageDescription_s",
+          "blurb_t"
+        ],
+        "deriveRootFieldsFromBody": [
+          {
+            "fieldId": "pageDescription_s",
+            "bodyTextFieldId": "content_html",
+            "maxLength": 250,
+            "strategy": "firstSentence"
+          },
+          {
+            "fieldId": "blurb_t",
+            "bodyTextFieldId": "content_html",
+            "maxLength": 150,
+            "strategy": "firstSentence"
+          }
+        ],
+        "nodeSelectorFields": [
+          {
+            "fieldId": "authorBio_o",
+            "minItems": 1,
+            "requireExistingPath": true,
+            "requireUuidStyleRepositoryFilename": true,
+            "forbiddenPathSubstrings": [
+              "unknown",
+              "{",
+              "placeholder",
+              "some-bio"
+            ]
+          }
+        ],
+        "taxonomyMinThematicOverlap": 0.9,
+        "thematicCorpusFieldIds": [
+          "headline_s",
+          "internal-name",
+          "pageTitle_s"
+        ],
+        "taxonomyFields": [
+          {
+            "fieldId": "categories_o",
+            "taxonomyPath": "/site/taxonomy/topics.xml",
+            "minItems": 1
+          },
+          {
+            "fieldId": "tags_o",
+            "taxonomyPath": "/site/taxonomy/tags.xml",
+            "minItems": 1
+          }
+        ],
+        "imagePickerFields": [
+          {
+            "fieldId": "mainImage_s",
+            "forbidSameValueAsSiblingField": "mainImage_s",
+            "repairWithStudioPlaceholderWhenForbidden": true,
+            "repairWhenEmpty": true
+          }
+        ],
+        "repairHeadlineFromPageTitle": true,
+        "headlineSourceFieldId": "pageTitle_s",
+        "headlineTargetFieldId": "headline_s"
+      },
+      "toolsLoopPrefetchSupplement": "createFromChatDraft",
+      "prefetchSupplementConfig": {
+        "priorDraftSectionHeadings": [
+          "Draft body",
+          "draft"
+        ],
+        "priorDraftInlineMarkers": [
+          "*Draft blog:*"
+        ],
+        "priorTitleInlineMarkers": [
+          "*Draft title:*"
+        ],
+        "priorAuthorVoiceInlineMarkers": [
+          "Author voice:",
+          "Author voice"
+        ],
+        "nodeSelectorCandidateBindings": [
+          "authorBios",
+          "authorBioPaths"
+        ],
+        "nodeSelectorCatalogFilter": {
+          "pathPrefix": "/site/components/bio/",
+          "contentTypeId": "/component/bio"
+        },
+        "nodeSelectorResearchFallback": {
+          "pathPrefix": "/site/components/bio/",
+          "contentTypeId": "/component/bio",
+          "includePriorAuthorLabelQuery": true,
+          "includeFirstTokenOfPriorAuthorLabel": true,
+          "literalQueries": [
+            "author"
+          ]
+        },
+        "priorDerivedRootFieldsFromDraft": [
+          {
+            "fieldId": "pageDescription_s",
+            "maxLength": 250
+          },
+          {
+            "fieldId": "blurb_t",
+            "maxLength": 150
+          }
+        ],
+        "toolsLoopFastPath": true
+      },
+      "phases": {
+        "context": {
+          "hints": [
+            "Title and body: last **Assistant** reply in **[Prior conversation]** — copy verbatim (see project context).",
+            "Prefetch bindings: `postForm`, `richTextForm`, `taxonomyTopics`, `taxonomyTags`, `authorBios` (**ResearchSiteContent** under `/site/components/bio/`).",
+            "Match **Author voice:** to a prefetch bio row by **displayName** (Studio internal-name from search). Copy that row's full `.xml` path into `authorBio_o` — UUID file names only; never `sara.xml` or other invented slugs.",
+            "`pageDescription_s` and `blurb_t`: first sentence of `*Draft blog:*` (meta ≤250 chars, blurb ≤150 chars).",
+            "Topics/tags: only keys from taxonomy prefetch that strongly match the draft title+body (~90%+ thematic fit). Do not add tags to meet a count if they are unrelated (e.g. AWS on a Google I/O AI article)."
+          ],
+          "engineSteps": [
+            {
+              "tool": "GetContentTypeFormDefinition",
+              "as": "postForm",
+              "args": {
+                "siteId": "$siteId",
+                "contentTypeId": "/component/post"
+              }
+            },
+            {
+              "tool": "GetContentTypeFormDefinition",
+              "as": "richTextForm",
+              "args": {
+                "siteId": "$siteId",
+                "contentTypeId": "/component/rich_text"
+              }
+            },
+            {
+              "tool": "GetContent",
+              "as": "taxonomyTopics",
+              "args": {
+                "siteId": "$siteId",
+                "path": "/site/taxonomy/topics.xml"
+              }
+            },
+            {
+              "tool": "GetContent",
+              "as": "taxonomyTags",
+              "args": {
+                "siteId": "$siteId",
+                "path": "/site/taxonomy/tags.xml"
+              }
+            },
+            {
+              "tool": "ListPagesAndComponents",
+              "as": "authorBioPaths",
+              "args": {
+                "siteId": "$siteId",
+                "pathPrefix": "/site/components/bio/"
+              }
+            },
+            {
+              "tool": "ResearchSiteContent",
+              "as": "authorBios",
+              "args": {
+                "siteId": "$siteId",
+                "query": "author",
+                "pathPrefix": "/site/components/bio/",
+                "maxSearchHits": 40,
+                "maxFetchItems": 25
+              }
+            }
+          ]
+        },
+        "action": [
+          "Read the **last Assistant** reply in **[Prior conversation]** for title and full article body. If that reply has no saveable article, stop — do not **WriteContent**.",
+          "From prefetch only: map **authorBio_o** from `authorBios` + **Author voice:** (real `.xml` path); taxonomy keys that fit the draft; **pageDescription_s** from the draft opening sentence; XML shape from `postForm`, `richTextForm`, sibling + project context.",
+          "Build **contentXml** (verbatim draft). **ContentExists** on your new path (must be **false**) → **WriteContent** once. Write verification rejects incomplete XML — fix and retry."
+        ],
+        "confirmation": [
+          "Confirm path. In Studio, **Content** must match the prior assistant draft length — not a shortened rewrite."
+        ]
+      },
+      "matchedUserPreludePath": "scripts/aiassistant/recipes/preludes/new_content_item_from_chat_draft-matched-user-prelude.md"
+    }
+  ],
+  "recipeOrder": [
+    "recipe_1779227205002",
+    "new_content_item_from_chat_draft",
+    "web_research",
+    "site_content_research",
+    "llm_research",
+    "open_page_inquiry",
+    "modify_page_content",
+    "revert_content_version",
+    "generate_image",
+    "template_display_change",
+    "publish_site",
+    "publish_item",
+    "new_content_item",
+    "translate_content_item",
+    "draft_content_from_source"
+  ]
+}

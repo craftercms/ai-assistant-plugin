@@ -1,5 +1,7 @@
 # Installing the Plugin
 
+**Documentation hub:** [Admins & authors](../admins-and-authors/README.md). **Next:** [Configuration guide](configuration-guide.md).
+
 ## Studio UI
 
 Install via **Project Tools → Plugin Management → Search & install**.
@@ -10,7 +12,7 @@ After install, open **Project Tools → AI Assistant** for the tabbed **AI Assis
 
 ![AI Assistant Configuration modal with the UI tab active](../images/ai-assistant-studio/ai-assistant-configuration-ui-tab.png)
 
-More tabs and captions: [Configuration guide — Screenshots](configuration-guide.md#cg-screenshots).
+More tabs (Agents, Recipes, Integrations, autonomous configuration, Authoring Assistant on preview): [Configuration guide — Screenshots](configuration-guide.md#cg-screenshots).
 
 ## Local / From-repo Install
 
@@ -19,22 +21,22 @@ From repo root (with `CRAFTER_DATA` and `CRAFTER_STUDIO_TOKEN` set when using th
 | Method | Notes |
 |--------|--------|
 | **Studio Marketplace UI** | **Project Tools → Plugin Management** — search for the plugin and install it into the current site (same flow as [Studio UI](#studio-ui) above). |
-| [CrafterCMS CLI](https://docs.craftercms.org/en/4.1/by-role/common/crafter-cli.html) `copy-plugin` | Point `--path` at this repository |
-| Marketplace **`/studio/api/2/marketplace/copy`** | POST JSON `siteId` + `path` to the plugin directory |
+| [CrafterCMS CLI](https://docs.craftercms.org/en/4.1/by-role/common/crafter-cli.html) `copy-plugin` | Point `--path` at this repository. Copies **`authoring/scripts/classes/plugins/<plugin-id-path>/`** (for this plugin, everything under `…/aiassistant/studio/`), not sibling folders. |
+| Marketplace **`/studio/api/2/marketplace/copy`** | POST JSON `siteId` + `path` to the plugin directory (same class layout as CLI). |
 
 Example **`copy`** body (replace site and path):
 
 ```json
 {
   "siteId": "MySite",
-  "path": "/absolute/path/to/plugin-studio-crafterq"
+  "path": "/absolute/path/to/ai-assistant-plugin"
 }
 ```
 
 Example CLI:
 
 ```bash
-./crafter-cli copy-plugin -e local -s MySite --path /absolute/path/to/plugin-studio-crafterq
+./crafter-cli copy-plugin -e local -s MySite --path /absolute/path/to/ai-assistant-plugin
 ```
 
 Example **`curl`** (replace host, JWT, site, path):
@@ -43,7 +45,7 @@ Example **`curl`** (replace host, JWT, site, path):
 curl --location --request POST 'http://localhost:8080/studio/api/2/marketplace/copy' \
   --header 'Authorization: Bearer YOUR_JWT_TOKEN' \
   --header 'Content-Type: application/json' \
-  --data-raw '{"siteId":"MySite","path":"/absolute/path/to/plugin-studio-crafterq"}'
+  --data-raw '{"siteId":"MySite","path":"/absolute/path/to/ai-assistant-plugin"}'
 ```
 
 ## Build Before Install

@@ -1,10 +1,11 @@
 import org.springframework.security.core.Authentication
 import org.springframework.security.core.context.SecurityContextHolder
-import plugins.org.craftercms.aiassistant.autonomous.AutonomousAssistantRegistry
-import plugins.org.craftercms.aiassistant.autonomous.AutonomousAssistantRuntimeHooks
-import plugins.org.craftercms.aiassistant.autonomous.AutonomousAssistantStateStore
-import plugins.org.craftercms.aiassistant.autonomous.AutonomousAssistantSupervisor
-import plugins.org.craftercms.aiassistant.autonomous.AutonomousScopeGuard
+import plugins.org.craftercms.aiassistant.studio.engine.autonomous.AutonomousAssistantRegistry
+import plugins.org.craftercms.aiassistant.studio.engine.autonomous.AutonomousAssistantRuntimeHooks
+import plugins.org.craftercms.aiassistant.studio.engine.autonomous.AutonomousAssistantStateStore
+import plugins.org.craftercms.aiassistant.studio.engine.autonomous.AutonomousAssistantStatus
+import plugins.org.craftercms.aiassistant.studio.engine.autonomous.AutonomousAssistantSupervisor
+import plugins.org.craftercms.aiassistant.studio.engine.autonomous.AutonomousScopeGuard
 
 String siteId = (params?.siteId ?: request.getParameter('siteId'))?.toString()?.trim()
 if (!siteId) {
@@ -48,7 +49,7 @@ for (Map.Entry<String, Map> e : agents.entrySet()) {
       }
     }
   }
-  if ('error'.equals(st.get('status')?.toString())) {
+  if (AutonomousAssistantStatus.matches(st.get('status'), AutonomousAssistantStatus.ERROR)) {
     agentsInError.add([
       agentId  : aid,
       name     : agentDef.get('name')?.toString(),

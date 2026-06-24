@@ -27,9 +27,18 @@ import AiAssistantProjectToolsConfiguration, {
 } from './src/AiAssistantProjectToolsConfiguration';
 import { installAiAssistantContentTypesHighlightPatch } from './src/aiAssistantContentTypesHighlightPatch';
 import { installRemoteImageDropImportBridge } from './src/aiAssistantRemoteImageDropBridge';
+import { installXbIceSelectionBridge } from './src/aiAssistantXbIceSelectionBridge';
+import { patchAllStoredIcePanelPagesInLocalStorage } from './src/aiAssistantPluginDescriptor';
+import { authoringSiteIdFromWindow } from './src/aiAssistantStudioUiConfig';
 
 installRemoteImageDropImportBridge();
 installAiAssistantContentTypesHighlightPatch();
+installXbIceSelectionBridge();
+
+const bootstrapSiteId = authoringSiteIdFromWindow();
+if (bootstrapSiteId) {
+  patchAllStoredIcePanelPagesInLocalStorage(bootstrapSiteId);
+}
 
 const plugin: PluginDescriptor = {
   locales: undefined,
@@ -47,9 +56,8 @@ const plugin: PluginDescriptor = {
     [autonomousAgentsMarkWidgetId]: AutonomousAgentsMarkIcon,
     [formControlWidgetId]: AiAssistantFormControl,
     [logoWidgetId]: AiAssistantLogo,
-    /** Legacy SystemIcon ids (older ui.xml / bundles); same component as logoWidgetId (OpenAILogo). */
+    /** Legacy SystemIcon id (older ui.xml / bundles); same component as logoWidgetId. */
     'craftercms.components.aiassistant.AiAssistantLogo': AiAssistantLogo,
-    'craftercms.components.aiassistant.CrafterQLogo': AiAssistantLogo,
     [popoverWidgetId]: AiAssistantPopover,
     [dialogContentWidgetId]: AiAssistantDialogContent,
     [projectToolsAiAssistantConfigWidgetId]: AiAssistantProjectToolsConfiguration,

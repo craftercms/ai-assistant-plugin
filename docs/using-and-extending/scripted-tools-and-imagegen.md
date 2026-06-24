@@ -78,7 +78,7 @@ The **entire script file** is evaluated once per invocation with **`GroovyShell`
 
 | Binding | Type | Description |
 |---------|------|-------------|
-| **`studio`** | `StudioToolOperations` | Same helper surface as built-in CMS tools (content read/write, config reads, etc.). |
+| **`studio`** | `StudioToolOperations` | Same helper surface as built-in tools (content read/write, config reads, etc.). |
 | **`args`** | `Map` | Copy of the **`args`** object from the tool call (never null; may be empty). |
 | **`toolId`** | `String` | Registered id for this run. |
 | **`siteId`** | `String` | Effective site id (`studio.resolveEffectiveSiteId('')`). |
@@ -248,7 +248,7 @@ Compiled closures are cached **per site + id** with a SHA-256 of the script text
 
 **Chat** backends live under **`config/studio/scripts/aiassistant/llm/{id}/`** (not `user-tools/` or `imagegen/`). They implement **`StudioAiLlmRuntime`** or the documented **Map** bundle contract — see **[llm-configuration.md](llm-configuration.md)** and the plugin **`docs/examples/aiassistant-llm/`** tree.
 
-For a **real-world Groovy `StudioAiLlmRuntime` class** that builds the **full** Spring AI session (your vendor’s base URL + API key for Studio’s **tools-loop** chat, **no** delegation to built-in vendor runtimes), see **[script-llm-bring-your-own-backend.md](script-llm-bring-your-own-backend.md)** and the sample **`docs/examples/aiassistant-llm/byo-openai-compat/runtime.groovy`** (folder name is the example **script id**, not a vendor claim). For **Groq**, see **`docs/examples/aiassistant-llm/groq/runtime.groovy`** in the same doc.
+For a **real-world Groovy `StudioAiLlmRuntime` class** that builds the **full** Spring AI session (your vendor’s base URL + API key for Studio’s **tools-loop** chat, **no** delegation to built-in vendor runtimes), see **[script-llm-bring-your-own-backend.md](script-llm-bring-your-own-backend.md)** and the sample **`docs/examples/aiassistant-llm/byo-llm/runtime.groovy`**. For **Groq**, see **`docs/examples/aiassistant-llm/groq/runtime.groovy`** in the same doc.
 
 ---
 
@@ -279,7 +279,9 @@ For a **real-world Groovy `StudioAiLlmRuntime` class** that builds the **full** 
 
 | Concern | Class |
 |---------|--------|
-| User tool registry + invoke | `plugins.org.craftercms.aiassistant.tools.StudioAiUserSiteTools` |
-| Image script load / cache | `plugins.org.craftercms.aiassistant.imagegen.StudioAiScriptImageGenLoader` |
-| Backend resolution | `plugins.org.craftercms.aiassistant.imagegen.StudioAiImageGeneratorFactory` |
-| Tool schemas (`InvokeSiteUserTool`, `GenerateImage`) | `plugins.org.craftercms.aiassistant.tools.AiOrchestrationTools` |
+| User tool registry + invoke | `plugins.org.craftercms.aiassistant.contrib.tool.site.StudioAiUserSiteTools` |
+| Site user tool wire adapter | `plugins.org.craftercms.aiassistant.contrib.tool.builtin.site.InvokeSiteUserTool` |
+| Image script load / cache | `plugins.org.craftercms.aiassistant.contrib.imagegen.StudioAiScriptImageGenLoader` |
+| Image tool + backend resolution | `plugins.org.craftercms.aiassistant.contrib.tool.builtin.cms.GenerateImageTool`, `plugins.org.craftercms.aiassistant.engine.catalog.StudioAiImageGeneratorFactory` |
+| JSON Schemas (all built-in wire tools) | `plugins.org.craftercms.aiassistant.spi.tool.StudioAiToolSchemas` |
+| Per-request catalog assembly | `plugins.org.craftercms.aiassistant.engine.catalog.AiOrchestrationTools#build` → `StudioAiToolRegistry` |

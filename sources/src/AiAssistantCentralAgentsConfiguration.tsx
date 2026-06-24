@@ -17,6 +17,7 @@ import {
   Box,
   Button,
   Checkbox,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -32,34 +33,63 @@ import {
   ListItem,
   ListItemSecondaryAction,
   ListItemText,
+  ListSubheader,
   MenuItem,
   Select,
   Stack,
   Switch,
+  Tab,
+  Tabs,
   TextField,
   Tooltip,
   Typography
 } from '@mui/material';
+import { ensureAgentCatalogId, newAgentCatalogId, readAgentCatalogId } from './agentCatalogId';
 import type { PromptConfig } from './agentConfig';
 import { normalizeEnabledBuiltInToolsRaw } from './agentConfig';
-import { fetchAiAssistantScriptsIndex, type AiAssistantScriptsIndexItem } from './aiAssistantScriptsApi';
+import AiAssistantSiteOrchestrationToolsForm from './AiAssistantSiteOrchestrationToolsForm';
+import {
+  defaultToolsPolicyFormState,
+  parseToolsPolicyFromJsonText,
+  serializeToolsPolicyToJson,
+  validateToolsPolicy,
+  type ToolsPolicyFormState
+} from './aiAssistantToolsMcpUiModel';
+import {
+  fetchAiAssistantScriptsIndex,
+  fetchOptionalStudioSandboxUtf8,
+  postAiAssistantScriptsMutate,
+  TOOLS_JSON_SANDBOX_PATH,
+  type AiAssistantScriptsIndexItem
+} from './aiAssistantScriptsApi';
+import { fetchAiAssistantSecretsIndex } from './aiAssistantSecretsApi';
+import {
+  builtinSecretSlotLabel,
+  customSecretKeysFromSecretsIndex,
+  isBuiltinProviderSecretKey,
+  secretKeyForLlmVendor
+} from './aiAssistantSecretsModel';
 import {
   STUDIO_AI_BUILTIN_TOOL_IDS,
   STUDIO_AI_CLAUDE_CHAT_MODELS,
   STUDIO_AI_DEFAULT_IMAGE_MODEL,
+  normalizeImageModelId,
   STUDIO_AI_LLM_VENDOR_IDS,
-  STUDIO_AI_TOOLS_LOOP_CHAT_MODELS
+  STUDIO_AI_TOOLS_LOOP_CHAT_MODELS,
+  llmVendorDisplayLabel
 } from './studioAiOrchestrationToolIds';
 import {
   CENTRAL_AGENTS_STUDIO_PATH,
   catalogAutonomousAgents,
   catalogChatAgents,
   defaultCentralAgentsFile,
-  fetchCentralAgentsFile,
-  isCentralAgentsFileShape,
+  getEffectiveCentralAgentsCatalog,
+  rawAgentSkillsToEditorRows,
   rawPromptsToEditorRows,
+  serializeCentralCatalogSkills,
   serializeCentralCatalogPrompts,
   type CentralAgentFileEntry,
+  type AgentSkillEditorRow,
   type CentralAgentMode,
   type CentralAgentsFile
 } from './centralAgentCatalog';
@@ -71,6 +101,20 @@ const CQ_SCRIPT_IMAGE_SELECT_CUSTOM = '__cqScriptImageCustom__';
 
 function cloneCatalog(f: CentralAgentsFile): CentralAgentsFile {
   return { version: f.version ?? 1, agents: f.agents.map((a) => ({ ...a })) };
+}
+
+function applyLlmSecretKeyOnEntry(rec: Record<string, unknown>, llm: unknown): void {
+  const sp = parseLlmVendorAndScript(llm);
+  if (sp.vendor === 'script') {
+    delete rec.llmSecretKey;
+    return;
+  }
+  const sk = String(rec.llmSecretKey ?? '').trim() || secretKeyForLlmVendor(sp.vendor);
+  if (sk) {
+    rec.llmSecretKey = sk;
+  } else {
+    delete rec.llmSecretKey;
+  }
 }
 
 function parseLlmVendorAndScript(llm: unknown): { vendor: string; scriptId: string } {
@@ -142,6 +186,146 @@ function llmModelPresetRows(vendor: string): readonly string[] {
   return STUDIO_AI_TOOLS_LOOP_CHAT_MODELS;
 }
 
+function mergeAgentAdvancedCatalogFields(
+  draft: CentralAgentFileEntry,
+  expertSkillRows: AgentSkillEditorRow[],
+  translateBatchStr: string
+): { error: string } | CentralAgentFileEntry {
+  const rec = { ...draft } as Record<string, unknown>;
+  const skills = serializeCentralCatalogSkills(expertSkillRows);
+  if (skills) rec.skills = skills;
+  else {
+    delete rec.skills;
+  }
+  const tbc = translateBatchStr.trim();
+  if (tbc) {
+    const n = Math.round(Number(tbc));
+    if (!Number.isFinite(n) || n < 1 || n > 64) {
+      return { error: 'Translate batch concurrency must be an integer from 1 to 64 when set.' };
+    }
+    rec.translateBatchConcurrency = n;
+    delete rec.translate_batch_concurrency;
+  } else {
+    delete rec.translateBatchConcurrency;
+    delete rec.translate_batch_concurrency;
+  }
+  delete rec.llmApiKey;
+  delete rec.openAiApiKey;
+  delete rec.llmApiKeyPresent;
+  return rec as CentralAgentFileEntry;
+}
+
+function AgentAdvancedAgentFields(props: {
+  draft: CentralAgentFileEntry;
+  setDraft: React.Dispatch<React.SetStateAction<CentralAgentFileEntry | null>>;
+  expertSkillRows: AgentSkillEditorRow[];
+  setExpertSkillRows: React.Dispatch<React.SetStateAction<AgentSkillEditorRow[]>>;
+  translateBatchStr: string;
+  setTranslateBatchStr: React.Dispatch<React.SetStateAction<string>>;
+}) {
+  const { draft, setDraft, expertSkillRows, setExpertSkillRows, translateBatchStr, setTranslateBatchStr } = props;
+  return (
+    <Stack spacing={2} sx={{ width: '100%' }}>
+      <Box>
+        <FormLabel component="legend" sx={{ fontSize: '1.05rem', fontWeight: 600, color: 'text.primary' }}>
+          Skills (markdown URLs)
+        </FormLabel>
+        <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5, mb: 1 }}>
+          Public http(s) URLs indexed for <strong>QueryExpertGuidance</strong> when a skill is enabled and tools are on
+          (requires tools-loop chat and a configured embeddings API for skill indexing).
+        </Typography>
+        <Stack spacing={1.5}>
+          {expertSkillRows.map((row, idx) => (
+            <Box
+              key={idx}
+              sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5, pr: 5, position: 'relative' }}
+            >
+              <IconButton
+                size="small"
+                aria-label="Remove skill"
+                sx={{ position: 'absolute', right: 4, top: 4 }}
+                onClick={() => setExpertSkillRows(expertSkillRows.filter((_, i) => i !== idx))}
+              >
+                <DeleteOutlineRounded fontSize="small" />
+              </IconButton>
+              <Stack spacing={1}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      size="small"
+                      checked={row.enabled === true}
+                      onChange={(ev) => {
+                        const on = ev.target.checked;
+                        setExpertSkillRows(expertSkillRows.map((r, i) => (i === idx ? { ...r, enabled: on } : r)));
+                      }}
+                    />
+                  }
+                  label="Enabled"
+                />
+                <TextField
+                  label="Name (optional)"
+                  value={row.name}
+                  onChange={(ev) => {
+                    const v = ev.target.value;
+                    setExpertSkillRows(expertSkillRows.map((r, i) => (i === idx ? { ...r, name: v } : r)));
+                  }}
+                  fullWidth
+                  size="small"
+                />
+                <TextField
+                  label="Markdown URL"
+                  value={row.url}
+                  onChange={(ev) => {
+                    const v = ev.target.value;
+                    setExpertSkillRows(expertSkillRows.map((r, i) => (i === idx ? { ...r, url: v } : r)));
+                  }}
+                  fullWidth
+                  size="small"
+                  placeholder="https://example.com/docs/guide.md"
+                />
+                <TextField
+                  label="When to use (optional)"
+                  value={row.description}
+                  onChange={(ev) => {
+                    const v = ev.target.value;
+                    setExpertSkillRows(expertSkillRows.map((r, i) => (i === idx ? { ...r, description: v } : r)));
+                  }}
+                  fullWidth
+                  size="small"
+                  multiline
+                  minRows={2}
+                />
+              </Stack>
+            </Box>
+          ))}
+        </Stack>
+        <Button
+          sx={{ mt: 1 }}
+          size="small"
+          startIcon={<AddRounded />}
+          onClick={() => setExpertSkillRows([...expertSkillRows, { name: '', url: '', description: '', enabled: false }])}
+        >
+          Add skill
+        </Button>
+      </Box>
+      <TextField
+        label="Translate batch concurrency (1–64, optional)"
+        value={translateBatchStr}
+        onChange={(ev) => setTranslateBatchStr(ev.target.value)}
+        fullWidth
+        size="small"
+        placeholder="25"
+        helperText="Default parallelism for TranslateContentBatch when the model omits maxConcurrency. Leave empty for server default (25)."
+      />
+      <Typography variant="caption" color="text.secondary" display="block">
+        API keys are not stored in <strong>agents.json</strong>. On the <strong>General</strong> tab, each agent uses the
+        built-in secret for its LLM provider or a custom secret from <strong>Project Tools → Secrets</strong> (
+        <code>secrets.json</code>).
+      </Typography>
+    </Stack>
+  );
+}
+
 function CmsToolCheckboxes(props: {
   draft: CentralAgentFileEntry;
   onToggle: (toolId: string, checked: boolean) => void;
@@ -150,7 +334,7 @@ function CmsToolCheckboxes(props: {
   return (
     <Box sx={{ maxHeight: 220, overflowY: 'auto', border: 1, borderColor: 'divider', borderRadius: 1, p: 1 }}>
       <FormLabel component="legend" sx={{ fontSize: '1.05rem', fontWeight: 600, color: 'text.primary', mb: 0.5 }}>
-        CMS Tools for This Agent:
+        Tools for this agent:
       </FormLabel>
       <FormGroup>
         {STUDIO_AI_BUILTIN_TOOL_IDS.map((id) => (
@@ -199,23 +383,23 @@ function normalizeCatalogForSave(f: CentralAgentsFile): CentralAgentsFile {
       const outRec = out as Record<string, unknown>;
       delete outRec.prompts;
       const llmS = String(out.llm ?? '').toLowerCase();
-      if (!llmS.includes('crafterq') && !String(out.imageModel ?? '').trim()) {
-        out.imageModel = STUDIO_AI_DEFAULT_IMAGE_MODEL;
-      }
+      const scriptish = llmS === 'script' || llmS.startsWith('script:');
+      const img = normalizeImageModelId(String(out.imageModel ?? '')) ?? '';
+      if (img) out.imageModel = img;
+      else if (!scriptish) out.imageModel = STUDIO_AI_DEFAULT_IMAGE_MODEL;
       if (out.enableTools === false) {
         delete outRec.enabledBuiltInTools;
         delete outRec.enabled_built_in_tools;
       }
+      applyLlmSecretKeyOnEntry(outRec, out.llm);
       return out;
     }
     const label = String(e.label ?? e.name ?? '').trim() || 'Untitled assistant';
-    const id = e.crafterQAgentId ?? e.id;
-    const outChat = {
-      ...e,
+    const outChat = ensureAgentCatalogId({
+      ...(e as Record<string, unknown>),
       mode: 'chat',
-      label,
-      ...(id != null && String(id).trim() !== '' ? { crafterQAgentId: String(id).trim() } : {})
-    } as CentralAgentFileEntry;
+      label
+    }) as CentralAgentFileEntry;
     const recChat = outChat as Record<string, unknown>;
     delete recChat.prompt;
     delete recChat.schedule;
@@ -232,9 +416,10 @@ function normalizeCatalogForSave(f: CentralAgentsFile): CentralAgentsFile {
       delete recChat.enabled_built_in_tools;
     }
     const llmChat = String(outChat.llm ?? '').toLowerCase();
-    if (!llmChat.includes('crafterq') && !String(outChat.imageModel ?? '').trim()) {
-      outChat.imageModel = STUDIO_AI_DEFAULT_IMAGE_MODEL;
-    }
+    const chatScriptish = llmChat === 'script' || llmChat.startsWith('script:');
+    const chatImg = normalizeImageModelId(String(outChat.imageModel ?? '')) ?? '';
+    if (chatImg) outChat.imageModel = chatImg;
+    else if (!chatScriptish) outChat.imageModel = STUDIO_AI_DEFAULT_IMAGE_MODEL;
     const opensPopup =
       recChat.openAsPopup === true ||
       String(recChat.openAsPopup ?? '').trim().toLowerCase() === 'true';
@@ -243,6 +428,7 @@ function normalizeCatalogForSave(f: CentralAgentsFile): CentralAgentsFile {
       delete recChat.openAsPopup;
       delete recChat.open_as_popup;
     }
+    applyLlmSecretKeyOnEntry(recChat, outChat.llm);
     return outChat;
   });
   return { version: f.version ?? 1, agents };
@@ -253,7 +439,7 @@ function summarizeEntry(e: CentralAgentFileEntry): string {
   if (mode === 'autonomous') {
     return `${String(e.name ?? e.label ?? 'Unnamed')} — ${e.schedule ?? '(no schedule)'}`;
   }
-  return `${String(e.label ?? e.name ?? 'Unnamed')} (${String(e.llm ?? 'openAI')})`;
+  return `${String(e.label ?? e.name ?? 'Unnamed')} (${llmVendorDisplayLabel(String(e.llm ?? 'openAI'))})`;
 }
 
 function isAutonomousEntry(e: CentralAgentFileEntry): boolean {
@@ -289,14 +475,109 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
   const [draft, setDraft] = useState<CentralAgentFileEntry | null>(null);
   /** Chat quick-prompt rows while the edit dialog is open (trimmed on save). */
   const [chatPromptRows, setChatPromptRows] = useState<PromptConfig[]>([]);
+  const [expertSkillRows, setExpertSkillRows] = useState<AgentSkillEditorRow[]>([]);
+  const [translateBatchStr, setTranslateBatchStr] = useState('');
   const [agentDialogFullscreen, setAgentDialogFullscreen] = useState(false);
+  const [agentDialogTab, setAgentDialogTab] = useState<'general' | 'advanced'>('general');
+  const [siteOrchPolicy, setSiteOrchPolicy] = useState<ToolsPolicyFormState>(() => defaultToolsPolicyFormState());
+  const [siteOrchLoaded, setSiteOrchLoaded] = useState(false);
+  const [siteOrchLoading, setSiteOrchLoading] = useState(false);
+  const [siteOrchDirty, setSiteOrchDirty] = useState(false);
+  const [siteOrchError, setSiteOrchError] = useState<string | null>(null);
+  const [savingSiteOrch, setSavingSiteOrch] = useState(false);
   const [scriptsIndexRows, setScriptsIndexRows] = useState<{
     llm: AiAssistantScriptsIndexItem[];
     imageGen: AiAssistantScriptsIndexItem[];
   }>({ llm: [], imageGen: [] });
+  const [customSecretKeyOptions, setCustomSecretKeyOptions] = useState<string[]>([]);
 
   const scriptsRowsRef = React.useRef(scriptsIndexRows);
   scriptsRowsRef.current = scriptsIndexRows;
+
+  const resetSiteOrchDraft = useCallback(() => {
+    setSiteOrchPolicy(defaultToolsPolicyFormState());
+    setSiteOrchLoaded(false);
+    setSiteOrchDirty(false);
+    setSiteOrchError(null);
+    setSiteOrchLoading(false);
+    setSavingSiteOrch(false);
+  }, []);
+
+  const loadSiteOrchPolicy = useCallback(async () => {
+    if (!siteId) {
+      resetSiteOrchDraft();
+      return;
+    }
+    setSiteOrchLoading(true);
+    setSiteOrchError(null);
+    try {
+      const text = await fetchOptionalStudioSandboxUtf8(siteId, TOOLS_JSON_SANDBOX_PATH);
+      const parsed = parseToolsPolicyFromJsonText(text.trim() ? text : '');
+      if (!parsed.ok) {
+        setSiteOrchError(parsed.message);
+        setSiteOrchPolicy(defaultToolsPolicyFormState());
+      } else {
+        setSiteOrchPolicy(parsed.state);
+      }
+      setSiteOrchLoaded(true);
+    } catch (e) {
+      setSiteOrchError(e instanceof Error ? e.message : String(e));
+      setSiteOrchPolicy(defaultToolsPolicyFormState());
+      setSiteOrchLoaded(true);
+    } finally {
+      setSiteOrchLoading(false);
+    }
+  }, [siteId, resetSiteOrchDraft]);
+
+  const saveSiteOrchPolicy = useCallback(async () => {
+    if (!siteId) return;
+    const v = validateToolsPolicy(siteOrchPolicy);
+    if (!v.ok) {
+      setSiteOrchError(v.message);
+      return;
+    }
+    setSavingSiteOrch(true);
+    setSiteOrchError(null);
+    try {
+      const json = serializeToolsPolicyToJson(siteOrchPolicy);
+      await firstValueFrom(
+        writeConfiguration(siteId, 'scripts/aiassistant/config/tools.json', 'studio', json)
+      );
+      const roundTrip = parseToolsPolicyFromJsonText(json);
+      if (roundTrip.ok) {
+        setSiteOrchPolicy(roundTrip.state);
+      }
+      setSiteOrchDirty(false);
+      await postAiAssistantScriptsMutate(siteId, { action: 'refreshSync' }).catch(() => {});
+    } catch (e) {
+      setSiteOrchError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingSiteOrch(false);
+    }
+  }, [siteId, siteOrchPolicy]);
+
+  useEffect(() => {
+    if (draft == null || editIndex === null || agentDialogTab !== 'advanced') {
+      return;
+    }
+    if (siteOrchLoaded || siteOrchLoading || siteOrchDirty) {
+      return;
+    }
+    void loadSiteOrchPolicy();
+  }, [draft, editIndex, agentDialogTab, siteOrchLoaded, siteOrchLoading, siteOrchDirty, loadSiteOrchPolicy]);
+
+  const loadSecretKeyOptions = useCallback(async () => {
+    if (!siteId) {
+      setCustomSecretKeyOptions([]);
+      return;
+    }
+    try {
+      const idx = await fetchAiAssistantSecretsIndex(siteId);
+      setCustomSecretKeyOptions(customSecretKeysFromSecretsIndex(idx.customSecrets));
+    } catch {
+      setCustomSecretKeyOptions([]);
+    }
+  }, [siteId]);
 
   const loadScriptsSandboxIndex = useCallback(async () => {
     if (!siteId) {
@@ -327,21 +608,19 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
     setLoadError(null);
     setLoaded(false);
     try {
-      const data = await fetchCentralAgentsFile(siteId);
-      if (data && isCentralAgentsFileShape(data)) {
-        setCatalog({ version: typeof data.version === 'number' ? data.version : 1, agents: [...data.agents] });
-      } else {
-        setCatalog(defaultCentralAgentsFile());
-      }
+      const data = await getEffectiveCentralAgentsCatalog(siteId);
+      setCatalog({ version: typeof data.version === 'number' ? data.version : 1, agents: [...data.agents] });
       setDirty(false);
-    } catch {
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : String(e));
       setCatalog(defaultCentralAgentsFile());
       setDirty(false);
     } finally {
       setLoaded(true);
     }
     void loadScriptsSandboxIndex();
-  }, [siteId, loadScriptsSandboxIndex]);
+    void loadSecretKeyOptions();
+  }, [siteId, loadScriptsSandboxIndex, loadSecretKeyOptions]);
 
   useEffect(() => {
     onDirtyChange?.(dirty);
@@ -376,13 +655,18 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
 
   const openAddChat = () => {
     setFormError(null);
+    setAgentDialogTab('general');
+    resetSiteOrchDraft();
     setAgentDialogFullscreen(false);
     setChatPromptRows([]);
+    setExpertSkillRows([]);
+    setTranslateBatchStr('');
     setDraft({
       mode: 'chat',
       label: 'New assistant',
-      crafterQAgentId: '',
+      agentId: newAgentCatalogId(),
       llm: 'openAI',
+      llmSecretKey: 'openai_api_key',
       llmModel: 'gpt-4o-mini',
       imageModel: STUDIO_AI_DEFAULT_IMAGE_MODEL,
       enableTools: true,
@@ -393,8 +677,12 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
 
   const openAddAutonomous = () => {
     setFormError(null);
+    setAgentDialogTab('general');
+    resetSiteOrchDraft();
     setAgentDialogFullscreen(false);
     setChatPromptRows([]);
+    setExpertSkillRows([]);
+    setTranslateBatchStr('');
     setDraft({
       mode: 'autonomous',
       name: 'New autonomous agent',
@@ -402,6 +690,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
       prompt: '',
       scope: 'project',
       llm: 'openAI',
+      llmSecretKey: 'openai_api_key',
       llmModel: 'gpt-4o-mini',
       imageModel: STUDIO_AI_DEFAULT_IMAGE_MODEL,
       manageOtherAgentsHumanTasks: false
@@ -411,16 +700,30 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
 
   const openEdit = (index: number) => {
     setFormError(null);
+    setAgentDialogTab('general');
+    resetSiteOrchDraft();
     setAgentDialogFullscreen(false);
     const entry = sanitizeScriptLlmModelField(catalog.agents[index]);
-    setDraft({ ...entry });
+    const mode = String(entry.mode ?? 'chat').toLowerCase();
+    setDraft(
+      mode === 'autonomous'
+        ? { ...entry }
+        : (ensureAgentCatalogId({ ...entry } as Record<string, unknown>) as CentralAgentFileEntry)
+    );
     setChatPromptRows(rawPromptsToEditorRows(entry.prompts));
+    const entryRec = entry as Record<string, unknown>;
+    setExpertSkillRows(rawAgentSkillsToEditorRows(entryRec.skills));
+    const tbcRaw = entry.translateBatchConcurrency ?? entry.translate_batch_concurrency;
+    const tbcNum = tbcRaw != null ? Number(tbcRaw) : NaN;
+    setTranslateBatchStr(Number.isFinite(tbcNum) && tbcNum >= 1 ? String(Math.round(tbcNum)) : '');
     setEditIndex(index);
   };
 
   const closeDialog = () => {
     setFormError(null);
+    setAgentDialogTab('general');
     setAgentDialogFullscreen(false);
+    resetSiteOrchDraft();
     setEditIndex(null);
     setDraft(null);
   };
@@ -437,14 +740,22 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
     }
     const next = cloneCatalog(catalog);
     const mode = String(draft.mode ?? 'chat').toLowerCase() === 'autonomous' ? 'autonomous' : 'chat';
+    const advancedMerged = mergeAgentAdvancedCatalogFields(draft, expertSkillRows, translateBatchStr);
+    if ('error' in advancedMerged) {
+      setFormError(advancedMerged.error);
+      return;
+    }
     const mergedDraft: CentralAgentFileEntry =
       mode === 'autonomous'
         ? (() => {
-            const x = { ...draft } as Record<string, unknown>;
+            const x = { ...advancedMerged } as Record<string, unknown>;
             delete x.prompts;
             return x as CentralAgentFileEntry;
           })()
-        : ({ ...draft, prompts: serializeCentralCatalogPrompts(chatPromptRows) ?? [] } as CentralAgentFileEntry);
+        : (ensureAgentCatalogId({
+            ...(advancedMerged as Record<string, unknown>),
+            prompts: serializeCentralCatalogPrompts(chatPromptRows) ?? []
+          }) as CentralAgentFileEntry);
     if (editIndex < 0) next.agents.push(mergedDraft);
     else next.agents[editIndex] = mergedDraft;
     setCatalog(next);
@@ -776,14 +1087,58 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                 : CQ_SCRIPT_IMAGE_SELECT_CUSTOM;
               const presets = llmModelPresetRows(sp.vendor);
               const modelSelectValue =
-                sp.vendor === 'script' || sp.vendor === 'crafterQ'
+                sp.vendor === 'script'
                   ? '__na__'
                   : presets.includes(String(draft.llmModel ?? '').trim())
                     ? String(draft.llmModel ?? '').trim()
                     : '__custom__';
+              const advancedSiteOrchestrationPanel =
+                !siteId ? null : (
+                  <Stack spacing={2} sx={{ width: '100%' }}>
+                    <Divider />
+                    <Typography variant="subtitle2">Site orchestration (tools.json)</Typography>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Built-in allowlists and intent recipe routing apply site-wide. MCP servers are edited under
+                      Project Tools → AI Assistant → Integrations → Tools.
+                    </Typography>
+                    {siteOrchError ? (
+                      <Alert severity="error" onClose={() => setSiteOrchError(null)}>
+                        {siteOrchError}
+                      </Alert>
+                    ) : null}
+                    {siteOrchLoading ? (
+                      <Stack direction="row" alignItems="center" spacing={1}>
+                        <CircularProgress size={22} />
+                        <Typography variant="body2" color="text.secondary">
+                          Loading tools.json…
+                        </Typography>
+                      </Stack>
+                    ) : (
+                      <>
+                        <AiAssistantSiteOrchestrationToolsForm
+                          value={siteOrchPolicy}
+                          onChange={(next) => {
+                            setSiteOrchPolicy(next);
+                            setSiteOrchDirty(true);
+                          }}
+                        />
+                        <Button
+                          variant="contained"
+                          size="small"
+                          startIcon={<SaveRounded />}
+                          disabled={savingSiteOrch || !siteOrchDirty}
+                          onClick={() => void saveSiteOrchPolicy()}
+                        >
+                          {savingSiteOrch ? 'Saving…' : 'Save site orchestration'}
+                        </Button>
+                      </>
+                    )}
+                  </Stack>
+                );
+
               const llmVendorImageRows = (
-                <>
-                  <FormControl fullWidth size="small">
+                <Stack spacing={2} sx={{ width: '100%' }}>
+                  <FormControl fullWidth size="small" variant="outlined">
                     <InputLabel id="cq-central-llm-v">LLM provider</InputLabel>
                     <Select
                       labelId="cq-central-llm-v"
@@ -795,24 +1150,83 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                           if (!d) return d;
                           if (v === 'script') {
                             const first = scriptsRowsRef.current.llm[0]?.id?.trim();
-                            return { ...d, llm: first ? `script:${first}` : 'script', llmModel: 'composer-2' };
+                            const next = {
+                              ...d,
+                              llm: first ? `script:${first}` : 'script',
+                              llmModel: 'composer-2'
+                            } as Record<string, unknown>;
+                            delete next.llmSecretKey;
+                            return next as CentralAgentFileEntry;
                           }
-                          if (v === 'crafterQ') return { ...d, llm: 'crafterQ', llmModel: '' };
-                          return { ...d, llm: v, llmModel: d.llmModel?.trim() ? d.llmModel : 'gpt-4o-mini' };
+                          const sk = secretKeyForLlmVendor(v);
+                          const currentSk = String(d.llmSecretKey ?? '').trim();
+                          const nextSk =
+                            !currentSk || isBuiltinProviderSecretKey(currentSk) ? sk : currentSk;
+                          return {
+                            ...d,
+                            llm: v,
+                            llmModel: d.llmModel?.trim() ? d.llmModel : 'gpt-4o-mini',
+                            ...(nextSk ? { llmSecretKey: nextSk } : {})
+                          };
                         });
                       }}
                     >
                       {STUDIO_AI_LLM_VENDOR_IDS.map((id) => (
                         <MenuItem key={id} value={id}>
-                          {id}
+                          {llmVendorDisplayLabel(id)}
                         </MenuItem>
                       ))}
                     </Select>
                   </FormControl>
+                  {sp.vendor !== 'script'
+                    ? (() => {
+                        const builtinKey = secretKeyForLlmVendor(sp.vendor);
+                        const llmSecretValue =
+                          String(draft.llmSecretKey ?? '').trim() || builtinKey || '';
+                        const builtinLabel = builtinKey
+                          ? builtinSecretSlotLabel(builtinKey) ?? sp.vendor
+                          : '';
+                        const orphanCustom =
+                          llmSecretValue &&
+                          llmSecretValue !== builtinKey &&
+                          !customSecretKeyOptions.includes(llmSecretValue);
+                        return (
+                          <FormControl fullWidth size="small" variant="outlined">
+                            <InputLabel id="cq-central-llm-secret">LLM secret</InputLabel>
+                            <Select
+                              labelId="cq-central-llm-secret"
+                              label="LLM secret"
+                              value={llmSecretValue}
+                              onChange={(ev) => {
+                                const v = String(ev.target.value);
+                                setDraft((d) => (d ? { ...d, llmSecretKey: v } : d));
+                              }}
+                            >
+                              {builtinKey ? (
+                                <MenuItem value={builtinKey}>
+                                  Built-in ({builtinLabel} — {builtinKey})
+                                </MenuItem>
+                              ) : null}
+                              {customSecretKeyOptions.length ? (
+                                <ListSubheader disableSticky>Custom secrets</ListSubheader>
+                              ) : null}
+                              {customSecretKeyOptions.map((key) => (
+                                <MenuItem key={key} value={key}>
+                                  {key}
+                                </MenuItem>
+                              ))}
+                              {orphanCustom ? (
+                                <MenuItem value={llmSecretValue}>{llmSecretValue}</MenuItem>
+                              ) : null}
+                            </Select>
+                          </FormControl>
+                        );
+                      })()
+                    : null}
                   {sp.vendor === 'script' ? (
                     <>
                       <Stack direction="row" spacing={1} alignItems="flex-start">
-                        <FormControl fullWidth size="small" sx={{ flex: 1 }}>
+                        <FormControl fullWidth size="small" variant="outlined" sx={{ flex: 1 }}>
                           <InputLabel id="cq-central-script-llm-pick">Script LLM</InputLabel>
                           <Select
                             labelId="cq-central-script-llm-pick"
@@ -822,8 +1236,13 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                               const v = String(ev.target.value);
                               setDraft((d) => {
                                 if (!d) return d;
-                                if (v === CQ_SCRIPT_LLM_SELECT_CUSTOM) return { ...d, llm: 'script' };
-                                return { ...d, llm: `script:${v}` };
+                                const next = (
+                                  v === CQ_SCRIPT_LLM_SELECT_CUSTOM
+                                    ? { ...d, llm: 'script' }
+                                    : { ...d, llm: `script:${v}` }
+                                ) as Record<string, unknown>;
+                                delete next.llmSecretKey;
+                                return next as CentralAgentFileEntry;
                               });
                             }}
                           >
@@ -869,13 +1288,9 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                         helperText="Backend model id (e.g. composer-2)."
                       />
                     </>
-                  ) : sp.vendor === 'crafterQ' ? (
-                    <Typography variant="caption" color="text.secondary">
-                      Hosted CrafterQ — routing uses the CrafterQ agent id; no local chat model field.
-                    </Typography>
                   ) : (
                     <>
-                      <FormControl fullWidth size="small">
+                      <FormControl fullWidth size="small" variant="outlined">
                         <InputLabel id="cq-central-llm-m">LLM model</InputLabel>
                         <Select
                           labelId="cq-central-llm-m"
@@ -905,7 +1320,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                       ) : null}
                     </>
                   )}
-                  <FormControl fullWidth size="small">
+                  <FormControl fullWidth size="small" variant="outlined">
                     <InputLabel id="cq-central-img-gen">Image generator</InputLabel>
                     <Select
                       labelId="cq-central-img-gen"
@@ -937,7 +1352,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                   {imgK === 'script' ? (
                     <>
                       <Stack direction="row" spacing={1} alignItems="flex-start">
-                        <FormControl fullWidth size="small" sx={{ flex: 1 }}>
+                        <FormControl fullWidth size="small" variant="outlined" sx={{ flex: 1 }}>
                           <InputLabel id="cq-central-script-img-pick">Image script</InputLabel>
                           <Select
                             labelId="cq-central-script-img-pick"
@@ -989,13 +1404,18 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                     </>
                   ) : null}
                   <TextField
-                    label="Image model (OpenAI Images default)"
+                    label="Image model"
                     value={String(draft.imageModel ?? STUDIO_AI_DEFAULT_IMAGE_MODEL)}
                     onChange={(ev) => setDraft((d) => (d ? { ...d, imageModel: ev.target.value } : d))}
                     fullWidth
                     size="small"
+                    helperText={
+                      imgK === 'openai'
+                        ? 'GPT Image model id (e.g. gpt-image-1). DALL·E ids are not supported — use gpt-image-1.'
+                        : 'Ignored when image generator is None or a site script.'
+                    }
                   />
-                </>
+                </Stack>
               );
               return (
                 <Stack spacing={2} sx={{ mt: 1 }}>
@@ -1010,6 +1430,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                         checked={mode === 'autonomous'}
                         onChange={(ev) => {
                           const autonomous = ev.target.checked;
+                          setAgentDialogTab('general');
                           setChatPromptRows(autonomous ? [] : []);
                           setDraft((d) => {
                             if (!d) return d;
@@ -1024,13 +1445,12 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                                 scope: String(d.scope ?? 'project')
                               } as CentralAgentFileEntry;
                             }
-                            return {
+                            return ensureAgentCatalogId({
                               ...d,
                               mode: 'chat',
                               label: String(d.label ?? d.name ?? 'Assistant').trim() || 'Assistant',
-                              crafterQAgentId: d.crafterQAgentId ?? d.id ?? '',
                               prompts: []
-                            } as CentralAgentFileEntry;
+                            } as Record<string, unknown>) as CentralAgentFileEntry;
                           });
                         }}
                       />
@@ -1039,6 +1459,16 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                   />
                   {mode === 'chat' ? (
                     <>
+                      <Tabs
+                        value={agentDialogTab}
+                        onChange={(_, v) => setAgentDialogTab(v as 'general' | 'advanced')}
+                        sx={{ borderBottom: 1, borderColor: 'divider', minHeight: 40 }}
+                      >
+                        <Tab label="General" value="general" />
+                        <Tab label="Advanced" value="advanced" />
+                      </Tabs>
+                      {agentDialogTab === 'general' ? (
+                        <Stack spacing={2} sx={{ pt: 2.5, width: '100%' }}>
                       <TextField
                         label="Label"
                         value={String(draft.label ?? '')}
@@ -1047,13 +1477,11 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                         size="small"
                       />
                       <TextField
-                        label="CrafterQ agent id (optional for OpenAI-only)"
-                        value={String(draft.crafterQAgentId ?? draft.id ?? '')}
-                        onChange={(ev) =>
-                          setDraft((d) => (d ? { ...d, crafterQAgentId: ev.target.value, id: ev.target.value } : d))
-                        }
+                        label="Agent id"
+                        value={String(draft.agentId ?? readAgentCatalogId(draft as Record<string, unknown>) ?? '')}
                         fullWidth
                         size="small"
+                        InputProps={{ readOnly: true }}
                       />
                       <TextField
                         label="MUI icon id (optional)"
@@ -1071,7 +1499,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                             onChange={(ev) => setDraft((d) => (d ? { ...d, enableTools: ev.target.checked } : d))}
                           />
                         }
-                        label="Enable CMS tools (native tool loop)"
+                        label="Enable tools (native tool loop)"
                       />
                       <FormControlLabel
                         control={
@@ -1096,14 +1524,6 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                         }
                         label="Open chat in a floating dialog (default: Experience Builder tools panel)"
                       />
-                      {draft.enableTools !== false ? (
-                        <CmsToolCheckboxes
-                          draft={draft}
-                          onToggle={(toolId, checked) =>
-                            setDraft((d) => (d ? setToolCheckedOnEntry(d, toolId, checked) : d))
-                          }
-                        />
-                      ) : null}
                       <Box>
                         <FormLabel
                           component="legend"
@@ -1183,7 +1603,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                                   }
                                   label={
                                     <Typography variant="body2">
-                                      Omit CMS tools when this chip is used (omitTools)
+                                      Omit tools when this chip is used (omitTools)
                                     </Typography>
                                   }
                                 />
@@ -1203,9 +1623,45 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                           Add prompt
                         </Button>
                       </Box>
+                        </Stack>
+                      ) : (
+                        <Stack spacing={2} sx={{ pt: 2.5, width: '100%' }}>
+                          {draft.enableTools !== false ? (
+                            <CmsToolCheckboxes
+                              draft={draft}
+                              onToggle={(toolId, checked) =>
+                                setDraft((d) => (d ? setToolCheckedOnEntry(d, toolId, checked) : d))
+                              }
+                            />
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              Turn on <strong>Enable tools</strong> on the General tab to choose per-agent built-in tools.
+                            </Typography>
+                          )}
+                          <AgentAdvancedAgentFields
+                            draft={draft}
+                            setDraft={setDraft}
+                            expertSkillRows={expertSkillRows}
+                            setExpertSkillRows={setExpertSkillRows}
+                            translateBatchStr={translateBatchStr}
+                            setTranslateBatchStr={setTranslateBatchStr}
+                          />
+                          {advancedSiteOrchestrationPanel}
+                        </Stack>
+                      )}
                     </>
                   ) : (
                     <>
+                      <Tabs
+                        value={agentDialogTab}
+                        onChange={(_, v) => setAgentDialogTab(v as 'general' | 'advanced')}
+                        sx={{ borderBottom: 1, borderColor: 'divider', minHeight: 40 }}
+                      >
+                        <Tab label="General" value="general" />
+                        <Tab label="Advanced" value="advanced" />
+                      </Tabs>
+                      {agentDialogTab === 'general' ? (
+                        <Stack spacing={2} sx={{ pt: 2.5, width: '100%' }}>
                       <TextField
                         label="Agent name"
                         value={String(draft.name ?? '')}
@@ -1235,7 +1691,7 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                           'list their internal names, and suggest one-line social posts for each.'
                         }
                       />
-                      <FormControl fullWidth size="small">
+                      <FormControl fullWidth size="small" variant="outlined">
                         <InputLabel id="cq-central-scope">Scope</InputLabel>
                         <Select
                           labelId="cq-central-scope"
@@ -1249,6 +1705,9 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                         </Select>
                       </FormControl>
                       {llmVendorImageRows}
+                        </Stack>
+                      ) : (
+                        <Stack spacing={2} sx={{ pt: 2.5, width: '100%' }}>
                       <CmsToolCheckboxes
                         draft={draft}
                         onToggle={(toolId, checked) =>
@@ -1287,6 +1746,17 @@ const AiAssistantCentralAgentsConfiguration = forwardRef<
                         }
                         label="Stop on failure"
                       />
+                      <AgentAdvancedAgentFields
+                        draft={draft}
+                        setDraft={setDraft}
+                        expertSkillRows={expertSkillRows}
+                        setExpertSkillRows={setExpertSkillRows}
+                        translateBatchStr={translateBatchStr}
+                        setTranslateBatchStr={setTranslateBatchStr}
+                      />
+                      {advancedSiteOrchestrationPanel}
+                        </Stack>
+                      )}
                     </>
                   )}
                 </Stack>

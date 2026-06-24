@@ -1,0 +1,32 @@
+{
+  "description": "Anchored preview: 'generate image for this page' must plan-defer (GetContent before GenerateImage), not whole-turn generate_image recipe.",
+  "defaults": {
+    "siteId": "aiat-2",
+    "agentId": "019c7237-478b-7f98-9a5c-87144c3fb010",
+    "llm": "openAI",
+    "llmModel": "gpt-4o-mini"
+  },
+  "turns": [
+    {
+      "id": "generate-image-for-anchored-page-plan",
+      "summary": "Anchored article: plan routing, GetContent then GenerateImage, not matched generate_image.",
+      "prompt": "Generate an image for this page in a cartoon style. Read the page content first so the image matches the article topic.",
+      "request": {
+        "authoringSurface": "preview",
+        "contentPath": "/site/website/articles/monkeys-in-space/index.xml",
+        "omitTools": false
+      },
+      "expect": {
+        "forbidRecipeId": "generate_image",
+        "deferToPlanLoop": true,
+        "turnGoalPresent": true,
+        "toolsAll": ["GetContent", "GenerateImage"],
+        "maxToolStartCounts": {
+          "GenerateImage": 1
+        }
+      },
+      "optional": true,
+      "partialOnMissingConfig": true
+    }
+  ]
+}

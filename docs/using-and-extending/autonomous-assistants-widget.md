@@ -10,7 +10,19 @@ Second Studio widget: **`craftercms.components.aiassistant.AutonomousAssistants`
 
 ## Showing the Widget (Opt-in)
 
-Set **`showAutonomousAiAssistantsInSidebar`** to **`true`** in **`config/studio/scripts/aiassistant/config/studio-ui.json`** ([configuration guide §1e](configuration-guide.md#cg-1e), [spec.md — Studio UI flags](../internals/spec.md#studio-ui-flags-studio-uijson)). The default is **`false`** (omit or false keeps the row empty while the **`AutonomousAssistants`** widget remains merged in **`ui.xml`**). Use **Project Tools → AI Assistant → UI** to toggle, or edit the JSON in the site sandbox. Reload Studio if the panel does not refresh immediately.
+Set **`showAutonomousAiAssistantsInSidebar`** to **`true`** in **`config/studio/scripts/aiassistant/config/studio-ui.json`** ([configuration guide §1e](configuration-guide.md#cg-1e), [spec.md — Studio UI flags](../internals/spec.md#studio-ui-flags-studio-uijson)). The default is **`false`** (omit or false keeps the row empty while the **`AutonomousAssistants`** widget remains merged in **`ui.xml`**). Use **Project Tools → AI Assistant → UI** to toggle, or edit the JSON in the site sandbox:
+
+![AI Assistant Configuration — UI tab with Autonomous AI Assistants toggle](../images/ai-assistant-studio/ai-assistant-configuration-ui-tab.png)
+
+Reload Studio if the panel does not refresh immediately.
+
+## Autonomous Agents panel
+
+The sidebar lists agents, supervisor controls, and per-agent actions (**Start**, **Stop**, **Run now**, configuration). Opening **configuration** shows the agent’s LLM, schedule, skills, and prompt:
+
+![Autonomous Agents — agent configuration dialog](../images/ai-assistant-studio/autonomous-agent-configuration-dialog.png)
+
+Define and edit agents under **Project Tools → AI Assistant → Agents** ([screenshots](configuration-guide.md#cg-screenshots)).
 
 ## Hiding the Widget Without Removing `ui.xml`
 
@@ -22,5 +34,5 @@ Set **`showAutonomousAiAssistantsInSidebar`** to **`false`** or remove the key. 
 |-------|-----|
 | **Sidebar flag off (default)** | Set **`showAutonomousAiAssistantsInSidebar`** to **`true`** in **`studio-ui.json`**, or enable **Show Autonomous AI Assistants** in **Project Tools → AI Assistant → UI**. |
 | Wrong **`ui.xml` nesting** | **`Helper`** / **`AutonomousAssistants`** must be inside **`ToolsPanel → configuration → widgets`** as sibling `<widget>` rows—not after `</configuration>` |
-| Stale merge | Re-run **`./scripts/install-plugin.sh`** from an updated clone, or paste the block from [studio-ui-aiassistant-fragments.xml](../examples/studio-ui-aiassistant-fragments.xml), commit sandbox, sync in Studio |
+| Missing **`ui.xml` widget** | Re-run **`./scripts/install-plugin.sh <siteId>`** so **`craftercms-plugin.yaml`** merges **AutonomousAssistants**, or paste from [studio-ui-aiassistant-fragments.xml](../examples/studio-ui-aiassistant-fragments.xml); commit sandbox, sync in Studio |
 | **`<icon>`** | Use real `<![CDATA[...]]>` SVG, not HTML-escaped markup |

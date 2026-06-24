@@ -1,0 +1,13 @@
+{
+  "intentRecipeRouting": {
+    "enabled": true,
+    "engineEnabled": true,
+    "confirmationLlmRefineEnabled": true,
+    "confirmationLlmRefineMaxOutTokens": 8192,
+    "customRecipesPath": "/scripts/aiassistant/config/intent-recipes.json",
+    "engineMaxTotalChars": 72000,
+    "priorDraftDetection": {
+      "priorDraftSectionHeadings": ["Draft body", "draft"]
+    }
+  }
+}

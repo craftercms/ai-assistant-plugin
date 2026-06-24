@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Crafter Software Corporation. All Rights Reserved.
  *
  * Form engine control: AI Assistant in the Content Types palette.
- * - getSupportedProperties: one boolean property per agent from ui.xml (same object shape as built-in datasource
+ * - getSupportedProperties: one boolean property per agent from agents.json (same object shape as built-in datasource
  *   booleans, e.g. Components datasource allowShared / allowEmbedded — see aiassistant-img-from-url datasource).
  * - render: one expandable row per enabled agent; chat only inside expanded row (see AiAssistantFormControlPanel.tsx).
  *
@@ -11,16 +11,23 @@
  */
 /* global CStudioForms, CStudioRemote, YAHOO, CStudioAuthoring, CStudioAuthoringContext, craftercms, DOMParser */
 
-var CRAFTERQ_FORM_CONTROL_WIDGET_ID = 'craftercms.components.aiassistant.FormControl';
-var CRAFTERQ_HELPER_WIDGET_ID = 'craftercms.components.aiassistant.Helper';
+var AI_ASSISTANT_FORM_CONTROL_WIDGET_ID = 'craftercms.components.aiassistant.FormControl';
+var AI_ASSISTANT_HELPER_WIDGET_ID = 'craftercms.components.aiassistant.Helper';
 /** Matches <plugin id="…"> in ui.xml for this Studio plugin */
-var CRAFTERQ_PLUGIN_ID = 'org.craftercms.aiassistant.studio';
+var AI_ASSISTANT_PLUGIN_ID = 'org.craftercms.aiassistant.studio';
 
-var CRAFTERQ_FALLBACK_AGENTS = [
-  { id: '019c7237-478b-7f98-9a5c-87144c3fb010', label: 'Content assistant', llm: 'crafterQ', prompts: [] }
+/** Default form-engine agents when agents.json is missing. `id` must match `AI_ASSISTANT_DEFAULT_AGENT_ID` in `sources/src/agentConfig.ts` (empty). */
+var AIASSISTANT_FALLBACK_AGENTS = [
+  {
+    id: '',
+    label: 'Content assistant',
+    llm: 'openAI',
+    llmModel: 'gpt-4o-mini',
+    prompts: []
+  }
 ];
 
-/** Must match agentStableKey() in sources/src/agentConfig.ts (composite when id+label both set). */
+/** Must match `agentStableKey()` in `sources/src/agentConfig.ts` (composite when id+label both set). */
 function cqStableKey(id, label) {
   var i = String(id || '').trim();
   var l = String(label || '').trim();
@@ -36,35 +43,8 @@ function cqAgentPropName(agent) {
   return 'cqShow_' + s;
 }
 
-function cqSyncFetchConfigurationXml(siteId) {
-  var qs =
-    '?siteId=' +
-    encodeURIComponent(siteId) +
-    '&module=' +
-    encodeURIComponent('studio') +
-    '&path=' +
-    encodeURIComponent('/ui.xml');
-  var xhr = new XMLHttpRequest();
-  xhr.open('GET', '/studio/api/2/configuration/get_configuration' + qs, false);
-  xhr.withCredentials = true;
-  xhr.setRequestHeader('Accept', 'application/json');
-  try {
-    xhr.send(null);
-  } catch (e) {
-    return '';
-  }
-  if (xhr.status < 200 || xhr.status >= 300) return '';
-  try {
-    var j = JSON.parse(xhr.responseText);
-    var c = j.response && j.response.content;
-    return typeof c === 'string' ? c : '';
-  } catch (e2) {
-    return '';
-  }
-}
-
 /** Sandbox repo path — use content APIs so missing file does not hit `get_configuration` (Studio ERROR 7000). */
-var CRAFTERQ_CENTRAL_AGENTS_SANDBOX_PATH = '/config/studio/ai-assistant/agents.json';
+var AI_ASSISTANT_CENTRAL_AGENTS_SANDBOX_PATH = '/config/studio/ai-assistant/agents.json';
 
 function cqApplyXsrfHeaders(xhr) {
   try {
@@ -86,7 +66,7 @@ function cqSandboxHasCentralAgentsFile(siteId) {
     xhr.send(
       JSON.stringify({
         siteId: siteId,
-        paths: [CRAFTERQ_CENTRAL_AGENTS_SANDBOX_PATH],
+        paths: [AI_ASSISTANT_CENTRAL_AGENTS_SANDBOX_PATH],
         preferContent: true
       })
     );
@@ -94,7 +74,7 @@ function cqSandboxHasCentralAgentsFile(siteId) {
     var j = JSON.parse(xhr.responseText);
     var resp = j.response || j;
     var miss = resp.missingItems;
-    if (Array.isArray(miss) && miss.indexOf(CRAFTERQ_CENTRAL_AGENTS_SANDBOX_PATH) !== -1) return false;
+    if (Array.isArray(miss) && miss.indexOf(AI_ASSISTANT_CENTRAL_AGENTS_SANDBOX_PATH) !== -1) return false;
     var items = resp.items;
     return !!(items && items.length && items[0]);
   } catch (e) {
@@ -109,7 +89,7 @@ function cqSyncFetchCentralAgentsJson(siteId) {
     '?site_id=' +
     encodeURIComponent(siteId) +
     '&path=' +
-    encodeURIComponent(CRAFTERQ_CENTRAL_AGENTS_SANDBOX_PATH) +
+    encodeURIComponent(AI_ASSISTANT_CENTRAL_AGENTS_SANDBOX_PATH) +
     '&edit=false';
   var xhr = new XMLHttpRequest();
   xhr.open('GET', '/studio/api/1/services/api/1/content/get-content.json' + qs, false);
@@ -138,20 +118,19 @@ function cqChatAgentFromCentralJsonEntry(e) {
     .trim()
     .toLowerCase();
   if (mode === 'autonomous') return null;
-  var id = String(e.crafterQAgentId != null ? e.crafterQAgentId : e.id != null ? e.id : '').trim();
+  var id = String(e.agentId != null ? e.agentId : '').trim();
   var label = String(e.label != null ? e.label : e.name != null ? e.name : '').trim();
   if (!label) return null;
   var out = { id: id, label: label, prompts: [] };
   if (e.icon != null && String(e.icon).trim()) out.icon = String(e.icon).trim();
-  var llmRaw = String(e.llm != null ? e.llm : '')
-    .trim()
-    .toLowerCase();
+  var rawLlm = String(e.llm != null ? e.llm : '').trim();
+  var llmRaw = rawLlm.toLowerCase();
   if (llmRaw === 'openai' || llmRaw === 'open-ai') out.llm = 'openAI';
-  else if (llmRaw === 'crafterq' || llmRaw === 'crafter-q') out.llm = 'crafterQ';
+  else if (rawLlm) out.llm = rawLlm;
   if (e.llmModel != null && String(e.llmModel).trim()) out.llmModel = String(e.llmModel).trim();
   if (e.imageModel != null && String(e.imageModel).trim()) out.imageModel = String(e.imageModel).trim();
   if (e.imageGenerator != null && String(e.imageGenerator).trim()) out.imageGenerator = String(e.imageGenerator).trim();
-  if (e.openAiApiKey != null && String(e.openAiApiKey).trim()) out.openAiApiKey = String(e.openAiApiKey).trim();
+  if (e.llmApiKey != null && String(e.llmApiKey).trim()) out.llmApiKey = String(e.llmApiKey).trim();
   var et = e.enableTools != null ? e.enableTools : e.enable_tools;
   if (et != null && String(et).trim() !== '') {
     var es = String(et)
@@ -174,7 +153,7 @@ function cqChatAgentFromCentralJsonEntry(e) {
   return out;
 }
 
-/** @returns {Array|null} non-null when catalog should replace ui.xml for chat agents */
+/** @returns {Array|null} non-null when the site catalog has at least one chat agent row */
 function cqCentralCatalogExclusiveChatAgents(siteId) {
   var parsed = cqSyncFetchCentralAgentsJson(siteId);
   if (!parsed || !Array.isArray(parsed.agents) || parsed.agents.length === 0) return null;
@@ -186,236 +165,15 @@ function cqCentralCatalogExclusiveChatAgents(siteId) {
   return chat.length ? chat : null;
 }
 
-function cqGetUiXmlFromStore() {
-  try {
-    if (!craftercms || typeof craftercms.getStore !== 'function') return '';
-    var state = craftercms.getStore().getState();
-    var xml = state && state.uiConfig && state.uiConfig.xml;
-    return typeof xml === 'string' ? xml : '';
-  } catch (e) {
-    return '';
-  }
-}
-
-function cqChildTextDirect(parent, tag) {
-  var t = tag.toLowerCase();
-  var ch = parent.children;
-  for (var i = 0; i < ch.length; i++) {
-    var el = ch[i];
-    var name = el.localName || String(el.tagName || '').replace(/^.*:/, '');
-    if (String(name).toLowerCase() === t) return (el.textContent || '').trim() || undefined;
-  }
-  return undefined;
-}
-
-function cqParseAgentElement(agentEl) {
-  var id = cqChildTextDirect(agentEl, 'crafterQAgentId') || '';
-  var label = cqChildTextDirect(agentEl, 'label') || '';
-  if (!String(label).trim()) return null;
-  var icon;
-  var ch = agentEl.children;
-  for (var i = 0; i < ch.length; i++) {
-    var el = ch[i];
-    var nm = String(el.localName || '').toLowerCase();
-    if (nm === 'icon') {
-      icon = el.getAttribute('id') || (el.textContent || '').trim() || undefined;
-      break;
-    }
-  }
-  var llmRaw = String(cqChildTextDirect(agentEl, 'llm') || '').toLowerCase();
-  var llm;
-  if (llmRaw === 'openai' || llmRaw === 'open-ai') llm = 'openAI';
-  else if (llmRaw === 'crafterq' || llmRaw === 'crafter-q') llm = 'crafterQ';
-  var llmModel = cqChildTextDirect(agentEl, 'llmModel');
-  var imageModel = cqChildTextDirect(agentEl, 'imageModel');
-  var imageGenerator = cqChildTextDirect(agentEl, 'imageGenerator');
-  var openAiApiKey =
-    cqChildTextDirect(agentEl, 'openAiApiKey') ||
-    cqChildTextDirect(agentEl, 'open-ai-api-key') ||
-    cqChildTextDirect(agentEl, 'open_ai_api_key');
-  var out = { id: String(id).trim(), label: String(label).trim(), icon: icon, prompts: [] };
-  if (llm) out.llm = llm;
-  if (llmModel) out.llmModel = llmModel;
-  if (imageModel) out.imageModel = imageModel;
-  if (imageGenerator) out.imageGenerator = imageGenerator;
-  if (openAiApiKey && String(openAiApiKey).trim()) out.openAiApiKey = String(openAiApiKey).trim();
-  var enableToolsRaw = cqChildTextDirect(agentEl, 'enableTools') || cqChildTextDirect(agentEl, 'enable_tools');
-  if (enableToolsRaw != null && String(enableToolsRaw).trim() !== '') {
-    var es = String(enableToolsRaw).trim().toLowerCase();
-    if (es === 'false' || es === '0' || es === 'no') out.enableTools = false;
-    else if (es === 'true' || es === '1' || es === 'yes') out.enableTools = true;
-  }
-  var expertSkills = [];
-  for (var j = 0; j < ch.length; j++) {
-    var cel = ch[j];
-    var cnm = String(cel.localName || '').toLowerCase();
-    if (cnm !== 'expertskill') continue;
-    var esUrl =
-      cel.getAttribute('url') ||
-      cel.getAttribute('href') ||
-      cqChildTextDirect(cel, 'url') ||
-      cqChildTextDirect(cel, 'href');
-    if (!String(esUrl || '').trim()) continue;
-    var esName =
-      cel.getAttribute('name') ||
-      cqChildTextDirect(cel, 'name') ||
-      'Expert guidance';
-    var esDesc =
-      cel.getAttribute('description') ||
-      cqChildTextDirect(cel, 'description') ||
-      '';
-    expertSkills.push({
-      name: String(esName).trim(),
-      url: String(esUrl).trim(),
-      description: String(esDesc).trim()
-    });
-  }
-  if (expertSkills.length) out.expertSkills = expertSkills;
-  var tbcRaw =
-    cqChildTextDirect(agentEl, 'translateBatchConcurrency') ||
-    cqChildTextDirect(agentEl, 'translate_batch_concurrency');
-  if (tbcRaw != null && String(tbcRaw).trim() !== '') {
-    var tbcN = parseInt(String(tbcRaw).trim(), 10);
-    if (Number.isFinite(tbcN) && tbcN >= 1) {
-      out.translateBatchConcurrency = Math.min(64, tbcN);
-    }
-  }
-  var bearerEnv =
-    cqChildTextDirect(agentEl, 'crafterQBearerTokenEnv') ||
-    cqChildTextDirect(agentEl, 'crafter-q-bearer-token-env') ||
-    cqChildTextDirect(agentEl, 'crafter_q_bearer_token_env');
-  var bearerLit =
-    cqChildTextDirect(agentEl, 'crafterQBearerToken') ||
-    cqChildTextDirect(agentEl, 'crafter-q-bearer-token') ||
-    cqChildTextDirect(agentEl, 'crafter_q_bearer_token');
-  if (bearerEnv && String(bearerEnv).trim()) out.crafterQBearerTokenEnv = String(bearerEnv).trim();
-  if (bearerLit && String(bearerLit).trim()) out.crafterQBearerToken = String(bearerLit).trim();
-  return out;
-}
-
-/**
- * Nearest ancestor named `agents` for this <agent>. Do not use Element.closest('agents') — tag selectors are
- * unreliable on XML documents from DOMParser, which can skip every agent and empty the accordion list.
- */
-function cqNearestAgentsAncestorForAgent(ag) {
-  var el = ag && ag.parentElement;
-  while (el) {
-    var nm = String(el.localName || String(el.tagName || '').replace(/^.*:/, '')).toLowerCase();
-    if (nm === 'agents') return el;
-    el = el.parentElement;
-  }
-  return null;
-}
-
-/** Parse every <agent> whose nearest <agents> ancestor is exactly `agentsContainer`. */
-function cqCollectAgentsInContainer(agentsContainer) {
-  if (!agentsContainer) return [];
-  var out = [];
-  var agentEls = agentsContainer.getElementsByTagName('agent');
-  for (var i = 0; i < agentEls.length; i++) {
-    var ag = agentEls[i];
-    if (cqNearestAgentsAncestorForAgent(ag) !== agentsContainer) continue;
-    var parsed = cqParseAgentElement(ag);
-    if (parsed) out.push(parsed);
-  }
-  return out;
-}
-
-function cqCollectAgentsUnderConfiguration(configurationEl) {
-  var agentsContainer = configurationEl.getElementsByTagName('agents')[0];
-  if (!agentsContainer) return [];
-  return cqCollectAgentsInContainer(agentsContainer);
-}
-
-/** Merge agents from every <configuration> under a <widget> (Tools Panel, Preview Toolbar, etc.). */
-function cqMergeAgentsFromWidget(widgetEl, byKey) {
-  var configs = widgetEl.getElementsByTagName('configuration');
-  for (var c = 0; c < configs.length; c++) {
-    var cfg = configs[c];
-    if (!widgetEl.contains(cfg)) continue;
-    var list = cqCollectAgentsUnderConfiguration(cfg);
-    for (var j = 0; j < list.length; j++) {
-      var a = list[j];
-      byKey[cqStableKey(a.id, a.label)] = a;
-    }
-  }
-  var wch = widgetEl.children;
-  for (var k = 0; k < wch.length; k++) {
-    var cel = wch[k];
-    var cname = String(cel.localName || cel.tagName || '').replace(/^.*:/, '').toLowerCase();
-    if (cname !== 'agents') continue;
-    var direct = cqCollectAgentsInContainer(cel);
-    for (var d = 0; d < direct.length; d++) {
-      var ad = direct[d];
-      byKey[cqStableKey(ad.id, ad.label)] = ad;
-    }
-  }
-}
-
-function cqParseAgentsFromUiXml(xmlString) {
-  if (!xmlString || !String(xmlString).trim()) return [];
-  var doc = new DOMParser().parseFromString(xmlString, 'text/xml');
-  if (doc.querySelector('parsererror')) return [];
-
-  var byKey = {};
-
-  var widgets = doc.getElementsByTagName('widget');
-  for (var i = 0; i < widgets.length; i++) {
-    var w = widgets[i];
-    var wid = w.getAttribute('id');
-    if (wid === CRAFTERQ_HELPER_WIDGET_ID || wid === CRAFTERQ_FORM_CONTROL_WIDGET_ID) {
-      cqMergeAgentsFromWidget(w, byKey);
-    }
-  }
-
-  // Any widget that hosts this plugin (Preview Toolbar, Tools, etc.) — same idea as Studio merging plugin XML.
-  var plugins = doc.getElementsByTagName('plugin');
-  for (var p = 0; p < plugins.length; p++) {
-    var pl = plugins[p];
-    var pid = pl.getAttribute('id') || pl.getAttribute('pluginId');
-    if (pid !== CRAFTERQ_PLUGIN_ID) continue;
-    var el = pl;
-    while (el && el.nodeType === 1) {
-      var local = String(el.localName || el.tagName || '').replace(/^.*:/, '').toLowerCase();
-      if (local === 'widget') {
-        cqMergeAgentsFromWidget(el, byKey);
-        break;
-      }
-      el = el.parentElement;
-    }
-  }
-
-  return Object.keys(byKey).map(function (k) {
-    return byKey[k];
-  });
-}
-
-/**
- * Studio Redux `uiConfig.xml` can lag or omit Helper `<agent>` entries that exist in the repo `ui.xml`.
- * Previously we returned as soon as the store parsed any agents — often one default — and never merged the API
- * copy, so the form accordion showed a single row. Union both sources (by stable key) when we have a site id.
- */
+/** Chat agents from `config/studio/ai-assistant/agents.json`. */
 var cqAgentsListCache = { siteId: '', mergedAt: 0, agents: null };
 var CQ_AGENTS_LIST_TTL_MS = 4000;
 
-/** True when string looks like merged Studio ui.xml (not an empty/error body). */
-function cqUiXmlStringLooksReady(xml) {
-  if (!xml || typeof xml !== 'string') return false;
-  var s = xml.trim();
-  if (s.length < 80) return false;
-  var lower = s.toLowerCase();
-  return lower.indexOf('<widget') >= 0 || lower.indexOf('<plugin') >= 0 || lower.indexOf('<studio') >= 0;
-}
-
-/**
- * Merge agents from Redux + get_configuration. Use forceRefresh to bypass TTL (e.g. after waiting for ui.xml).
- */
 function cqLoadAgentsForSite(siteId, options) {
   options = options || {};
   var forceRefresh = options.forceRefresh === true;
   var now = Date.now();
   var cacheKey = siteId || '';
-  // `[]` is truthy in JS — never reuse a cached empty list (would hide all accordion rows for TTL ms).
   if (
     !forceRefresh &&
     Array.isArray(cqAgentsListCache.agents) &&
@@ -426,56 +184,28 @@ function cqLoadAgentsForSite(siteId, options) {
     return cqAgentsListCache.agents.slice();
   }
 
-  var byKey = {};
-  function addParsedXml(xml) {
-    try {
-      var list = cqParseAgentsFromUiXml(xml);
-      for (var i = 0; i < list.length; i++) {
-        var a = list[i];
-        byKey[cqStableKey(a.id, a.label)] = a;
-      }
-    } catch (ignore) {}
-  }
-
+  var out = [];
   try {
     var centralChat = siteId ? cqCentralCatalogExclusiveChatAgents(siteId) : null;
-    if (centralChat) {
-      for (var ci = 0; ci < centralChat.length; ci++) {
-        var ca = centralChat[ci];
-        byKey[cqStableKey(ca.id, ca.label)] = ca;
-      }
-    } else {
-      addParsedXml(cqGetUiXmlFromStore());
-      if (siteId) {
-        addParsedXml(cqSyncFetchConfigurationXml(siteId));
-      }
+    if (centralChat && centralChat.length) {
+      out = centralChat.slice();
     }
-  } catch (ignore2) {}
+  } catch (ignore) {}
 
-  var merged = Object.keys(byKey).map(function (k) {
-    return byKey[k];
-  });
-  var out = merged.length ? merged : CRAFTERQ_FALLBACK_AGENTS.slice();
+  if (!out.length) {
+    out = AIASSISTANT_FALLBACK_AGENTS.slice();
+  }
   cqAgentsListCache = { siteId: cacheKey, mergedAt: now, agents: out };
   return out.slice();
 }
 
-/**
- * After importPlugin resolves, Redux and get_configuration often still return empty ui.xml on a cold reload.
- * Poll briefly (async) until we see real XML or cap out, then merge once with forceRefresh.
- */
-function cqWhenUiXmlReadyForAgents(siteId, done) {
+function cqWhenAgentsCatalogReady(siteId, done) {
   var maxAttempts = 12;
   var delayMs = 50;
   var attempt = 0;
   function tick() {
-    var storeXml = cqGetUiXmlFromStore();
-    var apiXml = siteId ? cqSyncFetchConfigurationXml(siteId) : '';
     var centralChatEarly = siteId ? cqCentralCatalogExclusiveChatAgents(siteId) : null;
-    var ready =
-      (centralChatEarly && centralChatEarly.length > 0) ||
-      cqUiXmlStringLooksReady(storeXml) ||
-      cqUiXmlStringLooksReady(apiXml);
+    var ready = centralChatEarly && centralChatEarly.length > 0;
     if (ready || attempt >= maxAttempts - 1) {
       done(cqLoadAgentsForSite(siteId, { forceRefresh: true }));
       return;
@@ -485,6 +215,7 @@ function cqWhenUiXmlReadyForAgents(siteId, done) {
   }
   tick();
 }
+
 
 /**
  * Studio often sends boolean field values as strings, empty, or undefined until the properties sheet hydrates.
@@ -609,13 +340,13 @@ function cqIsStudioFormWidthShell(el) {
 }
 
 function cqIncrementFormContainerWiden(el) {
-  el.__crafterqWidenRefcount = (el.__crafterqWidenRefcount || 0) + 1;
+  el.__aiAssistantWidenRefcount = (el.__aiAssistantWidenRefcount || 0) + 1;
 }
 
 function cqDecrementFormContainerWiden(el) {
-  var n = (el.__crafterqWidenRefcount || 0) - 1;
-  el.__crafterqWidenRefcount = n < 0 ? 0 : n;
-  if (el.__crafterqWidenRefcount === 0) {
+  var n = (el.__aiAssistantWidenRefcount || 0) - 1;
+  el.__aiAssistantWidenRefcount = n < 0 ? 0 : n;
+  if (el.__aiAssistantWidenRefcount === 0) {
     try {
       el.style.removeProperty('width');
       el.style.removeProperty('max-width');
@@ -875,6 +606,276 @@ function cqCollectFormFieldSnapshot(form) {
  * Returns fresh form definition XML + field snapshot for each chat send (React calls this from AiAssistantChat).
  * Definition is cached per content type while the control instance lives.
  */
+var AIASSISTANT_FORM_FIELD_FOCUS_EVENT = 'aiassistant-form-field-focus';
+
+function cqIsAiAssistantFormFieldControl(fieldCtrl) {
+  if (!fieldCtrl) return false;
+  try {
+    if (typeof fieldCtrl.getName === 'function' && fieldCtrl.getName() === 'ai-assistant') return true;
+  } catch (ignore) {}
+  try {
+    var fid = String(fieldCtrl.id || '').trim();
+    if (fid === 'cqAiAssistantStudio') return true;
+  } catch (ignore2) {}
+  return false;
+}
+
+function cqResolveFormFieldFocusFromControl(form, fieldCtrl) {
+  if (!fieldCtrl || !form || cqIsAiAssistantFormFieldControl(fieldCtrl)) return null;
+  var id = String(fieldCtrl.id || '').trim();
+  if (!id) return null;
+  var label = '';
+  try {
+    if (typeof fieldCtrl.getLabel === 'function') {
+      label = String(fieldCtrl.getLabel() || '').trim();
+    }
+  } catch (ignore) {}
+  if (!label) {
+    try {
+      label = String(fieldCtrl.title || fieldCtrl.label || '').trim();
+    } catch (ignore2) {}
+  }
+  if (!label) label = id;
+  var focus = { fieldId: id, fieldLabel: label };
+  try {
+    if (fieldCtrl.index != null && String(fieldCtrl.index).trim() !== '') {
+      focus.fieldIndex = fieldCtrl.index;
+    }
+  } catch (ignore3) {}
+  return focus;
+}
+
+function cqPublishFormEngineFieldFocus(focus) {
+  try {
+    window.__aiassistantFormEngineFieldFocus = focus || null;
+    window.dispatchEvent(new CustomEvent(AIASSISTANT_FORM_FIELD_FOCUS_EVENT, { detail: focus || null }));
+  } catch (ignore) {}
+}
+
+function cqWalkFormFieldControls(form, visitor) {
+  if (!form || typeof visitor !== 'function') return;
+  var sections = form.sections;
+  if (!sections || !sections.length) return;
+  var walkFields = function (fields) {
+    if (!fields || !fields.length) return;
+    for (var i = 0; i < fields.length; i++) {
+      var fld = fields[i];
+      if (!fld) continue;
+      visitor(fld);
+      if (fld.fields && fld.fields.length) walkFields(fld.fields);
+      if (fld.subFields && fld.subFields.length) walkFields(fld.subFields);
+    }
+  };
+  for (var s = 0; s < sections.length; s++) {
+    var sec = sections[s];
+    if (!sec || !sec.fields) continue;
+    walkFields(sec.fields);
+  }
+}
+
+function cqFindFormFieldControlForElement(form, el) {
+  if (!form || !el) return null;
+  var found = null;
+  cqWalkFormFieldControls(form, function (fld) {
+    if (found) return;
+    var container = null;
+    try {
+      container = fld.containerEl || fld.oContainer || null;
+      if (!container && typeof fld.getContainer === 'function') container = fld.getContainer();
+    } catch (ignore) {}
+    if (container && container.contains && container.contains(el)) {
+      found = fld;
+    }
+  });
+  return found;
+}
+
+function cqDetachFormFieldFocusBridge(control) {
+  var form = control && (control.form || (control.owner && control.owner.form));
+  if (!form || !form._cqAiFocusBridgeAttached) return;
+  try {
+    if (form._cqAiFocusInHandler && form._cqAiFocusRootEl) {
+      form._cqAiFocusRootEl.removeEventListener('focusin', form._cqAiFocusInHandler, true);
+    }
+  } catch (ignore) {}
+  form._cqAiFocusInHandler = null;
+  form._cqAiFocusRootEl = null;
+  form._cqAiFocusBridgeAttached = false;
+}
+
+function cqAttachFormFieldFocusBridge(control) {
+  var form = control.form || (control.owner && control.owner.form);
+  if (!form || form._cqAiFocusBridgeAttached) return;
+  var formRoot = form.containerEl;
+  try {
+    if (!formRoot || !formRoot.addEventListener) {
+      formRoot = document.getElementById('formContainer');
+    }
+  } catch (ignoreRoot) {
+    formRoot = null;
+  }
+  if (!formRoot) return;
+
+  form._cqAiFocusBridgeAttached = true;
+  form._cqAiFocusRootEl = formRoot;
+
+  var onFocusIn = function (ev) {
+    if (!ev || !ev.target) return;
+    try {
+      if (
+        ev.target.closest &&
+        (ev.target.closest('[data-aiassistant-form-panel="true"]') ||
+          ev.target.closest('[data-aiassistant-form-portal-root="true"]') ||
+          ev.target.closest('.cstudio-plugin-aiassistant-form-assistant'))
+      ) {
+        return;
+      }
+    } catch (ignore) {}
+    var fieldCtrl = cqFindFormFieldControlForElement(form, ev.target);
+    var focus = cqResolveFormFieldFocusFromControl(form, fieldCtrl);
+    if (focus) cqPublishFormEngineFieldFocus(focus);
+  };
+  formRoot.addEventListener('focusin', onFocusIn, true);
+  form._cqAiFocusInHandler = onFocusIn;
+}
+
+function cqGetFormAssistantUi(form) {
+  if (!form) return null;
+  if (!form.__cqAiAssistantUi) {
+    form.__cqAiAssistantUi = {
+      portalMountEl: null,
+      reactRoot: null,
+      activeControl: null,
+      mountGeneration: 0
+    };
+  }
+  return form.__cqAiAssistantUi;
+}
+
+function cqDestroyFormAssistantUi(control) {
+  var form = control && (control.form || (control.owner && control.owner.form));
+  var ui = cqGetFormAssistantUi(form);
+  if (!ui) return;
+  if (ui.activeControl && control && ui.activeControl !== control) return;
+  ui.mountGeneration += 1;
+  ui.activeControl = null;
+  if (ui.reactRoot) {
+    try {
+      ui.reactRoot.unmount();
+    } catch (ignore) {}
+    ui.reactRoot = null;
+  }
+  cqDetachFormFieldFocusBridge(control);
+  cqDetachFormContainerWiden(control);
+  if (ui.portalMountEl && ui.portalMountEl.parentNode) {
+    try {
+      ui.portalMountEl.parentNode.removeChild(ui.portalMountEl);
+    } catch (ignore2) {}
+    ui.portalMountEl = null;
+  }
+  if (control) {
+    control._reactRoot = null;
+    control._cqPortalMountEl = null;
+  }
+}
+
+function cqSyncControlAssistantUiRefs(control, ui) {
+  if (!control || !ui) return;
+  control._reactRoot = ui.reactRoot;
+  control._cqPortalMountEl = ui.portalMountEl;
+}
+
+function cqRenderFormAssistantReactTree(self, config, ui, root, visibleAgents) {
+  if (!ui || ui.reactRoot !== root || !ui.portalMountEl || ui.activeControl !== self) return;
+  cqAttachFormFieldFocusBridge(self);
+  var React = craftercms.libs.React;
+  var FormCtl = self._cqFormCtlWidget;
+  var CrafterRoot = self._cqCrafterRootWidget;
+  if (!React || !FormCtl || !CrafterRoot) return;
+  root.render(
+    React.createElement(CrafterRoot, null, React.createElement(FormCtl, {
+      agents: visibleAgents,
+      getAuthoringFormContext: cqMakeGetAuthoringFormContext(self)
+    }))
+  );
+}
+
+function cqScheduleFormAssistantRender(self, config, site, ui, root) {
+  cqWhenAgentsCatalogReady(site, function (agents) {
+    if (!ui || ui.reactRoot !== root || ui.activeControl !== self) return;
+    var fieldProps = cqFormFieldPropertiesFromRender(config, self);
+    var visibleAgents = cqVisibleAgentsFromProperties(fieldProps, agents);
+    cqRenderFormAssistantReactTree(self, config, ui, root, visibleAgents);
+  });
+}
+
+function cqMountFormAssistantUi(self, config, containerEl, site) {
+  var form = self.form || (self.owner && self.owner.form);
+  var ui = cqGetFormAssistantUi(form);
+  if (!ui) return;
+
+  ui.activeControl = self;
+  var generation = ui.mountGeneration;
+
+  if (!ui.portalMountEl) {
+    var portalMount = document.createElement('div');
+    portalMount.setAttribute('data-aiassistant-form-portal-root', 'true');
+    document.body.appendChild(portalMount);
+    ui.portalMountEl = portalMount;
+  }
+  cqSyncControlAssistantUiRefs(self, ui);
+
+  craftercms.services.plugin
+    .importPlugin(site, 'aiassistant', 'components', 'index.js', 'org.craftercms.aiassistant.studio')
+    .then(function (plugin) {
+      if (!ui || ui.mountGeneration !== generation || ui.activeControl !== self || !ui.portalMountEl) return;
+      var React = craftercms.libs.React;
+      var ReactDOMClient = craftercms.libs.ReactDOMClient;
+      if (!React || !ReactDOMClient || !plugin || !plugin.widgets) {
+        return;
+      }
+      var FormCtl = plugin.widgets[AI_ASSISTANT_FORM_CONTROL_WIDGET_ID];
+      var CrafterRoot = craftercms.utils.constants.components.get('craftercms.components.CrafterCMSNextBridge');
+      if (!FormCtl || !CrafterRoot) {
+        return;
+      }
+      self._cqFormCtlWidget = FormCtl;
+      self._cqCrafterRootWidget = CrafterRoot;
+      if (!ui.reactRoot) {
+        ui.reactRoot = ReactDOMClient.createRoot(ui.portalMountEl);
+      }
+      cqSyncControlAssistantUiRefs(self, ui);
+      cqWhenAgentsCatalogReady(site, function (agents) {
+        if (!ui || ui.mountGeneration !== generation || ui.activeControl !== self || !ui.reactRoot) return;
+        var fieldProps = cqFormFieldPropertiesFromRender(config, self);
+        var visibleAgents = cqVisibleAgentsFromProperties(fieldProps, agents);
+        cqAttachFormFieldFocusBridge(self);
+        cqRenderFormAssistantReactTree(self, config, ui, ui.reactRoot, visibleAgents);
+      });
+    })
+    .catch(function (err) {
+      if (!ui || ui.activeControl !== self) return;
+      console.error('[ai-assistant] Failed to mount form assistant UI:', err);
+    });
+}
+
+function cqRefreshFormAssistantUi(self, config, site) {
+  var form = self.form || (self.owner && self.owner.form);
+  var ui = cqGetFormAssistantUi(form);
+  if (!ui || !ui.portalMountEl || !document.body.contains(ui.portalMountEl)) {
+    cqMountFormAssistantUi(self, config, null, site);
+    return;
+  }
+  ui.activeControl = self;
+  cqSyncControlAssistantUiRefs(self, ui);
+  cqAttachFormFieldFocusBridge(self);
+  if (ui.reactRoot && self._cqFormCtlWidget && self._cqCrafterRootWidget) {
+    cqScheduleFormAssistantRender(self, config, site, ui, ui.reactRoot);
+    return;
+  }
+  cqMountFormAssistantUi(self, config, null, site);
+}
+
 function cqMakeGetAuthoringFormContext(control) {
   var defCache = { ct: '', xml: '' };
   return function () {
@@ -929,7 +930,7 @@ function cqApplyFormActionBarOffset(control) {
   if (!control) return;
   if (typeof document === 'undefined') return;
   try {
-    var panel = document.querySelector('[data-crafterq-form-panel="true"]');
+    var panel = document.querySelector('[data-aiassistant-form-panel="true"]');
     if (!panel) return;
     var panelRect = panel.getBoundingClientRect();
     if (!panelRect || !panelRect.width) return;
@@ -1146,8 +1147,8 @@ function cqStartFormActionBarOffset(control) {
   } catch (ignore2) {}
 }
 
-CStudioForms.Controls.CrafterqAssistant =
-  CStudioForms.Controls.CrafterqAssistant ||
+CStudioForms.Controls.AiAssistant =
+  CStudioForms.Controls.AiAssistant ||
   function (id, form, owner, properties, constraints, readonly) {
     this.owner = owner;
     this.owner.registerField(this);
@@ -1160,6 +1161,7 @@ CStudioForms.Controls.CrafterqAssistant =
     this.value = '';
     this._reactRoot = null;
     this._cqWidenedFormContainer = null;
+    this._cqPortalMountEl = null;
     this._cqFormActionObserver = null;
     this._cqFormActionResizeHandler = null;
     this._cqFormActionRaf = 0;
@@ -1167,7 +1169,7 @@ CStudioForms.Controls.CrafterqAssistant =
     return this;
   };
 
-YAHOO.extend(CStudioForms.Controls.CrafterqAssistant, CStudioForms.CStudioFormField, {
+YAHOO.extend(CStudioForms.Controls.AiAssistant, CStudioForms.CStudioFormField, {
   getLabel: function () {
     return 'Studio AI Assistant';
   },
@@ -1206,63 +1208,44 @@ YAHOO.extend(CStudioForms.Controls.CrafterqAssistant, CStudioForms.CStudioFormFi
 
   render: function (config, containerEl) {
     var self = this;
-    if (this._reactRoot) {
-      try {
-        this._reactRoot.unmount();
-      } catch (ignore) {}
-      this._reactRoot = null;
-    }
-    cqDetachFormContainerWiden(self);
-    containerEl.innerHTML = '';
     if (cqIsReadOnlyFormControl(self)) {
+      cqDestroyFormAssistantUi(self);
+      containerEl.innerHTML = '';
       return;
     }
-    var mount = document.createElement('div');
-    mount.className = 'cstudio-plugin-crafterq-form-assistant';
-    mount.setAttribute('data-crafterq-form-mount', 'true');
-    containerEl.appendChild(mount);
+
+    var sentinel = null;
+    try {
+      sentinel = containerEl.querySelector('[data-aiassistant-form-mount="true"]');
+    } catch (ignoreQuery) {}
+    if (!sentinel) {
+      sentinel = document.createElement('div');
+      sentinel.className = 'cstudio-plugin-aiassistant-form-assistant';
+      sentinel.setAttribute('data-aiassistant-form-mount', 'true');
+      containerEl.appendChild(sentinel);
+    }
     cqWidenOutermostFormContainer(containerEl, self);
+
+    if (self._reactRoot && self._cqPortalMountEl && document.body.contains(self._cqPortalMountEl)) {
+      cqRefreshFormAssistantUi(self, config, site);
+      return;
+    }
+
+    var form = self.form || (self.owner && self.owner.form);
+    var ui = cqGetFormAssistantUi(form);
+    if (ui && ui.portalMountEl && document.body.contains(ui.portalMountEl) && ui.reactRoot) {
+      cqRefreshFormAssistantUi(self, config, site);
+      return;
+    }
 
     var site = CStudioAuthoringContext.site;
     if (!site || typeof craftercms === 'undefined' || !craftercms.services || !craftercms.services.plugin) {
-      mount.textContent = 'Assistant: Studio plugin API is not available in this context.';
+      sentinel.textContent = 'Assistant: Studio plugin API is not available in this context.';
       return;
     }
 
-    craftercms.services.plugin
-      .importPlugin(site, 'aiassistant', 'components', 'index.js', 'org.craftercms.aiassistant.studio')
-      .then(function (plugin) {
-        var React = craftercms.libs.React;
-        var ReactDOMClient = craftercms.libs.ReactDOMClient;
-        if (!React || !ReactDOMClient || !plugin || !plugin.widgets) {
-          mount.textContent = 'Assistant: Failed to load plugin UI.';
-          return;
-        }
-        var FormCtl = plugin.widgets[CRAFTERQ_FORM_CONTROL_WIDGET_ID];
-        var CrafterRoot = craftercms.utils.constants.components.get('craftercms.components.CrafterCMSNextBridge');
-        if (!FormCtl || !CrafterRoot) {
-          mount.textContent = 'Assistant: Form control widget is not registered in the plugin bundle.';
-          return;
-        }
-        var root = ReactDOMClient.createRoot(mount);
-        self._reactRoot = root;
-        // Wait for ui.xml (Redux +/or API) — cold reload often races; rendering immediately yields empty/wrong agents.
-        cqWhenUiXmlReadyForAgents(site, function (agents) {
-          if (!self._reactRoot || self._reactRoot !== root) return;
-          var fieldProps = cqFormFieldPropertiesFromRender(config, self);
-          var visibleAgents = cqVisibleAgentsFromProperties(fieldProps, agents);
-          root.render(
-            React.createElement(CrafterRoot, null, React.createElement(FormCtl, {
-              agents: visibleAgents,
-              getAuthoringFormContext: cqMakeGetAuthoringFormContext(self)
-            }))
-          );
-        });
-      })
-      .catch(function (err) {
-        mount.textContent = 'Assistant: ' + ((err && err.message) || String(err));
-      });
+    cqMountFormAssistantUi(self, config, containerEl, site);
   }
 });
 
-CStudioAuthoring.Module.moduleLoaded('ai-assistant', CStudioForms.Controls.CrafterqAssistant);
+CStudioAuthoring.Module.moduleLoaded('ai-assistant', CStudioForms.Controls.AiAssistant);

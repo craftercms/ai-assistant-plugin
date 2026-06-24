@@ -2,10 +2,11 @@ import jakarta.servlet.http.HttpServletResponse
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import org.springframework.security.core.context.SecurityContextHolder
-import plugins.org.craftercms.aiassistant.http.AiHttpProxy
-import plugins.org.craftercms.aiassistant.prompt.ToolPromptsLoader
-import plugins.org.craftercms.aiassistant.tools.StudioAiUserSiteTools
-import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
+import plugins.org.craftercms.aiassistant.studio.http.AiHttpProxy
+import plugins.org.craftercms.aiassistant.studio.engine.prompt.ToolPromptsLoader
+import plugins.org.craftercms.aiassistant.studio.secrets.StudioAiAssistantSecretsService
+import plugins.org.craftercms.aiassistant.studio.contrib.tool.site.StudioAiUserSiteTools
+import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 
 /**
  * Mutate site sandbox AI Assistant scripts / registry.
@@ -17,14 +18,19 @@ import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
  * { "action": "invalidateToolPrompts" } — clears {@code ToolPromptsLoader} cache after editing {@code prompts/*.md} via {@code writeConfiguration}
  * </pre>
  */
-def body = AiHttpProxy.parseJsonBody(request) ?: [:]
-String siteId = (params?.siteId ?: body.siteId ?: request.getParameter('siteId'))?.toString()?.trim()
+def body = AiHttpProxy.parseJsonBody(request)
+if (Boolean.TRUE.equals(body?.get('__aiassistantInvalidJson'))) {
+  response.status = HttpServletResponse.SC_BAD_REQUEST
+  return [ok: false, message: 'Invalid JSON request body', detail: body?.get('__aiassistantInvalidJsonDetail')?.toString() ?: '']
+}
+Map reqBody = (body instanceof Map) ? (Map) body : [:]
+String siteId = (params?.siteId ?: reqBody.get('siteId') ?: request.getParameter('siteId'))?.toString()?.trim()
 if (!siteId) {
   response.status = HttpServletResponse.SC_BAD_REQUEST
   return [ok: false, message: 'Missing siteId']
 }
 
-String action = body.action?.toString()?.trim()?.toLowerCase() ?: ''
+String action = reqBody.action?.toString()?.trim()?.toLowerCase() ?: ''
 def ops = new StudioToolOperations(request, applicationContext, params)
 String approver = ''
 try {
@@ -43,8 +49,8 @@ try {
     return [ok: true, message: 'Tool prompt cache invalidated']
   }
   if ('writestudioutf8' == action || 'write' == action) {
-    String sp = body.studioPath?.toString()?.trim() ?: ''
-    String utf8 = body.utf8 != null ? body.utf8.toString() : ''
+    String sp = reqBody.studioPath?.toString()?.trim() ?: ''
+    String utf8 = reqBody.utf8 != null ? reqBody.utf8.toString() : ''
     if (!sp.startsWith('/')) {
       sp = "/${sp}"
     }
@@ -60,7 +66,7 @@ try {
     return [ok: true, message: 'Written', studioPath: sp]
   }
   if ('deletestudiorepo' == action || 'delete' == action) {
-    String rp = body.repoPath?.toString()?.trim() ?: ''
+    String rp = reqBody.repoPath?.toString()?.trim() ?: ''
     if (!rp.startsWith('/')) {
       rp = "/${rp}"
     }
@@ -75,8 +81,27 @@ try {
     ops.publishConfigChangeRefresh(siteId)
     return [ok: true, message: 'Deleted', repoPath: rp]
   }
+  if ('savesecrets' == action) {
+    Object entriesRaw = reqBody.entries
+    if (!(entriesRaw instanceof List)) {
+      response.status = HttpServletResponse.SC_BAD_REQUEST
+      return [ok: false, message: 'Missing entries array']
+    }
+    List<Map> entries = []
+    for (Object o : (List) entriesRaw) {
+      if (o instanceof Map) {
+        entries.add((Map) o)
+      }
+    }
+    try {
+      return StudioAiAssistantSecretsService.saveAdminEntries(ops, entries)
+    } catch (IllegalStateException ise) {
+      response.status = HttpServletResponse.SC_BAD_REQUEST
+      return [ok: false, message: ise.message ?: 'Secrets save failed']
+    }
+  }
   if ('removeusertool' == action) {
-    String tid = body.toolId?.toString()?.trim() ?: ''
+    String tid = reqBody.toolId?.toString()?.trim() ?: ''
     if (!tid) {
       response.status = HttpServletResponse.SC_BAD_REQUEST
       return [ok: false, message: 'Missing toolId']
@@ -120,14 +145,14 @@ try {
     }
     String newJson
     if (parsed instanceof List) {
-      newJson = JsonOutput.prettyPrint(outRows)
+      newJson = JsonOutput.prettyPrint(JsonOutput.toJson(outRows))
     } else if (parsed instanceof Map) {
       Map pm = [:]
       pm.putAll((Map) parsed)
       pm.put('tools', outRows)
-      newJson = JsonOutput.prettyPrint(pm)
+      newJson = JsonOutput.prettyPrint(JsonOutput.toJson(pm))
     } else {
-      newJson = JsonOutput.prettyPrint([tools: outRows])
+      newJson = JsonOutput.prettyPrint(JsonOutput.toJson([tools: outRows]))
     }
     ops.writeStudioConfiguration(siteId, StudioAiUserSiteTools.USER_TOOLS_REGISTRY_PATH, newJson.getBytes('UTF-8'))
     if (scriptName) {

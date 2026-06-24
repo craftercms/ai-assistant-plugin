@@ -1,5 +1,5 @@
 /**
- * Resolves the folder used when importing remote chat images into the repo so it matches
+ * Resolves the folder used when importing images from assistant chat into the repo so it matches
  * the page content type's image datasources (same {@code repoPath} as XB / form pickers).
  */
 
@@ -19,7 +19,7 @@ export function resolveImportRepoPathFromContentType(ct: unknown): string {
   const c = ct as ContentTypeLike;
 
   if (Array.isArray(c.dataSources)) {
-    for (const t of ['aiassistant-img-from-url', 'crafterq-img-from-url', 'img-desktop-upload'] as const) {
+    for (const t of ['aiassistant-img-from-url', 'img-desktop-upload'] as const) {
       const ds = c.dataSources.find((d) => d?.type === t && String(d.repoPath ?? '').trim());
       if (ds?.repoPath) return String(ds.repoPath).trim();
     }

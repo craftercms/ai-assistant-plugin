@@ -3,11 +3,11 @@
  *
  * Form engine data source: import an image from a remote https URL into the repository (same idea as
  * img-desktop-upload, but the server downloads the URL). Use for image-picker / RTE after adding this
- * datasource in the content type. CrafterQ chat drag-and-drop uses the same REST endpoint from React.
+ * datasource in the content type. The authoring chat drag-and-drop path uses the same REST endpoint from React.
  */
 /* global CStudioForms, YAHOO, CStudioAuthoring, CMgs, CStudioAuthoringContext, CrafterCMSNext */
 
-function crafterqXsrfHeaders() {
+function aiAssistantImgFromUrlXsrfHeaders() {
   var m = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/);
   var token = m ? decodeURIComponent(m[1]) : '';
   var headers = { 'Content-Type': 'application/json' };
@@ -15,14 +15,14 @@ function crafterqXsrfHeaders() {
   return headers;
 }
 
-function crafterqUnwrapPluginScriptBody(j) {
+function aiAssistantImgFromUrlUnwrapPluginScriptBody(j) {
   if (j && typeof j === 'object' && j.result != null && typeof j.result === 'object' && !Array.isArray(j.result)) {
     return j.result;
   }
   return j;
 }
 
-function crafterqImportImageFromUrl(site, imageUrl, repoPath, fileName, objectId, objectGroupId) {
+function aiAssistantImportImageFromUrl(site, imageUrl, repoPath, fileName, objectId, objectGroupId) {
   var body = { imageUrl: imageUrl, repoPath: repoPath };
   if (fileName) body.fileName = fileName;
   if (objectId) body.objectId = objectId;
@@ -30,18 +30,18 @@ function crafterqImportImageFromUrl(site, imageUrl, repoPath, fileName, objectId
   return fetch(
     '/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/authoring/import-image-from-url?siteId=' +
       encodeURIComponent(site),
-    { method: 'POST', credentials: 'same-origin', headers: crafterqXsrfHeaders(), body: JSON.stringify(body) }
+    { method: 'POST', credentials: 'same-origin', headers: aiAssistantImgFromUrlXsrfHeaders(), body: JSON.stringify(body) }
   ).then(function (r) {
     return r.json().then(function (j) {
-      var payload = crafterqUnwrapPluginScriptBody(j);
+      var payload = aiAssistantImgFromUrlUnwrapPluginScriptBody(j);
       if (!r.ok || payload.ok === false) throw new Error(payload.message || j.message || r.statusText || String(r.status));
       return payload;
     });
   });
 }
 
-CStudioForms.Datasources.CrafterqImgFromUrl =
-  CStudioForms.Datasources.CrafterqImgFromUrl ||
+CStudioForms.Datasources.AiAssistantImgFromUrl =
+  CStudioForms.Datasources.AiAssistantImgFromUrl ||
   function (id, form, properties, constraints) {
     this.id = id;
     this.form = form;
@@ -56,9 +56,9 @@ CStudioForms.Datasources.CrafterqImgFromUrl =
     return this;
   };
 
-YAHOO.extend(CStudioForms.Datasources.CrafterqImgFromUrl, CStudioForms.CStudioFormDatasource, {
+YAHOO.extend(CStudioForms.Datasources.AiAssistantImgFromUrl, CStudioForms.CStudioFormDatasource, {
   getLabel: function () {
-    return 'CrafterQ — Image from URL';
+    return 'AI Assistant — Image from URL';
   },
 
   insertImageAction: function (insertCb, file) {
@@ -110,7 +110,7 @@ YAHOO.extend(CStudioForms.Datasources.CrafterqImgFromUrl, CStudioForms.CStudioFo
     }
 
     var url = window.prompt(
-      'Paste image URL (https). The server will download it into:\n' + path + '\n\n(OpenAI / temporary URLs are OK.)'
+      'Paste image URL (https). The server will download it into:\n' + path + '\n\n(Temporary signed URLs from image APIs are OK.)'
     );
     if (!url || !url.trim()) {
       insertCb.failure('Cancelled');
@@ -134,7 +134,7 @@ YAHOO.extend(CStudioForms.Datasources.CrafterqImgFromUrl, CStudioForms.CStudioFo
       return;
     }
 
-    crafterqImportImageFromUrl(site, url, path, null, null, null)
+    aiAssistantImportImageFromUrl(site, url, path, null, null, null)
       .then(function (data) {
         var relativeUrl = data.relativeUrl;
         var previewUrl = CStudioAuthoringContext.previewAppBaseUri + relativeUrl + '?' + new Date().getTime();
@@ -193,4 +193,4 @@ YAHOO.extend(CStudioForms.Datasources.CrafterqImgFromUrl, CStudioForms.CStudioFo
 });
 
 // Must match getName(); Studio resolves this key after loading the script (content type builder, form engine).
-CStudioAuthoring.Module.moduleLoaded('aiassistant-img-from-url', CStudioForms.Datasources.CrafterqImgFromUrl);
+CStudioAuthoring.Module.moduleLoaded('aiassistant-img-from-url', CStudioForms.Datasources.AiAssistantImgFromUrl);

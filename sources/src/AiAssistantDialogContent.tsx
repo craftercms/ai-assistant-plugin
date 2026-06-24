@@ -3,7 +3,7 @@ import { useLayoutEffect, useRef } from 'react';
 import { Box, GlobalStyles } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import AiAssistantChat from './AiAssistantChat';
-import type { ExpertSkillConfig } from './agentConfig';
+import { AI_ASSISTANT_DEFAULT_AGENT_ID, type AgentSkillConfig } from './agentConfig';
 
 /** Same scroll-port detection as {@link AiAssistantChat} — ICE `ResizeableDrawer` drawerBody is `overflow-y: auto`. */
 function getScrollParent(node: HTMLElement | null): HTMLElement | null {
@@ -81,14 +81,12 @@ export interface AiAssistantDialogContentProps {
   imageModel?: string;
   imageGenerator?: string;
   /** Testing only — prefer server env. See docs/using-and-extending/llm-configuration.md */
-  openAiApiKey?: string;
+  llmApiKey?: string;
   prompts?: Array<{ userText: string; additionalContext?: string }>;
   enableTools?: boolean;
   enabledBuiltInTools?: string[];
-  expertSkills?: ExpertSkillConfig[];
+  skills?: AgentSkillConfig[];
   translateBatchConcurrency?: number;
-  crafterQBearerToken?: string;
-  crafterQBearerTokenEnv?: string;
 }
 
 /**
@@ -97,19 +95,17 @@ export interface AiAssistantDialogContentProps {
  */
 function AiAssistantDialogContent(props: Readonly<AiAssistantDialogContentProps>) {
   const {
-    agentId = '019c7237-478b-7f98-9a5c-87144c3fb010',
+    agentId = AI_ASSISTANT_DEFAULT_AGENT_ID,
     llm,
     llmModel,
     imageModel,
     imageGenerator,
-    openAiApiKey,
+    llmApiKey,
     prompts,
     enableTools,
     enabledBuiltInTools,
-    expertSkills,
-    translateBatchConcurrency,
-    crafterQBearerToken,
-    crafterQBearerTokenEnv
+    skills,
+    translateBatchConcurrency
   } = props;
   return (
     <AiAssistantChat
@@ -118,14 +114,12 @@ function AiAssistantDialogContent(props: Readonly<AiAssistantDialogContentProps>
       llmModel={llmModel}
       imageModel={imageModel}
       imageGenerator={imageGenerator}
-      openAiApiKey={openAiApiKey}
+      llmApiKey={llmApiKey}
       enableTools={enableTools}
       enabledBuiltInTools={enabledBuiltInTools}
-      expertSkills={expertSkills}
+      skills={skills}
       configPrompts={prompts}
       {...(translateBatchConcurrency != null ? { translateBatchConcurrency } : {})}
-      {...(crafterQBearerTokenEnv?.trim() ? { crafterQBearerTokenEnv: crafterQBearerTokenEnv.trim() } : {})}
-      {...(crafterQBearerToken?.trim() ? { crafterQBearerToken: crafterQBearerToken.trim() } : {})}
     />
   );
 }

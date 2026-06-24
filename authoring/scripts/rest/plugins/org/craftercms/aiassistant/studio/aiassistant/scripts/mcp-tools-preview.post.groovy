@@ -1,7 +1,7 @@
 import jakarta.servlet.http.HttpServletResponse
-import plugins.org.craftercms.aiassistant.http.AiHttpProxy
-import plugins.org.craftercms.aiassistant.mcp.StudioAiMcpClient
-import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
+import plugins.org.craftercms.aiassistant.studio.http.AiHttpProxy
+import plugins.org.craftercms.aiassistant.studio.contrib.tool.mcp.StudioAiMcpClient
+import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 
 /**
  * Lists MCP tools from the request body (same {@code mcpServers} shape as {@code tools.json}) without persisting.
@@ -10,8 +10,13 @@ import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
  * <p>Body JSON: {@code siteId} (optional if query param), {@code mcpEnabled}, {@code mcpServers} (array of maps with
  * {@code id}, {@code url}, optional {@code headers}, optional {@code readTimeoutMs}).</p>
  */
-def body = AiHttpProxy.parseJsonBody(request) ?: [:]
-String siteId = (params?.siteId ?: body.siteId ?: request.getParameter('siteId'))?.toString()?.trim()
+def body = AiHttpProxy.parseJsonBody(request)
+if (Boolean.TRUE.equals(body?.get('__aiassistantInvalidJson'))) {
+  response.status = HttpServletResponse.SC_BAD_REQUEST
+  return [ok: false, message: 'Invalid JSON request body', detail: body?.get('__aiassistantInvalidJsonDetail')?.toString() ?: '']
+}
+Map reqBody = (body instanceof Map) ? (Map) body : [:]
+String siteId = (params?.siteId ?: reqBody.get('siteId') ?: request.getParameter('siteId'))?.toString()?.trim()
 if (!siteId) {
   response.status = HttpServletResponse.SC_BAD_REQUEST
   return [ok: false, message: 'Missing siteId']
@@ -19,16 +24,16 @@ if (!siteId) {
 
 def ops = new StudioToolOperations(request, applicationContext, params)
 
-if (!ops.httpFetchGloballyEnabled()) {
-  return [ok: false, message: 'Outbound HTTP is disabled (crafterq.httpFetch.enabled=false); MCP preview is unavailable.']
+if (!plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.http.OutboundHttpPolicy.globallyEnabled()) {
+  return [ok: false, message: 'Outbound HTTP is disabled (aiassistant.httpFetch.enabled=false); MCP preview is unavailable.']
 }
 
-boolean mcpOn = Boolean.TRUE.equals(body.mcpEnabled)
+boolean mcpOn = Boolean.TRUE.equals(reqBody.get('mcpEnabled'))
 if (!mcpOn) {
   return [ok: true, mcpEnabled: false, servers: []]
 }
 
-Object rawServers = body.mcpServers
+Object rawServers = reqBody.get('mcpServers')
 if (!(rawServers instanceof List) || ((List) rawServers).isEmpty()) {
   return [ok: true, mcpEnabled: true, servers: []]
 }

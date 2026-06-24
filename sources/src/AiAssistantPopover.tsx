@@ -6,7 +6,7 @@ import AlertDialog from '@craftercms/studio-ui/components/AlertDialog';
 import PrimaryButton from '@craftercms/studio-ui/components/PrimaryButton/PrimaryButton';
 import SecondaryButton from '@craftercms/studio-ui/components/SecondaryButton/SecondaryButton';
 import AiAssistantChat from './AiAssistantChat';
-import type { ExpertSkillConfig } from './agentConfig';
+import { AI_ASSISTANT_DEFAULT_AGENT_ID, type AgentSkillConfig } from './agentConfig';
 
 export interface AiAssistantPopoverProps extends PopoverProps {
   appBarTitle?: string;
@@ -24,16 +24,14 @@ export interface AiAssistantPopoverProps extends PopoverProps {
   imageModel?: string;
   imageGenerator?: string;
   /** Testing only — prefer server env. See docs/using-and-extending/llm-configuration.md */
-  openAiApiKey?: string;
+  llmApiKey?: string;
   /** Prompts to show above the chat (quick message buttons). Overrides API quick messages when set. */
   prompts?: Array<{ userText: string; additionalContext?: string }>;
-  /** When false, server omits OpenAI function tools. */
+  /** When false, server omits native function tools on the LLM request. */
   enableTools?: boolean;
   enabledBuiltInTools?: string[];
-  expertSkills?: ExpertSkillConfig[];
+  skills?: AgentSkillConfig[];
   translateBatchConcurrency?: number;
-  crafterQBearerToken?: string;
-  crafterQBearerTokenEnv?: string;
 }
 
 function AiAssistantPopover(props: Readonly<AiAssistantPopoverProps>) {
@@ -50,19 +48,17 @@ function AiAssistantPopover(props: Readonly<AiAssistantPopoverProps>) {
     height = 595,
     hideBackdrop,
     enableCustomModel = true,
-    agentId = '019c7237-478b-7f98-9a5c-87144c3fb010',
+    agentId = AI_ASSISTANT_DEFAULT_AGENT_ID,
     llm,
     llmModel,
     imageModel,
     imageGenerator,
-    openAiApiKey,
+    llmApiKey,
     prompts,
     enableTools,
     enabledBuiltInTools,
-    expertSkills,
+    skills,
     translateBatchConcurrency,
-    crafterQBearerToken,
-    crafterQBearerTokenEnv,
     anchorPosition: anchorPositionProp,
     ...popoverProps
   } = props;
@@ -120,14 +116,12 @@ function AiAssistantPopover(props: Readonly<AiAssistantPopoverProps>) {
           llmModel={llmModel}
           imageModel={imageModel}
           imageGenerator={imageGenerator}
-          openAiApiKey={openAiApiKey}
+          llmApiKey={llmApiKey}
           enableTools={enableTools}
           enabledBuiltInTools={enabledBuiltInTools}
-          expertSkills={expertSkills}
+          skills={skills}
           configPrompts={prompts}
           {...(translateBatchConcurrency != null ? { translateBatchConcurrency } : {})}
-          {...(crafterQBearerTokenEnv?.trim() ? { crafterQBearerTokenEnv: crafterQBearerTokenEnv.trim() } : {})}
-          {...(crafterQBearerToken?.trim() ? { crafterQBearerToken: crafterQBearerToken.trim() } : {})}
         />
         
       </Popover>

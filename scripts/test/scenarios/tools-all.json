@@ -1,0 +1,632 @@
+{
+  "description": "One turn per CORE_TOOLS wire name with enabledBuiltInTools allowlist (generated). Optional turns need env flags.",
+  "defaults": {
+    "siteId": "aiat-2",
+    "llm": "openAI",
+    "llmModel": "gpt-4o-mini",
+    "enableTools": true
+  },
+  "turns": [
+    {
+      "id": "ContentExists",
+      "group": "builtin-tools",
+      "summary": "ContentExists on home page path.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the ContentExists tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with path \"/site/website/index.xml\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "ContentExists"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "ContentExists"
+        ]
+      }
+    },
+    {
+      "id": "GetContent",
+      "group": "builtin-tools",
+      "summary": "GetContent read title_t.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the GetContent tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with path \"/site/website/index.xml\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "GetContent"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "GetContent"
+        ]
+      }
+    },
+    {
+      "id": "ListContentDependencyScope",
+      "group": "builtin-tools",
+      "summary": "List translation/dependency scope.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the ListContentDependencyScope tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with contentPath \"/site/website/index.xml\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "ListContentDependencyScope"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "ListContentDependencyScope"
+        ]
+      }
+    },
+    {
+      "id": "ListStudioContentTypes",
+      "group": "builtin-tools",
+      "summary": "List content types.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the ListStudioContentTypes tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with no filters; list ids only from the tool result. After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "ListStudioContentTypes"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "ListStudioContentTypes"
+        ]
+      }
+    },
+    {
+      "id": "GetContentTypeFormDefinition",
+      "group": "builtin-tools",
+      "summary": "Form definition for /page/home.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the GetContentTypeFormDefinition tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with contentTypeId \"/page/home\" (not GetContent). After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "GetContentTypeFormDefinition"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "GetContentTypeFormDefinition"
+        ],
+        "forbidTools": [
+          "GetContent"
+        ]
+      }
+    },
+    {
+      "id": "GetContentVersionHistory",
+      "group": "builtin-tools",
+      "summary": "Version history for home page.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the GetContentVersionHistory tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with path \"/site/website/index.xml\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "GetContentVersionHistory"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "GetContentVersionHistory"
+        ]
+      }
+    },
+    {
+      "id": "FindContentVersion",
+      "group": "builtin-tools",
+      "summary": "Find version by criteria (read-only).",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the FindContentVersion tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with path \"/site/website/index.xml\" and revertToPrevious true. After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "FindContentVersion"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "FindContentVersion"
+        ]
+      }
+    },
+    {
+      "id": "CompareContentVersions",
+      "group": "builtin-tools",
+      "summary": "Compare HEAD vs prior version (read-only).",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the CompareContentVersions tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call GetContentVersionHistory first, then CompareContentVersions with path \"/site/website/index.xml\" and compareCommitRef set to the second-newest versionNumber from history. After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "CompareContentVersions",
+          "GetContentVersionHistory"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "CompareContentVersions"
+        ]
+      }
+    },
+    {
+      "id": "GetPreviewHtml",
+      "group": "builtin-tools",
+      "summary": "Preview HTML for home (needs preview token).",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the GetPreviewHtml tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with the anchored home preview URL for /site/website/index.xml (use studioPreviewPageUrl or url from context). Do not use GetContent. After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "GetPreviewHtml"
+        ],
+        "enableTools": true,
+        "authoringSurface": "preview",
+        "contentPath": "/site/website/index.xml",
+        "contentTypeId": "/page/home",
+        "contentTypeLabel": "Home"
+      },
+      "expect": {
+        "toolsAny": [
+          "GetPreviewHtml"
+        ],
+        "forbidTools": [
+          "GetContent"
+        ]
+      }
+    },
+    {
+      "id": "FetchHttpUrl",
+      "group": "builtin-tools",
+      "summary": "Fetch public URL.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the FetchHttpUrl tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with url \"https://example.com\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "FetchHttpUrl"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "FetchHttpUrl"
+        ]
+      }
+    },
+    {
+      "id": "PostHttpUrl",
+      "group": "builtin-tools",
+      "summary": "POST to httpbin (optional).",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the PostHttpUrl tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with url \"https://httpbin.org/post\" and body JSON {\"test\":true}. After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "PostHttpUrl"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "PostHttpUrl"
+        ]
+      },
+      "optional": true
+    },
+    {
+      "id": "WebSearch",
+      "group": "builtin-tools",
+      "summary": "Built-in web search.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the WebSearch tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with query \"who founded CrafterCMS\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "WebSearch"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "WebSearch"
+        ]
+      },
+      "optional": true
+    },
+    {
+      "id": "SerpApiWebSearch",
+      "group": "builtin-tools",
+      "summary": "SerpAPI web search (optional keys).",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the SerpApiWebSearch tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with query \"latest CrafterCMS release news\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "SerpApiWebSearch"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "SerpApiWebSearch"
+        ]
+      },
+      "optional": true,
+      "partialOnMissingConfig": true
+    },
+    {
+      "id": "ConsultCrafterQ",
+      "group": "builtin-tools",
+      "summary": "CrafterQ integration (optional).",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the ConsultCrafterQ tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with question \"what is Experience Builder\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "ConsultCrafterQ"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "ConsultCrafterQ"
+        ]
+      },
+      "optional": true,
+      "partialOnMissingConfig": true
+    },
+    {
+      "id": "SlackPostMessage",
+      "group": "builtin-tools",
+      "summary": "Slack post (optional webhook).",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the SlackPostMessage tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with message text \"matrix harness ping\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "SlackPostMessage"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "SlackPostMessage"
+        ]
+      },
+      "optional": true,
+      "partialOnMissingConfig": true
+    },
+    {
+      "id": "ResearchSiteContent",
+      "group": "builtin-tools",
+      "summary": "Research site content index.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the ResearchSiteContent tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with query \"home page\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "ResearchSiteContent"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "ResearchSiteContent"
+        ]
+      }
+    },
+    {
+      "id": "QueryExpertGuidance",
+      "group": "builtin-tools",
+      "summary": "Expert guidance query (requires enabled agent skills + embeddings API).",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the QueryExpertGuidance tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with query \"best practices for CrafterCMS content modeling\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "QueryExpertGuidance"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "QueryExpertGuidance"
+        ]
+      },
+      "optional": true,
+      "partialOnMissingConfig": true
+    },
+    {
+      "id": "GeneratePlaceholderImage",
+      "group": "builtin-tools",
+      "summary": "Placeholder image generation.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the GeneratePlaceholderImage tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with width 64 and height 64. After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "GeneratePlaceholderImage"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "GeneratePlaceholderImage"
+        ]
+      }
+    },
+    {
+      "id": "GenerateImage",
+      "group": "builtin-tools",
+      "summary": "LLM image generation.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the GenerateImage tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with prompt \"simple blue circle on white background\" and size 256x256. After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "GenerateImage"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "GenerateImage"
+        ],
+        "maxToolStartCounts": {
+          "GenerateImage": 1
+        },
+        "generateImagePromptSeen": true
+      },
+      "optional": true,
+      "partialOnMissingConfig": true
+    },
+    {
+      "id": "GenerateTextNoTools",
+      "group": "builtin-tools",
+      "summary": "Inner one-shot completion tool.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the GenerateTextNoTools tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with userPrompt set to the literal string harness-ok. After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "GenerateTextNoTools"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "GenerateTextNoTools"
+        ],
+        "recipeIdSoft": false
+      },
+      "optional": true
+    },
+    {
+      "id": "TranslateContentItem",
+      "group": "builtin-tools",
+      "summary": "Translate single item.",
+      "prompt": "Use TranslateContentItem only to translate /site/website/index.xml title to French.",
+      "request": {
+        "enabledBuiltInTools": [
+          "TranslateContentItem"
+        ],
+        "authoringSurface": "preview",
+        "contentPath": "/site/website/index.xml"
+      },
+      "expect": {
+        "toolsAny": [
+          "TranslateContentItem"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",
+      "partialOnMissingConfig": true
+    },
+    {
+      "id": "TranslateContentBatch",
+      "group": "builtin-tools",
+      "summary": "Batch translate scoped paths.",
+      "prompt": "Use ListContentDependencyScope then TranslateContentBatch only to translate /site/website/index.xml to Spanish.",
+      "request": {
+        "enabledBuiltInTools": [
+          "ListContentDependencyScope",
+          "TranslateContentBatch"
+        ],
+        "authoringSurface": "preview",
+        "contentPath": "/site/website/index.xml"
+      },
+      "expect": {
+        "toolsAny": [
+          "TranslateContentBatch"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",
+      "partialOnMissingConfig": true
+    },
+    {
+      "id": "TransformContentSubgraph",
+      "group": "builtin-tools",
+      "summary": "Transform content subgraph (off-wire unless ENABLED_ON_WIRE in plugin source).",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the TransformContentSubgraph tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call on /site/website/index.xml to list field ids (read-only, no writes). After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "TransformContentSubgraph"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "TransformContentSubgraph"
+        ]
+      },
+      "optional": true,
+      "partialOnMissingConfig": true
+    },
+    {
+      "id": "WriteContent",
+      "group": "builtin-tools",
+      "summary": "WriteContent (destructive).",
+      "prompt": "Use WriteContent only to create /site/components/matrix-harness/ping.xml as a minimal component stub if the type exists; otherwise explain why not.",
+      "request": {
+        "enabledBuiltInTools": [
+          "WriteContent"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "WriteContent"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",
+      "partialOnMissingConfig": true
+    },
+    {
+      "id": "ListPagesAndComponents",
+      "group": "builtin-tools",
+      "summary": "List pages and components.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the ListPagesAndComponents tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with default args; report the first path from the result. After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "ListPagesAndComponents"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "ListPagesAndComponents"
+        ]
+      }
+    },
+    {
+      "id": "update_template",
+      "group": "builtin-tools",
+      "summary": "Update FTL template (destructive).",
+      "prompt": "Use analyze_template then update_template only on /templates/web/pages/home.ftl — describe one safe comment-only change, do not apply unless sure.",
+      "request": {
+        "enabledBuiltInTools": [
+          "analyze_template",
+          "update_template"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "analyze_template"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",
+      "partialOnMissingConfig": true
+    },
+    {
+      "id": "update_content",
+      "group": "builtin-tools",
+      "summary": "Update repository XML (destructive).",
+      "prompt": "Use GetContent and update_content only on /site/website/index.xml — propose a title change but skip write unless confirmed.",
+      "request": {
+        "enabledBuiltInTools": [
+          "GetContent",
+          "update_content"
+        ],
+        "contentPath": "/site/website/index.xml"
+      },
+      "expect": {
+        "toolsAny": [
+          "GetContent"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",
+      "partialOnMissingConfig": true
+    },
+    {
+      "id": "update_content_type",
+      "group": "builtin-tools",
+      "summary": "Update content type definition (destructive).",
+      "prompt": "Use GetContentTypeFormDefinition and update_content_type only for /page/home — read-only summary.",
+      "request": {
+        "enabledBuiltInTools": [
+          "GetContentTypeFormDefinition",
+          "update_content_type"
+        ]
+      },
+      "expect": {
+        "toolsAny": [
+          "GetContentTypeFormDefinition"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",
+      "partialOnMissingConfig": true
+    },
+    {
+      "id": "analyze_template",
+      "group": "builtin-tools",
+      "summary": "Analyze FTL template.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the analyze_template tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with templatePath \"/templates/web/pages/home.ftl\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "analyze_template"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "analyze_template"
+        ]
+      }
+    },
+    {
+      "id": "publish_content",
+      "group": "builtin-tools",
+      "summary": "Publish content (destructive).",
+      "prompt": "Use publish_content only with publishScope=item for /site/website/index.xml.",
+      "request": {
+        "enabledBuiltInTools": [
+          "publish_content"
+        ],
+        "contentPath": "/site/website/index.xml"
+      },
+      "expect": {
+        "toolsAny": [
+          "publish_content"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_PUBLISH",
+      "partialOnMissingConfig": true
+    },
+    {
+      "id": "GetCrafterizingPlaybook",
+      "group": "builtin-tools",
+      "summary": "Crafterizing playbook retrieval.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the GetCrafterizingPlaybook tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call with no args. After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "GetCrafterizingPlaybook"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "GetCrafterizingPlaybook"
+        ]
+      }
+    },
+    {
+      "id": "revert_change",
+      "group": "builtin-tools",
+      "summary": "Revert last change (destructive).",
+      "prompt": "Use revert_change only for the last edit on /site/website/index.xml if any.",
+      "request": {
+        "enabledBuiltInTools": [
+          "revert_change"
+        ],
+        "contentPath": "/site/website/index.xml"
+      },
+      "expect": {
+        "toolsAny": [
+          "revert_change"
+        ]
+      },
+      "optional": true,
+      "skipUnless": "CHAT_MATRIX_ALLOW_WRITES",
+      "partialOnMissingConfig": true
+    },
+    {
+      "id": "InvokeSiteUserTool",
+      "group": "builtin-tools",
+      "summary": "Site-defined user tool (site-specific).",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the InvokeSiteUserTool tool exactly once before writing any assistant reply. Do not use any other tool. Do not answer from memory or guess. Call only if a site user tool exists; otherwise report that none are configured. After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": {
+        "enabledBuiltInTools": [
+          "InvokeSiteUserTool"
+        ],
+        "enableTools": true
+      },
+      "expect": {
+        "toolsAny": [
+          "InvokeSiteUserTool"
+        ]
+      },
+      "optional": true,
+      "partialOnMissingConfig": true
+    }
+  ]
+}

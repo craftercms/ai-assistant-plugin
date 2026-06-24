@@ -1,13 +1,13 @@
 import jakarta.servlet.http.HttpServletResponse
-import plugins.org.craftercms.aiassistant.http.AiHttpProxy
-import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
+import plugins.org.craftercms.aiassistant.studio.http.AiHttpProxy
+import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 
 /**
  * Downloads an image from a remote URL and writes it to the site sandbox under {@code /static-assets/...},
  * same as a desktop upload, for use from:
  * <ul>
- *   <li>CrafterQ chat drag-and-drop (after client prefetch)</li>
- *   <li>Form data source {@code crafterq-img-from-url} (URL prompt or data URL)</li>
+ *   <li>Authoring chat drag-and-drop (after client prefetch)</li>
+ *   <li>Form data source {@code aiassistant-img-from-url} (URL prompt or data URL)</li>
  * </ul>
  *
  * <p>Query: {@code siteId} (required). Body JSON:</p>
@@ -21,7 +21,17 @@ import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
  * }
  * </pre>
  */
-def body = AiHttpProxy.parseJsonBody(request) ?: [:]
+// Cap must exceed base64+JSON size for a 25 MiB raw image (see StudioToolOperations.MAX_REMOTE_IMAGE_BYTES) — ~35 MiB payload.
+def body = AiHttpProxy.parseJsonBody(request, 40 * 1024 * 1024) ?: [:]
+if (Boolean.TRUE.equals(body.get('__aiassistantInvalidJson'))) {
+  response.status = HttpServletResponse.SC_BAD_REQUEST
+  String detail = body.get('__aiassistantInvalidJsonDetail')?.toString() ?: ''
+  String msg =
+    detail && detail.contains('too large')
+      ? 'Image import request is too large for this Studio limit. Set JVM -Daiassistant.maxJsonBodyChars on Studio, or use a smaller image.'
+      : ('Invalid JSON request body' + (detail ? ": ${detail}" : ''))
+  return [ok: false, message: msg, detail: detail]
+}
 def siteId = (params.siteId ?: body.siteId)?.toString()?.trim()
 def imageUrl = body.imageUrl?.toString()?.trim()
 def repoPath = body.repoPath != null ? body.repoPath.toString().trim() : ''

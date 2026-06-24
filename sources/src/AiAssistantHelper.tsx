@@ -2,11 +2,16 @@ import * as React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
+import useActiveSite from '@craftercms/studio-ui/hooks/useActiveSite';
 import useActiveSiteId from '@craftercms/studio-ui/hooks/useActiveSiteId';
 import ToolsPanelListItemButton from '@craftercms/studio-ui/components/ToolsPanelListItemButton';
 import { batchActions } from '@craftercms/studio-ui/state/actions/misc';
-import { pushIcePanelPage, setPreviewEditMode } from '@craftercms/studio-ui/state/actions/preview';
-import { createToolsPanelPage, createWidgetDescriptor } from '@craftercms/studio-ui/utils/state';
+import { popIcePanelPage, pushIcePanelPage, setPreviewEditMode } from '@craftercms/studio-ui/state/actions/preview';
+import {
+  createToolsPanelPage,
+  createWidgetDescriptor,
+  setStoredICEToolsPanelPage
+} from '@craftercms/studio-ui/utils/state';
 import {
   Box,
   Dialog,
@@ -30,15 +35,14 @@ import {
   DEFAULT_AGENTS,
   dedupeAgentsByStableKey,
   dropPlaceholderAgentsWhenRicherMatchesExist,
-  getAgentsFromConfiguration,
   extractPositiveInt,
-  mergeAgentsWithSiteUiXmlOverlay,
   normalizeEnabledBuiltInToolsRaw,
+  agentSkillsForRequest,
   readOptionalBooleanFromConfiguration,
   type AgentConfig,
-  type ExpertSkillConfig
+  type AgentSkillConfig
 } from './agentConfig';
-import { fetchSiteChatAgentsForOverlay } from './fetchAiAssistantUiAgents';
+import { fetchSiteChatAgentsForOverlay, type SiteChatAgentsOverlayResult } from './fetchAiAssistantUiAgents';
 import { logoWidgetId } from './consts';
 import { getAgentIcon } from './agentIcon';
 import { helperWidgetId } from './consts';
@@ -49,6 +53,12 @@ import {
   syncReadStudioUiConfig
 } from './aiAssistantStudioUiConfig';
 import { dispatchPreviewToolbarUiXmlFixIfNeeded } from './aiAssistantPreviewToolbarUiXmlFix';
+import {
+  createAiAssistantPluginFileBuilder,
+  patchStoredIcePanelPageInLocalStorage,
+  patchWidgetDescriptorTreeWithAiAssistantPlugin,
+  widgetDescriptorTreeNeedsAiAssistantPlugin
+} from './aiAssistantPluginDescriptor';
 
 const DIALOG_WIDTH_STORAGE_KEY = 'aiassistant-dialog-width';
 const DEFAULT_DIALOG_WIDTH = 480;
@@ -134,6 +144,12 @@ export function AiAssistantHelper(props: Readonly<AiAssistantHelperProps>) {
   const ui = readHelperUi(props) ?? 'ListItemButton';
   const iceChatCfg = useMemo(() => readIceChatConfiguration(props), [configuration, props]);
   const activeSiteId = useActiveSiteId();
+  const { uuid: activeSiteUuid } = useActiveSite();
+  const { username } = useSelector((state: { user: { username: string } }) => state.user);
+  const icePanelStack = useSelector(
+    (state: { preview: { icePanelStack: ReturnType<typeof createWidgetDescriptor>[] } }) =>
+      state.preview.icePanelStack
+  );
   const studioUiSiteKey = useMemo(() => effectiveStudioSiteId(activeSiteId), [activeSiteId]);
   const siteId = studioUiSiteKey || 'default';
   const subscribeUi = useCallback(
@@ -152,10 +168,21 @@ export function AiAssistantHelper(props: Readonly<AiAssistantHelperProps>) {
   useEffect(() => {
     dispatchPreviewToolbarUiXmlFixIfNeeded(studioUiXml, dispatch);
   }, [studioUiXml, dispatch]);
-  const [siteChatOverlay, setSiteChatOverlay] = useState<{
-    agents: AgentConfig[];
-    exclusive: boolean;
-  } | null>(null);
+
+  // Cold reload: ICE panel may restore a stored page before the components bundle registers widgets.
+  // Embed the plugin descriptor so Studio's Widget can lazy-import the bundle; repair legacy stored pages too.
+  useEffect(() => {
+    if (iceChatCfg || !studioUiSiteKey) return;
+    patchStoredIcePanelPageInLocalStorage(activeSiteUuid ?? '', username, studioUiSiteKey);
+    const top = icePanelStack[icePanelStack.length - 1];
+    if (!top || !widgetDescriptorTreeNeedsAiAssistantPlugin(top)) return;
+    const fixed = patchWidgetDescriptorTreeWithAiAssistantPlugin(top, studioUiSiteKey);
+    if (activeSiteUuid && username) {
+      setStoredICEToolsPanelPage(activeSiteUuid, username, fixed);
+    }
+    dispatch(batchActions([popIcePanelPage(), pushIcePanelPage(fixed)]));
+  }, [iceChatCfg, studioUiSiteKey, activeSiteUuid, username, icePanelStack, dispatch]);
+  const [siteChatOverlay, setSiteChatOverlay] = useState<SiteChatAgentsOverlayResult | null>(null);
   useEffect(() => {
     if (!studioUiSiteKey || iceChatCfg) {
       setSiteChatOverlay(null);
@@ -164,7 +191,7 @@ export function AiAssistantHelper(props: Readonly<AiAssistantHelperProps>) {
     let cancelled = false;
     fetchSiteChatAgentsForOverlay(studioUiSiteKey)
       .then((r) => {
-        if (!cancelled) setSiteChatOverlay(r.agents.length || r.exclusive ? r : null);
+        if (!cancelled) setSiteChatOverlay(r);
       })
       .catch(() => {
         if (!cancelled) setSiteChatOverlay(null);
@@ -175,26 +202,16 @@ export function AiAssistantHelper(props: Readonly<AiAssistantHelperProps>) {
   }, [studioUiSiteKey, iceChatCfg]);
 
   const agents = useMemo(() => {
-    let base: AgentConfig[];
-    if (Array.isArray(agentsProp) && agentsProp.length > 0) base = agentsProp;
-    else {
-      const agentsFromConfig = getAgentsFromConfiguration(props);
-      if (agentsFromConfig.length > 0) base = agentsFromConfig;
-      else if (configuration != null) {
-        const fromConfig = getAgentsFromConfiguration(configuration);
-        base = fromConfig.length > 0 ? fromConfig : DEFAULT_AGENTS;
-      } else base = DEFAULT_AGENTS;
-    }
-    let merged: AgentConfig[];
-    if (siteChatOverlay?.exclusive) {
-      merged = siteChatOverlay.agents.length ? siteChatOverlay.agents : DEFAULT_AGENTS;
-    } else {
-      merged = siteChatOverlay?.agents?.length ? mergeAgentsWithSiteUiXmlOverlay(base, siteChatOverlay.agents) : base;
-    }
+    let merged: AgentConfig[] =
+      siteChatOverlay?.agents?.length
+        ? siteChatOverlay.agents
+        : Array.isArray(agentsProp) && agentsProp.length > 0
+          ? agentsProp
+          : DEFAULT_AGENTS;
     merged = dedupeAgentsByStableKey(merged);
     merged = dropPlaceholderAgentsWhenRicherMatchesExist(merged);
     return merged;
-  }, [configuration, agentsProp, props, siteChatOverlay]);
+  }, [agentsProp, siteChatOverlay]);
 
   type OpenDialog = { id: string; agent: AgentConfig; minimized: boolean; width: number };
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
@@ -206,6 +223,7 @@ export function AiAssistantHelper(props: Readonly<AiAssistantHelperProps>) {
     setMenuAnchor(null);
     const effectiveId = agent?.id?.trim() || '';
     const resolved = { ...agent, id: effectiveId };
+    const plugin = createAiAssistantPluginFileBuilder(studioUiSiteKey);
     dispatch(
       batchActions([
         setPreviewEditMode({ editMode: true }),
@@ -215,6 +233,7 @@ export function AiAssistantHelper(props: Readonly<AiAssistantHelperProps>) {
             [
               createWidgetDescriptor({
                 id: helperWidgetId,
+                plugin,
                 configuration: {
                   iceChatOnly: true,
                   agentId: effectiveId,
@@ -222,7 +241,7 @@ export function AiAssistantHelper(props: Readonly<AiAssistantHelperProps>) {
                   llmModel: resolved.llmModel,
                   imageModel: resolved.imageModel,
                   imageGenerator: resolved.imageGenerator,
-                  openAiApiKey: resolved.openAiApiKey,
+                  llmApiKey: resolved.llmApiKey,
                   prompts: resolved.prompts,
                   ...(resolved.enableTools !== undefined ? { enableTools: resolved.enableTools } : {}),
                   ...(Array.isArray(resolved.enabledBuiltInTools) && resolved.enabledBuiltInTools.length > 0
@@ -345,18 +364,16 @@ export function AiAssistantHelper(props: Readonly<AiAssistantHelperProps>) {
     const llmModel = (iceRaw.llmModel as string | undefined)?.trim();
     const imageModel = iceChatCfg.imageModel as string | undefined;
     const imageGenerator = (iceRaw.imageGenerator as string | undefined)?.trim();
-    const openAiApiKey = iceChatCfg.openAiApiKey as string | undefined;
+    const llmApiKey = iceChatCfg.llmApiKey as string | undefined;
     const configPrompts = Array.isArray(iceChatCfg.prompts)
       ? (iceChatCfg.prompts as Array<{ userText: string; additionalContext?: string }>)
       : undefined;
     const iceEnableTools = readOptionalBooleanFromConfiguration(iceChatCfg, 'enableTools', 'enable_tools');
     const iceEnabledBuiltIn = normalizeEnabledBuiltInToolsRaw(iceRaw.enabledBuiltInTools);
-    const iceExpertSkills = Array.isArray(iceChatCfg.expertSkills)
-      ? (iceChatCfg.expertSkills as ExpertSkillConfig[])
-      : undefined;
+    const iceSkills = agentSkillsForRequest({
+      skills: Array.isArray(iceChatCfg.skills) ? (iceChatCfg.skills as AgentSkillConfig[]) : undefined
+    });
     const iceTranslateBatch = extractPositiveInt(iceRaw as Record<string, unknown>, 1, 64, 'translateBatchConcurrency', 'translate_batch_concurrency');
-    const iceBearerEnv = (iceRaw.crafterQBearerTokenEnv as string | undefined)?.trim();
-    const iceBearerTok = (iceRaw.crafterQBearerToken as string | undefined)?.trim();
     return (
       <AiAssistantIceChatShell>
         <AiAssistantChat
@@ -365,15 +382,13 @@ export function AiAssistantHelper(props: Readonly<AiAssistantHelperProps>) {
           llmModel={llmModel || undefined}
           imageModel={imageModel}
           imageGenerator={imageGenerator || undefined}
-          openAiApiKey={openAiApiKey}
+          llmApiKey={llmApiKey}
           enableTools={iceEnableTools}
           enabledBuiltInTools={iceEnabledBuiltIn}
-          expertSkills={iceExpertSkills}
+          skills={iceSkills}
           configPrompts={configPrompts}
           embedTarget="icePanel"
           {...(iceTranslateBatch != null ? { translateBatchConcurrency: iceTranslateBatch } : {})}
-          {...(iceBearerEnv ? { crafterQBearerTokenEnv: iceBearerEnv } : {})}
-          {...(iceBearerTok ? { crafterQBearerToken: iceBearerTok } : {})}
         />
       </AiAssistantIceChatShell>
     );
@@ -513,19 +528,13 @@ export function AiAssistantHelper(props: Readonly<AiAssistantHelperProps>) {
                         llmModel={d.agent.llmModel}
                         imageModel={d.agent.imageModel}
                         imageGenerator={d.agent.imageGenerator}
-                        openAiApiKey={d.agent.openAiApiKey}
+                        llmApiKey={d.agent.llmApiKey}
                         enableTools={d.agent.enableTools}
                         enabledBuiltInTools={d.agent.enabledBuiltInTools}
-                        expertSkills={d.agent.expertSkills}
+                        skills={agentSkillsForRequest(d.agent)}
                         configPrompts={d.agent.prompts}
                         {...(d.agent.translateBatchConcurrency != null
                           ? { translateBatchConcurrency: d.agent.translateBatchConcurrency }
-                          : {})}
-                        {...(d.agent.crafterQBearerTokenEnv?.trim()
-                          ? { crafterQBearerTokenEnv: d.agent.crafterQBearerTokenEnv.trim() }
-                          : {})}
-                        {...(d.agent.crafterQBearerToken?.trim()
-                          ? { crafterQBearerToken: d.agent.crafterQBearerToken.trim() }
                           : {})}
                       />
                     </Box>

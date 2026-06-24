@@ -4,6 +4,7 @@ import { firstValueFrom, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 
 import { buildStudioAuthHeaders } from './aiAssistantApi';
+import type { AiAssistantSecretAdminRow } from './aiAssistantSecretsModel';
 
 const BASE = '/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/scripts';
 
@@ -24,6 +25,10 @@ export type AiAssistantScriptsIndexTool = {
   id: string;
   script: string;
   description: string;
+  /** Intent-routing phrases (same semantics as intent recipe {@code matchHints}). */
+  matchHints?: string[];
+  dontMatchHints?: string[];
+  priority?: number;
   studioPath: string;
   hasSource: boolean;
   byteLength: number;
@@ -40,6 +45,12 @@ export type AiAssistantScriptsToolPromptOverrideRow = {
   key: string;
   studioPath: string;
   hasOverride: boolean;
+  byteLength: number;
+};
+
+export type AiAssistantScriptsProjectContextRow = {
+  studioPath: string;
+  hasContent: boolean;
   byteLength: number;
 };
 
@@ -64,7 +75,15 @@ export type AiAssistantScriptsIndexResponse = {
   tools?: AiAssistantScriptsIndexTool[];
   imageGenerators?: AiAssistantScriptsIndexItem[];
   llmScripts?: AiAssistantScriptsIndexItem[];
+  projectContext?: AiAssistantScriptsProjectContextRow;
   toolPromptOverrides?: AiAssistantScriptsToolPromptOverrideRow[];
+  /** Present when secrets service loaded; see {@link fetchAiAssistantSecretsIndex}. */
+  secretsStudioPath?: string;
+  knownSecrets?: AiAssistantSecretAdminRow[];
+  customSecrets?: AiAssistantSecretAdminRow[];
+  secretsError?: string;
+  /** True when the server just created default secrets.json for this site. */
+  secretsSeeded?: boolean;
 };
 
 export async function fetchAiAssistantPromptDetail(siteId: string, key: string): Promise<AiAssistantPromptDetailResponse> {
@@ -208,26 +227,40 @@ export async function fetchOptionalStudioSandboxUtf8(siteId: string, sandboxPath
   }
 }
 
+/** Full sandbox repo path for a Studio {@code studio} module relative path (e.g. {@code scripts/.../tools.json}). */
+export function studioConfigSandboxRepoPath(studioConfigRelativeNoLeadingSlash: string): string {
+  const rel = (studioConfigRelativeNoLeadingSlash || '').trim().replace(/^\/+/, '');
+  return rel ? `/config/studio/${rel}` : '';
+}
+
 /**
  * Reads a site file under {@code /config/studio/<relative>} for the script sandbox editor.
  * <ol>
- *   <li>{@code get-content.json} via {@code fetchContentXML} when the path is not listed as missing from {@code sandbox_items_by_path}
- *       (does <strong>not</strong> require {@code items[0]} — that slot can be empty right after writes while the file still exists).</li>
- *   <li>If still empty, {@code get_configuration} raw string via {@code fetchConfigurationXML} — same stack as {@code write_configuration}.
- *       Do <strong>not</strong> use {@code fetchConfigurationJSON}: it runs XML {@code deserialize} and destroys Groovy/JSON/plain text.</li>
+ *   <li>{@code sandbox_items_by_path}: when the path is listed as missing, return {@code ''} immediately — do
+ *       <strong>not</strong> call {@code get_configuration}. Optional files (e.g. {@code intent-recipes.json}) are
+ *       often absent while the plugin still serves bundled in-memory recipes on the server and built-in catalog in
+ *       the UI; Studio logs {@code ContentNotFoundException} at ERROR when {@code get_configuration} probes a missing path.</li>
+ *   <li>{@code get-content.json} when the path is present (does <strong>not</strong> require {@code items[0]} — that
+ *       slot can be empty right after writes while the file still exists).</li>
+ *   <li>If the listing exists but body is still empty, {@code get_configuration} via {@code fetchConfigurationXML}
+ *       (same stack as {@code write_configuration}). Do <strong>not</strong> use {@code fetchConfigurationJSON}: it
+ *       runs XML {@code deserialize} and destroys Groovy/JSON/plain text.</li>
  * </ol>
  */
 export async function fetchStudioConfigFileUtf8(siteId: string, studioConfigRelativeNoLeadingSlash: string): Promise<string> {
   const sid = (siteId || '').trim();
   const rel = (studioConfigRelativeNoLeadingSlash || '').trim().replace(/^\/+/, '');
   if (!sid || !rel) return '';
-  const path = `/config/studio/${rel}`;
+  const path = studioConfigSandboxRepoPath(rel);
   try {
     const listings = (await firstValueFrom(
       fetchItemsByPath(sid, [path], { preferContent: true })
     )) as unknown as { missingItems?: string[] };
     if (Array.isArray(listings?.missingItems) && listings.missingItems.includes(path)) {
-      return tryFetchConfigurationXmlPlain(sid, rel);
+      return '';
+    }
+    if (!listings?.[0]) {
+      return '';
     }
     const raw = await firstValueFrom(fetchContentXML(sid, path, { lock: false }).pipe(catchError(() => of(null))));
     const fromGetContent = utf8FromStudioContentPayload(raw);
@@ -236,7 +269,7 @@ export async function fetchStudioConfigFileUtf8(siteId: string, studioConfigRela
     }
     return tryFetchConfigurationXmlPlain(sid, rel);
   } catch {
-    return tryFetchConfigurationXmlPlain(sid, rel);
+    return '';
   }
 }
 

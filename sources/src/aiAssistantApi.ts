@@ -1,11 +1,10 @@
-import type { ExpertSkillConfig } from './agentConfig';
+import type { AgentSkillConfig } from './agentConfig';
+import { extractTerminalPipelineTiming, isTerminalMetadata } from './pipelineTiming';
 import { getGlobalHeaders } from '@craftercms/studio-ui/utils/ajax';
 import {
   getXSRFToken,
   getRequestForgeryTokenHeaderName
 } from '@craftercms/studio-ui/utils/auth';
-
-export const CRAFTERQ_CHAT_USER_HEADER = 'X-CrafterQ-Chat-User';
 
 /**
  * Thrown when the HTTP response body ends without an SSE frame carrying {@code metadata.completed} or
@@ -19,17 +18,6 @@ export class AiAssistantIncompleteStreamError extends Error {
     this.name = 'AiAssistantIncompleteStreamError';
   }
 }
-const CRAFTERQ_CHAT_USER_STORAGE_KEY = 'crafterq.chatUser';
-
-export interface AiAssistantChatListResponse {
-  chats: Array<{
-    id: string;
-    title?: string;
-    updatedAt?: string;
-    createdAt?: string;
-    [key: string]: unknown;
-  }>;
-}
 
 export interface AiAssistantChatMessage {
   messageType?: string; // "USER" | "ASSISTANT" (observed)
@@ -39,7 +27,7 @@ export interface AiAssistantChatMessage {
     messageId?: string;
     completed?: boolean;
     error?: boolean;
-    /** Server set when the OpenAI plan gate stops the tool workflow — client may replace partial assistant output. */
+    /** Server set when the LLM plan gate stops the tool workflow — client may replace partial assistant output. */
     planGateFailure?: boolean;
     role?: string;
     [key: string]: unknown;
@@ -49,60 +37,6 @@ export interface AiAssistantChatMessage {
   [key: string]: unknown;
 }
 
-export interface AiAssistantChatMessagesResponse {
-  messages: AiAssistantChatMessage[];
-}
-
-function getStoredChatUser(): string | null {
-  try {
-    return window.localStorage.getItem(CRAFTERQ_CHAT_USER_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function setStoredChatUser(value: string | null) {
-  try {
-    if (!value) return;
-    const trimmed = value.trim();
-    if (trimmed) window.localStorage.setItem(CRAFTERQ_CHAT_USER_STORAGE_KEY, trimmed);
-  } catch {
-    // ignore
-  }
-}
-
-export async function listChats(agentId: string): Promise<AiAssistantChatListResponse['chats']> {
-  const url = new URL('https://api.crafterq.ai/v1/chats');
-  url.searchParams.set('agentId', agentId);
-  const token = getStoredChatUser();
-  const res = await fetch(url.toString(), {
-    mode: 'cors',
-    credentials: 'include',
-    headers: token ? { [CRAFTERQ_CHAT_USER_HEADER]: token } : undefined
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`CrafterQ listChats failed (${res.status}): ${text || res.statusText}`);
-  }
-  const json = (await res.json()) as AiAssistantChatListResponse;
-  return json.chats ?? [];
-}
-
-export async function getChatMessages(chatId: string): Promise<AiAssistantChatMessage[]> {
-  const token = getStoredChatUser();
-  const res = await fetch(`https://api.crafterq.ai/v1/chats/${chatId}`, {
-    mode: 'cors',
-    credentials: 'include',
-    headers: token ? { [CRAFTERQ_CHAT_USER_HEADER]: token } : undefined
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`CrafterQ getChat failed (${res.status}): ${text || res.statusText}`);
-  }
-  const json = (await res.json()) as AiAssistantChatMessagesResponse;
-  return json.messages ?? [];
-}
-
 export interface StreamChatArgs {
   agentId: string;
   prompt: string;
@@ -110,12 +44,15 @@ export interface StreamChatArgs {
   /**
    * Studio preview item path (XB / ICE). Server appends **repository** authoring context for tools.
    * Omit in **form-engine** mode — unsaved edits live in the browser; use {@link authoringSurface} `formEngine` instead.
+   * Omit when POST {@link siteId} differs from {@link pluginRequestSiteId} (cross-site working).
    */
   contentPath?: string;
   /** Preview content type id (XB). Omit in form-engine mode. */
   contentTypeId?: string;
   /** Studio UI label for the open item’s content type when the host exposes it (helps label→id matching). */
   contentTypeLabel?: string;
+  /** Display template path for the open preview item’s content type (metadata only; no FTL body inlined). */
+  displayTemplate?: string;
   /**
    * When the author’s browser shows Experience Builder preview (`…/studio/preview#/?page=…&site=…`), pass it so the
    * server-injected “Studio preview URL” matches the address bar (optional; server can synthesize from contentPath).
@@ -127,8 +64,26 @@ export interface StreamChatArgs {
    */
   authoringSurface?: 'preview' | 'formEngine';
   /**
-   * Only with `authoringSurface: 'formEngine'`. When true, server appends instructions for `crafterqFormFieldUpdates` JSON
-   * so the browser can apply edits. **Never set for XB/ICE** — omit so preview uses tools + `contentPath` only.
+   * Preview/XB only — author-selected scope from the AI Assistant UI: `project` | `page` | `component` | `field`.
+   * Form-engine: `content` | `field`. Omitted defaults to `page` (preview) or `content` (form) on the server.
+   */
+  authoringScope?: 'project' | 'page' | 'component' | 'field' | 'content';
+  /** Preview page repository path (parent page) — sent with field scope when the focused item is a nested component. */
+  pageContentPath?: string;
+  /** Repository path of the XB-focused content item (component or page). */
+  xbFocusedContentPath?: string;
+  /** Field id on the focused item (dot path for repeat groups). */
+  xbFocusedFieldId?: string;
+  /** Repeat-group / collection index when applicable. */
+  xbFocusedFieldIndex?: string | number;
+  /** Studio form-definition label for the focused field. */
+  xbFocusedFieldLabel?: string;
+  /** Studio internal-name / label for the focused component item. */
+  xbFocusedComponentLabel?: string;
+  /**
+   * Only with `authoringSurface: 'formEngine'`. When true, server appends instructions for **`aiassistantFormFieldUpdates`** JSON
+   * so the browser can apply edits.
+   * **Never set for XB/ICE** — omit so preview uses tools + `contentPath` only.
    */
   formEngineClientJsonApply?: boolean;
   /**
@@ -137,51 +92,55 @@ export interface StreamChatArgs {
    * omit to fall back to blocking all repo writes for that session (safe when path is unknown).
    */
   formEngineItemPath?: string;
-  /** `crafterQ` | `openAI` — must match server / widget configuration */
+  /** Provider id for this agent — e.g. `openAI`, `claude`, `gemini`, `script:{id}` (must match server `StudioAiLlmKind`). */
   llm?: string;
-  /** Provider model id when llm is openAI; optional (server default gpt-4o-mini). Request body key **`llmModel`**. */
+  /** Chat model id for the agent LLM; optional (server may apply a default). Request body key **`llmModel`**. */
   llmModel?: string;
-  /** OpenAI Images API model for GenerateImage; agent **imageModel** / request body **imageModel** (no default). */
+  /** Image model for GenerateImage; agent **imageModel** / request body **imageModel** (no server default). */
   imageModel?: string;
-  /** GenerateImage backend: agent **imageGenerator** / POST **imageGenerator** (blank / openAiWire / none / script:{id}). */
+  /** GenerateImage backend: agent **imageGenerator** / POST **imageGenerator** (blank / llmWire / none / script:{id}). */
   imageGenerator?: string;
   /**
-   * Optional key from widget ui.xml — server uses only if env/JVM key unset. Not recommended for production.
+   * Optional key from agent config — server uses only if env/JVM key unset. Not recommended for production.
    */
-  openAiApiKey?: string;
-  /** Required by Studio plugin script API */
+  llmApiKey?: string;
+  /**
+   * CMS target site for tool calls (POST body). May differ from the Studio session site when the author
+   * uses "in site X" or "set site to X".
+   */
   siteId?: string;
+  /**
+   * Studio session site for the plugin script URL query only. Must be the site where the plugin is loaded
+   * (active Studio site). When omitted, falls back to {@link siteId}.
+   */
+  pluginRequestSiteId?: string;
   /**
    * Studio {@code crafterPreview} cookie value — sent to the plugin stream/chat API so {@code GetPreviewHtml} can
    * GET Engine preview markup without passing the token on every tool call.
    */
   previewToken?: string;
   /**
-   * When false, server omits OpenAI CMS function tools (from ui.xml agent `enableTools`). Omitted defaults to tools on.
+   * When false, server omits function tools (from agents.json `enableTools`). Omitted defaults to tools on.
    * May be string when passed from serialized widget props.
    */
   enableTools?: boolean | string;
   /**
-   * When true, this request omits CMS function tools (copy / image-style generation steps). Overrides enableTools for one round-trip only.
+   * When true, this request omits function tools (copy / image-style generation steps). Overrides enableTools for one round-trip only.
    * Same behavior for Experience Builder/ICE preview chat, floating dialog, and form-engine assistant (`authoringSurface`).
    */
   omitTools?: boolean;
   /**
-   * Optional subset of CMS tool wire names for this request (POST **enabledBuiltInTools**). Include **`mcp:*`**
+   * Optional subset of built-in tool wire names for this request (POST **enabledBuiltInTools**). Include **`mcp:*`**
    * to retain all MCP tools after site policy. Omitted = full catalog (subject to site **tools.json**).
    */
   enabledBuiltInTools?: string[];
-  /** Per-agent markdown RAG sources (OpenAI); forwarded as JSON for QueryExpertGuidance. */
-  expertSkills?: ExpertSkillConfig[];
+  /** Per-agent markdown RAG sources (embeddings API); forwarded as JSON for QueryExpertGuidance. */
+  skills?: AgentSkillConfig[];
   /**
    * 1–64; forwarded on stream POST for default **TranslateContentBatch** parallelism when the model omits **maxConcurrency**
-   * (from agent ui.xml **translateBatchConcurrency**). Server default 25 when omitted.
+   * (from agent `translateBatchConcurrency` in agents.json). Server default 25 when omitted.
    */
   translateBatchConcurrency?: number;
-  /** CrafterQ JWT for `Authorization: Bearer` on server-proxied api.crafterq.ai calls (ui.xml **crafterQBearerToken**). */
-  crafterQBearerToken?: string;
-  /** Studio host env var **name** for the CrafterQ JWT (ui.xml **crafterQBearerTokenEnv**); overrides literal when set and non-empty. */
-  crafterQBearerTokenEnv?: string;
   signal?: AbortSignal;
   onMessage: (event: AiAssistantChatMessage) => void;
   /**
@@ -191,8 +150,7 @@ export interface StreamChatArgs {
 }
 
 /**
- * Streams chat responses via SSE (text/event-stream) using fetch streaming.
- * This mirrors the widget behavior: POST /v1/chats?stream=true&agentId=...
+ * Streams assistant replies via SSE from the Studio plugin script endpoint (`…/ai/stream`).
  */
 /**
  * Reads the Studio Experience Builder {@code crafterPreview} cookie when present (document.cookie).
@@ -236,39 +194,45 @@ export async function streamChat(args: StreamChatArgs): Promise<void> {
     contentPath,
     contentTypeId,
     contentTypeLabel,
+    displayTemplate,
     studioPreviewPageUrl,
     authoringSurface,
+    authoringScope,
+    pageContentPath,
+    xbFocusedContentPath,
+    xbFocusedFieldId,
+    xbFocusedFieldIndex,
+    xbFocusedFieldLabel,
+    xbFocusedComponentLabel,
     formEngineClientJsonApply,
     formEngineItemPath,
     llm,
     llmModel,
     imageModel,
     imageGenerator,
-    openAiApiKey,
+    llmApiKey,
     siteId,
+    pluginRequestSiteId,
     previewToken,
     enableTools,
     omitTools,
     enabledBuiltInTools,
-    expertSkills,
+    skills,
     translateBatchConcurrency,
-    crafterQBearerToken,
-    crafterQBearerTokenEnv,
     signal,
     onMessage,
     onRawSseDataLine
   } = args;
-  const token = getStoredChatUser();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Accept: 'text/event-stream',
     ...buildStudioAuthHeaders()
   };
-  if (token) headers[CRAFTERQ_CHAT_USER_HEADER] = token;
 
   let pluginStreamUrl = '/studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/ai/stream';
-  if (siteId) {
-    pluginStreamUrl += (pluginStreamUrl.includes('?') ? '&' : '?') + 'siteId=' + encodeURIComponent(siteId);
+  const urlSiteId = (pluginRequestSiteId ?? siteId)?.toString()?.trim();
+  if (urlSiteId) {
+    pluginStreamUrl += (pluginStreamUrl.includes('?') ? '&' : '?') + 'siteId=' + encodeURIComponent(urlSiteId);
   }
   const requestBody: Record<string, unknown> =
     chatId != null && String(chatId).trim() !== ''
@@ -280,16 +244,32 @@ export async function streamChat(args: StreamChatArgs): Promise<void> {
   if (imageModel != null && String(imageModel).trim() !== '') requestBody.imageModel = String(imageModel).trim();
   if (imageGenerator != null && String(imageGenerator).trim() !== '')
     requestBody.imageGenerator = String(imageGenerator).trim();
-  if (openAiApiKey != null && String(openAiApiKey).trim() !== '') requestBody.openAiApiKey = String(openAiApiKey).trim();
+  if (llmApiKey != null && String(llmApiKey).trim() !== '') requestBody.llmApiKey = String(llmApiKey).trim();
   if (contentPath != null && String(contentPath).trim() !== '') requestBody.contentPath = String(contentPath).trim();
   if (contentTypeId != null && String(contentTypeId).trim() !== '')
     requestBody.contentTypeId = String(contentTypeId).trim();
   if (contentTypeLabel != null && String(contentTypeLabel).trim() !== '')
     requestBody.contentTypeLabel = String(contentTypeLabel).trim();
+  if (displayTemplate != null && String(displayTemplate).trim() !== '')
+    requestBody.displayTemplate = String(displayTemplate).trim();
   if (studioPreviewPageUrl != null && String(studioPreviewPageUrl).trim() !== '')
     requestBody.studioPreviewPageUrl = String(studioPreviewPageUrl).trim();
   if (authoringSurface != null && String(authoringSurface).trim() !== '')
     requestBody.authoringSurface = String(authoringSurface).trim();
+  if (authoringScope != null && String(authoringScope).trim() !== '')
+    requestBody.authoringScope = String(authoringScope).trim();
+  if (pageContentPath != null && String(pageContentPath).trim() !== '')
+    requestBody.pageContentPath = String(pageContentPath).trim();
+  if (xbFocusedContentPath != null && String(xbFocusedContentPath).trim() !== '')
+    requestBody.xbFocusedContentPath = String(xbFocusedContentPath).trim();
+  if (xbFocusedFieldId != null && String(xbFocusedFieldId).trim() !== '')
+    requestBody.xbFocusedFieldId = String(xbFocusedFieldId).trim();
+  if (xbFocusedFieldIndex != null && String(xbFocusedFieldIndex).trim() !== '')
+    requestBody.xbFocusedFieldIndex = xbFocusedFieldIndex;
+  if (xbFocusedFieldLabel != null && String(xbFocusedFieldLabel).trim() !== '')
+    requestBody.xbFocusedFieldLabel = String(xbFocusedFieldLabel).trim();
+  if (xbFocusedComponentLabel != null && String(xbFocusedComponentLabel).trim() !== '')
+    requestBody.xbFocusedComponentLabel = String(xbFocusedComponentLabel).trim();
   if (formEngineClientJsonApply === true) requestBody.formEngineClientJsonApply = true;
   if (formEngineItemPath != null && String(formEngineItemPath).trim() !== '')
     requestBody.formEngineItemPath = String(formEngineItemPath).trim();
@@ -306,12 +286,18 @@ export async function streamChat(args: StreamChatArgs): Promise<void> {
   if (previewToken != null && String(previewToken).trim() !== '') {
     requestBody.previewToken = String(previewToken).trim();
   }
-  if (Array.isArray(expertSkills) && expertSkills.length > 0) {
-    requestBody.expertSkills = expertSkills.map((s) => ({
-      name: s.name,
-      url: s.url,
-      description: s.description
-    }));
+  if (Array.isArray(skills) && skills.length > 0) {
+    const enabled = skills
+      .filter((s) => s.enabled === true && (s.url || '').trim())
+      .map((s) => ({
+        name: s.name,
+        url: s.url,
+        description: s.description,
+        enabled: true
+      }));
+    if (enabled.length) {
+      requestBody.skills = enabled;
+    }
   }
   if (
     translateBatchConcurrency != null &&
@@ -321,11 +307,6 @@ export async function streamChat(args: StreamChatArgs): Promise<void> {
   ) {
     requestBody.translateBatchConcurrency = Math.floor(translateBatchConcurrency);
   }
-  const bEnv = crafterQBearerTokenEnv != null ? String(crafterQBearerTokenEnv).trim() : '';
-  if (bEnv) requestBody.crafterQBearerTokenEnv = bEnv;
-  const bTok = crafterQBearerToken != null ? String(crafterQBearerToken).trim() : '';
-  if (bTok) requestBody.crafterQBearerToken = bTok;
-
   const streamFromResponse = async (res: Response, failPrefix: string): Promise<void> => {
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -337,20 +318,37 @@ export async function streamChat(args: StreamChatArgs): Promise<void> {
 
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
-    /** Server may keep the HTTP connection open after the last SSE event; resolve as soon as we see a terminal frame. */
+    /**
+     * Server may keep the HTTP connection open after the last SSE event. Do not cancel the reader on the
+     * first {@code completed} frame if it lacks pipeline timing — a follow-up terminal frame may carry
+     * {@code toolPipelineTotalSec} / {@code toolPipelineWallMs}.
+     */
     let sawTerminalEvent = false;
+    let sawTerminalPipelineTiming = false;
 
     const dispatchSseDataLine = (jsonLine: string) => {
       try {
         onRawSseDataLine?.(jsonLine);
         const evt = JSON.parse(jsonLine) as AiAssistantChatMessage;
         onMessage(evt);
-        const m = evt.metadata;
-        if (m && (m.completed === true || m.error === true)) {
+        const m =
+          evt.metadata && typeof evt.metadata === 'object'
+            ? (evt.metadata as Record<string, unknown>)
+            : undefined;
+        if (isTerminalMetadata(m)) {
           sawTerminalEvent = true;
+          if (extractTerminalPipelineTiming(m)) {
+            sawTerminalPipelineTiming = true;
+          }
         }
-      } catch {
-        // ignore malformed chunks
+      } catch (e) {
+        if (jsonLine.length > 80_000) {
+          console.warn(
+            '[AiAssistant] SSE JSON parse failed (likely oversized frame). lineChars=',
+            jsonLine.length,
+            (e as Error)?.message ?? e
+          );
+        }
       }
     };
 
@@ -376,7 +374,7 @@ export async function streamChat(args: StreamChatArgs): Promise<void> {
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       processBufferFrames();
-      if (sawTerminalEvent) {
+      if (sawTerminalPipelineTiming) {
         try {
           await reader.cancel();
         } catch {
@@ -385,6 +383,7 @@ export async function streamChat(args: StreamChatArgs): Promise<void> {
         return;
       }
     }
+    processBufferFrames();
     if (!sawTerminalEvent) {
       throw new AiAssistantIncompleteStreamError();
     }

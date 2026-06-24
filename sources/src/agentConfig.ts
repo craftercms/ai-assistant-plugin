@@ -1,26 +1,28 @@
 /**
- * Agent configuration as defined in ui.xml <configuration><agents><agent>...</agent></agents></configuration>
+ * Chat agent row shape for `config/studio/ai-assistant/agents.json` (Project Tools → Agents).
  */
 /**
- * Studio stream `llm` value. Common: `crafterQ` (hosted), `openAI`, `claude`, `xAI`, `deepSeek`, `llama`, `gemini`,
- * or `script:<id>` (see server `StudioAiLlmKind`).
+ * Studio stream `llm` value. Use a provider id accepted by server {@code StudioAiLlmKind.normalize}
+ * (e.g. `openAI`, `claude`, `xAI`, `deepSeek`, `llama`, `gemini`, or `script:<id>`).
  */
 export type AgentLlm = string;
 
-/** Optional per-agent markdown RAG source (OpenAI path); configured in ui.xml as `<expertSkill>` children. */
-export interface ExpertSkillConfig {
+/** Per-agent markdown skill (URL indexed for **QueryExpertGuidance** when enabled). */
+export interface AgentSkillConfig {
   /** Display name for the system prompt table. */
   name?: string;
   /** Public http(s) URL whose body is treated as UTF-8 markdown for chunking + embeddings. */
   url: string;
   /** When to call QueryExpertGuidance for this skill. */
   description?: string;
+  /** When true, skill is sent on chat requests and indexed; omitted or false = off (default). */
+  enabled?: boolean;
 }
 
 export interface AgentConfig {
   /**
-   * CrafterQ SaaS agent UUID (and stream `agentId`), from ui.xml **{@code <crafterQAgentId>}** / widget JSON **`crafterQAgentId`**.
-   * With **label**, used for merge/dedupe and form toggles. For **OpenAI** without CrafterQ calls, may be omitted (empty).
+   * Stable agent id for stream `agentId` and merge/dedupe; from **`agentId`** in `agents.json`.
+   * With **label**, forms the composite {@link agentStableKey}. May be empty when omitted in config.
    */
   id: string;
   label: string;
@@ -30,55 +32,47 @@ export interface AgentConfig {
    * (edit mode on). Default is panel. XML / JSON: `<openAsPopup>true</openAsPopup>` or `"openAsPopup": true`.
    */
   openAsPopup?: boolean;
-  /** From `<llm>crafterQ</llm>` or `<llm>openAI</llm>` in widget configuration. Omitted unless set in ui.xml; stream/chat then omit POST `llm` unless the server merges it from `/ui.xml` — missing `llm` after merge is **400**. Prefer setting explicitly. */
+  /** Provider id (e.g. `openAI`, `claude`, `script:…`). Omitted on the client when unset; server merges from `agents.json` when possible. */
   llm?: AgentLlm;
   /**
-   * When false (ui.xml `<enableTools>false</enableTools>`), the plugin sends `enableTools: false` so OpenAI
-   * requests omit CMS function tools. Omitted or true: default (tools on for OpenAI).
+   * When false (`enableTools: false` in `agents.json`), the plugin sends `enableTools: false` so the
+   * LLM request omits native function tools. Omitted or true: default (tools on for tools-loop vendors).
    */
   enableTools?: boolean;
   /**
-   * Optional subset of built-in CMS tool wire names (e.g. `GetContent`, `WriteContent`). Forwarded on stream POST as
+   * Optional subset of built-in tool wire names (e.g. `GetContent`, `WriteContent`). Forwarded on stream POST as
    * `enabledBuiltInTools` when non-empty. Include `mcp:*` to allow all MCP tools. Omitted = full catalog (subject to site `tools.json`).
    */
   enabledBuiltInTools?: string[];
-  /** Optional provider model id when `llm` is `openAI` (e.g. `gpt-4o-mini`). ui.xml **`<llmModel>`** / JSON **`llmModel`**. */
+  /** Optional provider model id when `llm` is `openAI` (e.g. `gpt-4o-mini`). */
   llmModel?: string;
-  /** OpenAI Images API model when llm is openAI (e.g. gpt-image-1). ui.xml **`<imageModel>`** / JSON **`imageModel`** — no JVM fallback. */
+  /** Image generation model id when using built-in image API (e.g. gpt-image-1). */
   imageModel?: string;
   /**
-   * GenerateImage backend: ui.xml **`<imageGenerator>`** / JSON **`imageGenerator`**. Blank = built-in GenerateImage HTTP wire when configured; values **none**, **off**, or **disabled** turn the tool off; **script:{id}** runs `/scripts/aiassistant/imagegen/{id}/generate.groovy`.
+   * GenerateImage backend. Blank = built-in GenerateImage HTTP wire when configured; values **none**, **off**, or **disabled** turn the tool off; **script:{id}** runs `/scripts/aiassistant/imagegen/{id}/generate.groovy`.
    */
   imageGenerator?: string;
   /**
-   * Optional OpenAI API key from ui.xml — **not recommended** (exposed in Studio config / sent on requests).
+   * Optional per-agent API key in config — **not recommended** (exposed in Studio config / sent on requests).
    * Used only when `OPENAI_API_KEY` / JVM keys are unset. For local testing.
    */
-  openAiApiKey?: string;
+  llmApiKey?: string;
+  /** Key in site {@code secrets.json} for this agent's LLM credentials (e.g. {@code openai_api_key}). Omitted for script LLMs. */
+  llmSecretKey?: string;
   prompts?: PromptConfig[];
-  /** Markdown URLs for server-side QueryExpertGuidance (Spring AI vector store); OpenAI agents only. */
-  expertSkills?: ExpertSkillConfig[];
+  /** Markdown URL skills (`agents.json` **`skills`**); only **enabled** rows are sent on chat. */
+  skills?: AgentSkillConfig[];
   /**
    * Parallel **TranslateContentBatch** workers when the model omits **maxConcurrency** (1–64).
-   * ui.xml: **`<translateBatchConcurrency>25</translateBatchConcurrency>`** (or `translate_batch_concurrency`). Omitted → server default **25**.
+   * `agents.json`: **`translateBatchConcurrency`** (or `translate_batch_concurrency`). Omitted → server default **25**.
    */
   translateBatchConcurrency?: number;
-  /**
-   * Optional CrafterQ SaaS JWT for **api.crafterq.ai** (`Authorization: Bearer …`) on server-proxied CrafterQ calls.
-   * ui.xml **`<crafterQBearerToken>`** — **not recommended** in Git (use {@link crafterQBearerTokenEnv} + host env instead).
-   */
-  crafterQBearerToken?: string;
-  /**
-   * Host **environment variable name** whose value is the CrafterQ JWT (read with `System.getenv` on Studio at request time).
-   * ui.xml **`<crafterQBearerTokenEnv>`** (e.g. `CRAFTQ_ADMIN_JWT`). Takes precedence over {@link crafterQBearerToken} when set and the env value is non-empty.
-   */
-  crafterQBearerTokenEnv?: string;
 }
 
 /**
- * Stable key for matching agents between ui.xml, form field properties, and the form-control UI.
+ * Stable key for matching agents between `agents.json`, form field properties, and the form-control UI.
  * When both `id` and `label` are set, uses a composite key so multiple `<agent>` rows with the **same**
- * backend `id` (e.g. same CrafterQ UUID, different labels) stay distinct — otherwise merging collapses them.
+ * backend `id` (e.g. same UUID, different labels) stay distinct — otherwise merging collapses them.
  */
 export function agentStableKey(a: Pick<AgentConfig, 'id' | 'label'>): string {
   const id = (a.id || '').trim();
@@ -98,97 +92,15 @@ export function agentFormPropertyName(a: Pick<AgentConfig, 'id' | 'label'>): str
   return 'cqShow_' + s;
 }
 
-/** Label used when Studio JSON omits `<label>` (see {@link normalizeAgent}); not a real product name. */
-export const CRAFTERQ_AGENT_LABEL_PLACEHOLDER = 'CrafterQ';
-
-/** Default **`<crafterQAgentId>`** / label pair from `craftercms-plugin.yaml` sample Helper `<agent>` (CrafterQ cloud). */
-export const CRAFTERQ_PLUGIN_SAMPLE_AGENT_ID = '019c7237-478b-7f98-9a5c-87144c3fb010';
-export const CRAFTERQ_PLUGIN_SAMPLE_AGENT_LABEL = 'CrafterQ content';
-
-function shouldOverlayLabelFromSite(agent: AgentConfig, ui: AgentConfig): boolean {
-  const u = (ui.label || '').trim();
-  if (!u) return false;
-  const a = (agent.label || '').trim();
-  if (!a) return true;
-  if (a === CRAFTERQ_AGENT_LABEL_PLACEHOLDER && u !== a) return true;
-  return false;
-}
-
-function shouldOverlayIconFromSite(agent: AgentConfig, ui: AgentConfig): boolean {
-  return Boolean((ui.icon || '').trim() && !(agent.icon || '').trim());
-}
-
-function shouldOverlayPromptsFromSite(agent: AgentConfig, ui: AgentConfig): boolean {
-  return Boolean(Array.isArray(ui.prompts) && ui.prompts.length > 0 && (!agent.prompts || agent.prompts.length === 0));
-}
+/**
+ * Sentinel label when a catalog row omits **{@code label}**.
+ */
+export const AI_ASSISTANT_AGENT_LABEL_FALLBACK = 'AI Assistant';
 
 /**
- * Merge site `ui.xml` agents onto widget JSON agents.
- * When the widget row has no **{@code <crafterQAgentId>}**, Studio often omits label/icon/prompts so {@link normalizeAgent}
- * fills a placeholder label — stable keys then diverge from `/ui.xml` and the Helper menu shows duplicates.
- * Match: stable key, then id; when id is empty and site lists exactly one agent, treat that row as the overlay.
+ * Default catalog **{@code agentId}** when none is configured (empty — authors should set `agentId` in `agents.json`).
  */
-export function mergeAgentsWithSiteUiXmlOverlay(fromWidget: AgentConfig[], fromUiXml: AgentConfig[]): AgentConfig[] {
-  if (!fromUiXml.length || !fromWidget.length) return fromWidget;
-  return fromWidget.map((agent) => {
-    const key = agentStableKey(agent);
-    const byKey = fromUiXml.find((u) => agentStableKey(u) === key);
-    const idTrim = (agent.id || '').trim();
-    let ui = byKey;
-    if (!ui && idTrim) {
-      ui = fromUiXml.find((u) => (u.id || '').trim() === idTrim);
-    }
-    if (!ui && !idTrim && fromUiXml.length === 1) {
-      ui = fromUiXml[0];
-    }
-    if (!ui) return agent;
-    return {
-      ...agent,
-      ...(shouldOverlayLabelFromSite(agent, ui) ? { label: (ui.label || '').trim() } : {}),
-      ...(shouldOverlayIconFromSite(agent, ui) ? { icon: ui.icon } : {}),
-      ...(shouldOverlayPromptsFromSite(agent, ui) ? { prompts: ui.prompts } : {}),
-      ...(ui.id?.trim() && !(agent.id || '').trim() ? { id: ui.id.trim() } : {}),
-      ...(ui.enableTools !== undefined ? { enableTools: ui.enableTools } : {}),
-      ...(ui.llm !== undefined && agent.llm === undefined ? { llm: ui.llm } : {}),
-      ...(typeof ui.llmModel === 'string' &&
-      ui.llmModel.trim() &&
-      !(agent.llmModel || '').trim()
-        ? { llmModel: ui.llmModel.trim() }
-        : {}),
-      ...(typeof ui.imageModel === 'string' &&
-      ui.imageModel.trim() &&
-      !(agent.imageModel || '').trim()
-        ? { imageModel: ui.imageModel.trim() }
-        : {}),
-      ...(typeof ui.imageGenerator === 'string' &&
-      ui.imageGenerator.trim() &&
-      !(agent.imageGenerator || '').trim()
-        ? { imageGenerator: ui.imageGenerator.trim() }
-        : {}),
-      ...(ui.openAiApiKey !== undefined && agent.openAiApiKey === undefined ? { openAiApiKey: ui.openAiApiKey } : {}),
-      ...(ui.openAsPopup !== undefined && agent.openAsPopup === undefined ? { openAsPopup: ui.openAsPopup } : {}),
-      ...(Array.isArray(ui.expertSkills) &&
-      ui.expertSkills.length > 0 &&
-      (!agent.expertSkills || agent.expertSkills.length === 0)
-        ? { expertSkills: ui.expertSkills }
-        : {}),
-      ...(ui.translateBatchConcurrency != null && Number.isFinite(ui.translateBatchConcurrency)
-        ? { translateBatchConcurrency: ui.translateBatchConcurrency }
-        : {}),
-      ...(typeof ui.crafterQBearerTokenEnv === 'string' && ui.crafterQBearerTokenEnv.trim()
-        ? { crafterQBearerTokenEnv: ui.crafterQBearerTokenEnv.trim() }
-        : {}),
-      ...(typeof ui.crafterQBearerToken === 'string' && ui.crafterQBearerToken.trim()
-        ? { crafterQBearerToken: ui.crafterQBearerToken.trim() }
-        : {}),
-      ...(Array.isArray(ui.enabledBuiltInTools) &&
-      ui.enabledBuiltInTools.length > 0 &&
-      (!agent.enabledBuiltInTools || agent.enabledBuiltInTools.length === 0)
-        ? { enabledBuiltInTools: [...ui.enabledBuiltInTools] }
-        : {})
-    };
-  });
-}
+export const AI_ASSISTANT_DEFAULT_AGENT_ID = '';
 
 /** Keep first occurrence per {@link agentStableKey} (order preserved). */
 export function dedupeAgentsByStableKey(agents: AgentConfig[]): AgentConfig[] {
@@ -201,10 +113,7 @@ export function dedupeAgentsByStableKey(agents: AgentConfig[]): AgentConfig[] {
 }
 
 /**
- * Remove (a) JSON placeholder rows (label exactly {@link CRAFTERQ_AGENT_LABEL_PLACEHOLDER}) whenever another agent
- * has a non-placeholder label (Studio may still attach a non-sample id to the fallback row), and
- * (b) the plugin-install sample agent (`{@link CRAFTERQ_PLUGIN_SAMPLE_AGENT_ID}` + {@link CRAFTERQ_PLUGIN_SAMPLE_AGENT_LABEL}})
- * when at least one other row looks author-defined — typical duplicate Helper menu (Studio merges blueprint + site `ui.xml`).
+ * Remove placeholder rows (label exactly {@link AI_ASSISTANT_AGENT_LABEL_FALLBACK}) when another agent has a real label.
  */
 export function dropPlaceholderAgentsWhenRicherMatchesExist(agents: AgentConfig[]): AgentConfig[] {
   const deduped = dedupeAgentsByStableKey(agents);
@@ -212,26 +121,17 @@ export function dropPlaceholderAgentsWhenRicherMatchesExist(agents: AgentConfig[
 
   const hasRicher = deduped.some((a) => {
     const lab = (a.label || '').trim();
-    if (!lab) return false;
-    if (lab === CRAFTERQ_AGENT_LABEL_PLACEHOLDER) return false;
-    if (lab === CRAFTERQ_PLUGIN_SAMPLE_AGENT_LABEL) return false;
-    return true;
+    return lab && lab !== AI_ASSISTANT_AGENT_LABEL_FALLBACK;
   });
   if (!hasRicher) return deduped;
 
-  return deduped.filter((a) => {
-    const id = (a.id || '').trim();
-    const label = (a.label || '').trim();
-    if (hasRicher && label === CRAFTERQ_AGENT_LABEL_PLACEHOLDER) return false;
-    if (id === CRAFTERQ_PLUGIN_SAMPLE_AGENT_ID && label === CRAFTERQ_PLUGIN_SAMPLE_AGENT_LABEL) return false;
-    return true;
-  });
+  return deduped.filter((a) => (a.label || '').trim() !== AI_ASSISTANT_AGENT_LABEL_FALLBACK);
 }
 
 export type PromptConfig = {
   userText: string;
   additionalContext?: string;
-  /** When true, chip-triggered request sends {@code omitTools} — OpenAI omits CMS tools for that LLM call (copy/generation focus). */
+  /** When true, chip-triggered request sends {@code omitTools} — that LLM call omits native tools (copy/generation focus). */
   omitTools?: boolean;
 };
 
@@ -239,117 +139,63 @@ const DEFAULT_AGENT_ID = '';
 
 /** Fallback when no config or parsing fails — one toolbar/menu row so click always has a target. */
 const DEFAULT_AGENT: AgentConfig = {
-  id: CRAFTERQ_PLUGIN_SAMPLE_AGENT_ID,
+  id: AI_ASSISTANT_DEFAULT_AGENT_ID,
   label: 'Studio AI Assistant',
-  llm: 'crafterQ',
+  llm: 'openAI',
+  llmModel: 'gpt-4o-mini',
   prompts: []
 };
 
-/** Fallback list so Helper click / agent menus always have at least one entry (see {@link getAgentsFromConfiguration}). */
+/** Fallback list so Helper click / agent menus always have at least one entry while the catalog loads. */
 export const DEFAULT_AGENTS: AgentConfig[] = [DEFAULT_AGENT];
 
 /**
- * Default agents for the Form Engine “CrafterQ assistant” control when no agents come from ui.xml / widget config.
- * Keep IDs in sync with `sources/control/ai-assistant/main.js` (`CRAFTERQ_AGENT_CATALOG`).
+ * Default agents for the Form Engine AI Assistant control when `agents.json` is missing (see `main.js` fallback).
+ * Keep default **{@code id}** in sync with `sources/control/ai-assistant/main.js` (`AIASSISTANT_FALLBACK_AGENTS`).
  */
 export const DEFAULT_FORM_CONTROL_AGENTS: AgentConfig[] = [
-  { id: '019c7237-478b-7f98-9a5c-87144c3fb010', label: 'Content assistant', llm: 'crafterQ' }
+  {
+    id: AI_ASSISTANT_DEFAULT_AGENT_ID,
+    label: 'Content assistant',
+    llm: 'openAI',
+    llmModel: 'gpt-4o-mini'
+  }
 ];
 
-/**
- * Normalize agents from widget configuration.
- * Falls back to DEFAULT_AGENTS when no config or no agents found so the UI always works.
- */
-export function getAgentsFromConfiguration(configuration: unknown): AgentConfig[] {
-  const config = configuration != null && typeof configuration === 'object' ? (configuration as Record<string, unknown>) : null;
-  if (!config) return DEFAULT_AGENTS;
-
-  // Prefer nested configuration.agents; fallback to top-level agents (e.g. if config is spread onto props)
-  let agentsRaw: unknown = config.agents;
-  if (agentsRaw == null && config.configuration != null && typeof config.configuration === 'object') {
-    const inner = config.configuration as Record<string, unknown>;
-    agentsRaw = inner.agents ?? (inner.configuration != null && typeof inner.configuration === 'object' ? (inner.configuration as Record<string, unknown>).agents : undefined);
-  }
-  if (agentsRaw == null && config.configuration != null && typeof config.configuration === 'object') {
-    const inner = config.configuration as Record<string, unknown>;
-    if (inner.configuration != null && typeof inner.configuration === 'object') {
-      const deep = (inner.configuration as Record<string, unknown>).agents;
-      if (deep != null) agentsRaw = deep;
-    }
-  }
-  if (agentsRaw == null) {
-    const singleAgent = config.agent ?? (config.configuration && typeof config.configuration === 'object' ? (config.configuration as Record<string, unknown>).agent : undefined);
-    if (singleAgent != null) {
-      const one = normalizeAgentOrWrapped(singleAgent);
-      if (one) return [one];
-    }
-    return DEFAULT_AGENTS;
-  }
-
-  // Direct array
-  if (Array.isArray(agentsRaw)) {
-    const list = agentsRaw.map((a) => normalizeAgentOrWrapped(a)).filter(Boolean) as AgentConfig[];
-    return list.length > 0 ? list : DEFAULT_AGENTS;
-  }
-
-  // Nested: { agent: [ {...}, {...} ] } or { agent: { "0": {...}, "1": {...} } } — same pattern as uigoodies CopyCurrentPageUrl (Object.keys(environments.label))
-  if (typeof agentsRaw === 'object' && agentsRaw !== null) {
-    const obj = agentsRaw as Record<string, unknown>;
-    const listOrSingle = obj.agent;
-    if (listOrSingle != null) {
-      const arr = Array.isArray(listOrSingle)
-        ? listOrSingle
-        : typeof listOrSingle === 'object' && listOrSingle !== null
-          ? Object.values(listOrSingle as Record<string, unknown>)
-          : [];
-      const list = arr.map((a) => normalizeAgentOrWrapped(a)).filter(Boolean) as AgentConfig[];
-      if (list.length > 0) return list;
-    }
-  }
-  return DEFAULT_AGENTS;
+function parseSkillEnabled(r: Record<string, unknown>): boolean {
+  const v = r.enabled;
+  if (v === true) return true;
+  if (v === false) return false;
+  const s = extractString(v)?.toLowerCase();
+  return s === 'true' || s === '1' || s === 'yes';
 }
 
-/** Normalize one item that might be `{ agent: { crafterQAgentId, label, ... } }` or plain `{ crafterQAgentId, label, ... }`. */
-function normalizeAgentOrWrapped(a: unknown): AgentConfig | null {
-  if (!a || typeof a !== 'object') return null;
-  const o = a as Record<string, unknown>;
-  const agent = o.agent && typeof o.agent === 'object' ? (o.agent as Record<string, unknown>) : o;
-  return normalizeAgent(agent);
-}
-
-/**
- * Normalize one agent from config: **crafterQAgentId**, **label**, optional **icon**, **prompts**, etc.
- */
-export function normalizeExpertSkillsRaw(raw: unknown): ExpertSkillConfig[] | undefined {
-  if (raw == null) return undefined;
-  const rows: ExpertSkillConfig[] = [];
-  const pushFromRecord = (r: Record<string, unknown>) => {
+export function normalizeAgentSkillsRaw(raw: unknown): AgentSkillConfig[] | undefined {
+  if (!Array.isArray(raw) || !raw.length) return undefined;
+  const rows: AgentSkillConfig[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const r = item as Record<string, unknown>;
     const url = extractString(r.url) ?? extractString(r.href);
-    if (!url?.trim()) return;
+    if (!url?.trim()) continue;
     rows.push({
-      name: extractString(r.name) ?? 'Expert guidance',
+      name: extractString(r.name) ?? 'Skill',
       url: url.trim(),
-      description: extractString(r.description) ?? ''
+      description: extractString(r.description) ?? '',
+      enabled: parseSkillEnabled(r)
     });
-  };
-  if (Array.isArray(raw)) {
-    for (const item of raw) {
-      if (!item || typeof item !== 'object') continue;
-      pushFromRecord(item as Record<string, unknown>);
-    }
-  } else if (typeof raw === 'object') {
-    const o = raw as Record<string, unknown>;
-    const nested = o.expertSkill;
-    if (Array.isArray(nested)) {
-      for (const item of nested) {
-        if (!item || typeof item !== 'object') continue;
-        pushFromRecord(item as Record<string, unknown>);
-      }
-    } else if (nested && typeof nested === 'object') {
-      pushFromRecord(nested as Record<string, unknown>);
-    }
   }
   return rows.length ? rows : undefined;
+}
+
+/** Skills that should be sent on stream/chat (`enabled` and non-empty URL). */
+export function agentSkillsForRequest(
+  agent: Pick<AgentConfig, 'skills'> | undefined | null
+): AgentSkillConfig[] | undefined {
+  const raw = agent?.skills;
+  if (!raw?.length) return undefined;
+  const on = raw.filter((s) => s.enabled === true && (s.url || '').trim());
+  return on.length ? on : undefined;
 }
 
 export function normalizeEnabledBuiltInToolsRaw(raw: unknown): string[] | undefined {
@@ -360,74 +206,6 @@ export function normalizeEnabledBuiltInToolsRaw(raw: unknown): string[] | undefi
     if (s) out.push(s);
   }
   return out.length ? out : undefined;
-}
-
-function normalizeAgent(a: unknown): AgentConfig | null {
-  if (!a || typeof a !== 'object') return null;
-  const o = a as Record<string, unknown>;
-  const id = extractString(o.crafterQAgentId) ?? DEFAULT_AGENT_ID;
-  const label = extractString(o.label) ?? CRAFTERQ_AGENT_LABEL_PLACEHOLDER;
-  if (!label.trim()) return null;
-  let icon: string | undefined;
-  const iconVal = o.icon;
-  if (typeof iconVal === 'string') icon = iconVal;
-  else if (iconVal && typeof iconVal === 'object') {
-    const iconObj = iconVal as Record<string, unknown>;
-    icon = typeof iconObj.id === 'string' ? iconObj.id : typeof iconObj['@_id'] === 'string' ? (iconObj['@_id'] as string) : undefined;
-  }
-  const prompts = normalizePrompts(o.prompts);
-  const llmStr = extractString(o.llm)?.trim();
-  let llm: AgentLlm | undefined;
-  if (llmStr) {
-    const low = llmStr.toLowerCase();
-    if (low === 'openai' || low === 'open-ai') llm = 'openAI';
-    else if (low === 'crafterq' || low === 'crafter-q') llm = 'crafterQ';
-    else llm = llmStr;
-  }
-  const llmModel = extractString(o.llmModel);
-  const imageModel = extractString(o.imageModel);
-  const imageGenerator =
-    extractString(o.imageGenerator) ??
-    extractString(o['image-generator']) ??
-    extractString(o.image_generator);
-  const openAiApiKey =
-    extractString(o.openAiApiKey) ??
-    extractString(o['open-ai-api-key']) ??
-    extractString(o.open_ai_api_key);
-  const out: AgentConfig = { id: id.trim(), label, icon, prompts };
-  if (llm) out.llm = llm;
-  if (llmModel) out.llmModel = llmModel;
-  if (imageModel) out.imageModel = imageModel;
-  if (imageGenerator) out.imageGenerator = imageGenerator;
-  if (openAiApiKey?.trim()) out.openAiApiKey = openAiApiKey.trim();
-  const openAsPopup = extractBooleanFromRecord(o, 'openAsPopup', 'open_as_popup', 'OpenAsPopup');
-  if (openAsPopup !== undefined) out.openAsPopup = openAsPopup;
-  const enableTools = extractBooleanFromRecord(o, 'enableTools', 'enable_tools');
-  if (enableTools !== undefined) out.enableTools = enableTools;
-  const expertSkills = normalizeExpertSkillsRaw(o.expertSkills) ?? normalizeExpertSkillsRaw(o.expertSkill);
-  if (expertSkills) out.expertSkills = expertSkills;
-  const translateBatchConcurrency = extractPositiveInt(
-    o,
-    1,
-    64,
-    'translateBatchConcurrency',
-    'translate_batch_concurrency',
-    'TranslateBatchConcurrency'
-  );
-  if (translateBatchConcurrency != null) out.translateBatchConcurrency = translateBatchConcurrency;
-  const crafterQBearerToken =
-    extractString(o.crafterQBearerToken) ??
-    extractString(o['crafterQ-bearer-token']) ??
-    extractString(o.crafter_q_bearer_token);
-  const crafterQBearerTokenEnv =
-    extractString(o.crafterQBearerTokenEnv) ??
-    extractString(o['crafterQ-bearer-token-env']) ??
-    extractString(o.crafter_q_bearer_token_env);
-  if (crafterQBearerTokenEnv?.trim()) out.crafterQBearerTokenEnv = crafterQBearerTokenEnv.trim();
-  if (crafterQBearerToken?.trim()) out.crafterQBearerToken = crafterQBearerToken.trim();
-  const enabledBuiltIn = normalizeEnabledBuiltInToolsRaw(o.enabledBuiltInTools ?? o.enabled_built_in_tools);
-  if (enabledBuiltIn?.length) out.enabledBuiltInTools = enabledBuiltIn;
-  return out;
 }
 
 /** Integer in inclusive range; undefined if missing or invalid. */
@@ -509,124 +287,3 @@ function extractString(v: unknown): string | undefined {
   }
   return undefined;
 }
-
-function extractAdditionalContextField(o: Record<string, unknown>): string | undefined {
-  const ctx =
-    extractString(o.additionalContext) ??
-    extractString(o['additional-context']) ??
-    extractString(o.context) ??
-    extractString(o.AdditionalContext) ??
-    extractString(o.additional_context);
-  return ctx?.trim() ? ctx.trim() : undefined;
-}
-
-/** Quick-action chips should be short labels; long / multiline "userText" is almost always mis-parsed additional context. */
-const MAX_QUICK_PROMPT_LABEL_CHARS = 100;
-const MIN_MULTILINE_QUICK_PROMPT_CHARS = 48;
-
-function isLikelyMisplacedContextPrompt(p: PromptConfig): boolean {
-  const t = (p.userText || '').trim();
-  if (!t) return false;
-  if (t.length > MAX_QUICK_PROMPT_LABEL_CHARS) return true;
-  if (t.includes('\n') && t.length >= MIN_MULTILINE_QUICK_PROMPT_CHARS) return true;
-  return false;
-}
-
-/**
- * When Studio/XML produces two <prompt> entries (or flattens context into #text), the second
- * entry often becomes a second "button" with the full context as userText. Fold those into the
- * previous prompt's additionalContext instead.
- */
-function mergeMisplacedContextPrompts(prompts: PromptConfig[]): PromptConfig[] {
-  if (prompts.length <= 1) return prompts;
-  const out: PromptConfig[] = [];
-  for (const p of prompts) {
-    if (isLikelyMisplacedContextPrompt(p) && out.length > 0) {
-      const prev = out[out.length - 1];
-      const body = (p.userText || '').trim();
-      const extra = (p.additionalContext || '').trim();
-      const chunk = [body, extra].filter(Boolean).join('\n\n');
-      prev.additionalContext = prev.additionalContext ? `${prev.additionalContext}\n\n${chunk}` : chunk;
-      continue;
-    }
-    out.push({ ...p });
-  }
-  return out;
-}
-
-function normalizePrompts(prompts: unknown): PromptConfig[] {
-  const normalizeOne = (p: unknown): PromptConfig | null => {
-    if (p == null) return null;
-    // Back-compat: <prompt>Text</prompt>
-    if (typeof p === 'string') return { userText: p };
-    if (typeof p !== 'object') {
-      const s = extractString(p);
-      return s ? { userText: s } : null;
-    }
-
-    const o = p as Record<string, unknown>;
-    // New structure:
-    // <prompt><userText>...</userText><additionalContext>...</additionalContext></prompt>
-    const userText =
-      extractString(o.userText) ??
-      extractString(o['user-text']) ??
-      extractString(o.text) ??
-      extractString(o.UserText) ??
-      extractString(o.user_text);
-    const additionalContext = extractAdditionalContextField(o);
-
-    if (userText && userText.trim()) {
-      const pc: PromptConfig = { userText: userText.trim() };
-      if (additionalContext) pc.additionalContext = additionalContext;
-      const omitTools = extractBooleanFromRecord(o, 'omitTools', 'omit_tools');
-      if (omitTools === true) pc.omitTools = true;
-      return pc;
-    }
-
-    // Studio/XML parsers sometimes emit sibling nodes as two array entries: one { userText }, one { additionalContext }.
-    // Never promote additionalContext alone to userText (that created a second "quick" button). Merge in processPromptList instead.
-    if (additionalContext) return null;
-
-    // Some parsers might flatten the inner text into #text/value
-    const fallback = extractString(o);
-    return fallback ? { userText: fallback } : null;
-  };
-
-  const coerceList = (raw: unknown): unknown[] => {
-    if (raw == null) return [];
-    if (Array.isArray(raw)) return raw;
-    if (typeof raw === 'object') return Object.values(raw as Record<string, unknown>);
-    return [raw];
-  };
-
-  /** Preserve order; merge orphan context-only fragments into the previous prompt. */
-  const processPromptList = (arr: unknown[]): PromptConfig[] => {
-    const out: PromptConfig[] = [];
-    for (const item of arr) {
-      const normalized = normalizeOne(item);
-      if (normalized) {
-        out.push(normalized);
-        continue;
-      }
-      if (item != null && typeof item === 'object') {
-        const ctx = extractAdditionalContextField(item as Record<string, unknown>);
-        if (ctx && out.length > 0) {
-          const prev = out[out.length - 1];
-          prev.additionalContext = prev.additionalContext ? `${prev.additionalContext}\n\n${ctx}` : ctx;
-        }
-      }
-    }
-    return out;
-  };
-
-  const finalize = (arr: unknown[]) => mergeMisplacedContextPrompts(processPromptList(arr));
-
-  if (prompts && typeof prompts === 'object') {
-    const p = prompts as Record<string, unknown>;
-    const raw = p.prompt;
-    return finalize(coerceList(raw));
-  }
-
-  return finalize(coerceList(prompts));
-}
-

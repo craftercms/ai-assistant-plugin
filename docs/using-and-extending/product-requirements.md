@@ -8,7 +8,7 @@ Wire formats, REST field lists, `ui.xml` grammar, file paths, and build steps ar
 
 ## Author-facing Requirements
 
-1. **Chat access** — Authors who have Studio access to a site where the plugin is configured **must** be able to open an AI chat from each surface the site enables: at minimum, the plugin **must** support opening chat from the form-engine control, from the Helper (preview toolbar and/or Tools Panel, per site configuration), and from **TinyMCE** only when that optional RTE integration is configured.
+1. **Chat access** — Authors who have Studio access to a site where the plugin is configured **must** be able to open an AI chat from each surface the site enables: at minimum, the plugin **must** support opening chat from the form-engine control and from the Helper (preview toolbar and/or Tools Panel, per site configuration).
 
 2. **Multiple agents** — When the site defines more than one agent, the plugin **must** let the author choose which agent to use (or follow the documented single-agent shortcut) without editing code.
 
@@ -16,33 +16,31 @@ Wire formats, REST field lists, `ui.xml` grammar, file paths, and build steps ar
 
 4. **Image generation** — When the site configures a supported image backend, the plugin **must** expose image generation to authors through the same assistant flows documented for that configuration.
 
-5. **Apply replies in TinyMCE** — When the author uses the **TinyMCE** integration, the plugin **must** offer a supported path to insert or apply model output into the editor, subject to editor permissions.
-
 ---
 
 ## Admin Requirements
 
-6. **Per-site configuration** — Admins **must** be able to enable, disable, or tune assistant behavior per site using Studio-supported configuration (for example `ui.xml` widget definitions and documented sandbox files)—without changing plugin source in the repository. **Examples** include **`ui.xml`**, **`config/studio/ai-assistant/agents.json`**, **`config/studio/scripts/aiassistant/config/studio-ui.json`** (runtime toolbar/sidebar visibility, scoped Experience Builder image-picker augmentation, bulk form-control edits — see the configuration guide and **`spec.md`**), **`scripts/aiassistant/…`** script trees, and other paths named in **`spec.md`**.
+5. **Per-site configuration** — Admins **must** be able to enable, disable, or tune assistant behavior per site using Studio-supported configuration (for example `ui.xml` widget definitions and documented sandbox files)—without changing plugin source in the repository. **Examples** include **`ui.xml`**, **`config/studio/ai-assistant/agents.json`**, **`config/studio/scripts/aiassistant/config/studio-ui.json`** (runtime toolbar/sidebar visibility, scoped Experience Builder image-picker augmentation, bulk form-control edits — see the configuration guide and **`spec.md`**), **`scripts/aiassistant/…`** script trees, and other paths named in **`spec.md`**.
 
-7. **Agents** — Admins **must** be able to define one or more agents with distinct display metadata, instructions, model choice (`llm` / model identifiers as documented), and tool options where the product supports them.
+6. **Agents** — Admins **must** be able to define one or more agents with distinct display metadata, instructions, model choice (`llm` / model identifiers as documented), and tool options where the product supports them.
 
-8. **Secrets and keys** — Admins **must** be able to supply credentials and endpoints through documented mechanisms (environment, Studio configuration, or site sandbox files as applicable), without embedding secrets in client-only bundles in violation of the security model documented in **`spec.md`**.
+7. **Secrets and keys** — Admins **must** be able to supply credentials and endpoints through documented mechanisms (environment, Studio configuration, or site sandbox files as applicable), without embedding secrets in client-only bundles in violation of the security model documented in **`spec.md`**.
 
-9. **Tool governance** — Where the product advertises tool allow/deny or MCP attachment, admins **must** be able to apply that governance through documented configuration so that authors cannot invoke disallowed tools solely by UI manipulation.
+8. **Tool governance** — Where the product advertises tool allow/deny or MCP attachment, admins **must** be able to apply that governance through documented configuration so that authors cannot invoke disallowed tools solely by UI manipulation.
 
 ---
 
 ## Integrator Requirements
 
-10. **Scripted extensions** — Integrators **must** be able to add sandbox Groovy tools, script-backed LLM identifiers, and script-backed image generators in the repository paths and registration shapes documented in the [Studio plugins guide](studio-plugins-guide.md) and [Scripted tools & imagegen](scripted-tools-and-imagegen.md), and have Studio load them without rebuilding the core TypeScript bundle for those scripts alone.
+9. **Scripted extensions** — Integrators **must** be able to add sandbox Groovy tools, script-backed LLM identifiers, and script-backed image generators in the repository paths and registration shapes documented in the [Studio plugins guide](studio-plugins-guide.md) and [Scripted tools & imagegen](scripted-tools-and-imagegen.md), and have Studio load them without rebuilding the core TypeScript bundle for those scripts alone.
 
-11. **Overrides** — Where **`spec.md`** promises site-level overrides (for example prompts or `tools.json` policy), integrators **must** be able to supply those overrides from site `config/studio` content as documented.
+10. **Overrides** — Where **`spec.md`** promises site-level overrides (for example prompts or `tools.json` policy), integrators **must** be able to supply those overrides from site `config/studio` content as documented.
 
 ---
 
 ## Optional / Experimental Requirements (Autonomous Widget)
 
-12. **Autonomous mode** — If the Autonomous assistants widget is installed and configured, the plugin **must** enforce the documented scheduling, scope, and in-memory semantics so admins can predict lifecycle (including loss of state on JVM restart) as described in **[`spec.md`](../internals/spec.md#autonomous-assistants-widget-tools-panel)** and the [Autonomous assistants widget](autonomous-assistants-widget.md) guide. This area remains **experimental**; it **must not** be documented as a production-grade job scheduler.
+11. **Autonomous mode** — If the Autonomous assistants widget is installed and configured, the plugin **must** enforce the documented scheduling, scope, and in-memory semantics so admins can predict lifecycle (including loss of state on JVM restart) as described in **[`spec.md`](../internals/spec.md#autonomous-assistants-widget-tools-panel)** and the [Autonomous assistants widget](autonomous-assistants-widget.md) guide. This area remains **experimental**; it **must not** be documented as a production-grade job scheduler.
 
 #### Each Autonomous Agent (Minimum Behaviors)
 
@@ -60,9 +58,9 @@ For **each** autonomous agent the site defines, the product **must** make the fo
 
 ## Technical and Release Requirements
 
-13. **Spec alignment** — Any change that adds, removes, or materially alters author-visible behavior, configuration contracts, or security boundaries **must** update **[`spec.md`](../internals/spec.md)** (and companions where applicable) in the same release train, per **[`CONTRIBUTING.md`](../../CONTRIBUTING.md)**.
+12. **Spec alignment** — Any change that adds, removes, or materially alters author-visible behavior, configuration contracts, or security boundaries **must** update **[`spec.md`](../internals/spec.md)** (and companions where applicable) in the same release train, per **[`CONTRIBUTING.md`](../../CONTRIBUTING.md)**.
 
-14. **Studio baseline** — The plugin **must** target the Crafter Studio branch documented for this repository (see **`spec.md`** and the Studio plugins guide); breaking Studio API changes **must** be accompanied by version and migration notes.
+13. **Studio baseline** — The plugin **must** target the Crafter Studio branch documented for this repository (see **`spec.md`** and the Studio plugins guide); breaking Studio API changes **must** be accompanied by version and migration notes.
 
 ---
 

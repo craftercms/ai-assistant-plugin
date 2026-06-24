@@ -3,11 +3,11 @@
   "agents": [
     {
       "mode": "chat",
-      "crafterQAgentId": "019c7237-478b-7f98-9a5c-87144c3fb010",
+      "agentId": "019c7237-478b-7f98-9a5c-87144c3fb010",
       "label": "Authoring Assistant",
       "icon": "@mui/icons-material/AutoAwesomeRounded",
       "llm": "openAI",
-      "llmModel": "gpt-4o-mini",
+      "llmModel": "gpt-4.1-mini",
       "imageModel": "gpt-image-1",
       "enableTools": true,
       "prompts": [
@@ -22,7 +22,7 @@
       "prompt": "You are an autonomous assistant. Reply with JSON only as instructed by the server.",
       "scope": "project",
       "llm": "openAI",
-      "llmModel": "gpt-4o-mini",
+      "llmModel": "gpt-4.1-mini",
       "imageModel": "gpt-image-1",
       "manageOtherAgentsHumanTasks": false
     }

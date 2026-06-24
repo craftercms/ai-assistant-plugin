@@ -4,14 +4,16 @@ import java.util.LinkedHashSet
 import java.util.Set
 import groovy.json.JsonOutput
 import org.slf4j.LoggerFactory
-import plugins.org.craftercms.aiassistant.authoring.AuthoringPreviewContext
-import plugins.org.craftercms.aiassistant.http.AiHttpProxy
-import plugins.org.craftercms.aiassistant.http.CrafterQBearerUiXmlMerge
-import plugins.org.craftercms.aiassistant.llm.StudioAiLlmKind
-import plugins.org.craftercms.aiassistant.orchestration.AiOrchestration
-import plugins.org.craftercms.aiassistant.prompt.ToolPromptsSiteContext
-import plugins.org.craftercms.aiassistant.rag.ExpertSkillVectorRegistry
-import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
+import plugins.org.craftercms.aiassistant.studio.engine.context.AuthoringPreviewContext
+import plugins.org.craftercms.aiassistant.studio.http.AiHttpProxy
+import plugins.org.craftercms.aiassistant.studio.contrib.agents.AiAssistantCentralAgentsMerge
+import plugins.org.craftercms.aiassistant.studio.engine.turn.AiOrchestration
+import plugins.org.craftercms.aiassistant.studio.engine.prompt.ToolPromptsSiteContext
+import plugins.org.craftercms.aiassistant.studio.config.StudioAiAssistantProjectConfig
+import plugins.org.craftercms.aiassistant.studio.config.StudioAiPlatformSettings
+import plugins.org.craftercms.aiassistant.studio.engine.rag.ExpertSkillVectorRegistry
+import plugins.org.craftercms.aiassistant.studio.secrets.StudioAiAssistantSecretsContext
+import plugins.org.craftercms.aiassistant.studio.repository.StudioToolOperations
 
 /**
  * Single streaming chat endpoint: agentId + full prompt in, SSE stream out.
@@ -19,35 +21,37 @@ import plugins.org.craftercms.aiassistant.tools.StudioToolOperations
  * to serialize a return value (client sends Accept: text/event-stream).
  *
  * Contract:
- *   POST body: { ..., "contentPath", "contentTypeId", "contentTypeLabel" (optional Studio UI label for the open item’s type),
+ *   URL query {@code siteId} — Studio **session** site (plugin script controller requirement). Client sends active Studio site here ({@code pluginRequestSiteId}).
+ *   POST body {@code siteId} — optional **working CMS site** for tool calls; may differ from the URL query. Sets request attribute {@code aiassistant.siteId}.
+ *     When working site ≠ session site, preview fields below are ignored for prompt assembly (cross-site working).
+ *   POST body: { ..., "contentPath", "contentTypeId", "contentTypeLabel" (optional), "displayTemplate" (optional metadata),
  *   "studioPreviewPageUrl" (optional) — `…/studio/preview#/?page=…&site=…` from the browser when available so the prompt matches the author’s address bar,
  *   "authoringSurface": "formEngine" | omit for XB/preview,
  *   "formEngineClientJsonApply": optional boolean — when true **and** formEngine, append client-JSON apply instructions (XB must omit)
  *   "formEngineItemPath": optional — repo path of the open form item; when set with client JSON apply, WriteContent/publish/revert are blocked **only** for this path (other paths may still persist). If omitted, all repo writes are suppressed for that mode (safe default).
- *   "enableTools": optional boolean — when false, OpenAI chat omits CMS function tools (matches ui.xml enableTools false). Absent defaults true.
- *   "omitTools": optional boolean — when true, CMS function tools are omitted for this request only (copy/image-style LLM steps); overrides enableTools. Same for XB/ICE preview chat, dialog, and form-engine (`authoringSurface`). Absent/false keeps normal tool registration from enableTools/agent defaults.
+ *   "enableTools": optional boolean — when false, the LLM chat request omits function tools (matches ui.xml enableTools false). Absent defaults true.
+ *   "omitTools": optional boolean — when true, function tools are omitted for this request only (copy/image-style LLM steps); overrides enableTools. Same for XB/ICE preview chat, dialog, and form-engine (`authoringSurface`). Absent/false keeps normal tool registration from enableTools/agent defaults.
  *   "enabledBuiltInTools": optional JSON array of tool name strings — after site {@code tools.json} policy, only these built-in tools (exact wire names) remain registered; include {@code "mcp:*"} to keep all dynamic {@code mcp_*} tools. Absent or empty = no per-request subset (full catalog subject to site policy).
- *   "llmModel": optional string — OpenAI chat model id (e.g. gpt-4o-mini).
- *   "imageModel": optional string — Default image model for GenerateImage on the built-in images wire (e.g. gpt-image-1); agent ui.xml **imageModel**; no JVM fallback. Ignored when **imageGenerator** selects a pure script backend unless the script reads it from context.
+ *   "llmModel": optional string — chat model id for the configured vendor (e.g. gpt-4o-mini on OpenAI).
+ *   "imageModel": optional string — Default image model for GenerateImage on the built-in images wire (e.g. gpt-image-1); from agent config or request when set. Ignored when **imageGenerator** selects a pure script backend unless the script reads it from context.
  *   "imageGenerator": optional string — **GenerateImage** backend: blank = built-in Images wire when key+imageModel exist; **none** / **off** / **disabled** omits the tool; **script:{id}** runs **`/scripts/aiassistant/imagegen/{id}/generate.groovy`**. Agent ui.xml **imageGenerator**; merged from site ui.xml like **imageModel** when POST omits it.
- *   "expertSkills": optional JSON array of { name, url, description } — per-agent markdown URLs for {@code QueryExpertGuidance} (Spring AI vector store); normalized server-side.
+ *   "skills": optional JSON array of { name, url, description, enabled } — enabled per-agent markdown URLs for {@code QueryExpertGuidance}; normalized server-side.
  *   "translateBatchConcurrency": optional integer 1–64 — parallel {@code TranslateContentBatch} workers when the model omits {@code maxConcurrency}; from agent ui.xml; server default 25 when omitted.
- *   "crafterQBearerTokenEnv": optional string — name of a **Studio host environment variable** holding the CrafterQ JWT; server sets {@code Authorization: Bearer} on outbound api.crafterq.ai calls when {@code System.getenv} returns a non-blank value (preferred over literal token in config).
- *   "crafterQBearerToken": optional string — literal CrafterQ JWT (duplicates ui.xml {@code <crafterQBearerToken>}); used when env is unset or empty. **Discouraged** in versioned config.
- *   **Server merge:** when {@code siteId} + {@code agentId} are present, missing {@code crafterQBearerTokenEnv} / {@code crafterQBearerToken} / {@code imageModel} / {@code llmModel} / {@code imageGenerator} / {@code llm} on the POST body may be copied from the matching {@code <agent>} row in site {@code /ui.xml} before auth and orchestration (so GenerateImage sees the configured image model/backend even if the client omitted it).
  *   "previewToken": optional string — Studio {@code crafterPreview} cookie value; enables {@code GetPreviewHtml} without passing the token on every tool call. When omitted, the server still uses {@code crafterPreview} from the **incoming request cookies** (HttpOnly-safe).
+ *   "crafterQChatUser": optional string — CrafterQ anonymous chat JWT ({@code X-CrafterQ-Chat-User}) for {@code ConsultCrafterQ}; otherwise use {@code builtInToolSettings.ConsultCrafterQ.chatUser} in site tools.json.
  *   Response:  text/event-stream (SSE) on success, or application/json on error
  */
 def log = LoggerFactory.getLogger('plugins.org.craftercms.aiassistant.stream')
 try {
   def body = AiHttpProxy.parseJsonBody(request)
-  if (Boolean.TRUE.equals(body?.get('__crafterqInvalidJson'))) {
+  if (Boolean.TRUE.equals(body?.get('__aiassistantInvalidJson'))) {
     response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
     response.setContentType('application/json')
     response.getOutputStream().withWriter('UTF-8') {
       it.write(JsonOutput.toJson([
+        ok     : false,
         message: 'Invalid JSON request body',
-        detail   : body?.get('__crafterqInvalidJsonDetail')?.toString() ?: ''
+        detail : body?.get('__aiassistantInvalidJsonDetail')?.toString() ?: ''
       ]))
     }
     return null
@@ -61,34 +65,127 @@ try {
   def authoringSurface = body?.authoringSurface
   def clientJsonApply = body?.formEngineClientJsonApply
   def siteIdBody = body?.siteId?.toString()?.trim()
-  def promptForOrchestration
-  if (AuthoringPreviewContext.isFormEngineSurface(authoringSurface)) {
-    promptForOrchestration = AuthoringPreviewContext.appendFormEngineAuthoringNotice(prompt)
-    if (AuthoringPreviewContext.isTruthy(clientJsonApply)) {
-      promptForOrchestration = AuthoringPreviewContext.appendFormEngineClientJsonApplyInstructions(promptForOrchestration)
-    }
-  } else {
-    promptForOrchestration = AuthoringPreviewContext.appendToUserPrompt(prompt, contentPathBody, contentTypeIdBody, contentTypeLabelBody)
-    promptForOrchestration = AuthoringPreviewContext.appendEnginePreviewHintIfPossible(
-      promptForOrchestration, request, siteIdBody ?: params?.siteId, contentPathBody, body?.studioPreviewPageUrl)
-  }
-  def chatId = body?.chatId?.toString()
   if (siteIdBody) {
     try {
-      request.setAttribute('crafterq.siteId', siteIdBody)
-    } catch (Throwable ignored) {
-      // non-mutable request in some contexts
+      request.setAttribute('aiassistant.siteId', siteIdBody)
+    } catch (Throwable ignoredEarlySite) {
     }
+  }
+  def sessionSiteId = AuthoringPreviewContext.resolveStudioSessionSiteId(request, params)
+  def crossSiteWorking = AuthoringPreviewContext.isCrossSiteWorking(siteIdBody, sessionSiteId) &&
+    !AuthoringPreviewContext.isFormEngineSurface(authoringSurface)
+  def contentPathForAssembly = crossSiteWorking ? null : contentPathBody
+  if (!contentPathForAssembly && !crossSiteWorking && prompt?.toString()?.trim()) {
+    def recoveredPath = AuthoringPreviewContext.resolveAnchoredRepositoryPath(prompt.toString())
+    if (recoveredPath?.trim()) {
+      contentPathForAssembly = recoveredPath
+      contentPathBody = recoveredPath
+    }
+  }
+  def contentTypeIdForAssembly = crossSiteWorking ? null : contentTypeIdBody
+  def contentTypeLabelForAssembly = crossSiteWorking ? null : contentTypeLabelBody
+  def displayTemplateForAssembly = crossSiteWorking ? null : body?.displayTemplate
+  def studioPreviewPageUrlForAssembly = crossSiteWorking ? null : body?.studioPreviewPageUrl
+  StudioToolOperations pubOpsForPrompt = null
+  def siteForPub = siteIdBody ?: params?.siteId?.toString()?.trim()
+  if (siteForPub && !AuthoringPreviewContext.isFormEngineSurface(authoringSurface)) {
+    try {
+      pubOpsForPrompt = new StudioToolOperations(request, applicationContext, params)
+    } catch (Throwable ignoredPubOps) {
+    }
+  }
+  def assembledPrompt = AuthoringPreviewContext.assembleOrchestrationPrompt(
+    prompt,
+    authoringSurface,
+    clientJsonApply,
+    siteIdBody ?: params?.siteId,
+    contentPathForAssembly,
+    contentTypeIdForAssembly,
+    contentTypeLabelForAssembly,
+    displayTemplateForAssembly,
+    request,
+    studioPreviewPageUrlForAssembly,
+    pubOpsForPrompt,
+    applicationContext,
+    params,
+    body?.authoringScope,
+    body?.xbFocusedFieldId,
+    body?.xbFocusedFieldIndex,
+    body?.xbFocusedFieldLabel,
+    body?.xbFocusedContentPath,
+    body?.pageContentPath,
+    body?.xbFocusedComponentLabel)
+  def promptForOrchestration = assembledPrompt.orchestrationPrompt
+  def promptStepDeltas = assembledPrompt.stepDeltas
+  def chatId = body?.chatId?.toString()
+  def normContentPath = AuthoringPreviewContext.normalizeRepoPath(contentPathForAssembly?.toString())
+  if (normContentPath) {
+    try {
+      request.setAttribute('aiassistant.contentPath', normContentPath)
+    } catch (Throwable ignoredCp) {}
+  }
+  def normFormItemPath = AuthoringPreviewContext.normalizeRepoPath(body?.formEngineItemPath?.toString())
+  if (normFormItemPath) {
+    try {
+      request.setAttribute('aiassistant.formEngineItemPath', normFormItemPath)
+    } catch (Throwable ignoredFp) {}
+  }
+  def ctIdBody = contentTypeIdForAssembly?.toString()?.trim()
+  if (ctIdBody) {
+    try {
+      request.setAttribute('aiassistant.contentTypeId', ctIdBody)
+    } catch (Throwable ignoredCt) {}
+  }
+  def authoringScopeBody = body?.authoringScope?.toString()?.trim()
+  if (authoringScopeBody) {
+    try {
+      request.setAttribute('aiassistant.authoringScope', authoringScopeBody)
+    } catch (Throwable ignoredAs) {}
+  }
+  def xbFieldIdBody = body?.xbFocusedFieldId?.toString()?.trim()
+  if (xbFieldIdBody) {
+    try {
+      request.setAttribute('aiassistant.xbFocusedFieldId', xbFieldIdBody)
+    } catch (Throwable ignoredXf) {}
+  }
+  def xbFieldLabelBody = body?.xbFocusedFieldLabel?.toString()?.trim()
+  if (xbFieldLabelBody) {
+    try {
+      request.setAttribute('aiassistant.xbFocusedFieldLabel', xbFieldLabelBody)
+    } catch (Throwable ignoredXl) {}
+  }
+  def xbComponentLabelBody = body?.xbFocusedComponentLabel?.toString()?.trim()
+  if (xbComponentLabelBody) {
+    try {
+      request.setAttribute('aiassistant.xbFocusedComponentLabel', xbComponentLabelBody)
+    } catch (Throwable ignoredXc) {}
+  }
+  def xbContentPathBody = AuthoringPreviewContext.normalizeRepoPath(body?.xbFocusedContentPath?.toString())
+  if (xbContentPathBody) {
+    try {
+      request.setAttribute('aiassistant.xbFocusedContentPath', xbContentPathBody)
+    } catch (Throwable ignoredXp) {}
   }
   def previewTokenBody = body?.previewToken?.toString()?.trim()
   if (previewTokenBody) {
     try {
-      request.setAttribute('crafterq.previewToken', previewTokenBody)
+      request.setAttribute('aiassistant.previewToken', previewTokenBody)
     } catch (Throwable ignored) {}
   }
-  def expertSkillsNorm = ExpertSkillVectorRegistry.normalizeRequestExpertSkills(body?.expertSkills)
+  def crafterQChatUserBody = (body?.crafterQChatUser ?: body?.crafterqChatUser)?.toString()?.trim()
+  if (crafterQChatUserBody) {
+    try {
+      request.setAttribute('aiassistant.crafterQChatUser', crafterQChatUserBody)
+    } catch (Throwable ignoredCq) {}
+  }
+  Map projectToolCfg = [:]
   try {
-    request.setAttribute('crafterq.expertSkills', expertSkillsNorm)
+    def cfgOps = new StudioToolOperations(request, applicationContext, params)
+    projectToolCfg = StudioAiAssistantProjectConfig.load(cfgOps)
+  } catch (Throwable ignoredCfg) {}
+  def skillsNorm = ExpertSkillVectorRegistry.normalizeRequestExpertSkills(body?.skills, projectToolCfg)
+  try {
+    request.setAttribute('aiassistant.expertSkills', skillsNorm)
   } catch (Throwable ignored) {}
   def agentToolsRaw = body?.enabledBuiltInTools
   if (agentToolsRaw instanceof List && !((List) agentToolsRaw).isEmpty()) {
@@ -101,39 +198,45 @@ try {
     }
     if (!wl.isEmpty()) {
       try {
-        request.setAttribute('crafterq.agentEnabledBuiltInTools', wl)
+        request.setAttribute('aiassistant.agentEnabledBuiltInTools', wl)
       } catch (Throwable ignoredWl) {}
     }
   }
   def siteForBearer = siteIdBody ?: params?.siteId?.toString()?.trim()
-  if (body instanceof Map && siteForBearer && agentId) {
+  if (body instanceof Map && siteForBearer) {
     try {
-      CrafterQBearerUiXmlMerge.mergeStreamAgentFieldsFromSiteUiXmlIfMissing(applicationContext, (Map) body, siteForBearer, agentId)
+      AiAssistantCentralAgentsMerge.mergeStreamAgentFieldsFromSiteAgentsFileIfMissing(
+        applicationContext, (Map) body, siteForBearer, agentId)
     } catch (Throwable mergeEx) {
-      log.debug('Agent ui.xml merge skipped: {}', mergeEx.message ?: mergeEx.toString())
+      log.debug('Central agents.json merge skipped: {}', mergeEx.message ?: mergeEx.toString())
     }
   }
   def llm = body?.llm?.toString()
-  if (body instanceof Map) {
-    AiHttpProxy.installCrafterQBearerFromChatBody(request, (Map) body, llm ?: '')
-  }
-  String llmNorm
+  def llmNormalized
   try {
-    llmNorm = AiOrchestration.normalizeLlmProvider(llm)
+    llmNormalized = AiOrchestration.normalizeLlmProvider(llm)
   } catch (IllegalArgumentException iae) {
     response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
     response.setContentType('application/json')
     response.getOutputStream().withWriter('UTF-8') {
-      it.write(JsonOutput.toJson([message: (iae.message ?: 'Invalid llm').toString()]))
+      it.write(JsonOutput.toJson([ok: false, message: (iae.message ?: 'Invalid llm').toString()]))
     }
     return null
   }
-  def openAiApiKey = body?.openAiApiKey?.toString()
+  if (body instanceof Map && siteForBearer) {
+    try {
+      AiAssistantCentralAgentsMerge.applyOpenAiDefaultImageModelIfMissing((Map) body, llmNormalized)
+    } catch (Throwable defIm) {
+      log.debug('OpenAI default imageModel skipped: {}', defIm.message ?: defIm.toString())
+    }
+  }
+  def llmApiKey = (body?.llmApiKey ?: body?.openAiApiKey ?: body?.apiKey)?.toString()
+  def llmSecretKey = body?.llmSecretKey?.toString()?.trim() ?: null
   def openAiModel = body?.llmModel?.toString()
   def imageModelRaw = body?.imageModel?.toString()
   def imageModel = null
   if (imageModelRaw?.trim()) {
-    imageModel = AiOrchestration.normalizeOpenAiImagesApiModelId(imageModelRaw.trim())
+    imageModel = AiOrchestration.normalizeImagesApiModelId(imageModelRaw.trim())
     if (body instanceof Map) {
       try {
         body.put('imageModel', imageModel)
@@ -151,7 +254,7 @@ try {
           : Integer.parseInt(tbcRaw.toString().trim())
       tbc = Math.max(1, Math.min(64, tbc))
       try {
-        request.setAttribute('crafterq.translateBatchConcurrency', Integer.valueOf(tbc))
+        request.setAttribute('aiassistant.translateBatchConcurrency', Integer.valueOf(tbc))
       } catch (Throwable ignored2) {}
     } catch (Throwable ignored) {}
   }
@@ -171,24 +274,64 @@ try {
   def omitTools = AuthoringPreviewContext.isTruthy(body?.omitTools)
   def enableToolsRequested = AuthoringPreviewContext.parseEnableTools(body?.enableTools)
   def enableTools = omitTools ? false : enableToolsRequested
-  log.info("STREAM endpoint hit: agentId={} llm={} promptLen={} chatIdPresent={} siteId={} contentPathPresent={} previewTokenResolvedPresent={} formEngineSurface={} formEngineClientJsonApply={} formEngineItemPath={} fullSuppressWritesFallback={} omitTools={} enableToolsRequested={} enableToolsEffective={}", agentId, llm, (promptForOrchestration ?: '').length(), (chatId != null && chatId.toString().trim().length() > 0), siteIdBody ?: params?.siteId, (previewPathForLog ? true : false), previewTokenResolvedPresent, formEngineForLog, clientJsonApplyForLog, formEngineItemNorm ?: '(none)', fullSuppressWritesFallback, omitTools, enableToolsRequested, enableTools)
-
-  // Default remote hosted chat adapter requires agentId; in-studio Spring AI paths (tools-loop chat, Claude, script) may omit it.
-  if (!agentId && StudioAiLlmKind.isCrafterQRemoteApi(llmNorm)) {
-    response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
-    response.setContentType('application/json')
-    response.getOutputStream().withWriter('UTF-8') {
-      it.write(JsonOutput.toJson([message: 'Missing required field: agentId (required for the default remote hosted chat adapter)']))
-    }
-    return null
+  def enableToolsBeforeTrivial = enableTools
+  def trivialTurn = false
+  if (!formEngineForLog && enableTools && AuthoringPreviewContext.isTrivialNonAuthoringTurn(promptForOrchestration?.toString() ?: '')) {
+    enableTools = false
+    trivialTurn = true
+    log.info(
+      'STREAM endpoint: trivial non-authoring turn — forcing enableTools=false (authorVisibleLen={})',
+      AuthoringPreviewContext.stripStudioInjectedPromptBlocks(promptForOrchestration?.toString() ?: '').length()
+    )
   }
+  def promptAssemblyTelemetry = AuthoringPreviewContext.buildPromptAssemblyTelemetry([
+    clientWirePrompt      : prompt,
+    orchestrationPrompt   : promptForOrchestration?.toString() ?: '',
+    authoringSurface      : authoringSurface,
+    authoringScope        : body?.authoringScope,
+    contentPath           : contentPathBody,
+    displayTemplate       : body?.displayTemplate,
+    stepDeltas            : promptStepDeltas,
+    enableToolsRequested  : enableToolsRequested,
+    enableToolsEffective  : enableTools,
+    trivialTurn           : trivialTurn
+  ])
+  try {
+    request.setAttribute('aiassistant.promptAssemblyTelemetry', promptAssemblyTelemetry)
+  } catch (Throwable ignoredPa) {
+  }
+  log.info(
+    'STREAM endpoint hit: agentId={} llm={} clientWireLen={} orchestrationLen={} authorVisibleLen={} serverInjectedLen={} chatIdPresent={} siteId={} contentPathPresent={} displayTemplatePresent={} previewTokenResolvedPresent={} formEngineSurface={} formEngineClientJsonApply={} formEngineItemPath={} fullSuppressWritesFallback={} omitTools={} enableToolsRequested={} enableToolsEffective={} trivialNoToolsOverride={} stepDeltas={}',
+    agentId,
+    llm,
+    promptAssemblyTelemetry.clientWirePromptChars,
+    promptAssemblyTelemetry.orchestrationPromptChars,
+    promptAssemblyTelemetry.authorVisibleChars,
+    promptAssemblyTelemetry.serverInjectedChars,
+    (chatId != null && chatId.toString().trim().length() > 0),
+    siteIdBody ?: params?.siteId,
+    promptAssemblyTelemetry.contentPathPresent,
+    promptAssemblyTelemetry.displayTemplatePresent,
+    previewTokenResolvedPresent,
+    formEngineForLog,
+    clientJsonApplyForLog,
+    formEngineItemNorm ?: '(none)',
+    fullSuppressWritesFallback,
+    omitTools,
+    enableToolsRequested,
+    enableTools,
+    (enableToolsBeforeTrivial && !enableTools),
+    promptAssemblyTelemetry.stepDeltas ?: [:]
+  )
 
   String siteForPrompts = (siteIdBody ?: params?.siteId?.toString()?.trim() ?: '')
   ToolPromptsSiteContext.enter(applicationContext, siteForPrompts)
+  StudioAiPlatformSettings.enter(applicationContext, siteForPrompts)
+  StudioAiAssistantSecretsContext.bind(siteForPrompts, applicationContext)
   try {
     try {
       def orchestration = new AiOrchestration(request, response, applicationContext, params, pluginConfig)
-      def result = orchestration.chatStreamWithSpringAi(agentId, promptForOrchestration.toString(), chatId, llm, openAiModel, openAiApiKey, imageModel, formEngineClientForward, formEngineItemPathRaw, enableTools, imageGenerator)
+      def result = orchestration.chatStreamWithSpringAi(agentId, promptForOrchestration.toString(), chatId, llm, openAiModel, llmApiKey, imageModel, formEngineClientForward, formEngineItemPathRaw, enableTools, imageGenerator, llmSecretKey)
       if (result != null) {
         if (response.isCommitted()) {
           log.warn('chatStreamWithSpringAi returned error map but response already committed (SSE). Client should read metadata.error from stream. result={}', result)
@@ -254,6 +397,8 @@ try {
   }
   } finally {
     ToolPromptsSiteContext.exit()
+    StudioAiPlatformSettings.exit()
+    StudioAiAssistantSecretsContext.clear()
   }
 } catch (Throwable outer) {
   if (response?.isCommitted()) {
@@ -265,7 +410,7 @@ try {
     response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR)
     response.setContentType('application/json')
     response.getOutputStream().withWriter('UTF-8') {
-      it.write(JsonOutput.toJson([message: "CrafterQ stream failed: ${outer.message ?: outer.class.simpleName}".toString()]))
+      it.write(JsonOutput.toJson([message: "AI Assistant stream failed: ${outer.message ?: outer.class.simpleName}".toString()]))
     }
   } catch (Throwable ignored) {
   }

@@ -57,13 +57,17 @@ import {
 import type { Theme } from '@mui/material/styles';
 import AutonomousAgentsMarkIcon from './autonomousAgentsMarkIcon';
 import {
-  getAutonomousAgentsFromConfiguration,
   mergeAutonomousAgentsForTable,
   mergeAutonomousWidgetProps,
   type AutonomousMergeViewer,
   type AutonomousTableAgentRow
 } from './autonomousAssistantsConfig';
-import { catalogAutonomousAgents, fetchCentralAgentsFile, type CentralAgentsFile } from './centralAgentCatalog';
+import {
+  catalogAutonomousAgents,
+  defaultCentralAgentsFile,
+  getEffectiveCentralAgentsCatalog,
+  type CentralAgentsFile
+} from './centralAgentCatalog';
 import { autonomousAgentsMarkWidgetId } from './consts';
 import {
   getAutonomousAssistantsStatus,
@@ -72,9 +76,10 @@ import {
 } from './autonomousApi';
 import {
   effectiveStudioSiteId,
+  fetchStudioUiConfigAsync,
   getStudioUiConfigEpochSnapshot,
   subscribeStudioUiConfigChanged,
-  syncReadStudioUiConfig
+  type AiAssistantStudioUiConfig
 } from './aiAssistantStudioUiConfig';
 
 export interface AiAssistantAutonomousAssistantsProps {
@@ -340,7 +345,7 @@ function parseJsonBoolean(v: unknown): boolean {
   return Boolean(v);
 }
 
-/** Per-agent `startAutomatically` from ui.xml / registry; defaults to true when omitted. */
+/** Per-agent `startAutomatically` from agents.json; defaults to true when omitted. */
 function definitionStartAutomatically(def: unknown): boolean {
   if (def == null || typeof def !== 'object') return true;
   const o = def as Record<string, unknown>;
@@ -350,7 +355,7 @@ function definitionStartAutomatically(def: unknown): boolean {
   return true;
 }
 
-/** Per-agent `stopOnFailure` from ui.xml / registry; defaults to true when omitted. */
+/** Per-agent `stopOnFailure` from agents.json; defaults to true when omitted. */
 function definitionStopOnFailure(def: unknown): boolean {
   if (def == null || typeof def !== 'object') return true;
   const o = def as Record<string, unknown>;
@@ -370,7 +375,7 @@ function AgentConfigurationDetailsContent(props: { readonly row: AutonomousTable
   const { row } = props;
   const d = (row.definition ?? {}) as Record<string, unknown>;
   const promptText = typeof d.prompt === 'string' ? d.prompt : '';
-  const apiRaw = d.openAiApiKey;
+  const apiRaw = d.llmApiKey;
   const apiKeyInConfig =
     (typeof apiRaw === 'string' && apiRaw.trim().length > 0) ||
     (apiRaw != null && typeof apiRaw !== 'string' && String(apiRaw).trim().length > 0);
@@ -400,11 +405,16 @@ function AgentConfigurationDetailsContent(props: { readonly row: AutonomousTable
       {field('Start automatically', definitionStartAutomatically(d) ? 'Yes' : 'No')}
       {field('Stop on failure', definitionStopOnFailure(d) ? 'Yes' : 'No')}
       {field(
-        'Expert skills (markdown URLs)',
-        Array.isArray(d.expertSkills) && d.expertSkills.length > 0 ? String(d.expertSkills.length) : '—'
+        'Skills (enabled / configured)',
+        (() => {
+          const rows = Array.isArray(d.skills) ? d.skills : [];
+          if (!rows.length) return '—';
+          const on = rows.filter((s) => s?.enabled === true).length;
+          return on > 0 ? `${on} enabled (${rows.length} configured)` : `0 enabled (${rows.length} configured)`;
+        })()
       )}
       {field("Manage other agents' human tasks", parseJsonBoolean(d.manageOtherAgentsHumanTasks) ? 'Yes' : 'No')}
-      {field('Per-agent OpenAI API key in config', apiKeyInConfig ? 'Set (hidden)' : '—')}
+      {field('Per-agent API key in agents.json', apiKeyInConfig ? 'Set (hidden)' : '—')}
       {row.syntheticFromConfig ? (
         <Alert severity="info" sx={{ py: 0.75 }}>
           This row reflects site UI configuration only. Use Sync so the server registers the agent and returns the
@@ -496,12 +506,12 @@ function AiAssistantAutonomousAssistantsImpl(props: Readonly<AiAssistantAutonomo
       return;
     }
     let cancelled = false;
-    fetchCentralAgentsFile(siteId)
+    getEffectiveCentralAgentsCatalog(siteId)
       .then((f) => {
         if (!cancelled) setCentralAgentsFile(f);
       })
       .catch(() => {
-        if (!cancelled) setCentralAgentsFile(null);
+        if (!cancelled) setCentralAgentsFile(defaultCentralAgentsFile());
       });
     return () => {
       cancelled = true;
@@ -509,12 +519,11 @@ function AiAssistantAutonomousAssistantsImpl(props: Readonly<AiAssistantAutonomo
   }, [siteId]);
 
   const defs = useMemo(() => {
-    if (centralAgentsFile && centralAgentsFile.agents.length > 0) {
-      const fromCentral = catalogAutonomousAgents(centralAgentsFile);
-      if (fromCentral.length) return fromCentral;
+    if (centralAgentsFile === undefined) {
+      return [];
     }
-    return getAutonomousAgentsFromConfiguration(merged);
-  }, [centralAgentsFile, merged]);
+    return catalogAutonomousAgents(centralAgentsFile ?? defaultCentralAgentsFile());
+  }, [centralAgentsFile]);
   const listTitle = useMemo(() => widgetTitleText(merged), [merged]);
   const listTitleTranslated = usePossibleTranslation(listTitle);
   const toolsListSystemIcon = useMemo(() => systemIconDescriptorFromWidgetMerged(merged), [merged]);
@@ -813,9 +822,8 @@ function AiAssistantAutonomousAssistantsImpl(props: Readonly<AiAssistantAutonomo
           {listTitle}
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          No agents configured. In Project Configuration → UI, under this widget’s &lt;configuration&gt;, add
-          &lt;autonomousAgents&gt;&lt;agent&gt;…&lt;/agent&gt;&lt;/autonomousAgents&gt; (see plugin installation sample in
-          craftercms-plugin.yaml).
+          No autonomous agents configured. Open Project Tools → AI Assistant → Agents, add a row with mode
+          autonomous, and save to config/studio/ai-assistant/agents.json.
         </Typography>
       </>
     ) : (
@@ -1766,7 +1774,23 @@ function AiAssistantAutonomousAssistantsGated(props: Readonly<AiAssistantAutonom
     () => getStudioUiConfigEpochSnapshot(siteKey),
     () => 0
   );
-  const cfg = useMemo(() => syncReadStudioUiConfig(siteKey), [siteKey, studioUiEpoch]);
+  const [cfg, setCfg] = useState<AiAssistantStudioUiConfig | null>(null);
+  useEffect(() => {
+    if (!siteKey) {
+      setCfg(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchStudioUiConfigAsync(siteKey).then((next) => {
+      if (!cancelled) setCfg(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [siteKey, studioUiEpoch]);
+  if (!siteKey || cfg == null) {
+    return null;
+  }
   if (cfg.showAutonomousAiAssistantsInSidebar !== true) {
     return null;
   }

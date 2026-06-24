@@ -6,6 +6,8 @@ Part of the **official build specification** for this plugin, alongside **[`docs
 
 This guide captures what you need to build, package, and install Crafter Studio (site) plugins so they load correctly in Studio and in the preview toolbar. Use it as a reference when creating or debugging plugins. For **Crafter Studio 4.x**-specific UI integration (preview **`reloadRequest`**, host/guest buses) and **in-process services** (v1 vs v2 content APIs, **`DeploymentService.deploy`**, **`revertContentItem`**, security context on async threads), see **§7** and **§8**.
 
+**Diagrams:** [Build & deploy pipeline](../architecture-diagrams.md#build-and-deploy-pipeline-developer) · [Studio UI component registration](../architecture-diagrams.md#studio-ui-component-registration-developer) · [Site extension layout](../architecture-diagrams.md#site-extension-layout-developer) · [Logical architecture](../architecture-diagrams.md#logical-architecture-design).
+
 ---
 
 ## Reference: Crafter Studio UI (Support/4.x)
@@ -31,10 +33,9 @@ Your plugin depends on `@craftercms/studio-ui`; inspecting this branch helps whe
 - The **plugin ID** is set in the root descriptor: `craftercms-plugin.yaml` → `plugin.id` (e.g. `org.craftercms.aiassistant.studio`).
 - **Every place** that references the plugin for loading JS must use this **exact** ID:
   - `config/studio/ui.xml` → `<plugin id="...">` for Helper and autonomous (scheduled) widget entries
-  - TinyMCE `external_plugins` URL → `pluginId=...` query param
   - Runtime `importPlugin(site, type, name, file, pluginId)` → `pluginId` argument
 
-If the ID in `ui.xml` (or in the TinyMCE URL) does not match the ID used at install time, Studio will look for files under a different path and return **404** for the plugin script.
+If the ID in `ui.xml` does not match the ID used at install time, Studio will look for files under a different path and return **404** for the plugin script.
 
 ### How Studio Resolves Plugin File Paths
 
@@ -50,7 +51,7 @@ So the installed path for a site is:
 {siteRepo}/config/studio/static-assets/plugins/<pluginId-path>/<type>/<name>/<file>
 ```
 
-Example for plugin id `org.craftercms.aiassistant.studio`, type `crafterq`, name `components`, file `index.js`:
+Example for plugin id `org.craftercms.aiassistant.studio`, type `aiassistant`, name `components`, file `index.js`:
 
 ```text
 config/studio/static-assets/plugins/org/craftercms/aiassistant/studio/aiassistant/components/index.js
@@ -68,11 +69,10 @@ In your plugin repo, the **marketplace/copy** (or **copy-plugin**) install step 
 So you must build your JS (and other assets) into a directory that mirrors the target path under `authoring/static-assets/`. For example, if the plugin id is `org.craftercms.aiassistant.studio` and you use `type=aiassistant` and `name=components`:
 
 - Build the main bundle to: `authoring/static-assets/plugins/org/craftercms/aiassistant/studio/aiassistant/components/index.js`
-- And e.g. TinyMCE script to: `authoring/static-assets/plugins/org/craftercms/aiassistant/studio/aiassistant/tinymce/craftercms_aiassistant.js`
 
 Then, after install, Studio will find them at the same relative path under `config/studio/static-assets/plugins/org/craftercms/aiassistant/studio/`.
 
-**Rule:** The `plugin.id` in the descriptor, the paths in `ui.xml` and TinyMCE config, and the build output paths must all be consistent. Changing the plugin id (e.g. from `org.craftercms` to `org.craftercms.aiassistant.studio`) changes the installed path; update build and all references together.
+**Rule:** The `plugin.id` in the descriptor, the paths in `ui.xml`, and the build output paths must all be consistent. Changing the plugin id (e.g. from `org.craftercms` to `org.craftercms.aiassistant.studio`) changes the installed path; update build and all references together.
 
 ---
 
@@ -101,7 +101,7 @@ The **element** is merged under the parent. For example, to add a widget to the 
 
 - `configuration` → `widgets` → `widget` (with `id`, and child `plugin` with `id`, `type`, `name`, `file`). **Do not** use a bare `widget` as the root of `element` for Tools Panel installs — Studio expects the same `configuration` → `widgets` → `widget` nesting as the [sidebar plugin example](https://craftercms.com/docs/current/by-role/developer/composable/extensions/resources/plugin-sidebar-example.html); otherwise the widget may not show up in the left tools list. (**Preview toolbar** list-append in **this** descriptor is different: see below.)
 
-**This plugin’s `craftercms-plugin.yaml`** intentionally omits **Tools Panel** merges (no marketplace auto-install of **Helper** or **AutonomousAssistants** in the left rail). Add those widgets under **`ToolsPanel` → `configuration` → `widgets`** in **`ui.xml`** only if your deployment policy allows it (see [studio-ui-aiassistant-fragments.xml](../examples/studio-ui-aiassistant-fragments.xml)).
+**This plugin’s `craftercms-plugin.yaml`** auto-merges **AutonomousAssistants** under **`ToolsPanel` → `configuration` → `widgets`**. It does **not** auto-install the **Helper** in the left rail (Preview toolbar only); add **Helper** under **Tools Panel** in **`ui.xml`** manually if needed (see [studio-ui-aiassistant-fragments.xml](../examples/studio-ui-aiassistant-fragments.xml)).
 
 To add a widget to the **Preview Toolbar** (e.g. top bar), add a second installation entry. Crafter Studio’s marketplace wiring (`performConfigurationWiring`) walks the installation element tree in lockstep with `ui.xml` whenever a node has **exactly one** child with the same name as the next descriptor node, then takes **`getChildren().get(0)`**. If that walk reaches a descriptor node whose **`children`** list is **empty** or **missing**, install throws (**`IndexOutOfBoundsException`** or **`NullPointerException`**). **`middleSection/widgets`** often has **zero or one** `widget` children, which makes that walk unsafe; **`rightSection/widgets`** usually has **several** toolbar widgets, so the walk stops early and **`buildXml`** emits the full **`<widget>`** fragment. **This plugin’s descriptor** therefore merges the preview Helper under **`PreviewToolbar` → `configuration` → `rightSection` → `widgets`**. For an icon **next to the URL bar**, move the merged **`<widget id="craftercms.components.aiassistant.Helper">…</widget>`** to **`middleSection` → `widgets`** after install (same idea as Crafter’s [toolbar plugin example](https://docs.craftercms.org/en/4.2/by-role/developer/composable/extensions/resources/plugin-toolbar-example.html)); see [studio-ui-aiassistant-fragments.xml](../examples/studio-ui-aiassistant-fragments.xml).
 
@@ -118,11 +118,11 @@ So after install, `ui.xml` will contain a widget that points at your plugin scri
 
 **form-datasource:** registers the image-from-URL datasource in **`config/studio/administration/site-config-tools.xml`** (Project Tools → Configuration → Project Config Tools). Descriptor entry: `type: form-datasource`, `elementXpath` that uniquely matches this plugin’s `<datasource>`, and `element` with `name: datasource` plus `plugin` children (`pluginId`, `type: datasource`, `name` matching the datasource folder / `getName()`, `filename: main.js`). Reinstall or upgrade runs the same merge logic Studio uses for marketplace installs.
 
-**Central agent catalog (Project Tools):** The descriptor merges **one** Project Tools row — **AI Assistant** (`craftercms.components.aiassistant.ProjectToolsConfiguration`, URL slug **`ai-assistant-config`**) — a tabbed shell, **opened in a large modal dialog** when the tool is selected, with tabs: **UI** (`studio-ui.json` + bulk form-control), **Agents** (`config/studio/ai-assistant/agents.json`), **Tools and MCP** (`scripts/aiassistant/config/tools.json` for built-in + MCP policy, then **`user-tools/registry.json`** + site Groovy tools), **Scripts** (image generators + script LLMs under **`scripts/aiassistant/imagegen/`** and **`scripts/aiassistant/llm/`**), **Prompts and Context** (markdown overrides under **`scripts/aiassistant/prompts/`**). Each **`agents.json`** array entry has **`mode`**: **`chat`** (toolbar / form / preview assistants) or **`autonomous`** (scheduled agents; requires **name**, **schedule**, **prompt**, **scope**, **llm**, **llmModel**, plus optional image and behavior fields). When that file exists and **`agents`** has at least one row, **chat** definitions are taken **only** from **`mode: chat`** rows (or omitted mode, treated as chat), not from **`ui.xml` `<agents>`** on the Helper. When the file has at least one **`mode: autonomous`** row, the Autonomous Assistants widget uses those definitions instead of inline **`autonomousAgents`** in **`ui.xml`**. If the file is missing or unusable, the plugin keeps the previous **`ui.xml`** merge behavior. Example: **`docs/examples/ai-assistant-agents.json`**.
+**Central agent catalog (Project Tools):** The descriptor merges **one** Project Tools row — **AI Assistant** (`craftercms.components.aiassistant.ProjectToolsConfiguration`, URL slug **`ai-assistant-config`**) — a tabbed shell, **opened in a large modal dialog** when the tool is selected, with tabs: **UI** (`studio-ui.json` + bulk form-control), **Agents** (`config/studio/ai-assistant/agents.json`), **Recipes** (`intent-recipes.json` + `tools.json` intent-routing flags), **Integrations** (sub-tabs: **LLMs**, **Image generators**, **Tools** — built-in policy + `user-tools/registry.json` + Groovy — **MCP**), **Secrets** (`secrets.json`), **Prompts and Context** (markdown under **`scripts/aiassistant/prompts/`**). Each **`agents.json`** array entry has **`mode`**: **`chat`** (toolbar / form / preview assistants) or **`autonomous`** (scheduled agents; requires **name**, **schedule**, **prompt**, **scope**, **llm**, **llmModel**, plus optional image and behavior fields). When that file exists and **`agents`** has at least one row, **chat** definitions are taken **only** from **`mode: chat`** rows (or omitted mode, treated as chat), not from **`ui.xml` `<agents>`** on the Helper. When the file has at least one **`mode: autonomous`** row, the Autonomous Assistants widget uses those definitions instead of inline **`autonomousAgents`** in **`ui.xml`**. If the file is missing or unusable, the plugin keeps the previous **`ui.xml`** merge behavior. Example: **`docs/examples/ai-assistant-agents.json`**.
 
 **Screenshots:** [configuration-guide.md — Project Tools and AI Assistant Configuration](configuration-guide.md#cg-screenshots).
 
-**Scripts + Studio UI (same Project Tools panel):** The **UI** tab edits **`config/studio/scripts/aiassistant/config/studio-ui.json`** (toolbar/sidebar visibility, Experience Builder image-augmentation scope, bulk add/remove of the form-engine AI Assistant field). **Tools and MCP**, **Scripts**, and **Prompts and Context** tabs slice the same scripts sandbox UI. Server-side listing uses plugin REST **`GET /studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/content-types/list`** with **`siteId`**. The bundle still registers legacy widget ids **`CentralAgentsConfiguration`**, **`ScriptsSandboxConfiguration`**, and **`StudioUiSettings`** so older **`site-config-tools.xml`** merges keep working (**ScriptsSandboxConfiguration** opens the **Tools and MCP** tab). See **[configuration-guide.md §1e](configuration-guide.md#cg-1e)** and **[spec.md — Studio UI flags](../internals/spec.md#studio-ui-flags-studio-uijson)**.
+**Scripts + Studio UI (same Project Tools panel):** The **UI** tab edits **`config/studio/scripts/aiassistant/config/studio-ui.json`**. **Integrations** sub-tabs edit script LLMs, image generators, **`tools.json`**, and MCP. **Recipes** and **Secrets** have dedicated tabs. **Prompts and Context** edits markdown overrides. Server-side listing uses plugin REST **`GET /studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/content-types/list`** with **`siteId`**. Legacy widget ids **`CentralAgentsConfiguration`**, **`ScriptsSandboxConfiguration`**, and **`StudioUiSettings`** still open the same shell (**ScriptsSandboxConfiguration** → **Integrations → Tools**). See **[configuration-guide.md §1e](configuration-guide.md#cg-1e)** and **[spec.md — Studio UI flags](../internals/spec.md#studio-ui-flags-studio-uijson)**.
 
 Studio loads that script via `type=datasource` (not `type=aiassistant`), so the file must live under **`config/studio/static-assets/plugins/org/craftercms/aiassistant/studio/datasource/aiassistant-img-from-url/main.js`** in the site sandbox — not under the `aiassistant/components` tree used for the React bundle.
 
@@ -160,7 +160,7 @@ Each reference to your plugin’s JS must look like:
 
 ### Second Widget: Studio AI Assistant — Autonomous
 
-**Left rail order (Autonomous vs Project Tools):** The plugin descriptor **does not** auto-merge **AutonomousAssistants** (or **Helper**) into **Tools Panel**. If you add **`AutonomousAssistants`** under **`ToolsPanel` → `configuration` → `widgets`** manually and Studio lists it in an order you do not want relative to **Project Tools**, edit **`config/studio/ui.xml`**: move the **`<widget id="craftercms.components.aiassistant.AutonomousAssistants">…</widget>`** node so it appears **before** the **`reference`** / block that lists **Project Tools** site tools (exact parent depends on your Studio version—keep both under the same sidebar tree your build uses).
+**Left rail order (Autonomous vs Project Tools):** The descriptor installs **AutonomousAssistants** under **Tools Panel**. If Studio lists it in an order you do not want relative to **Project Tools**, edit **`config/studio/ui.xml`**: move the **`<widget id="craftercms.components.aiassistant.AutonomousAssistants">…</widget>`** node so it appears **before** the **`reference`** / block that lists **Project Tools** site tools (exact parent depends on your Studio version—keep both under the same sidebar tree your build uses).
 
 This plugin also registers **`craftercms.components.aiassistant.AutonomousAssistants`** on the **same** `components/index.js` bundle. Use it for scheduled, in-memory assistant runs and human-in-the-loop tasks. It is part of the same Studio AI assistant product as interactive chat. The **`plugin`** child must match the Helper exactly (`org.craftercms.aiassistant.studio` / `aiassistant` / `components` / `index.js`).
 
@@ -292,6 +292,15 @@ Example (this plugin’s streaming endpoint):
 POST /studio/api/2/plugin/script/plugins/org/craftercms/aiassistant/studio/aiassistant/ai/stream?siteId=new-demo
 ```
 
+**Two `siteId` values on stream/chat (do not confuse them):**
+
+| Where | Meaning |
+|-------|---------|
+| **URL query** `?siteId=` | **Studio session site** — where the plugin is loaded (required by Studio’s script controller). The React client always passes the **active Studio site** here (`pluginRequestSiteId`). |
+| **POST JSON** `"siteId"` | **Working CMS site** for **`GetContent`**, **`ResearchSiteContent`**, writes, and other CMS tools. Defaults to the session site; authors can set a different site with **`set site to X`** (sticky per chat) or **`… in site X`** (one turn). Server **`resolveEffectiveSiteId`** and **`ensureToolArgsSiteId`** force this id on tool calls even when the model echoes the session site from context. |
+
+When POST **`siteId`** differs from the URL query, the client **omits** preview **`contentPath`** / **`contentTypeId`** / **`displayTemplate`** / **`studioPreviewPageUrl`** so the open preview on the session site is not treated as repository truth for the working site. See **[chat-and-tools-runtime.md § REST body](../internals/chat-and-tools-runtime.md#rest-body-advanced)** and **[spec.md — Working CMS site](../internals/spec.md#working-cms-site-cross-site)**.
+
 - **Script lives in plugin repo** (and must be copied into the site sandbox at install time):
   - `authoring/scripts/rest/plugins/org/craftercms/aiassistant/studio/aiassistant/ai/stream.post.groovy`
 
@@ -367,7 +376,7 @@ async function callPluginScriptJson<T>(siteId: string, scriptPath: string, body:
   - Missing `siteId` query param (required by Studio’s plugin script controller).
 - **500 pluginId null / unable to resolve class**:
   - Script path doesn’t include plugin id segments (use Trello pattern).
-  - `authoring/scripts/classes` wasn’t copied + committed into `{siteRepo}/config/studio/scripts/classes`.
+  - Groovy classes are missing under `{siteRepo}/config/studio/scripts/classes/plugins/<plugin-id-path>/` (re-run plugin copy from a current plugin tree).
 
 #### User-authored **Tools** (Site Groovy, Survives Plugin Reinstall)
 
@@ -377,14 +386,14 @@ async function callPluginScriptJson<T>(siteId: string, scriptPath: string, body:
 {siteRepo}/config/studio/scripts/aiassistant/user-tools/
 ```
 
-- **Why here:** Under `config/studio/scripts/` with an `aiassistant/` segment, it is clearly **Studio script territory**, not `static-assets` (which plugin installs often refresh). Keep **plugin-shipped** REST scripts under `config/studio/scripts/rest/plugins/...` as today; keep **author-maintained** tool implementations in `user-tools/` so reinstall/copy-plugin does not replace them (`scripts/install-plugin.sh` only copies `authoring/scripts/classes` → `config/studio/scripts/classes` and does not remove sibling directories under `config/studio/scripts/`).
+- **Why here:** Under `config/studio/scripts/` with an `aiassistant/` segment, it is clearly **Studio script territory**, not `static-assets` (which plugin installs often refresh). Keep **plugin-shipped** REST scripts under `config/studio/scripts/rest/plugins/...` as today; keep **author-maintained** tool implementations in `user-tools/` so reinstall/copy-plugin does not replace them.
 - **Naming:** Use **tools** for executable code; reserve **skills** for prompt- or retrieval-oriented behavior (e.g. expert markdown / embeddings) so docs and `ui.xml` stay unambiguous.
 
-**Convention (AI Assistant — custom LLM):** `config/studio/scripts/aiassistant/llm/{id}/runtime.groovy` (or `llm.groovy`) implements **`StudioAiLlmRuntime`** or a **Map** with **`buildSessionBundle`** for **`&lt;llm&gt;script:{id}&lt;/llm&gt;`**. Same install survivability as **user-tools/** (sibling under `config/studio/scripts/aiassistant/`). See **`docs/using-and-extending/llm-configuration.md`**, **`docs/using-and-extending/script-llm-bring-your-own-backend.md`**, and examples under **`docs/examples/aiassistant-llm/`** (`demo/`, **`byo-openai-compat/`** as the sample id for a **tools-loop** custom host, `groq/`).
+**Convention (AI Assistant — custom LLM):** `config/studio/scripts/aiassistant/llm/{id}/runtime.groovy` (or `llm.groovy`) implements **`StudioAiLlmRuntime`** or a **Map** with **`buildSessionBundle`** for **`&lt;llm&gt;script:{id}&lt;/llm&gt;`**. Same install survivability as **user-tools/** (sibling under `config/studio/scripts/aiassistant/`). See **`docs/using-and-extending/llm-configuration.md`**, **`docs/using-and-extending/script-llm-bring-your-own-backend.md`**, and examples under **`docs/examples/aiassistant-llm/`** (`demo/`, **`byo-llm/`** as the sample id for a **tools-loop** custom host, `groq/`).
 
-**Convention (AI Assistant — custom image generation):** `config/studio/scripts/aiassistant/imagegen/{id}/generate.groovy` — backend selected per agent or request **`imageGenerator`**: blank uses the **built-in GenerateImage HTTP** path when credentials and **`imageModel`** allow it; **`none`** / **`off`** / **`disabled`** omits **GenerateImage**; **`script:{id}`** runs that Groovy script (same “script your own” idea as LLMs). Optional host env **`OPENAI_IMAGES_OPENAI_BASE_URL`** adjusts the wire URL; JVM mirror **`crafter.openai.imagesOpenAiBaseUrl`** is documented in **[studio-aiassistant-jvm-parameters.md](studio-aiassistant-jvm-parameters.md)**.
+**Convention (AI Assistant — custom image generation):** `config/studio/scripts/aiassistant/imagegen/{id}/generate.groovy` — backend selected per agent or request **`imageGenerator`**: blank uses the **built-in GenerateImage HTTP** path when credentials and **`imageModel`** allow it; **`none`** / **`off`** / **`disabled`** omits **GenerateImage**; **`script:{id}`** runs that Groovy script (same “script your own” idea as LLMs). Optional host env **`OPENAI_IMAGES_BASE_URL`** adjusts the wire URL; JVM mirror **`crafter.openai.imagesBaseUrl`** is documented in **[studio-aiassistant-jvm-parameters.md](studio-aiassistant-jvm-parameters.md)**.
 
-**Per-site built-in tool policy, MCP, and prompts:** `config/studio/scripts/aiassistant/config/tools.json` may list **`disabledBuiltInTools`** (tool names to hide) or a non-empty **`enabledBuiltInTools`** whitelist (built-in CMS tools only — **`InvokeSiteUserTool`** and **`mcp_*`** MCP tools are exempt from that whitelist). **MCP is off by default:** set JSON **`mcpEnabled`** to **`true`** (same file) before **`mcpServers`** is read; then **`mcpServers`** registers **Streamable HTTP** MCP servers whose tools merge into the native catalog (see **[chat-and-tools-runtime.md](../internals/chat-and-tools-runtime.md#mcp-client-tools-streamable-http)**). Optional **`disabledMcpTools`** hides specific **`mcp_`** wire tools. Tool prompt text can be overridden by dropping Markdown files under **`config/studio/scripts/aiassistant/prompts/`** using the **prefixed keys** from **`ToolPromptsOverrideCatalog`** (e.g. **`GENERAL_OPENAI_AUTHORING_INSTRUCTIONS.md`**, **`CMS_CONTENT_DESC_GET_CONTENT.md`**, **`CRAFTERQ_DESC_LIST_AGENT_CHATS.md`** — see **[configuration-guide.md §9.1](configuration-guide.md#cg-9-1)** for prefixes and upgrades). See **`plugins.org.craftercms.aiassistant.config.StudioAiAssistantProjectConfig`**, **`plugins.org.craftercms.aiassistant.mcp.StudioAiMcpClient`**, and **`ToolPromptsLoader`** in the plugin sources.
+**Per-site built-in tool policy, MCP, and prompts:** `config/studio/scripts/aiassistant/config/tools.json` may list **`disabledBuiltInTools`** (tool names to hide) or a non-empty **`enabledBuiltInTools`** whitelist (built-in tools only — **`InvokeSiteUserTool`** and **`mcp_*`** MCP tools are exempt from that whitelist). **MCP is off by default:** set JSON **`mcpEnabled`** to **`true`** (same file) before **`mcpServers`** is read; then **`mcpServers`** registers **Streamable HTTP** MCP servers whose tools merge into the native catalog (see **[chat-and-tools-runtime.md](../internals/chat-and-tools-runtime.md#mcp-client-tools-streamable-http)**). Optional **`disabledMcpTools`** hides specific **`mcp_`** wire tools. Tool prompt text can be overridden by dropping Markdown files under **`config/studio/scripts/aiassistant/prompts/`** using the **prefixed keys** from **`ToolPromptsOverrideCatalog`** (e.g. **`GENERAL_LLM_AUTHORING_INSTRUCTIONS.md`**, **`CMS_CONTENT_DESC_GET_CONTENT.md`** — see **[configuration-guide.md §9.1](configuration-guide.md#cg-9-1)** for prefixes and upgrades). See **`plugins.org.craftercms.aiassistant.studio.config.StudioAiAssistantProjectConfig`**, **`plugins.org.craftercms.aiassistant.contrib.tool.mcp.StudioAiMcpClient`**, and **`ToolPromptsLoader`** in the plugin sources.
 
 **Runtime wiring (shipped in plugin classes):** When `registry.json` exists and lists at least one tool, the Spring AI tool list includes **`InvokeSiteUserTool`**. The model calls it with:
 
@@ -414,7 +423,7 @@ Each entry needs **`id`** (letters, digits, `_`, `-`, max 64 chars) and **`scrip
 | `studio` | `StudioToolOperations` — same CMS helpers as built-in tools (`getContent`, `writeContent`, …). |
 | `args` | Map from the `InvokeSiteUserTool` call (may be empty). |
 | `toolId` | Registered id string. |
-| `siteId` | Effective Studio site id (`studio.resolveEffectiveSiteId('')`). |
+| `siteId` | Working CMS site id for this turn (`studio.resolveEffectiveSiteId('')` — POST body wins over tool args). |
 | `log` | SLF4J logger for the user-tool runner. |
 
 **Return value:** The script’s **last expression** should be a **Map** (e.g. `ok`, `message`, custom fields). Non-Map results are wrapped as `{ ok: true, result: … }`.
@@ -491,26 +500,12 @@ Keep experiments non-fatal (log + continue) so streaming endpoints aren’t brok
 
 ### Rollup (or Similar) Configuration
 
-- Set the **output directory** to the path that, after copy, becomes `config/studio/static-assets/plugins/<pluginId-path>/<type>/<name>/` (and optionally a sibling like `tinymce`).
+- Set the **output directory** to the path that, after copy, becomes `config/studio/static-assets/plugins/<pluginId-path>/<type>/<name>/`.
 - Example for plugin id `org.craftercms.aiassistant.studio`, type `aiassistant`, name `components`:
 
   - Main bundle: `../authoring/static-assets/plugins/org/craftercms/aiassistant/studio/aiassistant/components/index.js`
-  - TinyMCE: `../authoring/static-assets/plugins/org/craftercms/aiassistant/studio/aiassistant/tinymce/craftercms_aiassistant.js`
 
 - Use **externals** and/or **replace** so the bundle uses Studio’s shared libs (e.g. `craftercms.libs.React`, `craftercms.components`, etc.) instead of bundling React/MUI/studio-ui.
-
-### TinyMCE Plugin
-
-- Built as a separate bundle (e.g. IIFE) and placed under the same plugin id path, e.g. `tinymce/craftercms_aiassistant.js`.
-- In `ui.xml`, TinyMCE’s `external_plugins` must point at the **plugin file URL** with the **correct pluginId**:
-
-  ```text
-  /studio/1/plugin/file?siteId=new-demo&pluginId=org.craftercms.aiassistant.studio&type=aiassistant&name=tinymce&file=craftercms_aiassistant.js
-  ```
-
-  Substitute `new-demo` with your Studio site id (e.g. `qtest`) when different.
-
-- Use `file=...` (not `filename=...`) in the query string if that’s what Studio expects.
 
 ### Packaging Command
 
@@ -522,12 +517,11 @@ Edits belong in **`sources/`**. Most paths under **`authoring/static-assets/`** 
 
 | What | Canonical location (edit here) | Produced under `authoring/static-assets/...` |
 |------|-------------------------------|-----------------------------------------------|
-| React plugin bundle (Helper, FormControl, chat, ICE, etc.) | `sources/index.tsx`, `sources/src/**/*.tsx`, `sources/src/**/*.ts` | `plugins/org/craftercms/aiassistant/studio/aiassistant/components/index.js` (**bundled**). Also **copied** to `org/craftercms/aiassistant/components/index.js` for legacy `ui.xml` paths. **Do not hand-edit those `index.js` files.** |
+| React plugin bundle (Helper, FormControl, chat, ICE, etc.) | `sources/index.tsx`, `sources/src/**/*.tsx`, `sources/src/**/*.ts` | `plugins/org/craftercms/aiassistant/studio/aiassistant/components/index.js` (**bundled**). **Do not hand-edit that `index.js`.** |
 | Form engine control (assistant panel, agent list, `cqLoadAgentsForSite`, etc.) | **`sources/control/ai-assistant/main.js`** | **Copied** (not compiled) to `plugins/.../studio/control/ai-assistant/main.js` at end of `yarn package`. |
-| Image-from-URL datasource | `sources/datasource/aiassistant-img-from-url/main.js` | Copied to `plugins/.../studio/datasource/aiassistant-img-from-url/` and legacy `org/craftercms/aiassistant/datasource/aiassistant-img-from-url/`. |
-| TinyMCE plugin | Built from `sources/src/craftercms_aiassistant.tsx` → `sources/public/craftercms_aiassistant.js` | Rolled into `plugins/.../studio/aiassistant/tinymce/` and legacy `org/craftercms/aiassistant/tinymce/`. |
+| Image-from-URL datasource | `sources/datasource/aiassistant-img-from-url/main.js` | `plugins/.../studio/datasource/aiassistant-img-from-url/main.js` (copied at package time). |
 
-**Workflow:** Change **`sources/`** → run **`yarn package`** from **`sources/`** → install or copy `authoring/static-assets/` to the site. Treat **`authoring/static-assets/plugins/.../aiassistant/components/index.js`** and the duplicate under **`org/craftercms/aiassistant/components/`** as **generated**.
+**Workflow:** Change **`sources/`** → run **`yarn package`** from **`sources/`** → install or copy the plugin (`copy-plugin` / marketplace copy). Treat shipped **`authoring/static-assets/plugins/org/craftercms/aiassistant/studio/**` as **generated** (except hand-maintained `sources/control/ai-assistant/main.js`).
 
 ---
 
@@ -535,10 +529,10 @@ Edits belong in **`sources/`**. Most paths under **`authoring/static-assets/`** 
 
 ### From Local Plugin Repo
 
-- **API:** `POST /studio/api/2/marketplace/copy` with body e.g. `{ "siteId": "new-demo", "path": "/absolute/path/to/plugin/repo" }` (substitute your site id). Use the same auth (e.g. Bearer token) as for Studio.
-- **CLI:** e.g. `crafter-cli copy-plugin -e <env> -s <siteId> --path /path/to/plugin/repo`.
+- **API:** `POST /studio/api/2/marketplace/copy` with body e.g. `{ "siteId": "new-demo", "path": "/absolute/path/to/ai-assistant-plugin" }` (substitute your site id and the absolute path to this repository). Use the same auth (e.g. Bearer token) as for Studio.
+- **CLI:** e.g. `crafter-cli copy-plugin -e <env> -s <siteId> --path /absolute/path/to/ai-assistant-plugin`.
 
-Installation copies `authoring/static-assets/*` into the site’s `config/studio/static-assets/plugins/<pluginId-path>/` and runs the descriptor’s **installation** steps to merge into `config/studio/ui.xml`. The **scripts** that Studio runs for plugin REST endpoints are typically copied from `authoring/scripts/rest`. The **`authoring/scripts/classes`** folder may not be copied by marketplace/copy; this plugin requires it for Spring AI and tools. If after install the stream fails with “unable to resolve class”, copy `authoring/scripts/classes` to the site’s `config/studio/scripts/classes` manually.
+Installation copies `authoring/static-assets/*` into the site’s `config/studio/static-assets/plugins/<pluginId-path>/` and runs the descriptor’s **installation** steps to merge into `config/studio/ui.xml`. REST scripts copy from `authoring/scripts/rest/plugins/<pluginId-path>/`. **Groovy classes** copy from `authoring/scripts/classes/plugins/<pluginId-path>/` only (Studio `copyPlugin` uses the plugin id as a path suffix — e.g. `org.craftercms.aiassistant.studio` → `plugins/org/craftercms/aiassistant/studio/`). This plugin keeps all shipped classes under that folder (`engine/`, `contrib/`, `spi/`, `studio/`, …). If you see “unable to resolve class” after copy, re-run **`copy-plugin` / marketplace copy** from a tree where classes live under `authoring/scripts/classes/plugins/org/craftercms/aiassistant/studio/` — do not copy sibling folders manually.
 
 ### Where Studio Reads `ui.xml` From (and Why Commits Matter)
 
@@ -604,11 +598,15 @@ The install script needs a **Bearer token** (JWT) for Studio’s API. Two option
 
 Get the token by logging into Studio, opening DevTools → Application → Cookies (or network tab on an API request), or from your auth flow. Rotate it if it expires.
 
-The install script **copies and commits** `authoring/scripts/classes` into the site’s `config/studio/scripts/classes`. Edit the hardcoded `CRAFTER_DATA` at the top of `scripts/install-plugin.sh` to match your Crafter authoring data path (e.g. `.../crafter-authoring/data`).
+**Scripted Studio API calls (same JWT):** `scripts/studio-api.sh` wraps `curl` with `Authorization: Bearer` and the same token loading as `install-plugin.sh` (`CRAFTER_STUDIO_TOKEN` or `scripts/.studio-token`). Use it for ad hoc calls to Studio or plugin paths. **All maintainer checks in one go:** `./scripts/test/run-all.sh` (shell `bash -n`, `yarn package` in `sources/` like **`install-plugin.sh`** packaging, then **`scripts/test/functional/rest-contracts.sh`** — live Studio + JSON payload contracts (**`node`** first — same as `yarn package`; then **`python3`** / **`jq`**); `RUN_ALL_SKIP_STUDIO=1` without Studio; `RUN_ALL_WITH_LINT=1` to add ESLint). **Plugin REST contracts alone:** `./scripts/test/functional/rest-contracts.sh` (or the historical path `./scripts/test/integration/smoke.sh`, which runs the same script). Uses `INTEGRATION_SITE_ID`, default **`aiat-2`** for this repo: `content-types/list`, **`scripts/index`** (same path as `fetchAiAssistantScriptsIndex` in the Studio UI), and `ai/stream` with invalid JSON (expects HTTP 400). Use `POST /studio/api/2/sites/create_site_from_marketplace` with a JSON body from the [Studio API](https://docs.craftercms.org/docs/current/_static/api/studio.html) when you need a disposable project; pair runs with **authoring logs** (e.g. Docker / Tomcat) to correlate failures.
+
+**Disposable site + plugin install (local / self-hosted CI):** Copy `scripts/test/integration/create-site.json.example` to `scripts/test/integration/create-site.json` (gitignored), set a **unique** `siteId`, adjust `blueprintId` / `blueprintVersion` if needed (`GET /studio/api/2/sites/available_blueprints`). Then run `./scripts/test/integration/e2e-site-lifecycle.sh` — it creates the site, runs `install-plugin.sh`, runs **`scripts/test/functional/rest-contracts.sh`**, then deletes the site. Use `--keep-site` to leave the site up for debugging, or `./scripts/test/integration/e2e-site-lifecycle.sh --teardown-only <siteId>` to delete a leftover test site. `install-plugin.sh` must use a `CRAFTER_DATA` path on the **same** authoring node where Studio created the site.
+
+The install script runs **`yarn package`** then marketplace **copy** (same as `copy-plugin` for classes and static assets). Edit the hardcoded `CRAFTER_DATA` at the top of `scripts/install-plugin.sh` only when seeding **`secrets.json`** into a local sandbox path.
 
 ### After Install
 
-- Ensure **plugin id** in `ui.xml` matches the descriptor. If the site had an older version of the plugin with a different id, fix the plugin id in `ui.xml` (and in TinyMCE config if present) so it matches the descriptor and the installed path.
+- Ensure **plugin id** in `ui.xml` matches the descriptor. If the site had an older version of the plugin with a different id, fix the plugin id in `ui.xml` so it matches the descriptor and the installed path.
 - If you added a **toolbar** entry in the descriptor, the toolbar widget should appear after install (default: **`rightSection/widgets`**). For an icon next to the address bar, move the widget under `PreviewToolbar` → `middleSection` → `widgets` (see section 3 and examples).
 
 ### Groovy Scripting Sandbox
@@ -665,7 +663,7 @@ Call **`triggerStudioPreviewReload()`** after you know the **sandbox** changed i
 
 **Do not** rely on refresh for “guidance-only” tool steps that only return text for the LLM (e.g. `update_template` / `update_content` that fetch current files but do not save) — nothing changed on disk until **`WriteContent`** (or revert) completes.
 
-In this plugin’s chat, SSE tool progress events expose **`metadata.status: "tool-progress"`** and **`metadata.phase`**: `start` | `done` | `warn` | `error`. Injected **`text`** lines start with **🛠️** plus a category (**🔍** read, **✏️** write/revert/publish/update/GenerateImage, **📈** analyze, **🔄** other). **Expert** tools **QueryExpertGuidance**, **GetCrafterizingPlaybook**, and **ConsultCrafterQExpert** use **🛠️🤓** before the category emoji so authors can spot instruction/research/SME work. The React client sets a flag when **`phase === "done"`** for selected tool names (`WriteContent`, `revert_change`, `GenerateImage`), then calls **`triggerStudioPreviewReload()`** once after the stream finishes (and skips this path for the **form-engine** client-JSON-apply surface where the open item is intentionally not written server-side from tools).
+In this plugin’s chat, SSE tool progress events expose **`metadata.status: "tool-progress"`** and **`metadata.phase`**: `start` | `done` | `warn` | `error`. Injected **`text`** lines start with **🛠️** plus a category (**🔍** read, **✏️** write/revert/publish/update/GenerateImage, **📈** analyze, **🔄** other). **Expert** tools **QueryExpertGuidance** and **GetCrafterizingPlaybook** use **🛠️🤓** before the category emoji so authors can spot instruction/research work. The React client sets a flag when **`phase === "done"`** for selected tool names (`WriteContent`, `revert_change`, `GenerateImage`), then calls **`triggerStudioPreviewReload()`** once after the stream finishes (and skips this path for the **form-engine** client-JSON-apply surface where the open item is intentionally not written server-side from tools).
 
 ### `writeContentAndNotify` Vs Client Reload
 
@@ -713,9 +711,9 @@ Pattern: capture **`SecurityContextHolder.getContext()`** on the Studio servlet 
 ## 9. Checklist: Plugin Loads Without 404
 
 - [ ] **Descriptor** `plugin.id` is set and consistent (e.g. `org.craftercms.aiassistant.studio`).
-- [ ] **Build** writes to `authoring/static-assets/plugins/<pluginId-path>/<type>/<name>/...` (and tinymce if used).
+- [ ] **Build** writes to `authoring/static-assets/plugins/<pluginId-path>/<type>/<name>/...`.
 - [ ] **Install** copies that tree into the site’s `config/studio/static-assets/plugins/...`.
-- [ ] **ui.xml** (and TinyMCE config) use the **same** plugin id in every `<plugin id="...">` and in every plugin file URL.
+- [ ] **ui.xml** uses the **same** plugin id in every `<plugin id="...">` and in every plugin file URL.
 - [ ] **Preview toolbar:** **`craftercms-plugin.yaml`** merges the Helper with **`parentXpath`** = **`…/PreviewToolbar/configuration/rightSection/widgets`**. After install, confirm **`craftercms.components.aiassistant.Helper`** under **`PreviewToolbar`**; optionally move the widget to **`middleSection/widgets`** for URL-bar placement. Set **`OPENAI_API_KEY`** on Studio for the default OpenAI agent.
 - [ ] **Auth:** Browser (or client) is logged in to Studio so plugin file requests send the same session (cookies/JWT).
 
@@ -728,7 +726,6 @@ Pattern: capture **`SecurityContextHolder.getContext()`** on the Studio servlet 
 | Descriptor plugin id | `org.craftercms.aiassistant.studio` |
 | Plugin id path (dots → slashes) | `org/craftercms/aiassistant/studio` |
 | Main bundle (type/name) | `aiassistant` / `components` → `.../studio/aiassistant/components/index.js` |
-| TinyMCE bundle | `aiassistant` / `tinymce` → `.../studio/aiassistant/tinymce/craftercms_aiassistant.js` |
 | ui.xml plugin element | `<plugin id="org.craftercms.aiassistant.studio" type="aiassistant" name="components" file="index.js"/>` |
 | importPlugin (runtime) | `importPlugin(site, 'aiassistant', 'components', 'index.js', 'org.craftercms.aiassistant.studio')` |
 
@@ -736,4 +733,4 @@ Use this table when adding a new plugin or when debugging 404s: keep plugin id, 
 
 ---
 
-*This guide is based on the AI Assistant Studio plugin (`plugin-studio-crafterq`) and CrafterCMS 4.x. Paths and endpoint details may vary slightly by Studio version.*
+*This guide is based on the AI Assistant Studio plugin (`org.craftercms.aiassistant.studio`) and CrafterCMS 4.x. Paths and endpoint details may vary slightly by Studio version.*

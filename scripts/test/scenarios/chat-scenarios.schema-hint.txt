@@ -1,0 +1,10 @@
+chat-scenarios JSON (informal contract)
+- defaults: merged into every POST body. **siteId** is resolved as `CHAT_SITE_ID` env → `defaults.siteId` → fail if neither set. Do not commit site-specific `defaults.siteId` in shared scenarios; set `CHAT_SITE_ID` (or `INTEGRATION_SITE_ID` via `run-all.sh`) at run time. agentId optional (runner resolves from ui.xml or default UUID).
+- turns[].prompt: user message (required).
+- turns[].request: optional object merged on top of defaults for that turn only (e.g. switch authoringSurface to preview for translate).
+- turns[].expect: optional assertions on SSE telemetry — recipeId, recipeOutcome, forbidRecipeId, deferToPlanLoop, planDeferCatalogSent, toolsAny, toolsAll, forbidTools, maxToolStarts, maxToolStartCounts ({ toolName: n }), generateImagePromptSeen, turnGoalPresent, turnGoalContains (substring match on intentRecipeRouting.turnGoal).
+- turns[].optional / turns[].skipUnless: destructive turns skip unless env set (CHAT_MATRIX_ALLOW_WRITES, CHAT_MATRIX_ALLOW_PUBLISH).
+- turns[].partialOnMissingConfig: optional turn; missing keys/permissions/stream abort → partial (exit 0).
+- turns[].group: intent-recipes | builtin-tools (filter with CHAT_SCENARIO_GROUP).
+- turns[].freshChat: new chatId before this turn.
+- Runner adds chatId (same UUID for all turns in one session) unless freshChat on a turn.

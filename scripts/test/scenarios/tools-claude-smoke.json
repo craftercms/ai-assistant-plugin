@@ -1,0 +1,53 @@
+{
+  "description": "Fast Claude tool smoke — 5 read-only tools, one tool per turn (no 8s pacing). Full matrix: tools-all.json.",
+  "defaults": {
+    "siteId": "ait-1",
+    "llm": "claude",
+    "llmModel": "claude-sonnet-4-20250514",
+    "enableTools": true
+  },
+  "turns": [
+    {
+      "id": "ContentExists",
+      "group": "builtin-tools",
+      "summary": "ContentExists on home page.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the ContentExists tool exactly once before writing any assistant reply. Do not use any other tool. Call with path \"/site/website/index.xml\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": { "enabledBuiltInTools": ["ContentExists"], "enableTools": true },
+      "expect": { "toolsAny": ["ContentExists"] }
+    },
+    {
+      "id": "GetContent",
+      "group": "builtin-tools",
+      "summary": "GetContent read home page.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the GetContent tool exactly once before writing any assistant reply. Do not use any other tool. Call with path \"/site/website/index.xml\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": { "enabledBuiltInTools": ["GetContent"], "enableTools": true },
+      "expect": { "toolsAny": ["GetContent"] }
+    },
+    {
+      "id": "ListStudioContentTypes",
+      "group": "builtin-tools",
+      "summary": "List content types.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the ListStudioContentTypes tool exactly once before writing any assistant reply. Do not use any other tool. After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": { "enabledBuiltInTools": ["ListStudioContentTypes"], "enableTools": true },
+      "expect": { "toolsAny": ["ListStudioContentTypes"] }
+    },
+    {
+      "id": "ResearchSiteContent",
+      "group": "builtin-tools",
+      "summary": "Research site content.",
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the ResearchSiteContent tool exactly once before writing any assistant reply. Do not use any other tool. Call with query \"home page title\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": { "enabledBuiltInTools": ["ResearchSiteContent"], "enableTools": true },
+      "expect": { "toolsAny": ["ResearchSiteContent"] }
+    },
+    {
+      "id": "WebSearch",
+      "group": "builtin-tools",
+      "summary": "WebSearch (optional integration).",
+      "optional": true,
+      "partialOnMissingConfig": true,
+      "prompt": "[Matrix harness — required tool call] You MUST invoke the WebSearch tool exactly once before writing any assistant reply. Do not use any other tool. Call with query \"CrafterCMS\". After the tool finishes, reply in one short sentence that cites one concrete value from the tool result.",
+      "request": { "enabledBuiltInTools": ["WebSearch"], "enableTools": true },
+      "expect": { "toolsAny": ["WebSearch"] }
+    }
+  ]
+}

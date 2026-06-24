@@ -1,0 +1,76 @@
+package plugins.org.craftercms.aiassistant.studio.spi.tool
+
+import plugins.org.craftercms.aiassistant.studio.sandbox.StudioAiToolCallbackSupport
+
+/**
+ * Base class for {@link StudioAiOrchestrationTool} Groovy implementations under {@code contrib.tool.builtin}, etc.
+ */
+abstract class AbstractStudioAiTool implements StudioAiOrchestrationTool {
+
+  /**
+   * Default allow-all implementation; subclasses may disable per context (maintenance flags, MCP health, etc.).
+   */
+  @Override
+  boolean enabled(StudioAiToolContext ctx) {
+    return true
+  }
+
+  /**
+   * Defaults to {@code null} so orchestration treats this as an unbucketed built-in tool unless overridden.
+   */
+  @Override
+  String pipelineStage() {
+    return null
+  }
+
+  /**
+   * {@code false} for mutating MCP/built-in tools; recipe-engine-safe tools override with {@code true}.
+   */
+  @Override
+  boolean recipeEngineReadOnly() {
+    return false
+  }
+
+  /**
+   * {@code false} by default. Tools that may run under {@code phases.confirmation} {@code engineSteps}
+   * override with {@code true} (e.g. {@link plugins.org.craftercms.aiassistant.studio.contrib.tool.builtin.integrations.SlackPostMessageTool}).
+   */
+  @Override
+  boolean recipeEngineConfirmationStep() {
+    return false
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  Map applyRecipeConfirmationArgDefaults(Map resolvedArgs, String lastAssistantMarkdown) {
+    return resolvedArgs instanceof Map ? resolvedArgs : [:]
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  Map maintainerObservability(String phase, Map input, Object toolResult, Throwable err) {
+    return [:]
+  }
+
+  /**
+   * Tool description for a specific orchestration context (default: {@link #description()}).
+   * Override when the wire description depends on per-request site config (e.g. {@code InvokeSiteUserTool} registry entries).
+   */
+  String description(StudioAiToolContext ctx) {
+    return description()
+  }
+
+  /**
+   * Builds a Spring AI {@link FunctionToolCallback} that wraps {@link #execute} identically to CMS peers.
+   * Runs inside {@link AiOrchestrationTools#runWithToolProgress} so SSE listeners observe MCP+CBS timings.
+   * Wires Groovy meta {@code toolCallResultConverter} because Builder lacks a public setter.
+   */
+  Object toFunctionToolCallback(StudioAiToolContext ctx) {
+    return StudioAiToolCallbackSupport.buildForOrchestrationTool(
+      this,
+      ctx,
+      description(ctx),
+      inputSchemaJson()
+    )
+  }
+}
